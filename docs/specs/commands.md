@@ -291,7 +291,7 @@ shape prime: additional_context context_bytes schema_version
   `repos SLUG: set git_url ...` report line and no remote. Each target and repo is isolated: `repos SLUG code|ledger:
   failed: WHY` reports an unreachable or rejecting remote without blocking the rest. The forge repositories must exist.
   `qew sync --prune-labels [--target T] [--dry-run]` does not sync: it deletes, per target, the label definitions with a managed prefix
-  (`qew:` `kind:` `priority:` `status:` `author:`) that no issue or pull request (open or closed) carries and no item's label set wants
+  (`qew:` `kind:` `priority:` `status:` `author:`, `epic`, `task`, `P0`..`P4`) that no issue or pull request (open or closed) carries and no item's label set wants
   (`qew:managed` is unwanted in repository mode). It prints `TARGET: deleted label NAME` (`would delete` with `--dry-run`, which reads the
   forge but deletes nothing) or `TARGET: no unused managed labels`. It refuses a read-only target (exit 2) before any call, and takes neither
   `--item` nor `--full`.

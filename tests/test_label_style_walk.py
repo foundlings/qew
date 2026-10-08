@@ -14,6 +14,7 @@ from dataclasses import replace
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from tests.fake_github import TOKEN as GITHUB_TOKEN, FakeGitHub
+from qew import label_style
 from tests.ledger_harness import QUOTE, World
 from tests.test_label_creation_walk import SPEC, adapters
 
@@ -22,12 +23,20 @@ PALETTE = {"P0": ("d73a4a", "Critical priority"), "P1": ("fb8500", "High priorit
            "P3": ("2da44e", "Low priority"), "P4": ("8b949e", "Backlog priority")}
 
 
+def forget_last_sync(world: World, item: str) -> None:
+    """What an older qew left behind: the recorded hash of the last push no longer matches the desired issue."""
+    path = next((world.ledger / ".qew" / "state").rglob(f"{item}.json"))
+    data = json.loads(path.read_text())
+    data["synced_hash"] = "legacy"
+    path.write_text(json.dumps(data))
+
+
 def restyles(backend) -> int:
     if backend.name == "github":
         return len(backend.fake.calls("PATCH", "/labels/"))
     if backend.name == "forgejo":
         return len([1 for method, path, _ in backend.fake.requests if method == "PATCH" and "/labels/" in path])
-    return len(backend.fake.requests("PUT", "/labels/"))
+    return len([r for r in backend.fake.log if r["method"] == "PUT" and "/labels/" in r["path"]])
 
 
 class LabelStyleBackendWalk(unittest.TestCase):
@@ -44,7 +53,23 @@ class LabelStyleBackendWalk(unittest.TestCase):
             colours = {n: b.stored(n)[0] for n in ("task", "epic", "qew:approved", "status:Ready")}
             self.assertEqual(len(set(colours.values())), 4, f"{b.name} {colours}")
             self.assertNotIn("ededed", colours.values(), b.name)
-            self.assertEqual(b.stored("area:x"), ("ededed", "Managed by qew"), b.name)
+            self.assertEqual(b.stored("area:x"), (label_style.hashed_colour("area:x"), "Managed by qew"), b.name)
+
+    def test_every_label_gets_a_colour_grey_ones_are_repainted_and_a_humans_pick_stays(self) -> None:
+        """Prevents plain user labels (drive, area:*) staying grey, and a team's chosen colour being overwritten."""
+        for b in self.backends:
+            b.seed("drive", "ededed", "Found while driving")
+            b.seed("area:cli", "ededed", "")
+            b.seed("drive-finding", "ff00ff", "mine")
+            b.forge.create_issue(replace(SPEC, labels=("drive", "area:cli", "drive-finding", "brand-new", "author:alex", "epic")))
+            self.assertEqual(b.stored("drive"), (label_style.hashed_colour("drive"), "Found while driving"), b.name)
+            self.assertEqual(b.stored("area:cli")[0], label_style.hashed_colour("area:cli"), b.name)
+            self.assertEqual(b.stored("drive-finding"), ("ff00ff", "mine"), b.name)
+            self.assertEqual(b.stored("brand-new")[0], label_style.hashed_colour("brand-new"), b.name)
+            self.assertEqual(b.stored("author:alex")[0], "d4c5f9", b.name)
+            self.assertEqual(b.stored("epic")[0], "5319e7", b.name)
+            for name in ("drive", "area:cli", "brand-new", "author:alex", "epic"):
+                self.assertNotIn(b.stored(name)[0], ("ededed", "", "000000", "428bca"), f"{b.name} {name}")
 
     def test_existing_neutral_managed_labels_are_recoloured_once_and_a_humans_labels_are_not(self) -> None:
         """Prevents old grey labels staying grey (the board in production) and a human's P5/area label being repainted."""
@@ -89,8 +114,9 @@ class LabelStyleCommandWalk(unittest.TestCase):
 
     def test_a_legacy_priority_label_migrates_without_divergence_and_prune_removes_its_definition(self) -> None:
         """Prevents a flood of label divergences after the rename and a stale `priority:2` label surviving."""
-        self.w.create("--title", "Old", "--priority", "2", "--quote", QUOTE)
+        old = self.w.create("--title", "Old", "--priority", "2", "--quote", QUOTE)
         self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        forget_last_sync(self.w, old)
         issue = self.fake.issues[1]
         issue["labels"] = ["priority:2" if name == "P2" else name for name in issue["labels"]]
         self.fake.label_store["priority:2"] = {"color": "ededed", "description": "Managed by qew"}

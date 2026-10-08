@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from tests.fake_github import TOKEN, FakeGitHub
 from tests.ledger_harness import QUOTE, World
+from tests.test_label_style_walk import forget_last_sync
 
 QUIET = "\n[replication]\nauto_forge_sync = false\n"
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
@@ -54,8 +55,9 @@ class RepositoryModeWalk(RepositoryLabelsWalk):
 
     def test_noise_labels_from_older_syncs_are_removed_without_divergence_and_prune_deletes_them(self) -> None:
         """Prevents status:/kind:/qew: noise surviving the upgrade, a divergence flood, or definitions lingering."""
-        self.w.create("--title", "Old", "--label", "area:x", "--priority", "2", "--quote", QUOTE)
+        old = self.w.create("--title", "Old", "--label", "area:x", "--priority", "2", "--quote", QUOTE)
         self.run_ok("sync")
+        forget_last_sync(self.w, old)
         self.fake.issues[1]["labels"] = sorted({*self.labels(1), *NOISE, "priority:2"})
         for name in (*NOISE, "priority:2"):
             self.fake.label_store[name] = {"color": "ededed", "description": "Managed by qew"}

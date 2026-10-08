@@ -97,7 +97,7 @@ class PruneLabelsWalk:
         """Prevents deleting a label sync would recreate: the live label set of every item is wanted."""
         item = self.w.create("--title", "Work", "--quote", QUOTE)
         self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
-        wanted = {name for name in self.side.labels() if name.startswith("kind:")}
+        wanted = {name for name in self.side.labels() if name.startswith("author:") or name == "P2"}
         self.assertTrue(wanted, item)
         self.assertEqual(self.w.run("sync", "--prune-labels", env=self.env).returncode, 0)
         self.assertTrue(wanted <= self.side.labels())

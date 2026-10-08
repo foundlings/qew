@@ -5,7 +5,7 @@ import hashlib
 import json
 from typing import Dict, List, Optional, Tuple
 
-from qew import ledger_author, ledger_graph
+from qew import label_style, ledger_author, ledger_graph
 from qew.errors import QewError
 from qew.forge import COLUMNS, MANAGED_FILTER, MARKER_PREFIX, PRIORITY_OPTIONS, IssueSpec, marker_for
 from qew.ledger_event import State
@@ -134,14 +134,22 @@ def managed_filter(mode: str) -> str:
 
 
 def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> Tuple[str, ...]:
-    state = snapshot.folds[item.id].state
-    managed = (*(("qew:managed",) if overlay else ()), f"qew:{state.value if state else 'unknown'}", f"status:{column(snapshot, item.id)}", f"kind:{item.kind.value}", f"priority:{item.priority}")
+    """The item's own labels, its priority, its author and `epic`/`task`; overlay mirrors add the state and Status labels.
+
+    Repository mode keeps the tracker quiet: the board's Status field carries state, so no `qew:` or `status:` label.
+    """
+    managed = [priority_option(item.priority)[0]]
+    if item.kind != Kind.ISSUE:
+        managed.append(item.kind.value)
+    if overlay:
+        state = snapshot.folds[item.id].state
+        managed = ["qew:managed", f"qew:{state.value if state else 'unknown'}", f"status:{column(snapshot, item.id)}", *managed]
     author = ledger_author.author(snapshot, item.id)
     if author:
         problem = ledger_author.label_problem(author)
         if problem:
             raise InvalidAuthor(item.id, problem)
-        managed += (f"author:{author}",)
+        managed.append(f"author:{author}")
     return tuple(dict.fromkeys((*item.labels, *managed)))
 
 
@@ -182,12 +190,9 @@ def fingerprint(spec: IssueSpec, extra: object = None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-MANAGED_LABEL_PREFIXES = ("qew:", "kind:", "priority:", "author:", "status:")
-
-
 def user_labels(labels) -> list:
     """Labels qew does not manage: the ones a human may add on the forge."""
-    return sorted(l for l in labels if not l.startswith(MANAGED_LABEL_PREFIXES))
+    return sorted(l for l in labels if not label_style.is_managed(l))
 
 
 def body_from_remote(text: str) -> str:

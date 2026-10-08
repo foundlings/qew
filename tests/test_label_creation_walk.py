@@ -8,7 +8,7 @@ reporting success for a label the forge silently dropped.
 import unittest
 from dataclasses import replace
 
-from qew import forge_http
+from qew import forge_http, label_style
 from qew.forge import ForgeRejected, IssueSpec
 from qew.forge_forgejo import Forgejo
 from qew.forge_github import GitHub
@@ -36,7 +36,7 @@ class Adapter:
             self.fake._label_id(label)
             self.fake.label_meta[label] = {"color": color, "description": description}
         else:
-            self.fake.project(PATH).labels.append({"id": 900, "name": label, "color": color, "description": description})
+            self.fake.project(PATH).labels.append({"id": 900 + len(self.fake.project(PATH).labels), "name": label, "color": color, "description": description})
 
     def stored(self, label: str):
         if self.name == "github":
@@ -84,11 +84,12 @@ class LabelCreationWalk(unittest.TestCase):
             self.assertEqual(b.stored("area:x"), ("ff0000", "Tuned by the team"), b.name)
             self.assertEqual(b.creates(), 0, b.name)
 
-    def test_missing_label_is_created_neutral_exactly_once(self) -> None:
-        """A new label gets the neutral colour and fixed description, and a second sync creates nothing."""
+    def test_missing_label_is_created_coloured_exactly_once(self) -> None:
+        """A new label gets a stable colour derived from its name and the fixed description, and a second sync creates nothing."""
         for b in self.backends:
             b.forge.create_issue(SPEC)
-            self.assertEqual(b.stored("area:x"), ("ededed", "Managed by qew"), b.name)
+            self.assertEqual(b.stored("area:x"), (label_style.hashed_colour("area:x"), "Managed by qew"), b.name)
+            self.assertNotEqual(b.stored("area:x")[0], "ededed", b.name)
             b.forge.create_issue(replace(SPEC, title="U"))
             self.assertEqual(b.creates(), 1, b.name)
 

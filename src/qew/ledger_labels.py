@@ -5,9 +5,9 @@ from typing import Iterable, Optional
 from qew.errors import QewError
 
 MAX_LABEL = 50
-# Sync writes `qew:STATE`, `qew:managed`, `status:STATUS`, `kind:KIND`, `priority:N` and `author:LOGIN` itself.
+# Sync writes `qew:STATE`, `qew:managed`, `status:STATUS`, `epic`/`task`, `P0`..`P4` and `author:LOGIN` itself.
 RESERVED_PREFIXES = ("qew:", "kind:", "priority:", "status:", "author:")
-RESERVED_NAMES = ("in-progress",)  # the reference board's own claim label
+RESERVED_NAMES = ("in-progress", "epic", "task", "p0", "p1", "p2", "p3", "p4")  # the reference board's claim label, the kind labels and the priority labels
 
 
 def problem(label: str) -> Optional[str]:
@@ -19,7 +19,7 @@ def problem(label: str) -> Optional[str]:
     if label != label.strip() or any(c.isspace() or c == "," or not c.isprintable() for c in label):
         return f"label `{label!r}` must be one word without commas or control characters"
     if label.casefold().startswith(RESERVED_PREFIXES) or label.casefold() in RESERVED_NAMES:
-        return f"label `{label}` is in a namespace reserved for qew (qew:, kind:, priority:, status:, author:)"
+        return f"label `{label}` is in a namespace reserved for qew (qew:, kind:, priority:, status:, author:, epic, task, P0-P4)"
     return None
 
 

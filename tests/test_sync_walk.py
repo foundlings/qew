@@ -92,6 +92,8 @@ class SyncWalk(unittest.TestCase):
 
     def test_state_maps_to_open_closed_labels_and_columns(self) -> None:
         w = self.world
+        path = w.code / ".qew" / "config.toml"
+        path.write_text(path.read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nmode = "overlay"'))
         item = w.create("--kind", "epic", "--title", "E")
         self.sync("forgejo-git.example-o-r")
         self.assertIn("qew:draft", self.a.issues[1].labels)
@@ -135,8 +137,10 @@ class SyncWalk(unittest.TestCase):
         self.assertIn("mode", result.stderr)
 
     def test_forges_without_boards_carry_the_status_as_a_label(self) -> None:
-        """Prevents a Forgejo repository from showing no sign of the seven-status model."""
+        """Prevents an overlay on a Forgejo repository from showing no sign of the seven-status model (repository mode has none)."""
         w = self.world
+        path = w.code / ".qew" / "config.toml"
+        path.write_text(path.read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nmode = "overlay"'))
         item = w.create("--kind", "issue", "--title", "I", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
         self.sync("forgejo-git.example-o-r")
         self.assertIn("status:Ready", self.a.issues[1].labels)

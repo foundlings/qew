@@ -2,7 +2,7 @@
 
 from typing import Callable, List, Optional
 
-from qew import forge_registry, ledger_config, sync_plan
+from qew import forge_registry, label_style, ledger_config, sync_plan
 from qew.errors import QewError
 from qew.forge import Forge
 from qew.ledger_config import Config, Mirror
@@ -17,7 +17,7 @@ def unused_managed(ledger: Ledger, mirror: Mirror, forge: Forge) -> List[str]:
               for label in sync_plan.labels(snapshot, snapshot.items[item_id], overlay)}
     in_use = forge.labels_in_use()
     return [name for name in forge.list_repo_labels()
-            if name.startswith(sync_plan.MANAGED_LABEL_PREFIXES) and name not in in_use and name not in wanted]
+            if label_style.is_managed(name) and name not in in_use and name not in wanted]
 
 
 def prune(ledger: Ledger, config: Config, mirrors: List[Mirror], dry_run: bool,

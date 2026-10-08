@@ -13,7 +13,7 @@ being down never blocks reading, planning or finishing work.
 - Only a human's quoted words release a draft to approved work.
 - Replication: every write commits to the ledger, pushes it and syncs the forges in a background worker; checkouts on
   several machines converge, and a forge can be the single authority for who owns what.
-- `qew sync` mirrors issues, labels, dependencies, pull requests and project boards to each forge, and pulls forge-side
+- `qew sync` mirrors issues, labels (coloured; priorities `P0`..`P4`, plain `epic`/`task`, `author:NAME`), dependencies, pull requests and project boards to each forge, and pulls forge-side
   edits back (only what changed since the last pull, deletions included); a state change made on a forge is a
   divergence a human settles with `qew accept` / `qew reject`.
 - Claude, Codex, Cursor and opencode hooks prime sessions and refuse forge-side bypasses.

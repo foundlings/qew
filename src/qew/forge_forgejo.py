@@ -12,8 +12,8 @@ import re
 import urllib.parse
 from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
+from qew import label_style
 from qew.forge import (
-    LABEL_DESCRIPTION,
     CachedPage,
     LabelNotPersisted,
     PageListing,
@@ -35,7 +35,6 @@ from qew.forge_pages import list_pages
 from qew.ledger_config import Mirror
 
 PAGE_SIZE = 50
-LABEL_COLOR = "#ededed"
 DRAFT_PREFIX = "WIP:"
 _DRAFT_TITLE = re.compile(r"^\s*(?:WIP:|\[WIP\])\s*", re.IGNORECASE)
 _SHA = re.compile(r"^[0-9a-f]{40,64}$")
@@ -56,6 +55,16 @@ def _object(data: Any, what: str) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise _malformed(f"{what} is not an object")
     return data
+
+
+def _described(label: Dict[str, Any]) -> str:
+    """A label's description: Forgejo sends a string, and an absent or null one reads as empty."""
+    value = label.get("description")
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise _malformed("label.description")
+    return value
 
 
 def _typed(data: Mapping[str, Any], key: str, kind: type, what: str) -> Any:
@@ -241,12 +250,17 @@ class Forgejo(Forge):
         known: Dict[str, int] = {}
         for label in self._list("/labels"):
             label = _object(label, "label")
-            known[_typed(label, "name", str, "label")] = _typed(label, "id", int, "label")
+            name = _typed(label, "name", str, "label")
+            known[name] = _typed(label, "id", int, "label")
+            wanted = label_style.repaint(name, _typed(label, "color", str, "label"), _described(label))
+            if wanted is not None:
+                self._call("PATCH", f"/labels/{known[name]}", {"color": "#" + wanted.color, "description": wanted.description})
         ids: List[int] = []
         made: List[str] = []
         for name in dict.fromkeys(names):
             if name not in known:
-                created, _ = self._call("POST", "/labels", {"name": name, "color": LABEL_COLOR, "description": LABEL_DESCRIPTION})
+                style = label_style.style_of(name)
+                created, _ = self._call("POST", "/labels", {"name": name, "color": "#" + style.color, "description": style.description})
                 known[name] = _typed(_object(created, "label"), "id", int, "label")
                 made.append(name)
             ids.append(known[name])

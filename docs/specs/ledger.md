@@ -169,10 +169,15 @@ select = "kind:epic"
 - Board columns: Draft = not startable (draft or blocked), Ready, In progress (claimed), In review (claimed with a
   pull request mirror), Done (completed or closed).
 - Forge issue bodies start with `<!-- qew:ID -->`; sync adopts an issue found by that marker when a crash lost
-  the mirror file. Sync replaces an issue's whole label set with the item's labels plus `qew:STATE`,
-  `kind:KIND`, `priority:N`, `author:LOGIN`. Labels are one word of at most 50 printable characters, without
-  commas, and never start (casefolded) with `qew:`, `kind:`, `priority:` or `author:`: create, set, imports
-  refuse them (exit 2, "reserved") before any write and `qew check` flags them in files.
+  the mirror file. Sync replaces an issue's whole label set with the item's labels plus `P0`..`P4`
+  (the priority, larger values clamp to `P4`), `author:LOGIN` and `epic` / `task` for those kinds (a plain issue has no kind
+  label). Repository mode stops there: the Status is the board's field and state is the issue's open/closed, so no `status:` or
+  `qew:` label. Overlay mode adds `qew:managed`, `qew:STATE` and `status:COLUMN`. The retired spellings `kind:KIND` and
+  `priority:N` are managed namespaces: they are never read back as a human's labels and the next sync removes them
+  (`qew sync --prune-labels` deletes their definitions). Labels are one word of at most 50 printable characters, without
+  commas, and never start (casefolded) with `qew:`, `kind:`, `priority:`, `status:` or `author:` nor equal `epic`, `task` or
+  `P0`..`P4`: create, set, imports refuse them (exit 2, "reserved") before any write and `qew check` flags them in files.
+  Label colours: see forges.md.
 - Sync is push-only; forge numbers are recorded, forge state is never read back as truth.
 - `qew index` (local cache) is not built: reads are fast enough from files.
 - Pull requests never carry a closing keyword.
