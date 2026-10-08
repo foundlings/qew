@@ -18,8 +18,10 @@ Read
   qew ready       approved, unclaimed, unblocked work
   qew blocked     open work with unmet needs
   qew graph       dependency edges
+  qew board       the offline kanban: seven status columns
   qew check       validate the ledger
   qew inbox       one person's waiting drafts and assigned work
+  qew export      write items as Markdown files or JSON
 Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
@@ -52,6 +54,8 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
 _MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
+_MODULES += ("cmd_board",)
+_MODULES += ("cmd_transfer",)
 
 
 def _plugins() -> list:

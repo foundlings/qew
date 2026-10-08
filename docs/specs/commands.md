@@ -74,6 +74,13 @@ shape show: author id kind labels priority schema_version state title | children
   claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
   that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
 
+- `qew export DIRECTORY`: write every item to a new (or empty) directory as `items/ID.md` (the ledger's own file
+  format) and `events.json` (per item: event type, time, actor; import ignores it). Output is deterministic. A
+  non-empty directory, a symbolic link or a ledger with a dangling edge or a cycle is refused before any write.
+- `qew export --json`: print the items as one JSON array that `qew create --from-file` accepts (keys `id kind title
+  parent needs labels priority created body`), each item after the items it references. Exactly one of
+  DIRECTORY and `--json`.
+
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
   [--body-file F | --edit] [--quote Q] [--from-file F]`: a draft unless `--quote` carries a human's words
@@ -127,6 +134,26 @@ shape show: author id kind labels priority schema_version state title | children
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
   lose their card (`pruned N`); their issues are never closed.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
+- `qew board [--json] [--compact] [--sort KEY[:desc]] [--group-by KEY] [--filter TERMS]`: the offline kanban, derived from the ledger alone (no forge, no network). Columns
+  are the seven statuses of `sync_plan.column`, stacked top to bottom (`Draft (2)` then one card line per card:
+  short id, `[pN]`, title, `@owner`, `#label`), cards by priority then id. Titles are made safe (hidden characters
+  withhold the title); lines are cut to the terminal width (`COLUMNS`); color only on a TTY without `NO_COLOR`.
+  `--json` prints `{"version":1,"board":NAME,"groups":[{"name","count","cards":[...]}]}` (card fields: id, short,
+  title, status, state, kind, priority, owner, labels, epic, parent, created, updated). `--compact` prints a
+  `# Column N` line per column then `SHORTID pN OWNER|- TITLE` (title cut to 40 characters).
+  `--sort` is `priority` (default), `updated` (newest event), `created` or `title`, optionally `:desc`; ties by id.
+  `--group-by` is `column` (default), `owner`, `label`, `epic` or `parent`: sections replace the columns, each card
+  appears under every label it carries and under `(none)` when it has no value for the key. `--filter` takes
+  `label:X kind:X state:X priority:N owner:X epic:ID parent:ID status:X` (spaces and, commas or); an unknown key or a
+  malformed term exits 2 naming the valid ones.
+- `qew board --name NAME`: use the named board file; bare `qew board` uses the file named `default` when there is
+  one. A board file's columns, sort, group and filter are the defaults; a flag replaces the one it names for that run.
+- `qew board create NAME [--columns A,B] [--sort K] [--group-by K] [--filter T]`: write `views/NAME.json` in the
+  ledger (one file per board, so branches merge). NAME is lowercase letters, digits and dashes; an existing name,
+  an unknown or repeated column or an invalid sort/group/filter exits 2 and writes nothing.
+- `qew board list`: one line per board file. `qew board set NAME [same options]`: change that file's defaults.
+  `qew check` fails a board file whose name differs from its file name or whose columns are unknown or repeated.
+- `qew board columns`: one `Column N` line per column.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused

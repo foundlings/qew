@@ -183,6 +183,15 @@ class Ledger:
             raise QewError(f"{path}: a board record needs a string `id`", 1)
         return value
 
+    @property
+    def views_dir(self) -> Path:
+        return self.path / "views"
+
+    def write_view(self, name: str, value: dict, overwrite: bool) -> None:
+        """One file per named board view; a new name never replaces an existing file."""
+        self.views_dir.mkdir(parents=True, exist_ok=True)
+        _write(self.views_dir / f"{name}.json", json.dumps(value, sort_keys=True, indent=2) + "\n", exclusive=not overwrite)
+
     def write_board(self, target: str, value: dict) -> None:
         directory = self.path / "boards"
         directory.mkdir(parents=True, exist_ok=True)

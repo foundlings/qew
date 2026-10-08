@@ -8,7 +8,7 @@ from typing import List, Optional, Sequence
 from qew.errors import QewError
 
 # Directories and files whose changes are qew's own writes (never a human's notes).
-OWNED = ("items", "events", "mirrors", "boards", "proposals")
+OWNED = ("items", "events", "mirrors", "boards", "views", "proposals")
 
 
 class LedgerRepo:
