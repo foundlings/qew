@@ -81,10 +81,12 @@ class FakeGitHub:
         self.thread.join()
 
     def fail_next(self, status: int, path_part: str = "", count: int = 1, body: Optional[Any] = None,
-                  headers: Optional[Dict[str, str]] = None, skip: int = 0) -> None:
-        """Answer `status` (with `headers`) to the next `count` matching requests, after letting `skip` through."""
+                  headers: Optional[Dict[str, str]] = None, skip: int = 0, after: bool = False) -> None:
+        """Answer `status` (with `headers`) to the next `count` matching requests, after letting `skip` through.
+
+        `after` performs the request first and loses only the response: the crash window of a create that was applied."""
         self.failures.append({"status": status, "part": path_part, "left": count, "body": body,
-                              "headers": headers or {}, "skip": skip})
+                              "headers": headers or {}, "skip": skip, "after": after})
 
     def add_branch(self, name: str, sha: str = "", contained_in: Tuple[str, ...] = ()) -> None:
         """A branch on the forge; `contained_in` names the branches that already hold its tip (it is merged there)."""
@@ -493,6 +495,12 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(401, {"message": "Bad credentials"})
         injected = self._injected()
         if injected is not None:
+            if injected.get("after"):
+                real, self._send = self._send, lambda *a, **k: None
+                try:
+                    self._rest(method, url.path, parse_qs(url.query), body)
+                finally:
+                    self._send = real
             return self._send(injected["status"], injected["body"] or {"message": "injected"},
                               headers=injected.get("headers", {}))
         if url.path == GRAPHQL_PATH and method == "POST":
