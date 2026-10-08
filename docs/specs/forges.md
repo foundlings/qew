@@ -5,6 +5,12 @@ interface; `forge_github.py`, `forge_forgejo.py` (Forgejo and Gitea) and `forge_
 Backends know nothing about ledgers: they turn `IssueSpec`, `PullRequestSpec` and board calls into REST
 (and GitHub GraphQL) requests and parse the answers into `RemoteIssue` / `RemotePullRequest` / `Board`.
 
+## Support priority
+GitHub and Forgejo/Gitea are the first-class forges: every authority feature (claim arbitration on a primary forge,
+read-only secondary mirrors, repo pushes, forge migration) gets full scenarios against `tests/fake_github.py` and
+`tests/fake_forgejo.py`. GitLab is not extended: it keeps the behavior and the tests it has, and a new authority
+feature needs no GitLab scenario. `tests/test_forge_priority_walk.py` holds the authority walks off the GitLab fake.
+
 ## Contract
 - Built as `Backend(mirror, transport, env)`; `transport` is the injectable HTTP seam (`forge_http`).
 - A missing capability raises `Unsupported(name)` (the base class default). Never fake a result.
