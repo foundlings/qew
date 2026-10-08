@@ -7,7 +7,7 @@ import os
 import sys
 from typing import List, Optional, Sequence
 
-from qew import __version__, editor, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
+from qew import __version__, code_prose, editor, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
 from qew.errors import QewError
 
 
@@ -69,6 +69,12 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan")
+
+
+def top_level_commands() -> list:
+    """Names of the commands `qew --help` lists."""
+    action = next(a for a in _parser()._actions if isinstance(a, argparse._SubParsersAction))
+    return list(action.choices)
 
 
 def _plugins() -> list:
@@ -213,6 +219,7 @@ def _run(arguments: argparse.Namespace) -> None:
     config = ledger_config.load()
     if command == "create":
         plan = _plan(arguments)
+        code_prose.warn(str(entry.spec.get("body", "")) for entry in plan.entries)
         lines = plan_apply.apply(
             config, plan, arguments.quote, arguments.draft, arguments.import_events,
             mark=bool(arguments.from_file), as_json=arguments.json, dry_run=arguments.dry_run,
@@ -236,6 +243,7 @@ def _run(arguments: argparse.Namespace) -> None:
             body = sys.stdin.read() if arguments.body_file == "-" else editor.read_body_file(arguments.body_file)
         if arguments.edit:
             body = editor.edit_body()
+        code_prose.warn([body or ""])
         changed = cmd_items.set_fields(
             config, arguments.items, changes, body, arguments.closed, arguments.add_label, arguments.remove_label
         )

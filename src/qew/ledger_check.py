@@ -248,8 +248,6 @@ def contradictions(snapshot: Snapshot) -> List[Dict[str, str]]:
     found = []
     for item_id, item in sorted(snapshot.items.items()):
         state = snapshot.folds[item_id].state
-        if item.kind == Kind.EPIC and state == State.CLAIMED:
-            found.append({"item": item_id, "kind": "claimed_epic"})
         if state not in (None, State.DRAFT) and any(label.lower() in DRAFT_MARKERS for label in item.labels):
             found.append({"item": item_id, "kind": "draft_marker_label"})
         if item.priority > MAX_PRIORITY:

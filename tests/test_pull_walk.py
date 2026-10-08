@@ -65,6 +65,19 @@ class PullWalk(unittest.TestCase):
         report = self.pull()
         self.assertEqual((report.applied, report.divergences), (0, 0))
 
+    def test_an_issue_that_duplicates_a_mirrored_item_is_closed_and_its_marker_removed(self) -> None:
+        """Prevents duplicate issues from concurrent syncs (16 seen live) lingering open: the higher number closes itself."""
+        from qew.forge import IssueSpec, marker_for
+
+        self.forge.create_issue(IssueSpec("Original", marker_for(self.item) + "\n\nbody", ("kind:issue",), True))  # number 2, same marker
+        report = self.pull()
+        duplicate = self.forge.issues[2]
+        self.assertFalse(duplicate.open)
+        self.assertNotIn(marker_for(self.item), duplicate.body)
+        self.assertEqual(report.duplicates, 1)
+        self.assertTrue(self.forge.issues[1].open)
+        self.assertEqual(self.pull().duplicates, 0)
+
     def test_several_divergences_resolve_in_one_command(self) -> None:
         """Prevents 170 divergences needing 170 commits: accept and reject take many ids at once."""
         self.forge.edit(1, open=False)
