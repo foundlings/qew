@@ -216,5 +216,25 @@ class ConditionalPullWalk(Rig):
         self.assertEqual((report.pages_fetched, report.pages_reused, report.mode), (3, 0, "full"))
 
 
+class SyncFullCommandWalk(unittest.TestCase):
+    def test_sync_full_command_rereads_an_edit_the_cursor_would_not_list(self) -> None:
+        """Prevents `qew sync --full` being a flag that changes nothing: it must pull an edit a conditional pull cannot see."""
+        fake = FakeGitHub().start()
+        self.addCleanup(fake.stop)
+        mirrors = f'\n[[mirror]]\nforge = "github"\nrepo = "{fake.repo_url}"\napi = "{fake.api}"\n'
+        world = World(mirrors, replication=OFF)
+        self.addCleanup(world.close)
+        env = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
+        world.create("--kind", "issue", "--title", "Original", "--quote", QUOTE)
+        world.run("sync", env=env)
+        fake.issues[1]["title"] = "Retitled by a human"  # a human edit the forge's modification time does not show
+        fake.etags = False
+        fake.issues[1]["updated_at"] = "2000-01-01T00:00:00Z"  # older than any cursor, so a since listing skips it
+        quiet = world.run("sync", env=env).stdout
+        self.assertNotIn("applied=1", quiet)
+        loud = world.run("sync", "--full", env=env).stdout
+        self.assertIn("applied=1", loud)
+
+
 if __name__ == "__main__":
     unittest.main()
