@@ -11,3 +11,5 @@
   built it refuses (exit 2) unless the source is a full commit id (a tag or branch name is never a source), the package
   version equals the tag, `HEAD` is that commit and the working tree is clean (messages contain `differs`). `build`
   then runs the pinned build and `scripts/release_metadata.py` into `--out`. `tests/test_release_check_walk.py` pins it.
+- Decision: release verification is local, not a forge workflow. The workflow-only checks of a forge-hosted flow (the
+  checkout uses the event commit, never a movable tag) live in `scripts/release.py`, which takes the commit id itself.
