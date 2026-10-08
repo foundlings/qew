@@ -12,3 +12,11 @@
 - The package builds a real wheel (`qew-VERSION-py3-none-any.whl`, no runtime requirements) whose `qew` console script is
   `qew.cli:main`; `tests/test_distribution_walk.py` builds it with the pinned tools, installs it into a clean venv and runs it
   outside the checkout (skipped when `setuptools` is not installed).
+
+## Identity
+
+- Every event actor, claim owner and ledger commit subject comes from `QEW_ACTOR`, else `git config user.name`, else
+  `jj config get user.name`; qew never uses the operating-system login and refuses writes when no name is configured.
+- `scripts/rewrite-identity.sh [--dry-run] [--push] OLD NEW REPO...` removes one identity from a repository's whole history
+  (authors, committers, messages, file revisions, via `git-filter-repo`) and puts another in, re-adding `origin` and
+  re-initialising a colocated jj repo. `--push` force-pushes all refs; collaborators must re-clone afterwards.
