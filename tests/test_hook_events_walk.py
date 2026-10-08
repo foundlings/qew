@@ -154,7 +154,7 @@ class HostileInputWalk(unittest.TestCase):
             self.assertTrue(cmd_hook.run(event))
         self.assertEqual(out.getvalue(), "")
         install = argparse.Namespace(command="hook", hook_command="install", json=False,
-                                     claude=True, codex=False, cursor=False, opencode=False)
+                                     claude=True, codex=False, cursor=False, opencode=False, git=False)
         with mock.patch.object(cmd_hook, "_checkout_root", side_effect=QewError("not inside a Git or jj repository", 2)):
             with self.assertRaises(QewError):
                 cmd_hook.run(install)
