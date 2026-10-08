@@ -73,7 +73,7 @@ class ImportRestoreWalk(unittest.TestCase):
         number = self.forge.add_foreign_issue("Human filed", "see me", labels=("bug",))
         world, config, ledger, target = self.fresh()
         import_target(ledger, target)
-        drafts = json.loads(world.run("draft", "list", "--json").stdout)
+        drafts = [json.loads(line) for line in world.run("draft", "list", "--json").stdout.splitlines()]
         self.assertIn("Human filed", [d["title"] for d in drafts])
         self.assertEqual(self.forge.issues[number].number, number)
 
