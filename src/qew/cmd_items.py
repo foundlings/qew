@@ -97,7 +97,7 @@ def _import_events(item: Item, spec: dict) -> List[Event]:
 
 def create(config: Config, specs: List[dict], quote: Optional[str], import_events: bool = False) -> List[str]:
     ledger = ledger_for(config)
-    verified = require_quote(quote) if quote else None
+    verified = require_quote(quote) if quote is not None else None
     known = ledger.item_ids()
     resolved: Dict[str, str] = {}
     built = []
