@@ -81,3 +81,5 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   `create_comment(number, body)` posts one. Pagination is bounded by `MAX_PAGES`; a longer listing raises
   `ForgeRejected` instead of truncating. Malformed JSON raises `ForgeRejected`. The fakes in `tests/fake_*.py`
   must implement the same endpoints and honor failure injection (`down`, `fail`, `delay` where the fake has them).
+  `RemoteIssue.comments` carries the forge's own user-comment count (GitHub and Forgejo `comments`, GitLab
+  `user_notes_count`, which excludes system notes) in every issue result; 0 only when the forge reports none.

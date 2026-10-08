@@ -15,6 +15,7 @@ from qew.forge import (
     ForgeRejected,
     IssueSpec,
     PullRequestSpec,
+    RemoteComment,
     RemoteIssue,
     RemotePullRequest,
     Transport,
@@ -95,6 +96,18 @@ def _parse_issue(raw: Any) -> RemoteIssue:
         body=_description(data),
         labels=labels,
         assignee=assignee,
+        comments=_field(data, "user_notes_count", int) if "user_notes_count" in data else 0,
+    )
+
+
+def _parse_note(raw: Any) -> RemoteComment:
+    data = _object(raw, "note")
+    body = "" if data.get("body") is None else _field(data, "body", str)
+    return RemoteComment(
+        id=str(_field(data, "id", int)),
+        author=_field(_object(data.get("author"), "note author"), "username", str),
+        body=body,
+        created=_field(data, "created_at", str),
     )
 
 
@@ -192,6 +205,20 @@ class GitLab(Forge):
             if marker in issue.body:
                 return issue
         return None
+
+    def list_issues(self) -> List[RemoteIssue]:
+        query = {"state": "all", "order_by": "created_at", "sort": "asc"}
+        return [_parse_issue(raw) for raw in self._pages(f"{self._project}/issues", query)]
+
+    def list_comments(self, number: int) -> List[RemoteComment]:
+        query = {"order_by": "created_at", "sort": "asc"}
+        notes = [_object(raw, "note") for raw in self._pages(f"{self._project}/issues/{number}/notes", query)]
+        # System notes are GitLab's own activity lines (label changes, state changes), not comments.
+        return [_parse_note(note) for note in notes if not _field(note, "system", bool)]
+
+    def create_comment(self, number: int, body: str) -> RemoteComment:
+        data, _ = self._call("POST", f"{self._project}/issues/{number}/notes", payload={"body": body})
+        return _parse_note(data)
 
     def read_issue(self, number: int) -> RemoteIssue:
         data, _ = self._call("GET", f"{self._project}/issues/{number}")
