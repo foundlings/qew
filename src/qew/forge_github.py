@@ -637,11 +637,11 @@ class GitHub(Forge):
         status = project.fields.get(STATUS_FIELD)
         options = {o.name: o.id for o in status.options} if status else {}
         if status is None or column not in options:
-            raise ForgeRejected(400, f"board has no `{column}` column in its {STATUS_FIELD} field")
+            raise ForgeRejected(400, f"board has no `{column}` column in its {STATUS_FIELD} field; run `qew project ensure`")
         urgency = project.fields.get(PRIORITY_FIELD)
         urgent = {o.name: o.id for o in urgency.options} if urgency else {}
         if priority and priority not in urgent:
-            raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field")
+            raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field; run `qew project ensure`")
         added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": issue.node_id})
         item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
         item_id = _str(item, "id", "item")
