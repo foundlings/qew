@@ -35,13 +35,13 @@ class LabelStyleBackendWalk(unittest.TestCase):
         self.backends = adapters(self)
 
     def test_created_managed_labels_get_the_palette_and_a_users_label_stays_neutral(self) -> None:
-        """Prevents grey managed labels on the board: priorities take the Priority field colours, kinds differ, area:x stays neutral."""
+        """Prevents grey managed labels on the board: priorities take the Priority field colours, kind labels differ, area:x stays neutral."""
         for b in self.backends:
-            labels = ("area:x", "kind:task", "kind:epic", *PALETTE, "qew:approved", "status:Ready")
+            labels = ("area:x", "task", "epic", *PALETTE, "qew:approved", "status:Ready")
             b.forge.create_issue(replace(SPEC, labels=labels))
             for name, expected in PALETTE.items():
                 self.assertEqual(b.stored(name), expected, f"{b.name} {name}")
-            colours = {n: b.stored(n)[0] for n in ("kind:task", "kind:epic", "qew:approved", "status:Ready")}
+            colours = {n: b.stored(n)[0] for n in ("task", "epic", "qew:approved", "status:Ready")}
             self.assertEqual(len(set(colours.values())), 4, f"{b.name} {colours}")
             self.assertNotIn("ededed", colours.values(), b.name)
             self.assertEqual(b.stored("area:x"), ("ededed", "Managed by qew"), b.name)
@@ -49,18 +49,18 @@ class LabelStyleBackendWalk(unittest.TestCase):
     def test_existing_neutral_managed_labels_are_recoloured_once_and_a_humans_labels_are_not(self) -> None:
         """Prevents old grey labels staying grey (the board in production) and a human's P5/area label being repainted."""
         for b in self.backends:
-            for name in ("P1", "kind:task"):
+            for name in ("P1", "task"):
                 b.seed(name, "ededed", "Managed by qew")
             b.seed("P5", "123456", "mine")
             b.seed("area:x", "ff0000", "Tuned by the team")
-            b.forge.create_issue(replace(SPEC, labels=("P1", "kind:task", "P5", "area:x")))
+            b.forge.create_issue(replace(SPEC, labels=("P1", "task", "P5", "area:x")))
             self.assertEqual(b.stored("P1"), PALETTE["P1"], b.name)
-            self.assertNotEqual(b.stored("kind:task")[0], "ededed", b.name)
+            self.assertNotEqual(b.stored("task")[0], "ededed", b.name)
             self.assertEqual(b.stored("P5"), ("123456", "mine"), b.name)
             self.assertEqual(b.stored("area:x"), ("ff0000", "Tuned by the team"), b.name)
             first = restyles(b)
             self.assertGreaterEqual(first, 2, b.name)
-            b.forge.create_issue(replace(SPEC, title="U", labels=("P1", "kind:task")))
+            b.forge.create_issue(replace(SPEC, title="U", labels=("P1", "task")))
             self.assertEqual(restyles(b), first, b.name)
 
 
