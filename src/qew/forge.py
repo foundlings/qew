@@ -340,6 +340,14 @@ class Forge(ABC):
         """
         raise Unsupported("merge_pull_request")
 
+    def find_open_pull_requests(self, head: str) -> List[RemotePullRequest]:
+        """Every open pull request (drafts included) whose head branch is exactly `head`; a truncated listing raises."""
+        raise Unsupported("find_open_pull_requests")
+
+    def close_pull_request(self, number: int) -> RemotePullRequest:
+        """Close an unmerged pull request and return it re-read (idempotent: an already closed one is success)."""
+        raise Unsupported("close_pull_request")
+
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         """Replace the description and return the re-read pull request (idempotent)."""
         raise Unsupported("update_pull_request_body")

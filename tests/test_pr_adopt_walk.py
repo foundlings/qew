@@ -22,6 +22,9 @@ class AdoptWalk(unittest.TestCase):
         self.w = PrWorld()
         self.addCleanup(self.w.close)
 
+    def record(self, item: str) -> dict:
+        return next(m for m in self.w.ledger.load_mirrors(item) if m["kind"] == "pr")
+
     def orphan(self, item: str, head: str = "feature", draft: bool = True, marker_item: str = "") -> int:
         """A pull request qew opened on the forge whose ledger record never got written."""
         issue = next(m for m in self.w.ledger.load_mirrors(item) if m["kind"] == "issue")
@@ -38,9 +41,8 @@ class AdoptWalk(unittest.TestCase):
         self.assertIn("adopted", run.out)
         self.assertEqual(len(self.w.forge.pulls), 1)
         self.assertEqual(self.w.forge.count("open_pr"), 1)
-        files = self.w.mirror_files(item)
-        self.assertEqual(len(files), 1)
-        record = json.loads((self.w.world.ledger / "mirrors" / item / files[0]).read_text())
+        self.assertEqual(len(self.w.mirror_files(item)), 1)
+        record = self.record(item)
         self.assertEqual((record["number"], record["draft"], record["state"], record["items"], record["opener"]), (number, True, "open", [item], "tester"))
         self.assertEqual(self.w.qew("pr", "ready", str(number)).code, 0)
 
@@ -52,13 +54,13 @@ class AdoptWalk(unittest.TestCase):
         run = self.w.open(item)
         self.assertEqual(run.code, 2, run)
         self.assertIn(f"#{stranger}", run.err)
-        self.assertIn("qew pr close", run.err)
+        self.assertIn("no qew marker", run.err)
         self.w.forge.close_pull_request(stranger)
         self.orphan(other)
         run = self.w.open(item)
         self.assertEqual(run.code, 2, run)
         self.assertIn(other, run.err)
-        self.assertEqual((self.w.mirror_files(item), self.w.forge.count("open_pr")), ([], 3))
+        self.assertEqual((self.w.mirror_files(item), self.w.forge.count("open_pr")), ([], 2))
 
     def test_a_closed_pull_request_on_the_head_does_not_block_a_fresh_open(self) -> None:
         """Prevents adopting a finished pull request."""
@@ -72,6 +74,9 @@ class AdoptWalk(unittest.TestCase):
 
 
 class CloseWalk(unittest.TestCase):
+    def record(self, item: str) -> dict:
+        return next(m for m in self.w.ledger.load_mirrors(item) if m["kind"] == "pr")
+
     def setUp(self) -> None:
         self.w = PrWorld()
         self.addCleanup(self.w.close)
@@ -83,7 +88,7 @@ class CloseWalk(unittest.TestCase):
         run = self.w.qew("pr", "close", "1")
         self.assertEqual((run.code, run.out.strip()), (0, "pr #1 closed"))
         self.assertEqual(self.w.forge.pulls[1].state, "closed")
-        record = json.loads((self.w.world.ledger / "mirrors" / self.item / self.w.mirror_files(self.item)[0]).read_text())
+        record = self.record(self.item)
         self.assertEqual(record["state"], "closed")
         self.assertEqual(json.loads(self.w.qew("pr", "close", "1", "--json").out), {"number": 1, "closed": True, "changed": False, "schema_version": 1})
         self.assertEqual(self.w.forge.count("close_pr"), 1)
@@ -107,7 +112,7 @@ class CloseWalk(unittest.TestCase):
         run = self.w.qew("pr", "close", "1")
         self.assertEqual(run.code, 4, run)
         self.assertIn("still open", run.err)
-        record = json.loads((self.w.world.ledger / "mirrors" / self.item / self.w.mirror_files(self.item)[0]).read_text())
+        record = self.record(self.item)
         self.assertEqual(record["state"], "open")
 
 

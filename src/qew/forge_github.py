@@ -643,6 +643,20 @@ class GitHub(Forge):
             return self.read_pull_request(created.number)
         return self._with_checks(created)
 
+    def find_open_pull_requests(self, head: str) -> List[RemotePullRequest]:
+        numbers: List[int] = []
+        for page in self._wire.pages(f"{self._repo_path}/pulls?state=open&per_page=100"):
+            for entry in _array(page, "pull request list"):
+                pull = _obj(entry, "pull request")
+                if _str(_obj(pull.get("head"), "pull request head"), "ref", "pull request head") == head:
+                    numbers.append(_int(pull, "number", "pull request"))
+        return [self.read_pull_request(number) for number in numbers]
+
+    def close_pull_request(self, number: int) -> RemotePullRequest:
+        if self._read_pull(number).state == "open":
+            self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"state": "closed"})
+        return self.read_pull_request(number)
+
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"body": body})
         return self.read_pull_request(number)

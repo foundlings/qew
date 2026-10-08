@@ -13,7 +13,7 @@ import re
 import sys
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
-from qew import branch_cleanup, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, untrusted_text, vcs
+from qew import branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -58,6 +58,10 @@ def register(commands) -> None:
     ready.add_argument("number", type=int, help="pull request number")
     ready.add_argument("--target", help=_TARGET_HELP)
     ready.add_argument("--json", action="store_true", help="machine-readable output")
+    closed = sub.add_parser("close", help="close an unmerged pull request without merging it")
+    closed.add_argument("number", type=int, help="pull request number")
+    closed.add_argument("--target", help=_TARGET_HELP)
+    closed.add_argument("--json", action="store_true", help="machine-readable output")
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
     merge.add_argument("number", type=int, help="pull request number")
     merge.add_argument("--target", help=_TARGET_HELP)
@@ -90,6 +94,8 @@ def run(arguments) -> bool:
         print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target))
     elif command == "ready":
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
+    elif command == "close":
+        print(close_pull_request(config, arguments.number, arguments.target).render(arguments.json))
     else:
         options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason)
         print(merge_pull_request(config, arguments.number, arguments.target, options).render(arguments.json))
@@ -183,6 +189,7 @@ class Opened:
     url: str
     draft: bool
     unassigned: str = ""  # the login the forge would not assign, "" when assigned
+    adopted: bool = False  # the pull request already existed on the forge; only the ledger record was written
 
     def render(self, as_json: bool) -> str:
         if as_json:
@@ -190,7 +197,7 @@ class Opened:
                 {"item": self.item, "number": self.number, "url": self.url, "draft": self.draft, "schema_version": SCHEMA_VERSION},
                 sort_keys=True,
             )
-        return f"{self.item} pr #{self.number} {self.url}{' (draft)' if self.draft else ''}"
+        return f"{self.item} pr #{self.number} {self.url}{' (draft)' if self.draft else ''}{' adopted' if self.adopted else ''}"
 
 
 def _body_file(path: Optional[str]) -> str:
@@ -248,8 +255,13 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     mirror = mirror_for(config, ledger, issue["_target"])
     login = os.environ.get(LOGIN_VARIABLE) or actor()
     spec = PullRequestSpec(head, options.base or config.target, item.title, body, not options.ready, login)
+    forge = _build(build, mirror)
+    base = options.base or config.target
     with forge_errors(issue["_target"]):
-        remote = _build(build, mirror).open_pull_request(spec)
+        remote = pr_adopt.find_adoptable(ledger, issue["_target"], forge, head, base, item_id)
+        adopted = remote is not None
+        if remote is None:
+            remote = forge.open_pull_request(spec)
     ledger.write_mirror(
         item_id,
         f"{issue['_target']}-pr-{remote.number}",
@@ -257,7 +269,7 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
             "forge": mirror.forge,
             "url": mirror.repo,
             "kind": "pr",
-            "draft": spec.draft,
+            "draft": remote.draft,
             "state": "open",
             "number": remote.number,
             "pr_url": remote.url,
@@ -267,7 +279,7 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
             "synced_at": now(),
         },
     )
-    return Opened(item_id, remote.number, remote.url, spec.draft, "" if remote.assignee == login else login)
+    return Opened(item_id, remote.number, remote.url, remote.draft, "" if remote.assignee == login else login, adopted)
 
 
 # -- check -------------------------------------------------------------------------
@@ -339,6 +351,43 @@ def mark_ready(
         raise QewError(f"pr #{number} is still a draft after the forge accepted the change; nothing is known to have changed", 4)
     pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=False)
     return Readied(number, outcome == Outcome.VERIFIED)
+
+
+# -- close -------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Closed:
+    number: int
+    changed: bool
+
+    def render(self, as_json: bool) -> str:
+        if as_json:
+            return json.dumps({"number": self.number, "closed": True, "changed": self.changed, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+        return f"pr #{self.number} closed" if self.changed else f"pr #{self.number} already closed (unchanged)"
+
+
+def close_pull_request(
+    config: Config, number: int, target: Optional[str], build: Optional[Build] = None,
+    sleep: Optional[Callable[[float], None]] = None,
+) -> Closed:
+    """Close a recorded, unmerged pull request, read it back, then record `closed` in its mirror."""
+    loaded = load(config, number, target, build)
+    forge = loaded.forge
+    with forge_errors(loaded.record.target):
+        before = forge.read_pull_request(number)
+        if before.state == "merged":
+            raise QewError(f"pr #{number} is merged; a merged pull request cannot be closed", 2)
+        outcome = apply_and_verify(
+            before,
+            lambda: forge.close_pull_request(number),
+            lambda: forge.read_pull_request(number),
+            lambda pull: pull.state == "closed",
+            sleep=sleep,
+        )
+    if outcome == Outcome.NOT_APPLIED:
+        raise QewError(f"pr #{number} is still open after the forge accepted the close; nothing is known to have changed", 4)
+    pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, state="closed")
+    return Closed(number, outcome == Outcome.VERIFIED)
 
 
 # -- merge -------------------------------------------------------------------------

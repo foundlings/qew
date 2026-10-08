@@ -362,6 +362,20 @@ class Forgejo(Forge):
         self._call("POST", f"/pulls/{number}/merge", payload)
         return self.read_pull_request(number)
 
+    def find_open_pull_requests(self, head: str) -> List[RemotePullRequest]:
+        found: List[RemotePullRequest] = []
+        for entry in self._list("/pulls", {"state": "open"}):
+            ref = _typed(_object(_object(entry, "pull request").get("head"), "pull request.head"), "ref", str, "pull request.head")
+            if ref == head:
+                found.append(self._with_checks(entry))
+        return found
+
+    def close_pull_request(self, number: int) -> RemotePullRequest:
+        data, _ = self._call("GET", f"/pulls/{number}")
+        if _typed(_object(data, "pull request"), "state", str, "pull request") == "open":
+            self._call("PATCH", f"/pulls/{number}", {"state": "closed"})
+        return self.read_pull_request(number)
+
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         self._call("PATCH", f"/pulls/{number}", {"body": body})
         return self.read_pull_request(number)

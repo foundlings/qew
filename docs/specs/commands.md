@@ -368,7 +368,7 @@ shape prime: additional_context context_bytes schema_version
 A pull request never carries a closing keyword (any `closes|fixes|resolves` form in the body is refused, exit 2):
 finishing work is `qew complete`, or `qew land` after the merge. The ledger records who opened a pull request
 and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own text is never that record.
-- `qew pr`: the group for `open`, `check`, `ready` and `merge`.
+- `qew pr`: the group for `open`, `check`, `ready`, `close` and `merge`.
 - `qew pr open ITEM [--target T] [--head BRANCH] [--base BRANCH] [--ready] [--what TEXT] [--why TEXT]
   [--testing TEXT] [--body-file FILE] [--json]`: a draft assigned to its opener (the actor, or `QEW_FORGE_LOGIN` when the forge login differs; a login
   the forge refuses leaves it unassigned and prints a note on stderr); the mirror file is written only
@@ -378,11 +378,18 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   the `--body-file` (a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines). Without `--head` the
   pushed branch is derived (git: named, clean, equal to its upstream; jj: the one bookmark equal to origin, git never run).
   A branch named for another item is refused. `--json`: `{item, number, url, draft, schema_version}`.
+  An open pull request already on the head whose body carries this item's marker (an orphan: the forge accepted the
+  open and the ledger record was never written) is adopted instead of opened again: only the record is written and the
+  result ends with `adopted`. Any other open pull request on the head (no marker, another item's, a different base,
+  several) is refused with exit 2 naming it, never taken over. A forge that cannot list by head opens as before.
 - `qew pr check NUMBER (ID... | --all | --list) [--target T]`: tick checklist boxes (outside code fences) addressed by marker,
   position, or `@N`; unknown or repeated ids, merged or closed pull requests are exit 2 with no write; a body that
   changed since it was read is exit 3 with no write; the result is read back and a write that did not stick is exit 3.
 - `qew pr ready NUMBER [--target T] [--json]`: marks ready, then re-reads; still a draft is exit 4. Already ready
   writes nothing. Refused while a covered item is a draft. `--json`: `{number, ready, changed, schema_version}`.
+- `qew pr close NUMBER [--target T] [--json]`: closes a recorded, unmerged pull request (same ownership rule as ready),
+  re-reads, and records `closed` in its mirror; still open is exit 4, merged is exit 2, already closed writes nothing.
+  An orphan is adopted with `qew pr open` first. `--json`: `{number, closed, changed, schema_version}`.
 - `qew pr merge NUMBER [--target T] [--auto] [--admin] [--other-author] [--reason TEXT] [--json]`: refuses, writing
   nothing: held by a covered draft, not open, draft, conflicts or unknown merge state, unticked checklist items (exit 2),
   open child tasks of a claimed covered item, no recorded evidence covering the head (exit 2), failing or pending

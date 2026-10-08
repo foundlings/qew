@@ -45,7 +45,7 @@ def verb_for(arguments) -> Optional[str]:
         return "view"
     if command == "forge":
         return "migrate"
-    if command == "pr" and arguments.pr_command in ("open", "ready", "merge"):
+    if command == "pr" and arguments.pr_command in ("open", "ready", "close", "merge"):
         return f"pr-{arguments.pr_command}"
     if command == "land":
         return "land"

@@ -27,6 +27,15 @@ class ReadyWalk(unittest.TestCase):
         self.assertEqual((run.code, run.out.strip()), (0, "pr #1 ready"))
         self.assertFalse(self.w.forge.pulls[1].draft)
 
+    def test_ready_records_the_pull_request_as_no_longer_a_draft_in_the_ledger(self) -> None:
+        """Prevents a ledger that still calls a ready pull request a draft (draft revert and the board read that record)."""
+        def draft() -> object:
+            return next(m for m in self.w.ledger.load_mirrors(self.item) if m["kind"] == "pr")["draft"]
+
+        self.assertIs(draft(), True)
+        self.assertEqual(self.w.qew("pr", "ready", "1").code, 0)
+        self.assertIs(draft(), False)
+
     def test_json_reports_number_ready_and_changed(self) -> None:
         run = self.w.qew("pr", "ready", "1", "--json")
         self.assertEqual(json.loads(run.out), {"number": 1, "ready": True, "changed": True, "schema_version": 1})
