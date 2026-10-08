@@ -92,6 +92,7 @@ class ContractWalk(unittest.TestCase):
         blocked = self.ready_item("Blocked", "--needs", need)
         self.world.run("start", need)
         self.ready_item("Free")
+        self.world.create("--title", "Idea", "--body", "text")
         ready = json.loads(self.world.run("ready", "--json").stdout)
         blocked_body = json.loads(self.world.run("blocked", "--json").stdout)
         self.assertTrue(ready["items"] and blocked_body["items"])
@@ -101,6 +102,8 @@ class ContractWalk(unittest.TestCase):
             "blocked_row": blocked_body["items"],
             "edge": lines(self.world.run("graph", "--json")),
             "show": [json.loads(self.world.run("show", blocked, "--json").stdout)],
+            "triage_row": lines(self.world.run("triage", "--json")),
+            "check": [json.loads(self.world.run("check", "--json").stdout)],
         }
         for name, objects in probes.items():
             self.assertIn(name, shapes, f"commands.md lacks `shape {name}:`")

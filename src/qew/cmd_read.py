@@ -4,7 +4,7 @@ import argparse
 import sys
 from typing import List, Optional
 
-from qew import blocked_chains, ledger_author, graph_render, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import text_findings, blocked_chains, ledger_author, graph_render, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
@@ -40,6 +40,7 @@ def register(commands) -> None:
     list_.add_argument("--author", help="only items this person created")
     list_.add_argument("--parent", help="only children of this item")
     list_.add_argument("--limit", type=_limit, default=0, help="at most N items (0 = all)")
+    list_.add_argument("--bodies", action="store_true", help="also print the body of each approved item (explicit inspection)")
     list_.add_argument("--json", action="store_true", help="machine-readable output")
 
     ready = commands.add_parser("ready", help="approved, unclaimed work with every need completed")
@@ -76,13 +77,22 @@ def snapshot_for(config: Config) -> Snapshot:
     return ledger_check.read_snapshot(cmd_items.ledger_for(config))
 
 
-def print_rows(snapshot: Snapshot, ids: List[str], as_json: bool, work_state: bool = False, progress: bool = False) -> None:
+def print_rows(snapshot: Snapshot, ids: List[str], as_json: bool, work_state: bool = False, progress: bool = False, bodies: bool = False) -> None:
+    """Rows as text or NDJSON; `bodies` adds the body of each non-draft item, the one place a list prints bodies."""
+    shown = [i for i in ids if bodies and snapshot.folds[i].state != State.DRAFT and snapshot.items[i].body.strip()]
     if as_json:
-        for line in readfmt.ndjson(read_view.rows(snapshot, ids, work_state, progress)):
+        found = read_view.rows(snapshot, ids, work_state, progress)
+        for row in found:
+            if row["id"] in shown:
+                row["body"] = snapshot.items[str(row["id"])].body.rstrip("\n")
+        for line in readfmt.ndjson(found):
             print(line)
-    else:
-        for item_id in ids:
-            print(read_view.text_row(snapshot, item_id, progress))
+        return
+    for item_id in ids:
+        print(read_view.text_row(snapshot, item_id, progress))
+        if item_id in shown:
+            for line in read_view.plain(snapshot.items[item_id].body.rstrip()).split("\n"):
+                print(f"  {line}")
 
 
 def _bounded(ids: List[str], limit: int, what: str) -> List[str]:
@@ -109,13 +119,13 @@ def list_items(snapshot: Snapshot, arguments: argparse.Namespace, as_json: bool)
     if arguments.owner:
         ids = [i for i in ids if read_filter.fold(snapshot.folds[i].owner) == read_filter.fold(arguments.owner)]
     if arguments.author:
-        ids = [i for i in ids if read_filter.fold(read_filter.author(snapshot, i)) == read_filter.fold(arguments.author)]
+        ids = [i for i in ids if read_filter.fold(ledger_author.author(snapshot, i)) == read_filter.fold(arguments.author)]
     if arguments.parent:
         parent = snapshot.ledger.resolve(arguments.parent, list(snapshot.items))
         ids = [i for i in ids if snapshot.items[i].parent == parent]
     if arguments.kind == "epic" and not arguments.state and not arguments.work_state:
         ids = [i for i in ids if snapshot.folds[i].state != State.CLOSED]  # a named epic still shows
-    print_rows(snapshot, _bounded(ids, arguments.limit, "list"), as_json, work_state=True, progress=True)
+    print_rows(snapshot, _bounded(ids, arguments.limit, "list"), as_json, work_state=True, progress=True, bodies=arguments.bodies)
 
 
 def ready(snapshot: Snapshot, limit: int, as_json: bool) -> None:
@@ -164,14 +174,6 @@ def _plain(text: str) -> str:
     return "".join(" " if (ord(c) < 0x20 and c != "\n") or 0x7F <= ord(c) <= 0x9F else c for c in text)
 
 
-def _comments(snapshot: Snapshot, item_id: str) -> List[dict]:
-    found = [e for e in sorted(snapshot.events[item_id], key=lambda e: e.id) if e.type == "commented"]
-    return [
-        {"index": number, "author": e.get("author") or e.actor, "at": e.at, "text": e.get("text")}
-        for number, e in enumerate(found, 1)
-    ]
-
-
 def _epic_facts(snapshot: Snapshot, item_id: str, kids: List[str]) -> dict:
     """Draft count, the next workable child and the completion command (None unless it would be accepted)."""
     progress = read_view.epic_progress(snapshot, item_id)
@@ -207,11 +209,15 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     blocks = ledger_graph.blocks(snapshot).get(item_id, [])
     mirrors = [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in ledger.load_mirrors(item_id)]
     evidence = [event.data for event in folded.evidence]
-    comments = _comments(snapshot, item_id)
+    comments = text_findings.comments_of(snapshot, item_id)
+    findings = text_findings.item_findings(snapshot, item_id)
     epic = _epic_facts(snapshot, item_id, kids) if item.kind == Kind.EPIC else {}
     data = read_view.row_data(snapshot, item_id, progress=True)
     data["author"] = ledger_author.author(snapshot, item_id) or "unknown"
     data["draft"] = draft
+    data.pop("text_findings", None)
+    if findings:
+        data["text_findings"] = findings
     data.update(epic)
     related = (
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
@@ -259,6 +265,10 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
             print(f"  {entry['index']} @{_plain(entry['author'])} {entry['at']}:")
             for line in _plain(entry["text"]).rstrip("\n").split("\n"):
                 print(f"    {line}")
+    if findings:
+        print("text findings:")
+        for finding in findings:
+            print(f"  {text_findings.where(finding)}: {text_findings.describe(finding)}")
     if item.body.strip():
         print("---")
         print(item.body.rstrip())

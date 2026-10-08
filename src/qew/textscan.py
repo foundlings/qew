@@ -57,6 +57,11 @@ def vocabulary_digest() -> str:
 PINNED_DIGEST = "1e667408aa0f732f3e32dff29ae31e1b69a0978d7b153196644ac1ad9d199acb"
 
 
+def covers(code: int) -> bool:
+    """True for characters this vocabulary already classifies (zero-width, bidi, tags): others need no second opinion."""
+    return code in ZERO_WIDTH or code in BIDI_CONTROL or TAG_FIRST <= code <= TAG_LAST
+
+
 def _within(code: int, ranges: Tuple[Tuple[int, int], ...]) -> bool:
     return any(first <= code <= last for first, last in ranges)
 

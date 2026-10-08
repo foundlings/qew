@@ -8,20 +8,25 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 
 ## Machine output
 Bounded answers (`ready`, `blocked`) print one envelope object; open-ended lists (`list`, `graph`,
-`draft list`) print one object per line (NDJSON) with `schema_version` on each row; `show` prints one
+`draft list`, `triage`) print one object per line (NDJSON) with `schema_version` on each row; `show` prints one
 object. Keys are sorted and separators compact, so output on the same ledger is byte-identical. Optional
 data that is absent (owner, parent, needs, body) is omitted, never null. A read that cannot answer
 (unreadable ledger, bad usage) prints nothing on stdout and one reason line on stderr. A ledger with an
 unparseable item or event file, a duplicate id, history for no item or an illegal transition is not
 readable: every read refuses it (exit 1) and names the file instead of listing what parsed. Dangling
 needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
+A `text_findings` entry is sparse: `{"source": "body", "zero_width": true}`, with `index` (and `author`
+for a comment) where the source repeats; the kinds are `zero_width`, `bidi_control`, `unicode_tags`, `confusable`
+and `control`.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | children_done children_open completable needs owner parent schema_version text_findings work_state
+shape row: id kind labels priority state title | body children_done children_open completable needs owner parent schema_version text_findings work_state
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
 shape edge: item schema_version | needs parent
 shape show: author draft id kind labels priority schema_version state title | blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings
+shape triage_row: body id kind labels missing priority schema_version state title | needs owner parent text_findings
+shape check: contradictions cycles problems schema_version text_findings valid
 ```
 
 ## Setup
@@ -43,14 +48,16 @@ shape show: author draft id kind labels priority schema_version state title | bl
   `blocked_by` (unmet needs), `blocking`, `children`, `parent`. An epic also gets `children_open`,
   `children_done`, `children_drafts` and `completable`, a text `progress: 0/3 completed, 2 drafts` line (plus
   `(draft epic)`), `next` (its highest-priority ready child, text `next: ID pN title`) and
-  `complete_command` (null unless the epic is claimed with every child completed or closed).
+  `complete_command` (null unless the epic is claimed with every child completed or closed). `text_findings`
+  lists hidden-text findings of the title, body, labels and comments; a title with any is withheld in rows.
 - `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
   [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
   of the creating event. `work_state` (JSON rows) is the derived class, in list order: `ready`, `blocked`
   (open work with an unmet need, claimed or not: a stuck claim is the more urgent fact), `claimed`, `plan`
   (an epic), `needs_decision` (a draft), `completed`, `closed`; then priority, then id. A filter that
-  matches nothing prints nothing and exits 0; `--limit` cuts with a stderr warning.
+  matches nothing prints nothing and exits 0; `--limit` cuts with a stderr warning. `--bodies` also prints the
+  body of each non-draft item (JSON `body`): the explicit inspection; no other list prints bodies.
   `qew list --kind epic` rows carry `children_open`, `children_done`, `completable` (not closed or completed, at
   least one child, none open) and, only when completable and the title was not rewritten, `-> qew complete ID`;
   closed epics are left out unless `--state`/`--work-state` asks for them.
@@ -67,18 +74,25 @@ shape show: author draft id kind labels priority schema_version state title | bl
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
 - `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
-  evidence, malformed mirrors, text findings, contradictions (claimed epic, completed item with open needs,
-  open child of a completed epic), reserved labels. Graph invariants, each named with its file and counted on a final
+  evidence, malformed mirrors, reserved labels. Graph invariants, each named with its file and counted on a final
   `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history or mirrors
   of no item (orphans); a child whose `area:` labels share none with its parent's (cross_epic); a needs chain longer
   than 20 edges, reported at its deepest item (depth); open work that needs a closed item (closed_needs). Writes nothing;
-  exit 1 on any problem. `--json` prints
+  exit 1 on any problem. Advisory findings never fail it
+  (text: `advisory: ...` lines): `contradictions` (a claimed epic, a completed item with open needs, an open child
+  of a completed epic, a draft marker label `draft` or `qew:draft` on live work, a priority above 9) and
+  `text_findings` (hidden or confusable text in titles, bodies, labels and comments). `--json` prints
   `schema_version`, `valid`, `cycles` (each once, rotated to the smallest id, closed on it), `contradictions`,
   `text_findings`, `problems`.
 
 - `qew inbox [--login L] [--count] [--json]`: `waiting` (drafts whose author is L) and `assigned` (items L has
   claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
   that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
+- `qew triage [--search TERM...] [--json]`: the explicit read of unapproved text: drafts, and open approved
+  items missing a planning field, with title and body as they are and the `missing` list (sorted: `body`,
+  `label:PREFIX` for each prefix of `[triage] label_groups` in `.qew/config.toml` that no label has, `parent`
+  for a task without one). `--search` keeps items whose title or body holds every term (ASCII case folded).
+  Rows are NDJSON in `--json`. Triage is the only list-shaped read that prints draft bodies.
 
 - `qew export DIRECTORY`: write every item to a new (or empty) directory as `items/ID.md` (the ledger's own file
   format) and `events.json` (per item: event type, time, actor; import ignores it). Output is deterministic. A
