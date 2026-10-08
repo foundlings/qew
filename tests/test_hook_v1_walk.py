@@ -184,13 +184,12 @@ class SessionStartWalk(unittest.TestCase):
             for verb in ("ready", "start", "evidence", "complete", "show", "draft"):
                 self.assertIn(f"qew {verb}", text)
 
-    def test_priority_order_and_short_ids(self) -> None:
+    def test_priority_order(self) -> None:
         low = self.world.create("--title", "later", "--priority", "3", "--quote", QUOTE)
         high = self.world.create("--title", "sooner", "--priority", "1", "--quote", QUOTE)
         text = self.context()
         self.assertLess(text.index("sooner"), text.index("later"))
-        self.assertNotIn(high, text)
-        self.assertNotIn(low, text)
+        self.assertLess(text.index(high), text.index(low))
 
     def test_empty_ledger_still_primes_without_failing(self) -> None:
         text = self.context()
@@ -323,7 +322,7 @@ class PostToolWalk(unittest.TestCase):
                 text = self.reminder(command)
                 self.assertEqual(len(text.splitlines()), 1)
                 self.assertIn("qew evidence", text)
-                self.assertIn(item.split("-", 1)[1][:8], text)
+                self.assertIn(item, text)
         self.assertEqual(self.reminder("ls"), "")
         self.assertEqual(self.reminder('git commit -m "git push"'), "")
         self.assertEqual(feed(self.world, "post-tool", "cursor", "git push").stdout, "")
