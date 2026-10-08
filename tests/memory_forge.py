@@ -9,6 +9,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from typing import Callable, Dict, List, Optional, Tuple
 
 from qew.forge import (
+    Milestone,
+    MilestoneSpec,
     Card,
     Board,
     Forge,
@@ -37,6 +39,9 @@ class MemoryForge(Forge):
         self.priorities: Dict[int, str] = {}
         self.down = False
         self.board_id = "B1"
+        self.milestones: Dict[int, Milestone] = {}
+        self.milestone_of: Dict[int, int] = {}  # issue number -> milestone number
+        self.supports_milestones = True
         self.foreign_cards: List[Card] = []
         self.stubborn_cards = False  # a card delete the forge accepts but does not carry out
         self.hide_next_find = False
@@ -73,7 +78,7 @@ class MemoryForge(Forge):
     def _issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
         return RemoteIssue(
             number, f"https://{self.host}/o/r/issues/{number}", f"N{number}", spec.open,
-            spec.title, spec.body, spec.labels, spec.assignee,
+            spec.title, spec.body, spec.labels, spec.assignee, milestone=self.milestone_of.get(number, 0),
         )
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
@@ -121,6 +126,44 @@ class MemoryForge(Forge):
         if number not in self.columns:
             return None
         return Placement(self.columns[number], self.priorities.get(number, ""))
+
+    def _milestones(self, name: str) -> None:
+        if not self.supports_milestones:
+            raise Unsupported(name)
+        self._live(name)
+
+    def find_milestone(self, title: str) -> Optional[Milestone]:
+        self._milestones("find_milestone")
+        return next((m for m in self.milestones.values() if m.title == title), None)
+
+    def create_milestone(self, spec: MilestoneSpec) -> Milestone:
+        self._milestones("create_milestone")
+        number = len(self.milestones) + 1
+        self.milestones[number] = Milestone(number, spec.title, spec.description, spec.due, True)
+        return self.milestones[number]
+
+    def update_milestone(self, number: int, spec: MilestoneSpec) -> Milestone:
+        self._milestones("update_milestone")
+        from dataclasses import replace
+        self.milestones[number] = replace(self.milestones[number], title=spec.title, description=spec.description, due=spec.due)
+        return self.milestones[number]
+
+    def read_milestone(self, number: int) -> Milestone:
+        self._milestones("read_milestone")
+        return self.milestones[number]
+
+    def set_milestone_open(self, number: int, open: bool) -> Milestone:
+        self._milestones("set_milestone_open")
+        from dataclasses import replace
+        self.milestones[number] = replace(self.milestones[number], open=open)
+        return self.milestones[number]
+
+    def assign_milestone(self, number: int, milestone: int) -> RemoteIssue:
+        self._milestones("assign_milestone")
+        from dataclasses import replace
+        self.milestone_of[number] = milestone
+        self.issues[number] = replace(self.issues[number], milestone=milestone)
+        return self.issues[number]
 
     def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
         if not self.supports_boards:

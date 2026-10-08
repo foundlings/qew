@@ -19,6 +19,7 @@ class FakeForgejo:
     def __init__(self) -> None:
         self.issues: Dict[int, Dict[str, Any]] = {}
         self.labels: Dict[int, str] = {}
+        self.milestones: Dict[int, Dict[str, Any]] = {}
         self.label_meta: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
         self.drop_label_creates = False  # accept a label create yet store nothing
         self.pulls: Dict[int, Dict[str, Any]] = {}
@@ -82,6 +83,13 @@ class FakeForgejo:
         self.labels[label_id] = name
         return label_id
 
+    def _milestone_json(self, number):
+        if not number:
+            return None
+        found = self.milestones[number]
+        return {"id": number, "title": found["title"], "description": found["description"],
+                "due_on": found["due_on"], "state": found["state"]}
+
     def _issue_json(self, number: int) -> Dict[str, Any]:
         issue = self.issues[number]
         assignee = issue["assignee"]
@@ -94,6 +102,7 @@ class FakeForgejo:
             "body": issue["body"],
             "labels": [{"id": i, "name": self.labels[i]} for i in issue["label_ids"]],
             "comments": len(issue["discussion"]),
+            "milestone": self._milestone_json(issue.get("milestone")),
         }
         if assignee:  # Gitea omits the key when nobody is assigned
             shaped["assignee"] = {"id": 7, "login": assignee}
@@ -227,6 +236,23 @@ def _route(
     def ok(body: Any, status: int = 200) -> Tuple[int, Any, Dict[str, str]]:
         return status, body, {}
 
+    if re.match(_BASE + r"/milestones$", path):
+        if method == "GET":
+            return _page(fake, [fake._milestone_json(n) for n in sorted(fake.milestones)], params)
+        number = len(fake.milestones) + 1
+        fake.milestones[number] = {"title": payload["title"], "description": payload.get("description", ""),
+                                   "due_on": payload.get("due_on"), "state": "open"}
+        return ok(fake._milestone_json(number), 201)
+    found = re.match(_BASE + r"/milestones/(\d+)$", path)
+    if found:
+        number = int(found.group(1))
+        if number not in fake.milestones:
+            raise _Reply(404, "milestone not found")
+        if method == "PATCH":
+            for key in ("title", "description", "due_on", "state"):
+                if key in payload:
+                    fake.milestones[number][key] = payload[key]
+        return ok(fake._milestone_json(number))
     if method == "GET" and re.match(_BASE + r"/labels$", path):
         items = [{"id": i, "name": n, **{"color": "ededed", "description": "", **fake.label_meta.get(n, {})}} for i, n in fake.labels.items()]
         return _page(fake, items, params)
@@ -272,7 +298,7 @@ def _route(
             return ok(fake._issue_json(number))
         if method == "PATCH":
             issue = fake.issues[number]
-            for field in ("title", "body", "state"):
+            for field in ("title", "body", "state", "milestone"):
                 if field in payload:
                     issue[field] = payload[field]
             if "assignees" in payload:

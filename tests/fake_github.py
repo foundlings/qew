@@ -36,6 +36,7 @@ class FakeGitHub:
         self.strict_add = False  # answer a repeated AddItem with GitHub's "Content already exists" refusal
         self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
         self.next_id = 1000
+        self.milestones: Dict[int, Dict[str, Any]] = {}
         self.cards_page_size = 100  # cards per ProjectCards page
         self.cards_overlap = False  # each later page repeats the previous page's last card (cards added meanwhile)
         self.cards_endless = False  # every ProjectCards page says another follows
@@ -134,10 +135,18 @@ class FakeGitHub:
         self.issues[number] = issue
         return issue
 
+    def milestone_json(self, number):
+        if not number:
+            return None
+        found = self.milestones[number]
+        return {"number": number, "title": found["title"], "description": found["description"] or None,
+                "due_on": found["due_on"], "state": found["state"]}
+
     def issue_json(self, issue: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id": issue["id"], "node_id": issue["node_id"], "number": issue["number"],
             "html_url": f"{self.base}/{OWNER}/{REPO}/issues/{issue['number']}",
+            "milestone": self.milestone_json(issue.get("milestone")),
             "state": issue["state"], "state_reason": issue["state_reason"], "title": issue["title"],
             "body": issue["body"], "labels": [{"name": name} for name in issue["labels"]],
             "assignee": None if not issue["assignee"] else {"login": issue["assignee"]},
@@ -512,6 +521,31 @@ class _Handler(BaseHTTPRequestHandler):
             self.fake.label_store[body["name"]] = {"color": body.get("color", ""), "description": body.get("description", "")}
         self._send(201, {"name": body["name"]})
 
+    def _get_milestones(self, query: Dict[str, List[str]], body: Any) -> None:
+        listed = [self.fake.milestone_json(n) for n in sorted(self.fake.milestones)]
+        window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/milestones")
+        self._send(200, window, link)
+
+    def _post_milestones(self, query: Dict[str, List[str]], body: Any) -> None:
+        number = len(self.fake.milestones) + 1
+        self.fake.milestones[number] = {"title": body["title"], "description": body.get("description", ""),
+                                        "due_on": body.get("due_on"), "state": "open"}
+        self._send(201, self.fake.milestone_json(number))
+
+    def _get_milestone(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        if int(number) not in self.fake.milestones:
+            return self._send(404, {"message": "Not Found"})
+        self._send(200, self.fake.milestone_json(int(number)))
+
+    def _patch_milestone(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        found = self.fake.milestones.get(int(number))
+        if found is None:
+            return self._send(404, {"message": "Not Found"})
+        for key in ("title", "description", "due_on", "state"):
+            if key in body:
+                found[key] = body[key]
+        self._send(200, self.fake.milestone_json(int(number)))
+
     def _post_issues(self, query: Dict[str, List[str]], body: Any) -> None:
         self._send(201, self.fake.issue_json(self.fake.new_issue(body)))
 
@@ -523,7 +557,7 @@ class _Handler(BaseHTTPRequestHandler):
         issue = self.fake.issues.get(int(number))
         if issue is None:
             return self._send(404, {"message": "Not Found"})
-        for key in ("title", "body", "labels", "state", "state_reason"):
+        for key in ("title", "body", "labels", "state", "state_reason", "milestone"):
             if key in body:
                 issue[key] = body[key]
         if "assignees" in body:
@@ -618,6 +652,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 _ROUTES = (
     (r"/labels", "labels"),
+    (r"/milestones", "milestones"),
+    (r"/milestones/(\d+)", "milestone"),
     (r"/issues", "issues"),
     (r"/issues/(\d+)", "issue"),
     (r"/issues/(\d+)/comments", "comments"),

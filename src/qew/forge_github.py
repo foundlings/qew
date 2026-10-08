@@ -29,6 +29,8 @@ from qew.forge import (
     LABEL_DESCRIPTION,
     Card,
     LabelNotPersisted,
+    Milestone,
+    MilestoneSpec,
     Transport,
     marker_alone,
 )
@@ -233,7 +235,18 @@ def parse_issue(data: Any) -> RemoteIssue:
         labels=labels,
         assignee=assignee,
         comments=_int(issue, "comments", "issue") if "comments" in issue else 0,
+        milestone=0 if issue.get("milestone") is None else _int(_obj(issue["milestone"], "issue.milestone"), "number", "milestone"),
     )
+
+
+def parse_milestone(data: Any) -> Milestone:
+    found = _obj(data, "milestone")
+    state = _str(found, "state", "milestone")
+    if state not in ("open", "closed"):
+        raise _malformed("milestone.state")
+    due = _nullable_str(found, "due_on", "milestone")
+    return Milestone(_int(found, "number", "milestone"), _str(found, "title", "milestone"),
+                     _nullable_str(found, "description", "milestone"), due[:10], state == "open")
 
 
 def parse_comment(data: Any) -> RemoteComment:
@@ -529,6 +542,30 @@ class GitHub(Forge):
             absent = [name for name in missing if name not in self._known_labels]
             if absent:
                 raise LabelNotPersisted(absent)
+
+    def find_milestone(self, title: str) -> Optional[Milestone]:
+        for page in self._wire.pages(f"{self._repo_path}/milestones?state=all&per_page=100"):
+            for entry in _array(page, "milestone list"):
+                found = parse_milestone(entry)
+                if found.title == title:
+                    return found
+        return None
+
+    def create_milestone(self, spec: MilestoneSpec) -> Milestone:
+        return parse_milestone(self._wire.rest("POST", f"{self._repo_path}/milestones", _milestone_payload(spec)))
+
+    def update_milestone(self, number: int, spec: MilestoneSpec) -> Milestone:
+        return parse_milestone(self._wire.rest("PATCH", f"{self._repo_path}/milestones/{number}", _milestone_payload(spec)))
+
+    def read_milestone(self, number: int) -> Milestone:
+        return parse_milestone(self._wire.rest("GET", f"{self._repo_path}/milestones/{number}"))
+
+    def set_milestone_open(self, number: int, open: bool) -> Milestone:
+        return parse_milestone(self._wire.rest("PATCH", f"{self._repo_path}/milestones/{number}",
+                                               {"state": "open" if open else "closed"}))
+
+    def assign_milestone(self, number: int, milestone: int) -> RemoteIssue:
+        return self._remember(parse_issue(self._wire.rest("PATCH", f"{self._repo_path}/issues/{number}", {"milestone": milestone})))
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)
@@ -868,6 +905,10 @@ class GitHub(Forge):
     def _project_title(self) -> str:
         title = self.mirror.options.get("project_title")
         return title if isinstance(title, str) and title else self._repo
+
+
+def _milestone_payload(spec: MilestoneSpec) -> Dict[str, Any]:
+    return {"title": spec.title, "description": spec.description, "due_on": f"{spec.due}T00:00:00Z" if spec.due else None}
 
 
 def _check_reason(spec: IssueSpec) -> None:

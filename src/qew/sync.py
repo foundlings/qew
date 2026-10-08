@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 import time
 from typing import Callable, Dict, List, Optional
 
-from qew import sync_plan
+from qew import sync_milestones, sync_plan
 from qew.forge import (
     COLUMNS, Board, Forge, ForgeError, ForgeRejected, ForgeUnavailable, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for,
 )
@@ -43,6 +43,9 @@ class TargetReport:
     failures: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     pruned: int = 0
+    milestones_created: int = 0
+    milestones_updated: int = 0
+    milestones_unchanged: int = 0
     stopped: Optional[str] = None  # set when the forge went away and the rest of the target was not tried
     retry_after: float = 0.0  # seconds the forge asked to wait (rate limit), 0 when it named none
 
@@ -85,6 +88,8 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
             report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
             _stop(report, error)
             break
+    if chosen is None and report.stopped is None and sync_milestones.enabled(target.mirror.options):
+        sync_milestones.sync_milestones(ledger, snapshot, target, report, ids, numbers)
     if board is not None and chosen is None and report.stopped is None:
         _prune(ledger, snapshot, target, report, set(ids), board)
     return report

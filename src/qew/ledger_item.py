@@ -1,5 +1,6 @@
 """The item file: a fixed `key: value` header ended by a `---` line, then a free Markdown body."""
 
+import re
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Dict, List, Tuple
@@ -19,11 +20,12 @@ class Kind(str, Enum):
 
 
 # The schema: header keys in file order. Unknown keys are refused, never ignored.
-KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "owner", "priority", "created")
-LINK_KEYS = ("tracks", "pr")  # ledger ids of the tracking issue / pull request item; optional, omitted when empty
+KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "owner", "priority", "due", "created")
+LINK_KEYS = ("tracks", "pr", "due")  # tracking issue / pull request item ids and a YYYY-MM-DD due date; optional, omitted when empty
 REQUIRED = ("id", "kind", "title", "created")
 LIST_KEYS = ("needs", "labels")
 DEFAULT_PRIORITY = 2
+_DUE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,7 @@ class Item:
     body: str = field(default="", compare=False)
     tracks: str = ""
     pr: str = ""
+    due: str = ""
 
     def header(self) -> Dict[str, str]:
         return {
@@ -53,6 +56,7 @@ class Item:
             "labels": " ".join(self.labels),
             "owner": self.owner,
             "priority": str(self.priority),
+            "due": self.due,
             "created": self.created,
         }
 
@@ -102,7 +106,9 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
     priority = header.get("priority", str(DEFAULT_PRIORITY)) or str(DEFAULT_PRIORITY)
     if not priority.isdigit():
         raise QewError(f"{where}: priority must be a non-negative integer", 1)
-    for key in ("parent", *LINK_KEYS):
+    if header.get("due") and not _DUE.match(header["due"]):
+        raise QewError(f"{where}: due must be a date like 2026-12-31", 1)
+    for key in ("parent", "tracks", "pr"):
         if header.get(key) and not valid_id(header[key]):
             raise QewError(f"{where}: `{key}` must be an item id (a ledger link, never a forge number or URL)", 1)
     needs = tuple(header.get("needs", "").split())
@@ -125,6 +131,7 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
         body=body,
         tracks=header.get("tracks", ""),
         pr=header.get("pr", ""),
+        due=header.get("due", ""),
     )
 
 

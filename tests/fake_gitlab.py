@@ -21,6 +21,7 @@ class _Project:
         self.links: List[Tuple[int, int, str]] = []
         self.labels: List[Dict[str, Any]] = []
         self.boards: List[Dict[str, Any]] = []
+        self.milestones: List[Dict[str, Any]] = []
         self.merge_requests: List[Dict[str, Any]] = []
         self.only_allow_merge_if_pipeline_succeeds = False
         self.protected_branches: Dict[str, Dict[str, Any]] = {}
@@ -145,6 +146,8 @@ class FakeGitLab:
             return self._issues(method, project, path, tail, query, body)
         if resource == "labels":
             return self._labels(method, project, query, body)
+        if resource == "milestones":
+            return self._milestones(method, project, tail, query, body)
         if resource == "boards":
             return self._boards(method, project, tail, query, body)
         if resource == "merge_requests":
@@ -179,11 +182,44 @@ class FakeGitLab:
             "state": issue["state"], "labels": list(issue["labels"]),
             "assignees": [{"id": a, "username": n} for n, a in self.users.items() if a in issue["assignees"]],
             "web_url": f"{self.host}/{path}/-/issues/{issue['iid']}",
+            "milestone": self._milestone_ref(path, issue.get("milestone_id")),
             "user_notes_count": sum(1 for n in issue["notes"] if not n["system"]),
         }
         if self.malformed_issue_reads:
             del out["iid"]
         return out
+
+    def _milestone_ref(self, path, milestone_id):
+        if not milestone_id:
+            return None
+        found = next(m for m in self.project(path).milestones if m["id"] == milestone_id)
+        return self._milestone_json(found)
+
+    @staticmethod
+    def _milestone_json(found):
+        return {"id": found["id"], "iid": found["id"], "title": found["title"], "description": found["description"],
+                "due_date": found["due_date"], "state": found["state"]}
+
+    def _milestones(self, method, project, tail, query, body):
+        if not tail:
+            if method == "GET":
+                return self._page([self._milestone_json(m) for m in project.milestones], query)
+            found = {"id": self._next_id(), "title": body["title"], "description": body.get("description", ""),
+                     "due_date": body.get("due_date"), "state": "active"}
+            project.milestones.append(found)
+            return 201, self._milestone_json(found), {}
+        found = next((m for m in project.milestones if str(m["id"]) == tail[0]), None)
+        if found is None:
+            return 404, {"message": "404 Not found"}, {}
+        if method == "PUT":
+            for key in ("title", "description", "due_date"):
+                if key in body:
+                    found[key] = body[key]
+            if body.get("state_event") == "close":
+                found["state"] = "closed"
+            if body.get("state_event") == "activate":
+                found["state"] = "active"
+        return 200, self._milestone_json(found), {}
 
     def _issues(self, method, project, path, tail, query, body):
         if not tail:
@@ -248,6 +284,8 @@ class FakeGitLab:
             issue["labels"] = [x for x in issue["labels"] if x not in drop]
         if "assignee_ids" in body:
             issue["assignees"] = list(body["assignee_ids"])
+        if "milestone_id" in body:
+            issue["milestone_id"] = body["milestone_id"]
         if body.get("state_event") == "close":
             issue["state"] = "closed"
         if body.get("state_event") == "reopen":
