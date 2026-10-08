@@ -76,6 +76,42 @@ class UserSetupWalk(unittest.TestCase):
             self.assertEqual(foreign.read_text(encoding="utf-8"), "#!/bin/sh\necho mine\n")
             self.assertFalse(foreign.is_symlink())
 
+    def test_a_symlink_pointing_elsewhere_is_refused_untouched(self) -> None:
+        """A user-managed link to another qew must survive untouched."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            home = Path(temporary_directory)
+            local_bin = home / ".local" / "bin"
+            local_bin.mkdir(parents=True)
+            elsewhere = home / "other-qew"
+            elsewhere.write_text("#!/bin/sh\n", encoding="utf-8")
+            link = local_bin / "qew"
+            link.symlink_to(elsewhere)
+            refused = run_setup(home, [local_bin])
+            self.assertEqual(refused.returncode, 2, refused.stderr)
+            self.assertEqual(os.readlink(link), str(elsewhere))
+
+    def test_a_failing_install_exits_three_and_leaves_no_half_link(self) -> None:
+        """A broken pip must not leave a link to an executable that does not exist."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            home = Path(temporary_directory)
+            fake = home / "fakebin"
+            fake.mkdir()
+            result = subprocess.run(
+                [sys.executable, "-c",
+                 "import runpy, subprocess, sys\n"
+                 "real = subprocess.run\n"
+                 "def fake(command, **kw):\n"
+                 "    if 'pip' in command:\n"
+                 "        return subprocess.CompletedProcess(command, 1)\n"
+                 "    return real(command, **kw)\n"
+                 "subprocess.run = fake\n"
+                 f"sys.argv = [{str(COMMAND)!r}]\n"
+                 f"runpy.run_path({str(COMMAND)!r}, run_name='__main__')\n"],
+                cwd=PROJECT_ROOT, env={**os.environ, "HOME": str(home)}, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 3, result.stderr)
+            self.assertFalse((home / ".local" / "bin" / "qew").exists())
+            self.assertFalse((home / ".local" / "bin" / "qew").is_symlink())
+
 
 if __name__ == "__main__":
     unittest.main()
