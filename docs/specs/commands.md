@@ -49,7 +49,7 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   [--body-file F] [--quote Q] [--from-file F]`: a draft unless `--quote` carries a human's words
   (`"Name: 'their words'"`), which files it approved. `--from-file` takes a JSON object or array (or `-`
   for stdin); items may carry `id` (imports keep it), `created`, `ref`, and `@ref` entries in `needs`/`parent`.
-  `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
+  `--from-file` and `--body-file` refuse a symlink (exit 2). `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).

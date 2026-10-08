@@ -3,6 +3,7 @@
 import argparse
 import importlib
 import json
+import os
 import sys
 from typing import List, Optional, Sequence
 
@@ -162,6 +163,8 @@ def _specs(arguments: argparse.Namespace) -> List[dict]:
 
 
 def _read(path: str) -> str:
+    if os.path.islink(path):
+        raise QewError(f"{path} is a symlink; name the real file", 2)
     try:
         with open(path, encoding="utf-8") as handle:
             return handle.read()
