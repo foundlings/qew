@@ -46,6 +46,12 @@ def _contested(item_id: str, claim, holder: str) -> dict:
     return {"id": claim.id, "item": item_id, "target": "ledger", "field": "owner", "forge": claim.get("owner"), "ledger": holder}
 
 
+def repos_on(mirrors, slug: str) -> bool:
+    """Whether the target pushes the code and ledger repositories too (git_url / ledger_git_url set)."""
+    mirror = next(m for m in mirrors if ledger_config.mirror_slug(m) == slug)
+    return mirror.options.get("git_url") is not None or mirror.options.get("ledger_git_url") is not None
+
+
 def collect(config: Config) -> dict:
     ledger = ledger_for(config)
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
@@ -68,7 +74,7 @@ def collect(config: Config) -> dict:
             "remote": remote_state(config),
         },
         "targets": [
-            {"target": slug, "pending": len(rows), "last_sync": last_sync(ledger, slug, ids)}
+            {"target": slug, "pending": len(rows), "last_sync": last_sync(ledger, slug, ids), "repos": repos_on(mirrors, slug)}
             for slug, rows in pending.items()
         ],
         "divergences": divergences,
@@ -81,7 +87,7 @@ def render(data: dict) -> str:
     lines = [f"authority primary={data['authority']['primary']}"]
     lines += [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]
     for target in data["targets"]:
-        lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}")
+        lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'} repos={'on' if target['repos'] else 'off'}")
     if data["sync"]["retry_after"]:
         lines.append(f"sync retry_after={data['sync']['retry_after']}")
     lines.append(f"divergences={len(data['divergences'])}")

@@ -65,7 +65,7 @@ def push_target(config: Config, mirror: Mirror) -> List[str]:
               ("ledger", config.ledger_path, config.replication.branch, mirror.options.get("ledger_git_url"))]
     lines = []
     if all(url is None for *_, url in wanted):
-        return [f"repos {slug}: set git_url and ledger_git_url in the [[mirror]] entry to push the repos (never guessed)"]
+        return []  # opt-in feature; `qew status` shows repos=off
     for label, path, branch, url in wanted:
         if url is None or (label == "code" and config.root == config.ledger_path):
             continue

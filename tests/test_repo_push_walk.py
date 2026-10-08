@@ -73,13 +73,14 @@ class RepoPushWalk(unittest.TestCase):
         self.assertIn(f"{self.fakes[0].repo_url.split('//')[1].replace('/', '-')}", output)
         self.assertIn("failed", output)
 
-    def test_a_target_without_a_git_url_is_reported_and_no_remote_is_guessed(self) -> None:
-        """Prevents guessing a push URL from the API repo: no git_url means a report and no remote."""
+    def test_a_target_without_a_git_url_is_quiet_in_sync_named_by_status_and_no_remote_is_guessed(self) -> None:
+        """Prevents guessing a push URL from the API repo, and a hint repeating on every sync: sync is quiet, status says repos=off."""
         world = World(self.target(self.fakes[0]), ledger_vcs="git", replication=QUIET)
         self.addCleanup(world.close)
         world.create("--title", "Work", "--quote", QUOTE)
         result = world.run("sync", env=ENV)
-        self.assertIn("git_url", result.stdout + result.stderr)
+        self.assertNotIn("git_url", result.stdout + result.stderr)
+        self.assertIn("repos=off", world.run("status", env=ENV).stdout)
         self.assertEqual([n for n in git(world.code, "remote").split() if n.startswith("qew-")], [])
         self.assertEqual([n for n in git(world.ledger, "remote").split() if n.startswith("qew-")], [])
 
