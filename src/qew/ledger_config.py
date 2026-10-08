@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from qew.errors import QewError
 
 LEDGER_FILE = "qew-ledger.toml"
+ALIASES = {"gitea": "forgejo"}
 CONFIG = Path(".qew") / "config.toml"
 
 
@@ -67,7 +68,7 @@ def _mirror(entry: object) -> Mirror:
     known = {"forge", "repo", "project", "select"}
     project = entry.get("project")
     return Mirror(
-        forge=entry["forge"],
+        forge=ALIASES.get(entry["forge"], entry["forge"]),
         repo=entry["repo"].rstrip("/"),
         project=None if project is None else str(project),
         select=str(entry.get("select", "")),

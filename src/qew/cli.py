@@ -1,12 +1,30 @@
 """Qew v1 command line."""
 
 import argparse
+import importlib
 import json
 import sys
 from typing import List, Optional, Sequence
 
 from qew import cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
 from qew.errors import QewError
+
+
+# Command modules that own their own subcommands. Each exposes
+# `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
+# A module that does not exist yet is skipped; any other import failure is loud.
+_MODULES = ("cmd_hook", "cmd_sync", "cmd_project", "cmd_pr")
+
+
+def _plugins() -> list:
+    found = []
+    for name in _MODULES:
+        try:
+            found.append(importlib.import_module(f"qew.{name}"))
+        except ModuleNotFoundError as error:
+            if error.name != f"qew.{name}":
+                raise
+    return found
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -80,6 +98,8 @@ def _parser() -> argparse.ArgumentParser:
     revert.add_argument("items", nargs="+", help="items to revert")
     revert.add_argument("--reason", required=True, help="why the release is withdrawn")
     revert.add_argument("--quote", required=True, help="a human's words, \"Name: 'their words'\"")
+    for plugin in _plugins():
+        plugin.register(commands)
     return parser
 
 
@@ -122,6 +142,9 @@ def _read(path: str) -> str:
 
 def _run(arguments: argparse.Namespace) -> None:
     command = arguments.command
+    for plugin in _plugins():
+        if plugin.run(arguments):
+            return
     if command == "init":
         print(cmd_items.init(arguments.prefix, arguments.ledger))
         return
