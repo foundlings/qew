@@ -508,8 +508,13 @@ class GitHub(Forge):
         payload = {"title": spec.title, "head": spec.head, "base": spec.base, "body": spec.body, "draft": spec.draft}
         created = parse_pull(self._wire.rest("POST", f"{self._repo_path}/pulls", payload))
         if spec.assignee:
-            # A pull request is assigned through its issue; the create call has no such field.
-            self._wire.rest("PATCH", f"{self._repo_path}/issues/{created.number}", {"assignees": [spec.assignee]})
+            # A pull request is assigned through its issue; the create call has no such field. The pull
+            # request already exists, so a login the forge will not assign leaves it unassigned (the caller
+            # reads `assignee` back) instead of failing and orphaning it.
+            try:
+                self._wire.rest("PATCH", f"{self._repo_path}/issues/{created.number}", {"assignees": [spec.assignee]})
+            except ForgeRejected:
+                pass
             return self.read_pull_request(created.number)
         return self._with_checks(created)
 
@@ -584,7 +589,7 @@ class GitHub(Forge):
         self._ensure_select(project, STATUS_FIELD, status, LEGACY_STATUS, notes, fresh)
         self._ensure_select(project, PRIORITY_FIELD, PRIORITY_OPTIONS, {}, notes, fresh)
         self._ensure_views(project, managed_filter, notes)
-        return Board(id=str(project.number), url=project.url, columns=tuple(columns), notes=tuple(notes))
+        return Board(id=str(project.number), url=project.url, columns=tuple(columns), title=project.title, notes=tuple(notes))
 
     def _ensure_select(self, project: _Project, name: str, desired, legacy: Mapping[str, str], notes: List[str], fresh: bool) -> None:
         field = project.fields.get(name)
@@ -681,6 +686,10 @@ class GitHub(Forge):
             number = _project_number(self.mirror.project)
             for project in projects:
                 if project.number == number:
+                    wanted = self.mirror.options.get("project_title")
+                    if isinstance(wanted, str) and wanted and wanted != project.title:
+                        raise ForgeRejected(409, f"project number {number} is titled {project.title!r}, not project_title {wanted!r}; "
+                                                 "remove one of them (a different board is never reconciled)")
                     return project, False
             raise ForgeRejected(404, f"project number {number} not found for {self._owner}")
         title = self._project_title()

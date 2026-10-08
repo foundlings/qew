@@ -91,7 +91,7 @@ class PlanFileWalk(unittest.TestCase):
         os.symlink(good, link)
         before = snapshot(self.world)
         cases = {
-            "symbolic link": str(link),
+            "symlink": str(link),
             "not UTF-8": self.plan_file(b"\xff\xfe{}", "bytes.jsonl", binary=True),
             "line 3": self.plan_file('{"title": "A"}\n{"title": "B"}\n{broken\n', "broken.jsonl"),
             "empty": self.plan_file("\n  \n", "empty.jsonl"),

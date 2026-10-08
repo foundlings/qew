@@ -77,6 +77,10 @@ def complete(config: Config, reference: str) -> str:
             f"qew draft approve {snapshot.short(item_id)} --tree --quote Q first", 2)
     if folded.state != State.CLAIMED:
         raise _refuse(snapshot, item_id, "complete", "a claimed item")
+    unmet = ledger_graph.blockers(snapshot, item_id)
+    if unmet:
+        shown = " ".join(snapshot.short(n) if n in snapshot.items else n for n in unmet)
+        raise QewError(f"cannot complete {snapshot.short(item_id)}: it needs {shown} completed first", 2)
     kids = ledger_graph.children(snapshot).get(item_id, [])
     open_kids = [k for k in kids if snapshot.folds[k].state not in (State.COMPLETED, State.CLOSED)]
     if open_kids:

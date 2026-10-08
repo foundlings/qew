@@ -81,24 +81,47 @@ class ReleaseMetadataWalk(unittest.TestCase):
             self.assertIn("--checksums must be outside --dist", result.stderr)
             self.assertFalse(checksums.exists())
 
-    def _run(self, distribution: Path, sbom: Path, checksums: Path) -> subprocess.CompletedProcess:
+    def test_malformed_inputs_are_each_refused_and_two_runs_are_byte_identical(self) -> None:
+        """A bad version, short sha, naive timestamp or empty dist must not yield a plausible attestation."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            distribution = temporary / "dist"
+            distribution.mkdir()
+            empty = temporary / "empty"
+            empty.mkdir()
+            (distribution / "qew-0.1.0.whl").write_bytes(b"wheel bytes")
+            for label, overrides, reason in (
+                ("version", {"--version": "v1;rm"}, "--version"),
+                ("short sha", {"--source-sha": "0123abc"}, "--source-sha"),
+                ("naive time", {"--created": "2026-09-28T09:00:00"}, "timezone"),
+                ("bad time", {"--created": "yesterday"}, "ISO-8601"),
+                ("empty dist", {"--dist": str(empty)}, "at least one"),
+            ):
+                with self.subTest(label):
+                    sbom, checksums = temporary / f"{label}.json", temporary / f"{label}.sums"
+                    result = self._run(distribution, sbom, checksums, overrides)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn(reason, result.stderr)
+                    self.assertFalse(sbom.exists() or checksums.exists())
+            first = (temporary / "a.json", temporary / "a.sums")
+            second = (temporary / "b.json", temporary / "b.sums")
+            self._run(distribution, *first)
+            self._run(distribution, *second)
+            self.assertEqual(first[0].read_bytes(), second[0].read_bytes())
+            self.assertEqual(first[1].read_bytes().replace(b"a.json", b"b.json"), second[1].read_bytes())
+
+    def _run(self, distribution: Path, sbom: Path, checksums: Path, overrides: dict = None) -> subprocess.CompletedProcess:
+        options = {
+            "--dist": str(distribution),
+            "--sbom": str(sbom),
+            "--checksums": str(checksums),
+            "--version": "0.1.0",
+            "--source-sha": "0123456789abcdef0123456789abcdef01234567",
+            "--created": "2026-09-28T09:00:00+02:00",
+            **(overrides or {}),
+        }
         return subprocess.run(
-            [
-                sys.executable,
-                str(COMMAND),
-                "--dist",
-                str(distribution),
-                "--sbom",
-                str(sbom),
-                "--checksums",
-                str(checksums),
-                "--version",
-                "0.1.0",
-                "--source-sha",
-                "0123456789abcdef0123456789abcdef01234567",
-                "--created",
-                "2026-09-28T09:00:00+02:00",
-            ],
+            [sys.executable, str(COMMAND), *[part for item in options.items() for part in item]],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,

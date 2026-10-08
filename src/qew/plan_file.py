@@ -43,7 +43,7 @@ def read_bytes(path: str) -> bytes:
     except OSError as error:
         raise QewError(f"cannot read {path}: {error.strerror}", 2) from None
     if stat.S_ISLNK(mode):
-        raise QewError(f"{path} is a symbolic link; name the reviewed file itself", 2)
+        raise QewError(f"{path} is a symlink; name the reviewed file itself", 2)
     if not stat.S_ISREG(mode):
         raise QewError(f"{path} is not a regular file", 2)
     try:

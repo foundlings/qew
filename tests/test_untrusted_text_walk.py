@@ -71,6 +71,8 @@ class UntrustedTextWalk(unittest.TestCase):
         result = self.world.run("check")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn(f"text_findings: {self.item} zero_width", result.stdout)
+        machine = json.loads(self.world.run("check", "--json").stdout)
+        self.assertEqual(machine["text_findings"], [{"item": self.item, "findings": ["zero_width"]}])
         draft = self.world.create("--title", "draft")
         retitle(self.world, draft, "d​d")
         self.assertNotIn(draft, self.world.run("check").stdout, "drafts are not offered to agents")

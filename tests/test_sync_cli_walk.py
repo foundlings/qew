@@ -52,7 +52,7 @@ class SyncCliWalk(unittest.TestCase):
         w = self.world
         a = w.create("--kind", "epic", "--title", "A")
         b = w.create("--kind", "epic", "--title", "B", "--needs", a)
-        path = w.ledger / "items" / f"{a}.md"  # `set` refuses a cycle now; a hand merge can still write one
+        path = w.ledger / "items" / f"{a}.md"  # `qew set` refuses a cycle; a hand merge can still produce one
         path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
         for arguments in (["sync"], ["sync", "--dry-run"]):
             result = w.run(*arguments)

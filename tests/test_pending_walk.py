@@ -43,7 +43,7 @@ class PendingWalk(unittest.TestCase):
         w = self.world
         item = w.create("--kind", "issue", "--title", "A")
         w.run("sync", env=ENV)
-        path = next((w.ledger / "mirrors" / item).glob("*.json"))
+        path = next((w.ledger / ".qew" / "state").rglob(f"{item}.json"))
         data = json.loads(path.read_text())
         data["synced_event"] = "zzzzzzzzz"
         path.write_text(json.dumps(data))

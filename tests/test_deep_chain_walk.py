@@ -34,7 +34,11 @@ class DeepChainWalk(unittest.TestCase):
     def test_a_long_chain_is_accepted_and_every_read_command_answers_without_a_traceback(self) -> None:
         """A recursive cycle search would overflow the stack on a plan this long."""
         self.assertLess(self.elapsed, 60, "a chain of this size must apply in bounded time")
-        for command in (("check",), ("ready",), ("blocked",), ("graph",)):
+        checked = self.world.run("check")  # the depth invariant reports a chain this long; it must not crash
+        self.assertIn(checked.returncode, (0, 1))
+        self.assertIn("depth", checked.stdout)
+        self.assertNotIn("Traceback", checked.stderr)
+        for command in (("ready",), ("blocked",), ("graph",)):
             result = self.world.run(*command)
             self.assertEqual(result.returncode, 0, f"{command}: {result.stderr[-300:]}")
             self.assertNotIn("Traceback", result.stderr)

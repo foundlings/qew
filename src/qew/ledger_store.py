@@ -76,6 +76,7 @@ class Ledger:
         return events
 
     def load_mirrors(self, item_id: str) -> List[dict]:
+        """Mirror records: the committed identity merged with this machine's local sync state."""
         directory = self.mirrors_dir / item_id
         if not directory.is_dir():
             return []
@@ -87,8 +88,22 @@ class Ledger:
                 raise QewError(f"{path}: {error}", 1) from None
             if not isinstance(value, dict):
                 raise QewError(f"{path}: a mirror is one JSON object", 1)
-            mirrors.append({**value, "_target": path.stem})
+            mirrors.append({**value, **self.read_state(item_id, path.stem), "_target": path.stem})
         return mirrors
+
+    # -- local sync state: what this machine knows about a forge, never committed
+    def state_path(self, item_id: str, target: str) -> Path:
+        return self.path / ".qew" / "state" / target / f"{item_id}.json"
+
+    def read_state(self, item_id: str, target: str) -> dict:
+        path = self.state_path(item_id, target)
+        if not path.is_file():
+            return {}
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            return {}  # a damaged cache only costs a redundant forge update; the ledger is untouched
+        return value if isinstance(value, dict) else {}
 
     def snapshot(self) -> "Snapshot":
         items: Dict[str, Item] = {}
@@ -134,10 +149,24 @@ class Ledger:
         return event
 
     def write_mirror(self, item_id: str, target: str, value: dict) -> None:
+        """Identity keys go to the committed mirror file (written once); everything else is local state."""
+        identity = {k: v for k, v in value.items() if k in MIRROR_IDENTITY}
+        volatile = {k: v for k, v in value.items() if k not in MIRROR_IDENTITY and k != "_target"}
         directory = self.mirrors_dir / item_id
-        directory.mkdir(parents=True, exist_ok=True)
-        text = json.dumps(value, sort_keys=True, indent=2) + "\n"
-        _write(directory / f"{target}.json", text, exclusive=False)
+        path = directory / f"{target}.json"
+        current = {}
+        if path.is_file():
+            try:
+                current = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, ValueError):
+                current = {}
+        if {k: current.get(k) for k in identity} != identity or not path.is_file():
+            directory.mkdir(parents=True, exist_ok=True)
+            merged = {**{k: v for k, v in current.items() if k in MIRROR_IDENTITY}, **identity}
+            _write(path, json.dumps(merged, sort_keys=True, indent=2) + "\n", exclusive=False)
+        state_path = self.state_path(item_id, target)
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_local(state_path, json.dumps({**self.read_state(item_id, target), **volatile}, sort_keys=True, indent=2) + "\n")
 
     def remove_mirror(self, item_id: str, target: str) -> None:
         """Forget one mirror file (journaled like every write, so the session commits the deletion)."""
@@ -145,6 +174,7 @@ class Ledger:
         if JOURNAL is not None:
             JOURNAL.append((path, path.read_text(encoding="utf-8") if path.exists() else None))
         path.unlink(missing_ok=True)
+        self.state_path(item_id, target).unlink(missing_ok=True)
 
     def read_board(self, target: str) -> Optional[dict]:
         path = self.path / "boards" / f"{target}.json"
@@ -188,6 +218,7 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
     return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")))
 
 
+MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head")
 JOURNAL: Optional[List[Tuple[Path, Optional[str]]]] = None  # (path, previous text or None) while a session records
 
 
@@ -209,6 +240,13 @@ def journal_rollback(entries: List[Tuple[Path, Optional[str]]]) -> None:
             path.unlink(missing_ok=True)
         else:
             path.write_text(previous, encoding="utf-8")
+
+
+def _write_local(path: Path, text: str) -> None:
+    """Atomic write of a local cache file (not journaled, not committed)."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    temporary.write_text(text, encoding="utf-8")
+    os.replace(temporary, path)
 
 
 def _write(path: Path, text: str, exclusive: bool) -> None:

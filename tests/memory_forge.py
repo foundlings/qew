@@ -6,11 +6,12 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from qew.forge import (
     Board,
     Forge,
+    ForgeError,
     ForgeRejected,
     ForgeUnavailable,
     IssueSpec,
@@ -34,6 +35,8 @@ class MemoryForge(Forge):
         self.columns: Dict[int, str] = {}
         self.priorities: Dict[int, str] = {}
         self.down = False
+        self.board_id = "B1"
+        self.hide_next_find = False
         self.reject_title: Optional[str] = None
         self.supports_boards = boards
         self.supports_links = links
@@ -41,9 +44,26 @@ class MemoryForge(Forge):
         self.pulls: Dict[int, RemotePullRequest] = {}
         self.pull_specs: Dict[int, PullRequestSpec] = {}
         self.merged: List[Tuple[int, str]] = []
+        self.raise_on: Dict[str, ForgeError] = {}  # call name -> the error that call raises
+        self.merge_calls: List[Tuple[int, str, bool]] = []  # (number, sha, bypass_checks)
+        self.body_writes: List[str] = []
+        self.assign_refused = False  # the forge opens the pull request but will not assign the login
+        self.ready_ignored = False  # accept mark-ready yet stay a draft
+        self.merge_lag_reads = 0  # reads after a merge call that still show the pull request open
+        self.merge_lag: Dict[int, int] = {}
+        self.after_read: List[Callable[["MemoryForge"], None]] = []  # run once after the next read, as a concurrent edit
+        self.body_write_ignored = False
+        self.required_checks: Dict[str, bool] = {}
+        self.rules_error: Optional[ForgeError] = None
+        self.supports_rules = True
+        self.supports_auto_merge = True
+        self.auto_merge_ignored = False
+        self.bypass_supported = True
 
     def _live(self, name: str) -> None:
         self.calls.append((name,))
+        if name in self.raise_on:
+            raise self.raise_on[name]
         if self.down:
             raise ForgeUnavailable("forge is down")
 
@@ -55,6 +75,9 @@ class MemoryForge(Forge):
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
         self._live("find")
+        if self.hide_next_find:  # a concurrent creator the first lookup could not see yet
+            self.hide_next_find = False
+            return None
         return next((i for i in self.issues.values() if marker in i.body), None)
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
@@ -81,7 +104,7 @@ class MemoryForge(Forge):
         if not self.supports_boards:
             raise Unsupported("ensure_board")
         self._live("board")
-        return Board("B1", f"https://{self.host}/o/r/projects/1", columns)
+        return Board(self.board_id, f"https://{self.host}/o/r/projects/{self.board_id}", columns)
 
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         self._live("place")
@@ -109,26 +132,69 @@ class MemoryForge(Forge):
         number = len(self.pulls) + 1
         self.pull_specs[number] = spec
         self.pulls[number] = RemotePullRequest(
-            number, f"https://{self.host}/o/r/pulls/{number}", "open", spec.draft, f"sha{number}", spec.head, spec.base, True, "passing"
+            number, f"https://{self.host}/o/r/pulls/{number}", "open", spec.draft, f"sha{number}", spec.head, spec.base, True,
+            "passing", spec.body, "opener", "" if self.assign_refused else spec.assignee,
         )
         return self.pulls[number]
 
     def read_pull_request(self, number: int) -> RemotePullRequest:
         self._live("read_pr")
-        return self.pulls[number]
+        if self.merge_lag.get(number, -1) == 0:
+            self.pulls[number] = self._with(number, state="merged", merge_sha="m" * 40)
+        elif number in self.merge_lag:
+            self.merge_lag[number] -= 1
+        seen = self.pulls[number]
+        for hook in self.after_read:
+            hook(self)
+        self.after_read.clear()
+        return seen
 
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
         self._live("ready_pr")
-        self.pulls[number] = self._with(number, draft=False)
+        if not self.ready_ignored:
+            self.pulls[number] = self._with(number, draft=False)
         return self.pulls[number]
 
-    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
+    def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
         self._live("merge_pr")
+        if bypass_checks and not self.bypass_supported:
+            raise Unsupported("merge_pull_request with bypass_checks")
         if self.pulls[number].head_sha != expected_head_sha:
             raise ForgeRejected(409, "head moved")
         self.merged.append((number, expected_head_sha))
-        self.pulls[number] = self._with(number, state="merged")
+        self.merge_calls.append((number, expected_head_sha, bypass_checks))
+        if self.merge_lag.get(number) is None and self.merge_lag_reads:
+            self.merge_lag[number] = self.merge_lag_reads
+        if number not in self.merge_lag:
+            self.pulls[number] = self._with(number, state="merged", merge_sha="m" * 40)
         return self.pulls[number]
+
+    def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
+        self._live("update_pr")
+        if not self.body_write_ignored:
+            self.pulls[number] = self._with(number, body=body)
+        self.body_writes.append(body)
+        return self.pulls[number]
+
+    def requires_status_checks(self, branch: str) -> bool:
+        self._live("rules")
+        if self.rules_error is not None:
+            raise self.rules_error
+        if not self.supports_rules:
+            raise Unsupported("requires_status_checks")
+        return self.required_checks.get(branch, False)
+
+    def enable_auto_merge(self, number: int) -> RemotePullRequest:
+        self._live("auto_merge")
+        if not self.supports_auto_merge:
+            raise Unsupported("enable_auto_merge")
+        if not self.auto_merge_ignored:
+            self.pulls[number] = self._with(number, auto_merge=True)
+        return self.pulls[number]
+
+    def edit_pull(self, number: int, **changes) -> None:
+        """Change the remote pull request behind qew's back, as a teammate or a CI run would."""
+        self.pulls[number] = self._with(number, **changes)
 
     def _with(self, number: int, **changes) -> RemotePullRequest:
         from dataclasses import replace

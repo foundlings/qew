@@ -113,6 +113,27 @@ def blocked(snapshot: Snapshot) -> List[str]:
     )
 
 
+WORK_STATES = ("ready", "blocked", "claimed", "plan", "needs_decision", "completed", "closed")
+
+
+def work_state(snapshot: Snapshot, item_id: str) -> str:
+    """The derived class of an item, most urgent first (see WORK_STATES for the order).
+
+    An epic is a `plan`; a draft `needs_decision`; open work with an unmet need is `blocked` even when
+    claimed (a stuck claim is the more urgent fact); otherwise `claimed` or `ready`.
+    """
+    state = state_of(snapshot, item_id)
+    if state in (None, State.DRAFT):
+        return "needs_decision"
+    if state in (State.COMPLETED, State.CLOSED):
+        return state.value
+    if snapshot.items[item_id].kind == Kind.EPIC:
+        return "plan"
+    if blockers(snapshot, item_id):
+        return "blocked"
+    return "claimed" if state == State.CLAIMED else "ready"
+
+
 def find_cycles(edges: Dict[str, List[str]]) -> List[List[str]]:
     """Every cycle found by depth-first search over `edges` (iterative, no recursion limit)."""
     cycles: List[List[str]] = []

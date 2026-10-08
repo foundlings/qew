@@ -40,7 +40,7 @@ def ensure(config: Config, wanted, build: Callable[[Mirror], Forge] = forge_regi
             lines.append(f"{slug}: failed {error.detail}")
             continue
         ledger.write_board(slug, {"id": board.id, "url": board.url, "columns": list(board.columns)})
-        lines.append(f"{slug}: board {board.id} {board.url}")
+        lines.append(f"{slug}: board {board.id} {board.url}" + (f" {untrusted_text.show(board.title).text}" if board.title else ""))
         lines.extend(f"{slug}: {untrusted_text.show(note).text}" for note in board.notes)
     if failed:
         print("\n".join(lines))

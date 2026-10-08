@@ -1,11 +1,12 @@
 """`qew check`: validate every file of a ledger without writing anything."""
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import tomllib
 from typing import Dict, List, Tuple
 
-from qew import ledger_graph, untrusted_text
+from qew import ledger_graph, ledger_invariants, untrusted_text
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
@@ -72,8 +73,28 @@ def read_snapshot(ledger: Ledger) -> Snapshot:
     return snapshot
 
 
+@dataclass(frozen=True)
+class Report:
+    problems: List[str]
+    notes: List[str]
+    cycles: List[List[str]]
+    contradictions: List[Dict[str, str]]
+    text_findings: List[Dict[str, object]]
+
+    def as_json(self) -> dict:
+        return {
+            "schema_version": SCHEMA_VERSION, "valid": not self.problems, "cycles": self.cycles,
+            "contradictions": self.contradictions, "text_findings": self.text_findings, "problems": self.problems,
+        }
+
+
 def check_report(ledger: Ledger):
     """(problems, notes): problems fail the check, notes are counts that are reported and not fatal."""
+    report = analyse(ledger)
+    return report.problems, report.notes
+
+
+def analyse(ledger: Ledger) -> Report:
     snapshot, problems = load(ledger)
     items = snapshot.items
     _check_edges(snapshot, problems)
@@ -81,8 +102,15 @@ def check_report(ledger: Ledger):
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
     _check_claim_refs(snapshot, problems)
-    problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in text_findings(snapshot) for kind in kinds)
-    return problems, ([f"imported without evidence: {imported}"] if imported else [])
+    ledger_invariants.report(snapshot, problems)
+    findings = text_findings(snapshot)
+    problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in findings for kind in kinds)
+    found = contradictions(snapshot)
+    problems.extend(f"contradiction: {c['item']} {c['kind']}" for c in found)
+    return Report(
+        problems, ([f"imported without evidence: {imported}"] if imported else []), _cycles(snapshot), found,
+        [{"item": item_id, "findings": list(kinds)} for item_id, kinds in findings],
+    )
 
 
 def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
@@ -91,7 +119,7 @@ def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         problems.append(f"{LEDGER_FILE}: {error}")
         return
-    if data.get("schema_version") != SCHEMA_VERSION:
+    if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
         problems.append(f"{LEDGER_FILE}: schema_version must be {SCHEMA_VERSION}")
 
 
@@ -186,3 +214,33 @@ def text_findings(snapshot: Snapshot):
         for item_id, item in snapshot.items.items()
         if snapshot.folds[item_id].state in (State.APPROVED, State.CLAIMED) and untrusted_text.findings(item.title)
     ]
+
+
+def _cycles(snapshot: Snapshot) -> List[List[str]]:
+    """Each needs or parent cycle once, rotated to start at its smallest id and closed back on it."""
+    needs = {i.id: [n for n in i.needs if n in snapshot.items] for i in snapshot.items.values()}
+    parents = {i.id: [i.parent] if i.parent in snapshot.items else [] for i in snapshot.items.values()}
+    found = set()
+    for edges in (needs, parents):
+        for cycle in ledger_graph.find_cycles(edges):
+            ring = cycle[:-1]
+            start = ring.index(min(ring))
+            found.add(tuple([*ring[start:], *ring[:start]]) + (min(ring),))
+    return [list(cycle) for cycle in sorted(found)]
+
+
+def contradictions(snapshot: Snapshot) -> List[Dict[str, str]]:
+    """States the ledger can hold but a board or a plan cannot show."""
+    found = []
+    for item_id, item in sorted(snapshot.items.items()):
+        state = snapshot.folds[item_id].state
+        if item.kind == Kind.EPIC and state == State.CLAIMED:
+            found.append({"item": item_id, "kind": "claimed_epic"})
+        if state == State.COMPLETED:
+            if any(n in snapshot.items and snapshot.folds[n].state not in (State.COMPLETED, State.CLOSED) for n in item.needs):
+                found.append({"item": item_id, "kind": "completed_with_open_needs"})
+        parent = snapshot.items.get(item.parent) if item.parent else None
+        if parent is not None and snapshot.folds[parent.id].state == State.COMPLETED:
+            if state not in (State.COMPLETED, State.CLOSED):
+                found.append({"item": item_id, "kind": "open_child_of_completed_epic"})
+    return found

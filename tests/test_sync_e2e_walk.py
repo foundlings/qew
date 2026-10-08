@@ -82,6 +82,7 @@ class SyncE2eWalk(unittest.TestCase):
         merge = w.run("pr", "merge", number, env=self.env)
         self.assertEqual(merge.returncode, 2, "a draft pull request must not merge")
         self.assertEqual(w.run("pr", "ready", number, env=self.env).returncode, 0)
+        self.assertEqual(w.run("evidence", item, "--change", sha).returncode, 0)
         merged = w.run("pr", "merge", number, env=self.env)
         self.assertEqual(merged.returncode, 0, merged.stderr)
         self.assertIn("qew complete", merged.stdout)

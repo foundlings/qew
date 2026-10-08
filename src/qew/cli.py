@@ -7,7 +7,7 @@ import os
 import sys
 from typing import List, Optional, Sequence
 
-from qew import __version__, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
+from qew import __version__, editor, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
 from qew.errors import QewError
 
 
@@ -20,6 +20,7 @@ Read
   qew graph       dependency edges
   qew plan        status: roll up an epic's children
   qew check       validate the ledger
+  qew inbox       one person's waiting drafts and assigned work
 Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
@@ -35,7 +36,8 @@ Work
 Drafts (only a human's quoted words release work)
   qew draft       list | approve | revert
 Pull requests
-  qew pr          open | ready | merge
+  qew pr          open | check | ready | merge
+  qew land        complete the items of a merged pull request
 Mirrors
   qew sync        push the ledger to every mirror target
   qew project     ensure the board on each target
@@ -53,7 +55,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_comment", "cmd_block", "cmd_plan")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox", "cmd_comment", "cmd_block", "cmd_plan")
 
 
 def _plugins() -> list:
@@ -89,6 +91,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--priority", type=int, default=2, help="lower is sooner")
     create.add_argument("--body", help="Markdown body")
     create.add_argument("--body-file", help="read the body from a file, or - for stdin")
+    create.add_argument("--edit", action="store_true", help="write the body in $VISUAL or $EDITOR")
     create.add_argument("--quote", help="a human's words, \"Name: 'their words'\"; releases the item")
     create.add_argument("--from-file", help="a plan: JSON Lines, one object or an array of items, or - for stdin")
     create.add_argument("--draft", action="store_true", help="with --from-file: file every item as a draft (refuses --quote and approved lines)")
@@ -109,6 +112,7 @@ def _parser() -> argparse.ArgumentParser:
     set_.add_argument("--add-label", action="append", default=[], help="add one label, repeatable")
     set_.add_argument("--remove-label", action="append", default=[], help="remove one label, repeatable")
     set_.add_argument("--json", action="store_true", help="machine-readable output")
+    set_.add_argument("--edit", action="store_true", help="rewrite the body in $VISUAL or $EDITOR")
     set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
 
     for name, text in (("start", "claim approved, unblocked work"), ("release", "give up a claim"),
@@ -122,7 +126,8 @@ def _parser() -> argparse.ArgumentParser:
     close = commands.add_parser("close", help="close work that will not be completed")
     close.add_argument("item", help="item id or alias")
     close.add_argument("--reason", required=True, help="not_planned, duplicate or superseded")
-    commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
+    check = commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
+    check.add_argument("--json", action="store_true", help="machine-readable report: valid, cycles, contradictions, text_findings")
 
     draft = commands.add_parser("draft", help="drafts and their release by a human")
     draft_commands = draft.add_subparsers(dest="draft_command", required=True)
@@ -151,8 +156,13 @@ def _plan(arguments: argparse.Namespace) -> plan_file.Plan:
     if not arguments.title:
         raise QewError("--title is required", 2)
     body = arguments.body
+    sources = [bool(arguments.body is not None), bool(arguments.body_file), arguments.edit]
+    if sum(sources) > 1:
+        raise QewError("use only one of --body, --body-file and --edit", 2)
     if arguments.body_file:
-        body = sys.stdin.read() if arguments.body_file == "-" else _read(arguments.body_file)
+        body = sys.stdin.read() if arguments.body_file == "-" else editor.read_body_file(arguments.body_file)
+    if arguments.edit:
+        body = editor.edit_body()
     return plan_file.single(
         {
             "kind": arguments.kind,
@@ -202,11 +212,14 @@ def _run(arguments: argparse.Namespace) -> None:
             value = getattr(arguments, key)
             if value is not None:
                 changes[key] = " ".join(value)
+        sources = [arguments.body is not None, bool(arguments.body_file), arguments.edit]
+        if sum(sources) > 1:
+            raise QewError("use only one of --body, --body-file and --edit", 2)
         body = arguments.body
         if arguments.body_file:
-            if body is not None:
-                raise QewError("give --body or --body-file, not both", 2)
-            body = sys.stdin.read() if arguments.body_file == "-" else _read(arguments.body_file)
+            body = sys.stdin.read() if arguments.body_file == "-" else editor.read_body_file(arguments.body_file)
+        if arguments.edit:
+            body = editor.edit_body()
         changed = cmd_items.set_fields(
             config, arguments.items, changes, body, arguments.closed, arguments.add_label, arguments.remove_label
         )
@@ -223,6 +236,12 @@ def _run(arguments: argparse.Namespace) -> None:
         print(cmd_flow.close(config, arguments.item, arguments.reason))
     elif command == "check":
         ledger = cmd_items.ledger_for(config)
+        if arguments.json:
+            report = ledger_check.analyse(ledger)
+            print(json.dumps(report.as_json()))
+            if report.problems:
+                raise QewError(f"{len(report.problems)} problem(s)", 1)
+            return
         problems, notes = ledger_check.check_report(ledger)
         if problems:
             print("\n".join(problems))
