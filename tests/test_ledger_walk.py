@@ -34,10 +34,12 @@ class LedgerWalk(unittest.TestCase):
         blocked = w.run("blocked").stdout.splitlines()
         self.assertEqual(len(blocked), 1, blocked)
         self.assertIn("Use parser", blocked[0])
-        self.assertIn(first[-8:], blocked[0])
+        self.assertTrue(first.startswith(blocked[0].split("<- ")[1]), blocked[0])
 
         graph = w.run("graph").stdout.splitlines()
-        self.assertEqual(graph, [f"{second} -> {first}"])
+        left, right = graph[0].split(" -> ")
+        self.assertEqual(len(graph), 1)
+        self.assertTrue(second.startswith(left) and first.startswith(right), graph)
 
     def test_item_file_is_a_fixed_header_ending_at_a_rule(self) -> None:
         w = self.world
@@ -54,7 +56,7 @@ class LedgerWalk(unittest.TestCase):
         w = self.world
         first = w.create("--kind", "issue", "--title", "A")
         second = w.create("--kind", "issue", "--title", "B", "--needs", first)
-        shown = w.run("show", first[-26:][:8]).stdout
+        shown = w.run("show", first[4:20]).stdout
         self.assertIn(first, shown)
         self.assertIn("state: draft", shown)
         self.assertIn(f"blocks: {second}", shown)

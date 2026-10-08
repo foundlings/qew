@@ -1,0 +1,230 @@
+"""Commands that create, change and read items: init, create, set, show, list, ready, blocked, graph."""
+
+import json
+from pathlib import Path
+import sys
+from typing import Callable, Dict, List, Optional
+
+from qew import ledger_config, ledger_graph
+from qew.errors import QewError
+from qew.ledger_config import CONFIG, LEDGER_FILE, Config
+from qew.ledger_event import State
+from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header, valid_id
+from qew.ledger_store import Ledger, Snapshot, actor, now, open_ledger
+from qew.requester import require_quote
+
+
+def ledger_for(config: Config) -> Ledger:
+    return open_ledger(config.ledger_path, config.prefix)
+
+
+def init(prefix: Optional[str], ledger: Optional[str]) -> str:
+    root = Path.cwd().resolve()
+    config_path = root / CONFIG
+    created = []
+    if not config_path.exists():
+        chosen = (prefix or root.name[:3]).upper()
+        if not chosen.isalnum():
+            raise QewError("--prefix must be letters or digits", 2)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            f'[ledger]\npath = "{ledger or "../" + root.name + "-ledger"}"\nprefix = "{chosen}"\n',
+            encoding="utf-8",
+        )
+        created.append(str(CONFIG))
+    config = ledger_config.load(root)
+    marker = config.ledger_path / LEDGER_FILE
+    if not marker.exists():
+        config.ledger_path.mkdir(parents=True, exist_ok=True)
+        marker.write_text(
+            f'name = "{config.ledger_path.name}"\nprefix = "{config.prefix}"\nschema_version = 1\n',
+            encoding="utf-8",
+        )
+        created.append(str(marker))
+    return "\n".join(f"created {path}" for path in created) or "already initialized"
+
+
+def build_item(ledger: Ledger, spec: dict, resolved: Dict[str, str], known: List[str]) -> Item:
+    def reference(value: str) -> str:
+        if value.startswith("@"):
+            if value[1:] not in resolved:
+                raise QewError(f"unknown ref `{value}`", 2)
+            return resolved[value[1:]]
+        return ledger.resolve(value, known)
+
+    parent = spec.get("parent") or ""
+    header = {
+        "id": ledger.new_id(),
+        "kind": str(spec.get("kind", "issue")),
+        "title": str(spec.get("title", "")),
+        "parent": reference(parent) if parent else "",
+        "needs": " ".join(reference(need) for need in spec.get("needs", [])),
+        "labels": " ".join(spec.get("labels", [])),
+        "owner": "",
+        "priority": str(spec.get("priority", DEFAULT_PRIORITY)),
+        "created": now(),
+    }
+    for label in spec.get("labels", []):
+        if not label or any(c.isspace() for c in label):
+            raise QewError(f"label `{label}` must be one word", 2)
+    return from_header(header, str(spec.get("body", "")), "new item")
+
+
+def create(config: Config, specs: List[dict], quote: Optional[str]) -> List[str]:
+    ledger = ledger_for(config)
+    verified = require_quote(quote) if quote else None
+    known = ledger.item_ids()
+    resolved: Dict[str, str] = {}
+    built = []
+    for spec in specs:
+        item = build_item(ledger, spec, resolved, known)
+        if spec.get("ref"):
+            resolved[str(spec["ref"])] = item.id
+        built.append(item)
+        known.append(item.id)
+    lines = []
+    for item in built:
+        ledger.write_item(item)
+        if verified:
+            ledger.append_event(item.id, "approved", quote=verified)
+        else:
+            ledger.append_event(item.id, "drafted")
+        lines.append(f"{item.id} {'approved' if verified else 'draft'} {item.title}")
+    return lines
+
+
+def set_fields(config: Config, reference: str, changes: Dict[str, str], body: Optional[str]) -> List[str]:
+    ledger = ledger_for(config)
+    snapshot = ledger.snapshot()
+    item_id = ledger.resolve(reference, list(snapshot.items))
+    item = snapshot.items[item_id]
+    lines = []
+    for key, value in changes.items():
+        if key in ("needs", "parent"):
+            value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())
+        old = item.header()[key]
+        if old == value:
+            continue
+        updated = item.with_value(key, value)
+        ledger.write_item(updated, overwrite=True)
+        ledger.append_event(item_id, "field", key=key, old=old, new=value)
+        item = updated
+        lines.append(f"{item_id} {key}: {old} -> {value}")
+    if body is not None and body != item.body:
+        ledger.write_item(Item(**{**item.__dict__, "body": body}), overwrite=True)
+        ledger.append_event(item_id, "field", key="body", old="", new="(changed)")
+        lines.append(f"{item_id} body changed")
+    return lines or [f"{item_id} unchanged"]
+
+
+def row(snapshot: Snapshot, item_id: str) -> str:
+    item = snapshot.items[item_id]
+    state = snapshot.folds[item_id].state
+    owner = snapshot.folds[item_id].owner
+    suffix = f" @{owner}" if owner else ""
+    return f"{snapshot.short(item_id)} {state.value if state else '?'} p{item.priority} {item.kind.value} {item.title}{suffix}"
+
+
+def row_data(snapshot: Snapshot, item_id: str) -> dict:
+    item = snapshot.items[item_id]
+    folded = snapshot.folds[item_id]
+    return {
+        "id": item_id,
+        "kind": item.kind.value,
+        "title": item.title,
+        "state": folded.state.value if folded.state else None,
+        "owner": folded.owner,
+        "priority": item.priority,
+        "parent": item.parent,
+        "needs": list(item.needs),
+        "labels": list(item.labels),
+    }
+
+
+def emit(snapshot: Snapshot, ids: List[str], as_json: bool) -> None:
+    if as_json:
+        print(json.dumps([row_data(snapshot, item_id) for item_id in ids]))
+    else:
+        for item_id in ids:
+            print(row(snapshot, item_id))
+
+
+def list_items(
+    config: Config, kind: Optional[str], state: Optional[str], label: Optional[str], as_json: bool
+) -> None:
+    snapshot = ledger_for(config).snapshot()
+    ids = ledger_graph.ordered(snapshot, list(snapshot.items))
+    if kind:
+        ids = [i for i in ids if snapshot.items[i].kind.value == kind]
+    if state:
+        ids = [i for i in ids if (snapshot.folds[i].state or State.DRAFT).value == state]
+    if label:
+        ids = [i for i in ids if label in snapshot.items[i].labels]
+    emit(snapshot, ids, as_json)
+
+
+def ready(config: Config, as_json: bool) -> None:
+    snapshot = ledger_for(config).snapshot()
+    emit(snapshot, ledger_graph.ready(snapshot), as_json)
+
+
+def blocked(config: Config, as_json: bool) -> None:
+    snapshot = ledger_for(config).snapshot()
+    ids = ledger_graph.blocked(snapshot)
+    if as_json:
+        print(json.dumps([{**row_data(snapshot, i), "blocked_by": ledger_graph.blockers(snapshot, i)} for i in ids]))
+        return
+    for item_id in ids:
+        unmet = " ".join(snapshot.short(b) if b in snapshot.items else b for b in ledger_graph.blockers(snapshot, item_id))
+        print(f"{row(snapshot, item_id)} <- {unmet}")
+
+
+def graph(config: Config, as_json: bool) -> None:
+    snapshot = ledger_for(config).snapshot()
+    edges = [(item.id, need) for item in snapshot.items.values() for need in item.needs]
+    edges.sort()
+    if as_json:
+        print(json.dumps([{"item": a, "needs": b} for a, b in edges]))
+        return
+    for item_id, need in edges:
+        short = snapshot.short(need) if need in snapshot.items else need
+        print(f"{snapshot.short(item_id)} -> {short}")
+
+
+def show(config: Config, reference: str, as_json: bool) -> None:
+    ledger = ledger_for(config)
+    snapshot = ledger.snapshot()
+    item_id = ledger.resolve(reference, list(snapshot.items))
+    item = snapshot.items[item_id]
+    folded = snapshot.folds[item_id]
+    kids = ledger_graph.children(snapshot).get(item_id, [])
+    blocks = ledger_graph.blocks(snapshot).get(item_id, [])
+    mirrors = ledger.load_mirrors(item_id)
+    data = {
+        **row_data(snapshot, item_id),
+        "children": kids,
+        "blocks": blocks,
+        "evidence": [event.data for event in folded.evidence],
+        "mirrors": [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in mirrors],
+        "body": item.body,
+    }
+    if as_json:
+        print(json.dumps(data))
+        return
+    print(f"id: {item_id}")
+    print(f"kind: {item.kind.value}")
+    print(f"title: {item.title}")
+    print(f"state: {data['state']}")
+    if folded.owner:
+        print(f"owner: {folded.owner}")
+    print(f"priority: {item.priority}")
+    for key, values in (("parent", [item.parent] if item.parent else []), ("needs", item.needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
+        if values:
+            print(f"{key}: {' '.join(values)}")
+    for event in folded.evidence:
+        print(f"evidence: {event.get('vcs')} {' '.join(event.get('change_ids'))}")
+    for mirror in data["mirrors"]:
+        print(f"mirror: {mirror['target']} #{mirror['number']}")
+    if item.body.strip():
+        print("---")
+        print(item.body.rstrip())
