@@ -134,10 +134,11 @@ class OwnershipWalk(unittest.TestCase):
         second = self.w.item("Two", parent=epic, by="other")
         self.assertEqual(self.w.open(epic, actor="other").code, 0)
         pr = "2"
-        for item in (epic, first):
-            self.hand_over(item, "tester")
+        # releasing an epic frees the descendants it holds; the new holder then takes them one claim at a time
+        self.assertEqual(self.w.qew("release", epic, "--reason", "handover", actor="other").code, 0)
+        self.assertEqual(self.w.qew("start", first, actor="tester").code, 0)
         self.assertEqual(self.w.qew("pr", "ready", pr).code, 3)
-        self.hand_over(second, "tester")
+        self.assertEqual(self.w.qew("start", epic, actor="tester").code, 0)  # claims the epic and what is still free
         self.assertEqual(self.w.qew("pr", "ready", pr).code, 0)
 
     def test_a_pull_request_that_covers_no_item_is_refused(self) -> None:
