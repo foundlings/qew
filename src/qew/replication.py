@@ -20,7 +20,7 @@ from qew.ledger_repo import LedgerRepo
 LOCK_WAIT_SECONDS = 15.0
 CHECKPOINT_EVERY = 25
 # Commands that keep partial work when they fail midway (see module docstring).
-KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert"}
+KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land"}
 
 
 def verb_for(arguments) -> Optional[str]:
@@ -33,8 +33,10 @@ def verb_for(arguments) -> Optional[str]:
         return arguments.draft_command
     if command == "project" and arguments.project_command == "ensure":
         return "board"
-    if command == "pr" and arguments.pr_command == "open":
-        return "pr-open"
+    if command == "pr" and arguments.pr_command in ("open", "ready", "merge"):
+        return f"pr-{arguments.pr_command}"
+    if command == "land":
+        return "land"
     return None
 
 

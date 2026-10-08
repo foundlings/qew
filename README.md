@@ -63,7 +63,9 @@ select = "label:area:erp"       # optional: label:X kind:X state:X priority:N; s
 ```
 
 Tokens come from `GITHUB_TOKEN`, `FORGEJO_TOKEN`/`GITEA_TOKEN`, `GITLAB_TOKEN` or the mirror's `token_env`.
-`api = "URL"` overrides the API root for self-hosted installs. `qew sync --dry-run` shows the plan offline.
+`QEW_FORGE_LOGIN` names the forge login pull requests are assigned to when it differs from `QEW_ACTOR`.
+`api = "URL"` overrides the API root for self-hosted installs; `timeout = SECONDS` bounds every request (default 30).
+Repo and API URLs must be http(s) without credentials, query or fragment, and `repo` names `owner/repo`. `qew sync --dry-run` shows the plan offline.
 
 ## Commands
 
@@ -73,7 +75,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 - Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
-- Pull requests: `qew pr` (group), `qew pr open`, `qew pr ready`, `qew pr merge`
+- Pull requests: `qew pr` (group), `qew pr open`, `qew pr check`, `qew pr ready`, `qew pr merge`, and `qew land` once one merged
 - Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
 - Setup: `qew --version`, `qew init`, `qew hook install`, `qew hook remove`
 
@@ -84,6 +86,7 @@ Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`,
 `--reason`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
 `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
+Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 
 ## Hooks
 

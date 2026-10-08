@@ -4,7 +4,7 @@ from collections import deque
 import json
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from qew import cmd_read, ledger_graph, read_view
+from qew import cmd_read, ledger_graph, pr_record, read_view
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
@@ -158,3 +158,8 @@ def _refuse_in_review(ledger: Ledger, item_id: str) -> None:
     for record in ledger.load_mirrors(item_id):
         if record.get("kind") == "pr" and record.get("draft") is not True:
             raise QewError(f"{item_id} has an open pull request; close or merge it first, nothing was changed", 2)
+    covering = pr_record.covering_open(ledger, item_id)
+    if covering:
+        raise QewError(
+            f"{item_id} has an open pull request; close or merge it first, nothing was changed (pull request #{covering[0]})", 2
+        )
