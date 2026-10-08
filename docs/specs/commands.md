@@ -17,7 +17,7 @@ readable: every read refuses it (exit 1) and names the file instead of listing w
 needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | needs owner parent schema_version text_findings
+shape row: id kind labels priority state title | needs owner parent schema_version text_findings work_state
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
 shape edge: item schema_version | needs parent
@@ -36,14 +36,25 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 
 ## Read
 - `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
-- `qew list [--kind K] [--state S] [--label L] [--json]`, `qew ready [--json]`, `qew blocked [--chains] [--json]`,
-  `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
-  (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
-  characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network. `ready` lists by priority, then the
-  longest chain it unblocks, then direct dependents, then id. `blocked --chains` adds, under each row,
+- `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
+  [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
+  only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
+  of the creating event. `work_state` (JSON rows) is the derived class, in list order: `ready`, `blocked`
+  (open work with an unmet need, claimed or not: a stuck claim is the more urgent fact), `claimed`, `plan`
+  (an epic), `needs_decision` (a draft), `completed`, `closed`; then priority, then id. A filter that
+  matches nothing prints nothing and exits 0; `--limit` cuts with a stderr warning.
+- `qew ready [--limit N] [--json]`: at most 30 items by default, `--limit 0` for all; a cut is reported as
+  `truncated` with `total` in JSON and on stderr. A negative or non-integer limit is a usage error (exit 2).
+  Ordered by priority, then the longest chain it unblocks, then direct dependents, then id.
+- `qew blocked [--chains] [--json]`: approved or claimed work with unmet needs; JSON `blocked_by` holds
+  `{id, state, title}` per unmet need (`closed`, or `missing` for a need that does not exist).
+  `--chains` adds, under each row,
   `  chain: ITEM -> NEED -> ... [root STATE]`: the longest chain of unmet needs (ties: lowest id) to a root blocker
   that has no unmet needs, is closed, or is `dangling` (no such item); `--json` rows gain `chain` and `root`.
   A needs cycle is refused (exit 1).
+- `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
+  (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
+  characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
 - `qew check`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors. Writes nothing; exit 1 on any problem.
 

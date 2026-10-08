@@ -88,6 +88,8 @@ Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`,
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 
+Read flags: `--limit`, `--owner`, `--author`, `--work-state`.
+
 ## Hooks
 
 `qew hook install --git` adds a tracked pre-push hook and `qew hook vcs-check` refuses pushes of commits whose `Refs: ID` trailers cite items without evidence (jj pushes are checked by the agent guard). `qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
