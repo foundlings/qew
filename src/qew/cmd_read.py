@@ -4,7 +4,7 @@ import argparse
 import sys
 from typing import List, Optional
 
-from qew import text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
@@ -224,7 +224,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
         ("blocking", [read_view.related(snapshot, b) for b in blocks]),
         ("children", [read_view.related(snapshot, k) for k in kids]),
-        ("links", links), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("body", item.body),
+        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("body", item.body),
     )
     for key, value in related:
         if value:
@@ -241,6 +241,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     print(f"kind: {item.kind.value}")
     print(f"title: {untrusted_text.show(item.title).text}")
     print(f"state: {data['state']}")
+    for line in show_history.release_lines(snapshot.events[item_id]):
+        print(line)
     if folded.owner:
         print(f"owner: {folded.owner}")
     print(f"priority: {item.priority}")

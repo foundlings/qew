@@ -8,6 +8,8 @@ ledger or forge failure, 2 refusal or usage, 3 ownership conflict or environment
 data: nothing written), 5 already yours (idempotent, nothing written), 6 claim cap reached.
 `--json` (before or after the command) prints `{"schema_version": 1, ...}` for write commands; errors keep the
 plain stderr message and the exit code.
+The actor written into events is `QEW_ACTOR`, else `USER`; it must be one word without spaces, commas or control
+characters (exit 3 otherwise) and `qew check` flags events whose actor is not such a token.
 
 ## Machine output
 Bounded answers (`ready`, `blocked`) print one envelope object; open-ended lists (`list`, `graph`,
@@ -27,7 +29,7 @@ shape row: id kind labels priority state title | body children_done children_ope
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent pr root text_findings tracks holders stale
 shape edge: item schema_version | needs parent
-shape show: author draft id kind labels priority schema_version state title claim holders | blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings stale completion closure closed_duplicates supersedes discovered_from discovered
+shape show: author draft id kind labels priority schema_version state title claim holders | approvals blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings stale completion closure closed_duplicates supersedes discovered_from discovered
 shape triage_row: body id kind labels missing priority schema_version state title | needs owner parent text_findings holders stale
 shape check: contradictions cycles problems schema_version text_findings valid
 shape inbox_reply: at author excerpt id schema_version section
@@ -82,6 +84,12 @@ shape prime: additional_context context_bytes schema_version
 - `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
+- `qew plan status [EPIC] [--json]`: roll up the direct children of one epic (every open epic when none is named)
+  from files: counts `total draft ready blocked claimed closed`, `next` (the lowest priority number then id among
+  ready children, never a draft or blocked child), and `completable` (non-draft epic, at least one child, every
+  child completed or closed) with `complete_command` `qew complete ID`. A draft epic prints `(draft plan)`. Text
+  is `ID state title` then `N/M closed` (`, K drafts` only when K > 0). A non-epic or unknown id is exit 2; a
+  dangling need or illegal event order is exit 1 with no rollup. `--json` has `schema_version` 1.
 - `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors, reserved labels. Graph invariants, each named with its file and counted on a final
   `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history or mirrors
@@ -137,20 +145,40 @@ shape prime: additional_context context_bytes schema_version
 
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
-  [--body-file F | --edit] [--quote Q] [--from-file F]`: a draft unless `--quote` carries a human's words
-  (`"Name: 'their words'"`), which files it approved. `--from-file` takes a JSON object or array (or `-`
-  for stdin); items may carry `id` (imports keep it), `created`, `ref`, and `@ref` entries in `needs`/`parent`.
-  `--from-file` and `--body-file` refuse a symlink (exit 2). `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
+  [--body-file F | --edit] [--quote Q] [--from-file F [--draft] [--dry-run]] [--json]`: a draft unless `--quote` carries a human's words
+  (`"Name: 'their words'"`), which files it approved. `--from-file` takes a plan: JSON Lines, one JSON object or an array (or `-`
+  for stdin). The whole plan is validated before the first write (exit 2, naming the line): regular UTF-8
+  file, not a symlink; no unknown fields; unique `ref`s; `@ref` entries in `needs`/`parent` resolve in any
+  order; no cycle, bad nesting or self edge; `id` (imports keep it), `created` allowed. `--body-file` refuses a symlink (exit 2). An entry with a valid
+  `quote` is filed approved with its own words; `--quote` is the default for entries without one; an entry with
+  no quote is a draft; `approved: true` needs a quote. `--draft` files every entry as a draft and refuses
+  `approved: true` lines and `--quote`.
+  `--dry-run` runs the full validation, writes and calls nothing, and prints the operations in apply order
+  (`create` with `draft`, `adopt`, `parent`, `need`; `--json` adds `schema_version` 1 and `plan_sha256`).
+  Re-running the same plan file adopts the items an earlier (killed) run already wrote instead of creating them
+  again: each created item's first event carries `plan` (sha256 of the bytes), `key` (`ref` or `line-N`) and
+  `source` (file name). Two items with one marker are `ambiguous`; an edited file over items of its earlier
+  revision is `plan revision mismatch` (both exit 2, nothing written). `--json` is `{"created": {key: id},
+  "adopted": [key]}`.
+  `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
-- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N]
-  [--body TEXT | --edit] [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
+- Bodies given to `create` and `set` are scanned for commands, flags and paths written as plain prose (`qew start X`,
+  `--force`, `/etc/hosts`, `git push`, `gh pr`, `python -m`, `pipx install`). Each distinct token prints
+  `warning: unmarked code-shaped text: TOKEN` on stderr, in order of appearance; the write still succeeds. Inline
+  code, backtick or tilde fences (an unclosed fence runs to the end) and URLs are not reported.
+- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N] [--due YYYY-MM-DD]
+  [--body TEXT | --edit] [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--closed] [--json]`: edits the header; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
   need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
   `--closed`. Several items may share parent, needs, labels or priority; `--title` and `--body` take one item.
-  `qew create` applies the same edge rules before writing. No change prints `unchanged` and writes nothing.
+  `--add-label`/`--remove-label` are additive and idempotent (never with `--labels`); `--kind` is revalidated
+  against the nesting rules; one `field` event per changed key, and the item is re-read and compared (exit 3
+  on a mismatch).
+  `qew create` applies the same edge rules before writing.
+  No change prints `unchanged` and writes nothing.
   `--edit` runs `$VISUAL`, else `$EDITOR` (split, never via a shell) on an empty temp file in a private
   directory, removed on every path; unset, blank, unparseable, a non-zero exit or an empty result refuse with
   exit 2. `--body-file` refuses a symlink and an empty file.
@@ -215,6 +243,14 @@ shape prime: additional_context context_bytes schema_version
 - `qew reopen ITEM --reason TEXT [--json]`: completed or closed work returns to approved with the reason recorded;
   an item that is already open prints `unchanged ITEM (already open)`, exit 0, and writes nothing.
 
+- `qew block ITEM --on BLOCKER [--closed] [--json]`, `qew unblock ITEM --from BLOCKER [--closed] [--json]`: add or
+  remove one need, validated like `set` (cycle, self edge), a no-op (`unchanged`, no event) when the edge already
+  is or is not there, one `field` audit event otherwise, read back after the write (mismatch is exit 3).
+  Completed or closed items need `--closed`.
+- `qew comment ITEM (--body TEXT | --body-file F)`: append a `comment` event to any item in any state (`-`
+  reads stdin); the body is stored verbatim as data, must not be blank, and never changes state. `qew show` lists
+  comments in order with actor and time.
+
 ## Drafts
 - `qew draft`: the group for the three commands below.
 - `qew draft list [--parent ID] [--json]`: open drafts by priority then id, with kind and parent;
@@ -238,7 +274,13 @@ shape prime: additional_context context_bytes schema_version
   board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
   warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
-  lose their card (`pruned N`); their issues are never closed.
+  lose their card (`pruned N`); their issues are never closed. `--item ID` also refreshes the mirrored items whose
+  card that item moves: its direct dependents and its parent epics (each card written only when it differs).
+  A target with `milestones = true` also mirrors each approved, non-draft epic as a forge milestone (title, `Approved:`
+  plus the approving quote, the epic's `due` date) and assigns its approved children; description and due date are
+  rewritten only on drift, an issue already in another milestone is reported `not moved`, a milestone closes only when
+  its epic is completed and no open issue sits in it (and is reopened if the epic is), every write is read back, and a
+  forge without milestones is `skipped milestones`. Reports `milestones created N updated N unchanged N`.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
   After the ledger commit, `sync` pushes the code repo (`[code] target`) and the ledger repo (`[replication] branch`)
   to every target through a git remote `qew-<slug>` (never forced). The clone URLs are the `[[mirror]]` keys `git_url`

@@ -70,7 +70,8 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
                  build: Callable[[Mirror], Forge] = forge_registry.build, budget_s: Optional[float] = None,
                  tick: Optional[Callable[[], None]] = None) -> str:
     ledger = ledger_for(config)
-    problems = ledger_check.check(ledger)
+    # Contradictions and unsafe actor names are reported by `qew check` but must never stop mirroring.
+    problems = [p for p in ledger_check.check(ledger) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
     if problems:
         raise QewError(f"the ledger has {len(problems)} problem(s); run `qew check`", 1)
     mirrors = choose(mirrors_with_boards(ledger, config), wanted)
@@ -134,11 +135,14 @@ def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[st
         head += f" adopted {report.adopted}"
     if report.skipped:
         head += f" skipped {','.join(report.skipped)}"
-    if pulled is not None and (pulled.applied or pulled.divergences or pulled.new_items or pulled.comments):
+    if pulled is not None and (pulled.applied or pulled.divergences or pulled.new_items or pulled.comments or pulled.duplicates):
         head += (f" pulled applied={pulled.applied} divergences={pulled.divergences}"
-                 f" new={pulled.new_items} comments={pulled.comments}")
+                 f" new={pulled.new_items} comments={pulled.comments} duplicates_closed={pulled.duplicates}")
     if report.pruned:
         head += f" pruned {report.pruned}"
+    if report.milestones_created or report.milestones_updated or report.milestones_unchanged:
+        head += (f" milestones created {report.milestones_created} updated {report.milestones_updated}"
+                 f" unchanged {report.milestones_unchanged}")
     lines = [head]
     lines.extend(f"  warning {warning}" for warning in report.warnings)
     lines.extend(f"  failed {failure}" for failure in report.failures)

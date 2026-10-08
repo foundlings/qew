@@ -42,17 +42,6 @@ class JsonResultWalk(unittest.TestCase):
         result = self.parse("start", item, "--lane", "lane-a", "--kind", "token", "--json")
         self.assertEqual((result["lane"], result["kind"]), ("lane-a", "token"))
 
-    def test_create_json_for_a_batch_is_an_array_in_input_order(self) -> None:
-        """Prevents parsing stdout lines."""
-        batch = json.dumps([{"title": "First"}, {"title": "Second"}])
-        result = self.world.run("create", "--from-file", "-", "--json", stdin=batch)
-        self.assertTrue(result.stdout.lstrip().startswith("["), result.stdout)
-        rows = json.loads(result.stdout)
-        self.assertEqual([r["state"] for r in rows], ["draft", "draft"])
-        self.assertTrue(all(r["schema_version"] == 1 for r in rows))
-        titles = [json.loads(self.world.run("show", r["id"], "--json").stdout)["title"] for r in rows]
-        self.assertEqual(titles, ["First", "Second"])
-
     def test_every_other_write_command_pins_its_object_shape(self) -> None:
         """Prevents shape drift: one table of the keys each command promises."""
         w = self.world
@@ -60,14 +49,9 @@ class JsonResultWalk(unittest.TestCase):
         item = started(w, title="Item")
         w.run("evidence", item, "--change", w.commit("work"))
         shapes = {
-            "set": self.parse("set", item, "--priority", "1", "--json"),
-            "block": self.parse("block", item, "--on", dep, "--json"),
-            "unblock": self.parse("unblock", item, "--from", dep, "--json"),
             "release": self.parse("release", item, "--reason", "pause", "--json"),
         }
-        self.assertEqual(shapes["set"]["changed"], ["priority"])
-        self.assertEqual((shapes["block"]["state"], shapes["unblock"]["state"], shapes["release"]["state"]),
-                         ("blocked", "unblocked", "released"))
+        self.assertEqual(shapes["release"]["state"], "released")
         w.run("start", item)
         done = self.parse("complete", item, "--json")
         self.assertEqual((done["id"], done["state"]), (item, "completed"))

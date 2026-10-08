@@ -122,6 +122,7 @@ class RemoteIssue:
     labels: Tuple[str, ...]
     assignee: str
     comments: int = 0  # user comment count when the listing reports one (cheap change signal for pull)
+    milestone: int = 0  # the milestone the issue sits in (0: none)
 
 
 @dataclass(frozen=True)
@@ -205,6 +206,24 @@ class Card:
     priority: str
 
 
+@dataclass(frozen=True)
+class MilestoneSpec:
+    """What a milestone should look like; `due` is YYYY-MM-DD or empty."""
+
+    title: str
+    description: str
+    due: str = ""
+
+
+@dataclass(frozen=True)
+class Milestone:
+    number: int
+    title: str
+    description: str
+    due: str
+    open: bool
+
+
 class Forge(ABC):
     """Implement what the forge can do; leave the rest raising `Unsupported`.
 
@@ -265,6 +284,26 @@ class Forge(ABC):
     def read_placement(self, board: Board, number: int) -> Optional[Placement]:
         """What the forge shows now for the issue on the board, or None when it is not on it."""
         raise Unsupported("read_placement")
+
+    def find_milestone(self, title: str) -> Optional[Milestone]:
+        """The milestone with exactly this title (any state), else None."""
+        raise Unsupported("find_milestone")
+
+    def create_milestone(self, spec: MilestoneSpec) -> Milestone:
+        raise Unsupported("create_milestone")
+
+    def update_milestone(self, number: int, spec: MilestoneSpec) -> Milestone:
+        raise Unsupported("update_milestone")
+
+    def read_milestone(self, number: int) -> Milestone:
+        raise Unsupported("read_milestone")
+
+    def set_milestone_open(self, number: int, open: bool) -> Milestone:
+        raise Unsupported("set_milestone_open")
+
+    def assign_milestone(self, number: int, milestone: int) -> RemoteIssue:
+        """Put issue `number` in milestone `milestone`; the returned issue shows where it sits."""
+        raise Unsupported("assign_milestone")
 
     def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
         """Every card on the board (all repositories), or `Unsupported`; a truncated listing raises, never returns."""

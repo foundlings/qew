@@ -14,7 +14,7 @@ import unicodedata
 from typing import Dict, List, Optional
 
 from qew import sync_plan
-from qew.forge import ForgeError, RemoteIssue, Unsupported, marker_for
+from qew.forge import ForgeError, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
 
@@ -29,6 +29,7 @@ class PullReport:
     divergences: int = 0
     new_items: int = 0
     comments: int = 0
+    duplicates: int = 0
     skipped: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
     retry_after: float = 0.0  # seconds a rate-limited forge asked us to wait
@@ -70,14 +71,32 @@ def pull_target(ledger: Ledger, target) -> PullReport:
         for number, item_id in sorted(mirrored.items()):
             _pull_item(ledger, snapshot, target, report, item_id, by_number.get(number))
         for issue in () if target.read_only else remote:
-            if issue.number not in mirrored and not issue.body.lstrip().startswith("<!-- qew:"):
+            if issue.number in mirrored:
+                continue
+            marker = _MARKER.search(issue.body)
+            if marker is None:
                 _import_issue(ledger, snapshot, target, report, issue)
+            elif marker.group(1) in snapshot.items:
+                _close_duplicate(target, report, issue, marker.group(1), mirrored)
     except Unsupported as error:
         report.skipped.append(error.capability)
     except ForgeError as error:
         report.failures.append(error.detail)
         report.retry_after = getattr(error, "retry_after", 0.0)
     return report
+
+
+_MARKER = re.compile(r"<!-- qew:([A-Za-z0-9][A-Za-z0-9._-]*) -->")
+
+
+def _close_duplicate(target, report: PullReport, issue: RemoteIssue, item_id: str, mirrored: Dict[int, str]) -> None:
+    """A second issue for an item already mirrored to a lower number (concurrent syncs): close it, drop its marker."""
+    keeper = min((n for n, i in mirrored.items() if i == item_id), default=None)
+    if keeper is None or keeper >= issue.number or not issue.open:
+        return
+    body = issue.body.replace(marker_for(item_id), "<!-- qew-duplicate -->")
+    target.forge.update_issue(issue.number, IssueSpec(issue.title, body, tuple(issue.labels), False, "not_planned", ""))
+    report.duplicates += 1
 
 
 def _record(ledger: Ledger, item_id: str, slug: str) -> dict:

@@ -12,7 +12,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from qew.errors import QewError
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import Event, Folded, fold, needs_after, parse_event
+from qew.ledger_event import Event, Folded, fold, needs_after, parse_event, valid_actor
 from qew.ledger_item import Item, parse_item, render_item
 from qew.ledger_ids import event_id, next_id, parse_modes, sort_key
 
@@ -23,12 +23,19 @@ def now() -> str:
 _configured: Optional[str] = None
 
 
+def _safe(name: str, source: str) -> str:
+    """The actor is untrusted text (it may become a forge label): one printable token, else refuse."""
+    if not valid_actor(name):
+        raise QewError(f"{source} must be one word without spaces, commas or control characters", 3)
+    return name
+
+
 def actor() -> str:
     """Who is acting: QEW_ACTOR, else the configured VCS user name. Never the operating-system login."""
     global _configured
     named = os.environ.get("QEW_ACTOR")
     if named:
-        return named
+        return _safe(named, "QEW_ACTOR")
     if _configured is None:
         for argv in (["git", "config", "user.name"], ["jj", "config", "get", "user.name"]):
             try:
@@ -40,7 +47,8 @@ def actor() -> str:
                 break
     if not _configured:
         raise QewError("no identity: run `git config user.name NAME` (or set QEW_ACTOR); qew never uses the OS login", 2)
-    return _configured
+    # A configured display name is routinely "First Last": flatten whitespace and commas, refuse control characters.
+    return _safe("-".join(_configured.replace(",", " ").split()), "git/jj user.name")
 
 
 @dataclass(frozen=True)
@@ -161,8 +169,7 @@ class Ledger:
         directory = self.events_dir / item_id
         directory.mkdir(parents=True, exist_ok=True)
         existing = sorted(path.stem for path in directory.glob("*.json"))
-        who = by or actor()
-        event = Event(event_id(existing[-1] if existing else ""), event_type, at or now(), who, dict(data))
+        event = Event(event_id(existing[-1] if existing else ""), event_type, at or now(), by or actor(), dict(data))
         _write(directory / f"{event.id}.json", event.to_json(), exclusive=True)
         return event
 

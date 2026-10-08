@@ -15,6 +15,11 @@ from qew.errors import QewError
 CLOSE_REASONS = ("not_planned", "duplicate", "superseded")
 
 
+def valid_actor(text: str) -> bool:
+    """An actor is one printable token: no whitespace, commas or control characters (it may become a forge label)."""
+    return bool(text) and all(c.isprintable() and not c.isspace() and c != "," for c in text)
+
+
 class State(str, Enum):
     DRAFT = "draft"
     APPROVED = "approved"

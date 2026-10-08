@@ -82,6 +82,7 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
   every `edge` event applied in ID order, so branches changing different edges merge. `comment` (`text`): append-only.
 An epic's claim is DERIVED at read time, never stored: it is in progress (`qew show`, `list`) while an open direct
 non-epic child is claimed, held by exactly those children's actors; a completed or closed epic shows nothing.
+- `comment` (`body`; legal in every state, never changes it)
 State machine: draft → approved → claimed → completed (closed from any). Illegal transitions refused.
 
 ## Mirrors (`mirrors/<ID>/<target>.json`)

@@ -56,8 +56,9 @@ class AuthorWalk(unittest.TestCase):
     def test_actor_that_cannot_be_a_label_fails_before_any_forge_call(self) -> None:
         """An actor such as `bad login,x` is reported against the item; no half-labelled issue appears."""
         w = self.world
-        result = w.run("create", "--title", "T", env={"QEW_ACTOR": "bad login,x"})
-        self.assertEqual(result.returncode, 0, result.stderr)
+        item = w.create("--title", "T")  # `create` itself refuses such an actor now; a hand-merged event can still carry one
+        event = next((w.ledger / "events" / item).glob("*.json"))
+        event.write_text(event.read_text().replace('"actor": "tester"', '"actor": "bad login,x"'))
         forge = MemoryForge("git.example")
         report = self.sync(forge)
         self.assertEqual(forge.count("create"), 0)

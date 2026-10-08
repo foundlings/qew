@@ -29,6 +29,8 @@ from qew.forge import (
     LABEL_DESCRIPTION,
     Card,
     LabelNotPersisted,
+    Milestone,
+    MilestoneSpec,
     Transport,
     marker_alone,
 )
@@ -233,7 +235,18 @@ def parse_issue(data: Any) -> RemoteIssue:
         labels=labels,
         assignee=assignee,
         comments=_int(issue, "comments", "issue") if "comments" in issue else 0,
+        milestone=0 if issue.get("milestone") is None else _int(_obj(issue["milestone"], "issue.milestone"), "number", "milestone"),
     )
+
+
+def parse_milestone(data: Any) -> Milestone:
+    found = _obj(data, "milestone")
+    state = _str(found, "state", "milestone")
+    if state not in ("open", "closed"):
+        raise _malformed("milestone.state")
+    due = _nullable_str(found, "due_on", "milestone")
+    return Milestone(_int(found, "number", "milestone"), _str(found, "title", "milestone"),
+                     _nullable_str(found, "description", "milestone"), due[:10], state == "open")
 
 
 def parse_comment(data: Any) -> RemoteComment:
@@ -530,6 +543,30 @@ class GitHub(Forge):
             if absent:
                 raise LabelNotPersisted(absent)
 
+    def find_milestone(self, title: str) -> Optional[Milestone]:
+        for page in self._wire.pages(f"{self._repo_path}/milestones?state=all&per_page=100"):
+            for entry in _array(page, "milestone list"):
+                found = parse_milestone(entry)
+                if found.title == title:
+                    return found
+        return None
+
+    def create_milestone(self, spec: MilestoneSpec) -> Milestone:
+        return parse_milestone(self._wire.rest("POST", f"{self._repo_path}/milestones", _milestone_payload(spec)))
+
+    def update_milestone(self, number: int, spec: MilestoneSpec) -> Milestone:
+        return parse_milestone(self._wire.rest("PATCH", f"{self._repo_path}/milestones/{number}", _milestone_payload(spec)))
+
+    def read_milestone(self, number: int) -> Milestone:
+        return parse_milestone(self._wire.rest("GET", f"{self._repo_path}/milestones/{number}"))
+
+    def set_milestone_open(self, number: int, open: bool) -> Milestone:
+        return parse_milestone(self._wire.rest("PATCH", f"{self._repo_path}/milestones/{number}",
+                                               {"state": "open" if open else "closed"}))
+
+    def assign_milestone(self, number: int, milestone: int) -> RemoteIssue:
+        return self._remember(parse_issue(self._wire.rest("PATCH", f"{self._repo_path}/issues/{number}", {"milestone": milestone})))
+
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)
         self._ensure_labels(spec.labels)
@@ -727,9 +764,7 @@ class GitHub(Forge):
         urgent = {o.name: o.id for o in urgency.options} if urgency else {}
         if priority and priority not in urgent:
             raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field; run `qew project ensure`")
-        added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": node_id})
-        item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
-        item_id = _str(item, "id", "item")
+        item_id = self._item_on_board(board, project, number, node_id)
         self._wire.graphql(_SET_STATUS, {
             "projectId": project.id, "itemId": item_id, "fieldId": status.id, "optionId": options[column],
         })
@@ -737,6 +772,20 @@ class GitHub(Forge):
             self._wire.graphql(_SET_STATUS, {
                 "projectId": project.id, "itemId": item_id, "fieldId": urgency.id, "optionId": urgent[priority],
             })
+
+    def _item_on_board(self, board: Board, project: _Project, number: int, node_id: str) -> str:
+        """The card's item id, adding the issue unless it is already there (GitHub refuses a second add)."""
+        try:
+            added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": node_id})
+        except ForgeRejected as error:
+            if "already exists" not in error.detail:
+                raise
+            found = self._placement(board, number)
+            if found is None:
+                raise
+            return found[0]
+        item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
+        return _str(item, "id", "item")
 
     def read_board_placements(self, board: Board) -> Dict[int, Placement]:
         """One paged listing of the board: this repository's issues and the Status and Priority each shows."""
@@ -856,6 +905,10 @@ class GitHub(Forge):
     def _project_title(self) -> str:
         title = self.mirror.options.get("project_title")
         return title if isinstance(title, str) and title else self._repo
+
+
+def _milestone_payload(spec: MilestoneSpec) -> Dict[str, Any]:
+    return {"title": spec.title, "description": spec.description, "due_on": f"{spec.due}T00:00:00Z" if spec.due else None}
 
 
 def _check_reason(spec: IssueSpec) -> None:

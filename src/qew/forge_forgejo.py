@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from qew.forge import (
     LABEL_DESCRIPTION,
     LabelNotPersisted,
+    Milestone,
+    MilestoneSpec,
     marker_alone,
     Forge,
     ForgeRejected,
@@ -76,7 +78,23 @@ def _parse_issue(data: Any) -> RemoteIssue:
         labels=names,
         assignee=_parse_assignee(issue),
         comments=_typed(issue, "comments", int, "issue") if "comments" in issue else 0,
+        milestone=0 if issue.get("milestone") is None else _typed(_object(issue["milestone"], "milestone"), "id", int, "milestone"),
     )
+
+
+def _parse_milestone(data: Any) -> Milestone:
+    found = _object(data, "milestone")
+    state = _typed(found, "state", str, "milestone")
+    if state not in ("open", "closed"):
+        raise _malformed(f"milestone.state is `{state}`")
+    due = found.get("due_on")
+    return Milestone(_typed(found, "id", int, "milestone"), _typed(found, "title", str, "milestone"),
+                     "" if found.get("description") is None else _typed(found, "description", str, "milestone"),
+                     "" if due is None else _typed(found, "due_on", str, "milestone")[:10], state == "open")
+
+
+def _milestone_payload(spec: MilestoneSpec) -> Dict[str, Any]:
+    return {"title": spec.title, "description": spec.description, "due_on": f"{spec.due}T00:00:00Z" if spec.due else None}
 
 
 def _parse_comment(data: Any) -> RemoteComment:
@@ -241,6 +259,30 @@ class Forgejo(Forge):
         hits = self._list("/issues", {"q": marker, "type": "issues", "state": "all"})
         matches = [issue for issue in map(_parse_issue, hits) if marker_alone(issue.body, marker)]
         return min(matches, key=lambda issue: issue.number) if matches else None
+
+    def find_milestone(self, title: str) -> Optional[Milestone]:
+        found = [_parse_milestone(entry) for entry in self._list("/milestones", {"state": "all"})]
+        return next((m for m in found if m.title == title), None)
+
+    def create_milestone(self, spec: MilestoneSpec) -> Milestone:
+        data, _ = self._call("POST", "/milestones", _milestone_payload(spec))
+        return _parse_milestone(data)
+
+    def update_milestone(self, number: int, spec: MilestoneSpec) -> Milestone:
+        data, _ = self._call("PATCH", f"/milestones/{number}", _milestone_payload(spec))
+        return _parse_milestone(data)
+
+    def read_milestone(self, number: int) -> Milestone:
+        data, _ = self._call("GET", f"/milestones/{number}")
+        return _parse_milestone(data)
+
+    def set_milestone_open(self, number: int, open: bool) -> Milestone:
+        data, _ = self._call("PATCH", f"/milestones/{number}", {"state": "open" if open else "closed"})
+        return _parse_milestone(data)
+
+    def assign_milestone(self, number: int, milestone: int) -> RemoteIssue:
+        data, _ = self._call("PATCH", f"/issues/{number}", {"milestone": milestone})
+        return _parse_issue(data)
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         payload: Dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": self._label_ids(spec.labels)}

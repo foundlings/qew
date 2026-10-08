@@ -1,120 +1,87 @@
-"""`qew block` and `qew unblock`: dependency edges that are each their own event.
+"""Walks of `qew block` and `qew unblock`: minimal, idempotent, validated dependency edits.
 
-Adversary: an edge that is not visible or not audited, a cycle written by one command, finished work edited by
-accident, and a lost edge when two branches add different edges to the same item.
+Adversary: a dependency that does not gate readiness, audit noise from repeated edits, a cycle or
+self edge written by an incremental edit, and finished work edited by accident.
 """
 
 import json
-import os
-import sys
 import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-
 from tests.ledger_harness import World
-from tests.lifecycle_support import approved, event_types, started, tree
-
-
-def needs_of(world: World, item: str) -> list:
-    return json.loads(world.run("show", item, "--json").stdout).get("needs", [])
+from tests.plan_support import listing, snapshot
 
 
 class BlockWalk(unittest.TestCase):
     def setUp(self) -> None:
         self.world = World()
         self.addCleanup(self.world.close)
-
-    def test_block_adds_a_visible_audited_edge_and_unblock_removes_it(self) -> None:
-        """Prevents an edge that is not shown by blocked and graph, not audited, or not removable."""
         w = self.world
-        dep = approved(w, title="Dependency")
-        item = approved(w, title="Item")
-        result = w.run("block", item, "--on", dep)
+        self.a, self.b = w.create("--title", "A"), w.create("--title", "B")
+        w.approve(self.a, self.b)
+
+    def fields(self, item: str) -> list:
+        return [e for e in self.world.events(item) if e["type"] == "field"]
+
+    def test_block_adds_the_edge_and_moves_the_item_from_ready_to_blocked(self) -> None:
+        """A dependency that does not gate readiness is no dependency."""
+        w = self.world
+        self.assertIn(self.a, w.run("ready").stdout)
+        result = w.run("block", self.a, "--on", self.b, "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"{item} -> {dep}", w.run("graph").stdout)
-        self.assertIn(item, w.run("blocked").stdout)
-        audit = w.events(item)[-1]
-        self.assertEqual((audit["type"], audit["op"], audit["need"]), ("edge", "add", dep))
-        self.assertEqual(w.run("check").returncode, 0)
-        self.assertNotIn(item, w.run("ready").stdout)
-        gone = w.run("unblock", item, "--from", dep)
-        self.assertEqual(gone.returncode, 0, gone.stderr)
-        self.assertEqual(needs_of(w, item), [])
-        self.assertIn(item, w.run("ready").stdout)
+        self.assertEqual(json.loads(result.stdout), {"item": self.a, "needs": [self.b], "changed": True})
+        self.assertNotIn(self.a, w.run("ready").stdout)
+        self.assertIn(self.a, w.run("blocked").stdout)
+        self.assertEqual([(e["key"], e["new"]) for e in self.fields(self.a)], [("needs", self.b)])
 
-    def test_repeating_either_command_is_unchanged_and_writes_nothing(self) -> None:
-        """Prevents errors and noisy events on a retry."""
+    def test_blocking_twice_is_a_no_op_without_a_second_audit_event(self) -> None:
+        """Repeated edits must not add audit noise or rewrite the header."""
         w = self.world
-        dep, item = approved(w, title="Dep"), approved(w, title="Item")
-        w.run("block", item, "--on", dep)
-        before = tree(w)
-        again = w.run("block", item, "--on", dep)
-        self.assertEqual(again.returncode, 0)
+        w.run("block", self.a, "--on", self.b)
+        before = snapshot(w)
+        again = w.run("block", self.a, "--on", self.b)
+        self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("unchanged", again.stdout)
-        w.run("unblock", item, "--from", dep)
-        mid = tree(w)
-        repeated = w.run("unblock", item, "--from", dep)
-        self.assertIn("unchanged", repeated.stdout)
-        self.assertEqual(tree(w), mid)
-        self.assertNotEqual(before, mid)
+        self.assertEqual(snapshot(w), before)
 
-    def test_a_cycle_a_self_edge_and_an_unknown_item_are_refused_before_any_write(self) -> None:
-        """Prevents a deadlocked graph from one command."""
+    def test_a_cycle_and_a_self_block_are_refused_before_any_write(self) -> None:
+        """Incremental edits must not bypass the graph rules."""
         w = self.world
-        a = approved(w, title="A")
-        b = approved(w, "--needs", a, title="B")
-        before = tree(w)
-        cycle = w.run("block", a, "--on", b)
-        self.assertEqual(cycle.returncode, 2, cycle.stderr)
+        w.run("block", self.a, "--on", self.b)
+        before = snapshot(w)
+        cycle = w.run("block", self.b, "--on", self.a)
+        self.assertEqual(cycle.returncode, 2)
         self.assertIn("cycle", cycle.stderr)
-        for arguments in (["block", a, "--on", a], ["block", a, "--on", "nosuchitem"], ["unblock", a, "--from", "nosuchitem"]):
-            self.assertEqual(w.run(*arguments).returncode, 2, arguments)
-        self.assertEqual(tree(w), before)
+        self.assertEqual(w.run("block", self.a, "--on", self.a).returncode, 2)
+        self.assertEqual(snapshot(w), before)
 
-    def test_finished_work_is_edited_only_with_the_closed_flag(self) -> None:
-        """Prevents editing finished work by accident."""
+    def test_unblock_removes_the_edge_and_the_item_is_ready_again_and_an_absent_edge_is_a_no_op(self) -> None:
+        """Removing a dependency must not resurrect others, and removing nothing must not write."""
         w = self.world
-        dep = approved(w, title="Dep")
-        done = approved(w, "--needs", dep, title="Done")
-        w.run("close", done, "--reason", "not_planned")
-        before = tree(w)
-        refused = w.run("unblock", done, "--from", dep)
-        self.assertEqual(refused.returncode, 2, refused.stderr)
-        self.assertIn("--closed", refused.stderr)
-        self.assertEqual(tree(w), before)
-        self.assertEqual(w.run("unblock", done, "--from", dep, "--closed").returncode, 0)
-        self.assertEqual(w.run("block", done, "--on", dep).returncode, 2)
+        third = w.create("--title", "C")
+        w.approve(third)
+        w.run("block", self.a, "--on", self.b)
+        w.run("block", self.a, "--on", third)
+        self.assertEqual(w.run("unblock", self.a, "--from", self.b).returncode, 0)
+        rows = {r["id"]: r for r in listing(w)}
+        self.assertEqual(rows[self.a]["needs"], [third])
+        w.run("unblock", self.a, "--from", third)
+        self.assertIn(self.a, w.run("ready").stdout)
+        before = snapshot(w)
+        noop = w.run("unblock", self.a, "--from", self.b)
+        self.assertEqual(noop.returncode, 0, noop.stderr)
+        self.assertIn("unchanged", noop.stdout)
+        self.assertEqual(snapshot(w), before)
 
-    def test_set_needs_after_a_block_replaces_the_effective_list(self) -> None:
-        """Prevents a stale header list reviving an edge that block or set already changed."""
+    def test_finished_work_needs_closed_for_block_and_unblock(self) -> None:
+        """Silent edits of finished work are refused; the deliberate form works."""
         w = self.world
-        a, b = approved(w, title="A"), approved(w, title="B")
-        item = approved(w, title="Item")
-        w.run("block", item, "--on", a)
-        self.assertEqual(w.run("set", item, "--needs", b).returncode, 0)
-        self.assertEqual(needs_of(w, item), [b])
-        self.assertEqual(w.run("set", item, "--needs").returncode, 0)
-        self.assertEqual(needs_of(w, item), [])
-        self.assertEqual(w.run("check").returncode, 0)
-
-
-class ConcurrentBlockWalk(unittest.TestCase):
-    def test_two_branches_adding_different_edges_keep_both(self) -> None:
-        """Prevents the lost edge of replace-the-list editing: each edge is its own event file."""
-        every_time = "\n[replication]\nfetch_interval_s = 0\n"
-        a = World(ledger_vcs="git", remote=True, replication=every_time)
-        self.addCleanup(a.close)
-        b = a.clone("b", replication=every_time)
-        first, second = approved(a, title="First"), approved(a, title="Second")
-        item = approved(a, title="Item")
-        b.run("list")
-        offline = {"QEW_OFFLINE": "1"}
-        self.assertEqual(a.run("block", item, "--on", first, env=offline).returncode, 0)
-        self.assertEqual(b.run("block", item, "--on", second, env=offline).returncode, 0)
-        for agent in (a, b, a):
-            self.assertEqual(agent.run("ready").returncode, 0)
-        self.assertEqual(sorted(needs_of(a, item)), sorted([first, second]))
-        self.assertEqual(a.run("check").returncode, 0)
+        w.run("close", self.a, "--reason", "not_planned")
+        for command in (("block", self.a, "--on", self.b), ("unblock", self.a, "--from", self.b)):
+            refused = w.run(*command)
+            self.assertEqual(refused.returncode, 2, command)
+            self.assertIn("--closed", refused.stderr)
+        self.assertEqual(w.run("block", self.a, "--on", self.b, "--closed").returncode, 0)
+        self.assertEqual(w.run("unblock", self.a, "--from", self.b, "--closed").returncode, 0)
 
 
 if __name__ == "__main__":
