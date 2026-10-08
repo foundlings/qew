@@ -37,16 +37,66 @@ def outside(*arguments: str, stdin: str = "") -> subprocess.CompletedProcess:
         )
 
 
+def guarded(event: str, agent: str) -> str:
+    """The pinned hook command: one shell string that fails open when qew is not installed."""
+    return (
+        "command -v qew >/dev/null 2>&1 || "
+        "{ echo '{\"systemMessage\":\"qew is not on PATH; qew hooks skipped\"}'; exit 0; }; "
+        f"exec qew hook {event} --agent {agent}"
+    )
+
+
 def claude_entry(event: str) -> dict:
-    return {"args": ["hook", event, "--agent", "claude"], "command": "qew", "timeout": 10, "type": "command"}
+    return {"command": guarded(event, "claude"), "timeout": 10, "type": "command"}
 
 
 def codex_entry(event: str) -> dict:
-    return {"command": f"qew hook {event} --agent codex", "timeout": 10, "type": "command"}
+    return {"command": guarded(event, "codex"), "timeout": 10, "type": "command"}
 
 
 def read(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+class GuardedCommandWalk(unittest.TestCase):
+    """The emitted hook command runs under sh: missing qew skips with a warning, real refusals pass through."""
+
+    def setUp(self) -> None:
+        self.world = World()
+        self.addCleanup(self.world.close)
+        self.world.run("hook", "install", "--claude", "--codex")
+        self.settings = read(self.world.code / ".claude" / "settings.json")["hooks"]
+
+    def command(self, event_group: str) -> str:
+        return self.settings[event_group][0]["hooks"][0]["command"]
+
+    def run_hook(self, command: str, path: str, stdin: str = "{}"):
+        return subprocess.run(
+            ["/bin/sh", "-c", command], cwd=self.world.code, input=stdin, capture_output=True, text=True,
+            env={**os.environ, "PATH": path, "PYTHONPATH": str(PROJECT_ROOT / "src")}, check=False, timeout=60,
+        )
+
+    def test_no_args_key_and_a_single_command_string(self) -> None:
+        for group in ("SessionStart", "PreToolUse", "PostToolUse"):
+            entry = self.settings[group][0]["hooks"][0]
+            self.assertNotIn("args", entry)
+            self.assertEqual(entry["type"], "command")
+
+    def test_a_missing_qew_fails_open_with_a_one_line_warning(self) -> None:
+        for group in ("SessionStart", "PreToolUse", "PostToolUse"):
+            result = self.run_hook(self.command(group), "/nonexistent")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), {"systemMessage": "qew is not on PATH; qew hooks skipped"})
+
+    def test_a_real_refusal_still_blocks_when_qew_is_present(self) -> None:
+        bin_dir = self.world.code.parent / "bin"
+        bin_dir.mkdir()
+        wrapper = bin_dir / "qew"
+        wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} -m qew \"$@\"\n")
+        wrapper.chmod(0o755)
+        payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "gh issue close 3"}})
+        result = self.run_hook(self.command("PreToolUse"), f"{bin_dir}:/usr/bin:/bin", payload)
+        self.assertIn("deny", result.stdout + str(result.returncode))
 
 
 class InstallWalk(unittest.TestCase):
