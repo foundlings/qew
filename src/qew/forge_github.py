@@ -508,8 +508,13 @@ class GitHub(Forge):
         payload = {"title": spec.title, "head": spec.head, "base": spec.base, "body": spec.body, "draft": spec.draft}
         created = parse_pull(self._wire.rest("POST", f"{self._repo_path}/pulls", payload))
         if spec.assignee:
-            # A pull request is assigned through its issue; the create call has no such field.
-            self._wire.rest("PATCH", f"{self._repo_path}/issues/{created.number}", {"assignees": [spec.assignee]})
+            # A pull request is assigned through its issue; the create call has no such field. The pull
+            # request already exists, so a login the forge will not assign leaves it unassigned (the caller
+            # reads `assignee` back) instead of failing and orphaning it.
+            try:
+                self._wire.rest("PATCH", f"{self._repo_path}/issues/{created.number}", {"assignees": [spec.assignee]})
+            except ForgeRejected:
+                pass
             return self.read_pull_request(created.number)
         return self._with_checks(created)
 

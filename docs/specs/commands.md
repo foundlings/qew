@@ -17,9 +17,9 @@ readable: every read refuses it (exit 1) and names the file instead of listing w
 needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | needs owner parent schema_version text_findings
+shape row: id kind labels priority state title | needs owner parent schema_version text_findings work_state
 shape envelope: items schema_version total truncated
-shape blocked_row: blocked_by id kind labels priority state title | needs owner parent text_findings
+shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
 shape edge: item schema_version | needs parent
 shape show: author id kind labels priority schema_version state title | blocks body children evidence mirrors needs owner parent text_findings
 ```
@@ -38,11 +38,25 @@ shape show: author id kind labels priority schema_version state title | blocks b
 
 ## Read
 - `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
-- `qew list [--kind K] [--state S] [--label L] [--author LOGIN] [--json]`, `qew ready [--json]`, `qew blocked [--json]`,
-  `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
+- `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
+  [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
+  only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
+  of the creating event. `work_state` (JSON rows) is the derived class, in list order: `ready`, `blocked`
+  (open work with an unmet need, claimed or not: a stuck claim is the more urgent fact), `claimed`, `plan`
+  (an epic), `needs_decision` (a draft), `completed`, `closed`; then priority, then id. A filter that
+  matches nothing prints nothing and exits 0; `--limit` cuts with a stderr warning.
+- `qew ready [--limit N] [--json]`: at most 30 items by default, `--limit 0` for all; a cut is reported as
+  `truncated` with `total` in JSON and on stderr. A negative or non-integer limit is a usage error (exit 2).
+  Ordered by priority, then the longest chain it unblocks, then direct dependents, then id.
+- `qew blocked [--chains] [--json]`: approved or claimed work with unmet needs; JSON `blocked_by` holds
+  `{id, state, title}` per unmet need (`closed`, or `missing` for a need that does not exist).
+  `--chains` adds, under each row,
+  `  chain: ITEM -> NEED -> ... [root STATE]`: the longest chain of unmet needs (ties: lowest id) to a root blocker
+  that has no unmet needs, is closed, or is `dangling` (no such item); `--json` rows gain `chain` and `root`.
+  A needs cycle is refused (exit 1).
+- `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
-  characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network. `ready` lists by priority, then the
-  longest chain it unblocks, then direct dependents, then id.
+  characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
 - `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors, text findings, contradictions (claimed epic, completed item with open needs,
   open child of a completed epic), reserved labels. Writes nothing; exit 1 on any problem. `--json` prints
@@ -126,8 +140,36 @@ shape show: author id kind labels priority schema_version state title | blocks b
   found by that id even if a human renamed the project. A forge without boards prints `boards unsupported`, exit 0.
 
 ## Pull requests
-- `qew pr`: the group for the three commands below.
-- `qew pr open ITEM [--target T] [--head BRANCH] [--base BRANCH] [--ready]`: draft by default, never a
-  closing keyword; recorded as a `pr` mirror.
-- `qew pr ready NUMBER [--target T]`; `qew pr merge NUMBER [--target T]`: refuses drafts, conflicts, red or
-  pending checks and unrecorded pull requests; merges exactly the checked head. Completion stays `qew complete`.
+A pull request never carries a closing keyword (any `closes|fixes|resolves` form in the body is refused, exit 2):
+finishing work is `qew complete`, or `qew land` after the merge. The ledger records who opened a pull request
+and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own text is never that record.
+- `qew pr`: the group for `open`, `check`, `ready` and `merge`.
+- `qew pr open ITEM [--target T] [--head BRANCH] [--base BRANCH] [--ready] [--what TEXT] [--why TEXT]
+  [--testing TEXT] [--body-file FILE] [--json]`: a draft assigned to its opener (the actor, or `QEW_FORGE_LOGIN` when the forge login differs; a login
+  the forge refuses leaves it unassigned and prints a note on stderr); the mirror file is written only
+  after the forge accepted the open. Approved work needs the caller's claim; a draft item needs none, and `--ready`
+  on drafts is refused (also when a covered item is a draft). An epic's pull request covers the epic and its open
+  descendants. The body is the marker, `Delivers ID`, then What (default: the item body), Why and Testing, then
+  the `--body-file` (a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines). Without `--head` the
+  pushed branch is derived (git: named, clean, equal to its upstream; jj: the one bookmark equal to origin, git never run).
+  A branch named for another item is refused. `--json`: `{item, number, url, draft, schema_version}`.
+- `qew pr check NUMBER (ID... | --all | --list) [--target T]`: tick checklist boxes (outside code fences) addressed by marker,
+  position, or `@N`; unknown or repeated ids, merged or closed pull requests are exit 2 with no write; a body that
+  changed since it was read is exit 3 with no write; the result is read back and a write that did not stick is exit 3.
+- `qew pr ready NUMBER [--target T] [--json]`: marks ready, then re-reads; still a draft is exit 4. Already ready
+  writes nothing. Refused while a covered item is a draft. `--json`: `{number, ready, changed, schema_version}`.
+- `qew pr merge NUMBER [--target T] [--auto] [--admin] [--other-author] [--reason TEXT] [--json]`: refuses, writing
+  nothing: held by a covered draft, not open, draft, conflicts or unknown merge state, unticked checklist items (exit 2),
+  open child tasks of a claimed covered item, no recorded evidence covering the head (exit 2), failing or pending
+  checks (exit 3; unknown check state exit 4). It merges exactly the checked head, re-reads (once more after a second)
+  and reports a merge that did not land (exit 3). `--auto` enables forge auto-merge for pending checks, only where the
+  base branch requires status checks. `--admin --reason` merges past the check rule only and records the reason on the
+  covered items. `--other-author --reason` merges a pull request someone else opened; it overrides ownership only.
+  `--json`: `{merged, number, head_sha, items, schema_version}`.
+- Ownership: `ready`, `check` and `merge` act on a pull request the caller opened, or whose open covered items the
+  caller holds every claim on; otherwise exit 3 naming the opener and the ways forward (`qew start ITEM --take-over
+  --reason TEXT`; for merge also `--other-author --reason TEXT`). A merge also refuses an item another actor holds,
+  even for the opener. A covered item with unreadable history is exit 4.
+- `qew land NUMBER [--target T]`: after the merge, per covered item the caller holds: record the pull request head
+  as evidence when none covers it, then complete it (children before epics). Items held by others or not started
+  are listed and skipped; a failed gate is reported per item and exits 2.

@@ -23,7 +23,7 @@ qew-ledger.toml            # ledger metadata: name, id prefix, schema_version
 items/<ID>.md              # one file per item: fixed header + human body
 events/<ID>/<EVENT-ID>.json  # append-only; one tiny file per event, never edited
 mirrors/<ID>/<forge>-<host>-<repo-slug>.json  # one file per (item, mirror target)
-mirrors/<ID>/<target>-pr-<N>.json            # one per pull request opened for the item (kind: pr)
+mirrors/<ID>/<target>-pr-<N>.json            # one per pull request opened for the item (kind: pr; opener, covered items, draft, state)
 boards/<target>.json       # board id recorded by `qew project ensure`
 ```
 - No shared index file is committed. `qew index` builds a local cache (gitignored) from files.
@@ -60,7 +60,7 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
 - `approved` (with quoted human words), `drafted`
 - `claimed` / `released` (owner)
 - `evidence` (`{"vcs": "jj", "change_ids": [...], "repo": "<code repo url>"}`)
-- `completed` with `"provenance": "import"` (+ `original_ids`) is written only by an import path
+- `completed` with `"provenance": "import"` (+ a non-empty `original_ids`; `qew check` refuses it without) is written only by an import path
   (`create --from-file --import`) for history without resolvable change ids; `qew check` counts these
   (`imported without evidence: N`) and does not fail on them. Everything else:
 - `completed` (requires: all child tasks completed AND ≥1 evidence event whose change ids resolve
@@ -109,7 +109,7 @@ select = "kind:epic"
 
 ## Commands (agent-facing; terse output)
 - `qew init`, `qew create`, `qew set`, `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`
-- `qew pr open|ready|merge` (pull requests for items; merge only the checked head)
+- `qew pr open|check|ready|merge` (pull requests for items; merge only the checked head), `qew land` (complete after the merge)
 - `qew start` (claim), `qew release`, `qew evidence ID --change ...`, `qew complete ID`, `qew close`
 - `qew draft list|approve|revert`
 - `qew sync [--target ...]` (push ledger → forges, record mirrors; pull forge numbers only)

@@ -101,6 +101,8 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
         ids = value.get("original_ids", [])
         if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
             raise QewError(f"{where}: original_ids must be a list of strings", 1)
+        if kind == "completed" and value["provenance"] == "import" and not ids:
+            raise QewError(f"{where}: an import completion must list the original_ids it stands for", 1)
     if kind == "evidence":
         ids = value.get("change_ids")
         if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
