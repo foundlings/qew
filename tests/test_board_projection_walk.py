@@ -4,6 +4,7 @@ Adversary: a card moved by hand, eventual consistency on the forge that hides a 
 and an item leaving the target's select (its card goes, its issue must not close).
 """
 
+import json
 import os
 import sys
 import unittest
@@ -94,16 +95,16 @@ class ProjectionWalk(unittest.TestCase):
         self.fake.lag = 100
         report = self.sync()
         self.assertTrue(any("not visible" in f for f in report.failures))
-        record = next((self.world.ledger / "mirrors" / item).glob("github-*.json")).read_text()
-        self.assertNotIn("In progress", record)
+        record = json.loads(next((self.world.ledger / "mirrors" / item).glob("github-*.json")).read_text())
+        self.assertEqual(record["column"], "Ready", "the unseen move is not recorded")
         self.fake.lag = 0
         self.assertEqual(self.sync().failures, [])
         self.assertEqual(self.card(1)[0], "In progress")
 
     def test_an_item_leaving_the_select_loses_its_card_but_keeps_its_open_issue(self) -> None:
         """Prevents pruning from closing or deleting the human-visible issue."""
-        w = self.world
-        (w.code / ".qew" / "config.toml").write_text((w.code / ".qew" / "config.toml").read_text() + 'select = "label:board"\n')
+        w = self.world = World(self.config("label:board"))
+        self.addCleanup(w.close)
         item = w.create("--kind", "issue", "--title", "T", "--label", "board", "--quote", QUOTE)
         self.sync()
         self.assertEqual(len(self.fake.project("1")["items"]), 1)
