@@ -13,7 +13,7 @@ from qew.errors import QewError
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_hook", "cmd_sync", "cmd_pr")
+_MODULES = ("cmd_hook", "cmd_sync", "cmd_project", "cmd_pr")
 
 
 def _plugins() -> list:

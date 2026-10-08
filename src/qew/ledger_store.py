@@ -132,6 +132,23 @@ class Ledger:
         text = json.dumps(value, sort_keys=True, indent=2) + "\n"
         _write(directory / f"{target}.json", text, exclusive=False)
 
+    def read_board(self, target: str) -> Optional[dict]:
+        path = self.path / "boards" / f"{target}.json"
+        if not path.is_file():
+            return None
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError) as error:
+            raise QewError(f"{path}: {error}", 1) from None
+        if not isinstance(value, dict) or not isinstance(value.get("id"), str):
+            raise QewError(f"{path}: a board record needs a string `id`", 1)
+        return value
+
+    def write_board(self, target: str, value: dict) -> None:
+        directory = self.path / "boards"
+        directory.mkdir(parents=True, exist_ok=True)
+        _write(directory / f"{target}.json", json.dumps(value, sort_keys=True, indent=2) + "\n", exclusive=False)
+
     def new_id(self) -> str:
         return f"{self.prefix}-{new_ulid()}"
 

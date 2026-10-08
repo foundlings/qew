@@ -35,11 +35,12 @@ class TargetReport:
     stopped: Optional[str] = None  # set when the forge went away and the rest of the target was not tried
 
 
-def sync_target(ledger: Ledger, target: Target, config: Config) -> TargetReport:
+def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[str] = None) -> TargetReport:
     snapshot = ledger.snapshot()
     report = TargetReport(target.slug)
     assignees = {str(k): str(v) for k, v in dict(target.mirror.options.get("assignees", {})).items()}
     ids = sync_plan.topological(snapshot, sync_plan.selected(snapshot, target.mirror.select))
+    chosen = ledger.resolve(only, ids) if only else None
     numbers: Dict[str, int] = {}
     for item_id in ids:
         record = _read_mirror(ledger, item_id, target.slug)
@@ -47,6 +48,8 @@ def sync_target(ledger: Ledger, target: Target, config: Config) -> TargetReport:
             numbers[item_id] = record["number"]
     board = _board(target, report) if target.mirror.project is not None else None
     for item_id in ids:
+        if chosen and item_id != chosen:
+            continue
         try:
             _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board)
         except ForgeRejected as error:
