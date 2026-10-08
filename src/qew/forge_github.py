@@ -25,6 +25,9 @@ from qew.forge import (
     RemoteComment,
     RemoteIssue,
     RemotePullRequest,
+    LABEL_COLOR,
+    LABEL_DESCRIPTION,
+    LabelNotPersisted,
     Transport,
     marker_alone,
 )
@@ -441,6 +444,7 @@ class GitHub(Forge):
         self._repo = repo
         self._repo_path = f"/repos/{quote(namespace, safe='')}/{quote(repo, safe='')}"
         self._wire = _Wire(mirror, transport, env)
+        self._known_labels: set = set()
 
     # issues
 
@@ -455,8 +459,35 @@ class GitHub(Forge):
                     matches.append(parse_issue(issue))
         return min(matches, key=lambda found: found.number) if matches else None
 
+    def _repo_labels(self) -> set:
+        names = set()
+        for page in self._wire.pages(f"{self._repo_path}/labels?per_page=100"):
+            names.update(_str(_obj(entry, "label"), "name", "label") for entry in _array(page, "label list"))
+        return names
+
+    def _ensure_labels(self, wanted: Tuple[str, ...]) -> None:
+        """Create the labels the repository lacks (neutral, never touching an existing one) and confirm they exist."""
+        missing = [name for name in dict.fromkeys(wanted) if name not in self._known_labels]
+        if not missing:
+            return
+        self._known_labels = self._repo_labels()
+        missing = [name for name in missing if name not in self._known_labels]
+        for name in missing:
+            try:
+                self._wire.rest("POST", f"{self._repo_path}/labels",
+                                {"name": name, "color": LABEL_COLOR, "description": LABEL_DESCRIPTION})
+            except ForgeRejected as error:
+                if error.status != 422:  # 422: it appeared in the meantime, which is fine
+                    raise
+        if missing:
+            self._known_labels = self._repo_labels()
+            absent = [name for name in missing if name not in self._known_labels]
+            if absent:
+                raise LabelNotPersisted(absent)
+
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)
+        self._ensure_labels(spec.labels)
         payload: Dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": list(spec.labels)}
         if spec.assignee:
             payload["assignees"] = [spec.assignee]
@@ -467,6 +498,7 @@ class GitHub(Forge):
 
     def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)
+        self._ensure_labels(spec.labels)
         payload: Dict[str, Any] = {
             "title": spec.title, "body": spec.body, "labels": list(spec.labels),
             "assignees": [spec.assignee] if spec.assignee else [],

@@ -13,6 +13,8 @@ import urllib.parse
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from qew.forge import (
+    LABEL_DESCRIPTION,
+    LabelNotPersisted,
     marker_alone,
     Forge,
     ForgeRejected,
@@ -219,11 +221,18 @@ class Forgejo(Forge):
             label = _object(label, "label")
             known[_typed(label, "name", str, "label")] = _typed(label, "id", int, "label")
         ids: List[int] = []
+        made: List[str] = []
         for name in dict.fromkeys(names):
             if name not in known:
-                created, _ = self._call("POST", "/labels", {"name": name, "color": LABEL_COLOR})
+                created, _ = self._call("POST", "/labels", {"name": name, "color": LABEL_COLOR, "description": LABEL_DESCRIPTION})
                 known[name] = _typed(_object(created, "label"), "id", int, "label")
+                made.append(name)
             ids.append(known[name])
+        if made:
+            present = {_typed(_object(label, "label"), "name", str, "label") for label in self._list("/labels")}
+            absent = [name for name in made if name not in present]
+            if absent:
+                raise LabelNotPersisted(absent)
         return ids
 
     # -- issues --

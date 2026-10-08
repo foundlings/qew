@@ -99,3 +99,6 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   must implement the same endpoints and honor failure injection (`down`, `fail`, `delay` where the fake has them).
   `RemoteIssue.comments` carries the forge's own user-comment count (GitHub and Forgejo `comments`, GitLab
   `user_notes_count`, which excludes system notes) in every issue result; 0 only when the forge reports none.
+- Labels: before an issue write, a backend lists the labels the repository has and creates only the missing ones, with the
+  neutral colour `ededed` and the description `Managed by qew`; an existing label is never recoloured, re-described or
+  deleted. A create that is not visible afterwards fails that item (`LabelNotPersisted`, reported against it).

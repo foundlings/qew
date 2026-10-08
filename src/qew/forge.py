@@ -55,6 +55,17 @@ class ForgeRejected(ForgeError):
         self.status = status
 
 
+class LabelNotPersisted(ForgeRejected):
+    """The forge accepted a label create but the label is not there afterwards: the item is indeterminate."""
+
+    def __init__(self, names) -> None:
+        super().__init__(502, f"label(s) {', '.join(sorted(names))} did not persist after creation")
+
+
+LABEL_COLOR = "ededed"  # the neutral colour of every label sync creates; existing labels are never recoloured
+LABEL_DESCRIPTION = "Managed by qew"
+
+
 class Unsupported(ForgeError):
     """This forge cannot do `capability`; the caller skips it and says so."""
 
