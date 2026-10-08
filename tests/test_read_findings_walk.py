@@ -167,7 +167,7 @@ class CheckAdvisoryWalk(FindingsBase):
         self.assertIn({"item": a, "source": "title", "bidi_control": True}, body["text_findings"])
 
     def test_advisory_findings_alone_exit_zero(self) -> None:
-        """A hidden-character title and a claimed epic are listed and do not fail the check."""
+        """A hidden-character title is listed and does not fail the check; a claimed epic is legitimate, not a contradiction."""
         item = self.make("Hidden", approve=True)
         retitle(self.world, item, f"pay{ZWSP}ment")
         epic = self.make("Plan", "--kind", "epic", approve=True)
@@ -177,7 +177,7 @@ class CheckAdvisoryWalk(FindingsBase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertTrue(body["valid"])
         self.assertEqual(body["text_findings"], [{"item": item, "source": "title", "zero_width": True}])
-        self.assertEqual([c["item"] for c in body["contradictions"]], [epic])
+        self.assertEqual(body["contradictions"], [])
         text = self.world.run("check")
         self.assertEqual(text.returncode, 0)
         self.assertIn("advisory", text.stdout)

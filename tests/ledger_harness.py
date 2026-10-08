@@ -15,6 +15,7 @@ import tempfile
 from typing import Mapping, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+os.environ.setdefault("QEW_UNDER_TEST", "1")  # qew then refuses any ledger outside the temp directory (see ledger_config)
 QUOTE = "Alexander: 'please track this work in the Qew ledger now'"
 
 _GIT_ENV = {
