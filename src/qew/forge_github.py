@@ -453,7 +453,7 @@ class GitHub(Forge):
             self._wire.graphql(_CREATE_STATUS_FIELD, {"projectId": project.id, "name": STATUS_FIELD, "options": _option_inputs(columns)})
         elif tuple(name for _, name in project.status_options) != tuple(columns):
             self._wire.graphql(_UPDATE_STATUS_FIELD, {"fieldId": project.status_field_id, "options": _option_inputs(columns)})
-        return Board(id=str(project.number), url=project.url, columns=tuple(columns))
+        return Board(id=str(project.number), url=project.url, columns=tuple(columns), title=project.title)
 
     def place_on_board(self, board: Board, number: int, column: str) -> None:
         issue = self.read_issue(number)
@@ -478,6 +478,10 @@ class GitHub(Forge):
             number = _project_number(self.mirror.project)
             for project in projects:
                 if project.number == number:
+                    wanted = self.mirror.options.get("project_title")
+                    if isinstance(wanted, str) and wanted and wanted != project.title:
+                        raise ForgeRejected(409, f"project number {number} is titled {project.title!r}, not project_title {wanted!r}; "
+                                                 "remove one of them (a different board is never reconciled)")
                     return project
             raise ForgeRejected(404, f"project number {number} not found for {self._owner}")
         title = self._project_title()

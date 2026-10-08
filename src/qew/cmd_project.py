@@ -2,7 +2,7 @@
 
 from typing import Callable
 
-from qew import forge_registry, ledger_config
+from qew import forge_registry, ledger_config, untrusted_text
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import choose, mirrors_with_boards
 from qew.errors import QewError
@@ -40,7 +40,7 @@ def ensure(config: Config, wanted, build: Callable[[Mirror], Forge] = forge_regi
             lines.append(f"{slug}: failed {error.detail}")
             continue
         ledger.write_board(slug, {"id": board.id, "url": board.url, "columns": list(board.columns)})
-        lines.append(f"{slug}: board {board.id} {board.url}")
+        lines.append(f"{slug}: board {board.id} {board.url}" + (f" {untrusted_text.show(board.title).text}" if board.title else ""))
     if failed:
         print("\n".join(lines))
         raise QewError("project ensure finished with failures", 1)
