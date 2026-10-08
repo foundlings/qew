@@ -160,6 +160,11 @@ shape show: author id kind labels priority schema_version state title | children
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the
   divergence event id (a unique prefix) or an item with exactly one open divergence.
 - `qew reject DIVERGENCE`: keep the ledger value; the mirror is marked stale so the next push rewrites the forge.
+- `qew import DIRECTORY [--quote Q]`: read a tree written by `qew export` into the ledger, ids kept, as drafts (approved
+  with a human's quote, as on create). Mechanical: each `items/ID.md` is parsed header-only (unknown keys, a file name
+  that differs from the header id, a set owner, a symbolic link or a non-Markdown file fail and name the file), then
+  every id, reference, nesting and cycle is validated against the ledger before the first write (exit 2, nothing
+  written). `events.json` is ignored. Not combinable with `--from`, `--forge`, `--repo` or `--history`.
 - `qew import [--from TARGET | --forge F --repo URL [--api URL]] [--history]`: read a forge project into the ledger. Issues
   carrying qew's body marker restore their item (id, kind, priority, labels, parent, needs, state from the footer and managed
   labels); any other issue becomes a fresh draft (closed ones arrive closed). Idempotent; records mirrors. `--history` is
