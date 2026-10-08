@@ -3,6 +3,7 @@
 import json
 import re
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -25,6 +26,8 @@ class FakeForgejo:
         self.requests: List[Tuple[str, str, Optional[Any]]] = []
         self.max_limit = 50
         self.endless = False  # lists answer a full page forever, with a next link and no total header
+        self.delay = 0.0  # seconds every request waits before it is served
+        self.down = False  # every request answers 503
         self.fail: List[Tuple[int, str]] = []  # (status, body) consumed one per request
         self.raw_issue_body: Optional[bytes] = None  # when set, GET issue answers this verbatim
         self.token = TOKEN
@@ -126,6 +129,10 @@ def _make_handler(fake: FakeForgejo) -> type:
         def _serve(self, method: str) -> None:
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b""
+            if fake.delay:
+                time.sleep(fake.delay)
+            if fake.down:
+                return self._send(503, b'{"message":"down"}')
             payload = json.loads(raw) if raw else None
             path, _, query = self.path.partition("?")
             params = dict(pair.split("=", 1) for pair in query.split("&") if "=" in pair)
