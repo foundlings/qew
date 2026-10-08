@@ -61,7 +61,7 @@ class SetOptionsWalk(unittest.TestCase):
         link.symlink_to(real)
         before = tree(w)
         for arguments in (["--title", "  "], ["--title", "one\ntwo"], ["--body-file", str(empty)], ["--body-file", str(link)],
-                          ["--add-label", "qew:approved"], ["--add-label", "has space"], ["--no-parent", "--parent", item]):
+                          ["--add-label", "qew:approved"], ["--add-label", "In-Progress"], ["--add-label", "has space"], ["--no-parent", "--parent", item]):
             result = w.run("set", item, *arguments)
             self.assertEqual(result.returncode, 2, (arguments, result.stderr))
         self.assertEqual(tree(w), before)
