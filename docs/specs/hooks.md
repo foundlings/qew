@@ -1,4 +1,72 @@
-# Agent hooks
+# Agent hooks (v1)
+
+`qew hook install|remove [--claude] [--codex] [--cursor] [--opencode]` (no flag = all four)
+writes project-relative config at the nearest ancestor holding `.git` or `.jj`, through the
+safe-write foundation described below (atomic, private, idempotent, foreign entries kept).
+Outside a repository it fails with exit 2. Install drops Qew's own earlier entries
+(`hook pre-shell|post-shell`, `qew prime`); remove deletes current and earlier Qew entries.
+
+| Agent | File | Entries |
+|---|---|---|
+| Claude | `.claude/settings.json` | `SessionStart`; `PreToolUse` and `PostToolUse` matched `Bash` |
+| Codex | `.codex/hooks.json` | the same three (trust each with `/hooks`) |
+| Cursor | `.cursor/hooks.json` (version 1) | `sessionStart`, `beforeShellExecution`, `afterShellExecution` |
+| opencode | `.opencode/plugins/qew-hooks.js` (marker-owned) | `bash` before/after; a refusal throws |
+
+They run `qew hook session-start|pre-tool|post-tool --agent NAME`; the agent payload arrives on stdin.
+
+- **session-start** prints bounded context: at most 10 ready items (priority order, short id,
+  one line each, rows cut at 110 characters), the blocked and draft counts, and the verbs
+  `ready start evidence complete show draft`. The whole text is at most 2000 bytes. Outside a
+  Qew repository, or on an unreadable ledger, it prints nothing. opencode has no session-start
+  entry (its plugin API has no context-injection point at session start).
+- **pre-tool** refuses, only inside a Qew-managed repository (`.qew/config.toml` at or above the
+  payload `cwd`), shell commands that bypass the ledger, naming the qew command to use. The command
+  text is tokenized and matched structurally (`hook_guard.py`), never executed; quoted examples such
+  as `echo "gh issue edit 3"` are one argument and pass; `sh -c STRING` is unwrapped.
+  Refused: `gh issue create|edit|close|reopen|comment|delete|transfer|pin|unpin|lock|unlock`,
+  `gh label` and `gh project` except `list`/`view`/`field-list`/`item-list`, `glab issue|label|milestone`
+  writes, `tea` and `fj` issue, label, milestone and comment writes; `gh pr merge` (not
+  `--disable-auto`), `glab mr merge`, `tea pulls merge`, `fj pr merge`; `gh|glab api` with a write
+  method (explicit, or implied by `-f`/`-F`/`--input` without `-X GET`) on `issues`, `labels`,
+  `milestones`, `boards`, GitHub `projects` or `pulls|merge_requests/N/merge` paths; GraphQL
+  mutations touching issues, labels, projects, milestones, comments or `mergePullRequest`
+  (a query taken from a file or stdin cannot be inspected and is refused); and the same write
+  paths through `curl`, `wget` or httpie (`http`, `https`, `xh`). Reads stay allowed.
+  Known gaps: wrappers taking a value (`sudo -u x`), `eval`, scripts from files.
+- **post-tool** prints nothing except one line after `git push` or `jj git push` when the ledger
+  holds claimed items owned by the current actor without evidence. Read-only.
+
+## Exit codes and output
+
+A hook exits 0 with agent-correct output except a deliberate refusal. This is the single place
+qew swallows internal failures: inside `cmd_hook.run` for the three event commands, an
+unexpected exception prints nothing and exits 0, because a hook must never break a session.
+`install` and `remove` fail loudly as everywhere else.
+
+Verified against each tool's documentation (October 2026):
+
+- Claude Code: `SessionStart` output `{"hookSpecificOutput": {"hookEventName": "SessionStart",
+  "additionalContext": TEXT}}`; `PreToolUse` stdin has `tool_name`, `tool_input.command`, `cwd`;
+  deny is `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+  "permissionDecisionReason": TEXT}}` with exit 0.
+- Codex: the same `hookSpecificOutput` shapes for `SessionStart` and `PreToolUse` deny (exit 2
+  with stderr and `{"decision": "block"}` are documented alternatives; Qew uses the first);
+  stdin has `tool_name`, `tool_input`, `cwd`; matcher `Bash`.
+- Cursor: `beforeShellExecution` stdin `{command, cwd, sandbox}`, output `{"permission":
+  "allow"|"deny"|"ask", "user_message", "agent_message"}` (invalid output blocks, so allow is
+  always explicit); `sessionStart` output `{"additional_context": TEXT}`;
+  `afterShellExecution` cannot inject text.
+- opencode: no deny protocol of its own; the plugin runs `qew hook pre-tool`, and exit code 2
+  (reason on stdout) becomes a thrown error that blocks the tool call.
+
+Decisions: Cursor also gets a `sessionStart` entry; refusals are not applied to `gh pr create`
+(no requirement); a prior hook version's opencode plugin keeps its marker so install replaces it.
+
+# Superseded design (v0)
+
+Everything below describes the old `qew hooks install` and warn-only `pre-shell` / `post-shell`
+design. It is superseded by the section above and is removed with the old command set.
 
 Agent adapters call the shared hook-configuration foundation; they do not write
 configuration directly.

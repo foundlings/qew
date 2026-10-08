@@ -8,30 +8,39 @@ from qew.hook_events import install_json_hooks, remove_json_hooks
 _SETTINGS_PATH = (".claude", "settings.json")
 
 
-def _group(event: str, timeout: int) -> dict:
-    return {
-        "matcher": "Bash",
-        "hooks": [
-            {
-                "args": ["hook", event, "--agent", "claude"],
-                "command": "qew",
-                "timeout": timeout,
-                "type": "command",
-            }
-        ],
-    }
+def _entry(event: str) -> dict:
+    return {"args": ["hook", event, "--agent", "claude"], "command": "qew", "timeout": 10, "type": "command"}
+
+
+def _group(event: str, matcher: bool = True) -> dict:
+    group = {"hooks": [_entry(event)]}
+    if matcher:
+        group["matcher"] = "Bash"
+    return group
 
 
 _WANTED = {
-    "PreToolUse": [_group("pre-shell", 10)],
-    "PostToolUse": [_group("post-shell", 60)],
+    "SessionStart": [_group("session-start", matcher=False)],
+    "PreToolUse": [_group("pre-tool")],
+    "PostToolUse": [_group("post-tool")],
 }
-# Qew's earlier session-start prime: dropped on install, since it spends context
-# in every session.
+# Qew's earlier entries (shell warnings, session-start prime): dropped on install.
 _LEGACY = {
     "SessionStart": [
         {"hooks": [{"args": ["prime"], "command": "qew", "timeout": 10, "type": "command"}]}
-    ]
+    ],
+    "PreToolUse": [
+        {
+            "matcher": "Bash",
+            "hooks": [{"args": ["hook", "pre-shell", "--agent", "claude"], "command": "qew", "timeout": 10, "type": "command"}],
+        }
+    ],
+    "PostToolUse": [
+        {
+            "matcher": "Bash",
+            "hooks": [{"args": ["hook", "post-shell", "--agent", "claude"], "command": "qew", "timeout": 60, "type": "command"}],
+        }
+    ],
 }
 
 
