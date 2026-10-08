@@ -95,3 +95,19 @@ class World:
             json.loads(path.read_text(encoding="utf-8"))
             for path in sorted(directory.glob("*.json"))
         ]
+
+
+def jj_available() -> bool:
+    return subprocess.run(["which", "jj"], capture_output=True).returncode == 0
+
+
+def jj(cwd: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["jj", *arguments],
+        cwd=cwd,
+        env={**os.environ, "JJ_USER": "Test", "JJ_EMAIL": "test@example.invalid"},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
