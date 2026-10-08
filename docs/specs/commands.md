@@ -179,6 +179,12 @@ shape prime: additional_context context_bytes schema_version
   After the write is merged with the ledger remote, a claim that lost to an older one exits 3 naming the winner.
   `[claims] max_active_claims` in the config caps the caller's active claims (exit 6, take-over included); a
   malformed cap is exit 2 naming the key. `qew show` prints the current claim as `claim: {by, kind, lane, workspace}`.
+- Starting an epic claims the epic and its open descendants that can start (drafts, work with unmet needs and finished
+  work are left), each through the claim authority, all or nothing: a descendant held by another actor is exit 3 naming
+  it and nothing is written; a failure midway leaves no event and releases the reservations already posted on the
+  primary forge. Releasing the epic releases the descendants it holds. Evidence on an item claimed by another actor is
+  exit 3 unless the caller holds an epic above it; the holder of an epic completes its descendants the same way, offline
+  too (completion needs evidence only).
 - `qew release ITEM --reason TEXT [--force] [--lane ID] [--json]`: give up a claim; another actor's claim (or another
   lane's) needs `--force`, recorded as `forced` with the `previous_owner`. Unclaimed work is exit 2.
 - `qew comment ITEM (--body TEXT | --body-file F)`: append a `commented` event (text kept verbatim, `-` reads

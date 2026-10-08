@@ -4,13 +4,14 @@ Refusals are distinct for agent loops: 2 the work may not start or the usage is 
 (or another lane of you does), 5 you already hold exactly this claim, 6 the per-actor claim cap is reached.
 """
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from qew import claim_authority, claim_fields, ledger_graph, outcome, replication
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import Folded, State
+from qew.ledger_item import Kind
 from qew.ledger_store import Ledger, Snapshot, actor
 
 _STATE_REASON = {
@@ -43,7 +44,7 @@ def run(arguments) -> bool:
         result = start(config, arguments.item, arguments.take_over, arguments.reason,
                        arguments.lane, arguments.workspace, arguments.kind)
         line = outcome.render(arguments, result.pop("line"), **result)
-        if claim_authority.PENDING is None:
+        if not claim_authority.PENDING:
             print(line)
         else:
             replication.after_settle(lambda: print(line))  # only once the ledger remote confirmed the claim
@@ -105,13 +106,67 @@ def start(config: Config, reference: str, take_over: bool = False, reason: Optio
     unmet = ledger_graph.blockers(snapshot, item_id)
     if unmet:
         raise QewError(f"cannot start {item_id}: it needs {' '.join(unmet)} completed first", 2)
-    _enforce_cap(config, snapshot, me)
     fields = {key: value for key, value in (("lane", lane), ("workspace", workspace), ("kind", kind)) if value is not None}
+    if snapshot.items[item_id].kind == Kind.EPIC and not take_over:
+        return _start_epic(config, ledger, snapshot, item_id, me, fields)
+    _enforce_cap(config, snapshot, me)
     if take_over:
         claim_authority.release(config, ledger, item_id)
         ledger.append_event(item_id, "released", reason=reason.strip(), previous_owner=holder, forced=True)
     claim_authority.claim(config, ledger, item_id, me, **fields)
     return {"line": f"{item_id} claimed by {me}", "id": item_id, "state": "started", "actor": me, **fields}
+
+
+def _descendants(snapshot: Snapshot, root: str) -> List[str]:
+    """Every item below `root`, breadth first, each once."""
+    kids = ledger_graph.children(snapshot)
+    found: List[str] = []
+    queue = list(kids.get(root, []))
+    while queue:
+        item_id = queue.pop(0)
+        if item_id not in found:
+            found.append(item_id)
+            queue.extend(kids.get(item_id, []))
+    return found
+
+
+def _start_epic(config: Config, ledger, snapshot: Snapshot, epic_id: str, me: str, fields: Dict[str, str]) -> Dict[str, object]:
+    """Claim an epic and its open descendants in one operation: all of them or none.
+
+    Descendants that cannot start (drafts, work with unmet needs, finished work) are left alone; one held by
+    another actor refuses the whole claim. If a claim fails midway, no event stays (the session rolls the
+    writes back) and the reservations already posted on the primary forge are released.
+    """
+    targets = [epic_id] if snapshot.folds[epic_id].state == State.APPROVED else []
+    foreign = []
+    for item_id in _descendants(snapshot, epic_id):
+        folded = snapshot.folds[item_id]
+        if folded.state == State.CLAIMED and folded.owner != me:
+            foreign.append(f"{item_id} (held by {holding(snapshot, item_id)})")
+        elif folded.state == State.APPROVED and not ledger_graph.blockers(snapshot, item_id):
+            targets.append(item_id)
+    if foreign:
+        raise QewError(f"cannot claim {epic_id}: {', '.join(foreign)}; nothing was claimed", 3)
+    cap = config.max_active_claims
+    if cap is not None:
+        mine = sum(1 for folded in snapshot.folds.values() if folded.state == State.CLAIMED and folded.owner == me)
+        if mine + len(targets) > cap:
+            raise QewError(f"claiming {len(targets)} items would give {me} more than max_active_claims = {cap}", 6)
+    posted: List[str] = []
+    try:
+        for item_id in targets:
+            claim_authority.claim(config, ledger, item_id, me, **fields)
+            posted.append(item_id)
+    except QewError:
+        for item_id in posted:
+            try:
+                claim_authority.release(config, ledger, item_id)
+            except QewError:
+                pass  # best effort: the refusal that stopped the cascade is the error to report
+        claim_authority.take_pending()
+        raise
+    return {"line": f"{epic_id} claimed by {me} ({len(targets)} items)", "id": epic_id, "state": "started",
+            "actor": me, "claimed": targets, **fields}
 
 
 def _refuse_own_claim(item_id: str, folded: Folded, lane: Optional[str], take_over: bool) -> None:
@@ -151,6 +206,12 @@ def release(config: Config, reference: str, reason: str, force: bool = False, la
     data: Dict[str, object] = {"reason": reason.strip(), "previous_owner": folded.owner}
     if overrides:
         data["forced"] = True
-    claim_authority.release(config, ledger, item_id)
-    ledger.append_event(item_id, "released", **data)
-    return {"line": f"{item_id} released", "id": item_id, "state": "released", "previous_owner": folded.owner}
+    released = [item_id]
+    if snapshot.items[item_id].kind == Kind.EPIC:  # the cascade the epic claim made goes with it
+        released += [d for d in _descendants(snapshot, item_id)
+                     if snapshot.folds[d].state == State.CLAIMED and snapshot.folds[d].owner == folded.owner]
+    for released_id in released:
+        claim_authority.release(config, ledger, released_id)
+        ledger.append_event(released_id, "released", **data)
+    return {"line": f"{item_id} released", "id": item_id, "state": "released", "previous_owner": folded.owner,
+            "released": released}

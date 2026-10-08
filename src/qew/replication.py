@@ -173,27 +173,37 @@ def _write_claim_event(config, repo: LedgerRepo, ledger_path, item_id: str, even
 
 
 def _settle_claim(config, repo: LedgerRepo, pending) -> None:
-    """The claim is committed locally; the ledger remote decides whether it counts (first push to land wins)."""
+    """The claims are committed locally; the ledger remote decides whether they count (first push to land wins).
+
+    One command may claim several items (an epic and its descendants): they stand or fall together, so a loss
+    is recorded for every claim of the command.
+    """
     from qew.ledger_event import State, fold
     from qew.ledger_store import open_ledger
 
-    item_id, claim_id = pending
     rep = config.replication
     ledger = open_ledger(config.ledger_path, config.prefix)
+
+    def lose(winner: str) -> None:
+        for item_id, claim_id in pending:
+            _write_claim_event(config, repo, None, item_id, "claim_lost", ref=claim_id, winner=winner)
+
     for _ in range(3):
         outcome = repo.push_strict(rep.timeout_s)
         _note(config, "ok" if outcome == "ok" else "offline" if outcome == "offline" else "ok")
         if outcome == "ok":
-            _write_claim_event(config, repo, None, item_id, "claim_confirmed", ref=claim_id)
+            for item_id, claim_id in pending:
+                _write_claim_event(config, repo, None, item_id, "claim_confirmed", ref=claim_id)
             return
         if outcome == "offline":
-            _write_claim_event(config, repo, None, item_id, "claim_lost", ref=claim_id, winner="(authority unreachable)")
-            raise QewError(f"cannot claim {item_id}: the ledger remote became unreachable, so the claim is not held", 3)
-        others = fold([e for e in ledger.load_events(item_id) if e.id != claim_id])
-        if others.state == State.CLAIMED:
-            _write_claim_event(config, repo, None, item_id, "claim_lost", ref=claim_id, winner=others.owner)
-            raise QewError(f"cannot claim {item_id}: lost the claim race to {others.owner}", 2)
-    raise QewError(f"cannot claim {item_id}: the ledger remote kept rejecting the push", 3)
+            lose("(authority unreachable)")
+            raise QewError(f"cannot claim {pending[0][0]}: the ledger remote became unreachable, so the claim is not held", 3)
+        for item_id, claim_id in pending:
+            others = fold([e for e in ledger.load_events(item_id) if e.id != claim_id])
+            if others.state == State.CLAIMED:
+                lose(others.owner)
+                raise QewError(f"cannot claim {item_id}: lost the claim race to {others.owner}", 2)
+    raise QewError(f"cannot claim {pending[0][0]}: the ledger remote kept rejecting the push", 3)
 
 
 def _sync_session(config, repo: LedgerRepo, committing: bool, replicating: bool, push_repos: bool) -> Iterator[None]:

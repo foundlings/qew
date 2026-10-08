@@ -17,7 +17,7 @@ from qew.ledger_repo import LedgerRepo
 from qew.ledger_store import Ledger
 
 _MARK = re.compile(r"<!-- qew:(claim|release) ([A-Za-z0-9._-]+)(?: (\S+) (\S+))? -->")
-PENDING: Optional[Tuple[str, str]] = None  # (item id, claimed event id) awaiting the ledger remote's verdict
+PENDING: List[Tuple[str, str]] = []  # (item id, claimed event id) awaiting the ledger remote's verdict; one command may claim several
 
 
 def claim_comment(item_id: str, owner: str, nonce: str) -> str:
@@ -59,7 +59,6 @@ def claim(config: Config, ledger: Ledger, item_id: str, owner: str, **lane: str)
 
     `lane` carries the optional lane fields (lane, workspace, kind) of the `claimed` event.
     """
-    global PENDING
     if config.authority != "none":
         _claim_on_primary(config, ledger, item_id, owner, lane)
         return
@@ -72,7 +71,7 @@ def claim(config: Config, ledger: Ledger, item_id: str, owner: str, **lane: str)
     if rep.offline or (marker.exists() and marker.read_text(encoding="utf-8").strip() == "offline"):
         raise QewError(f"cannot claim {item_id}: the ledger remote arbitrates claims and is unreachable", 3)
     event = ledger.append_event(item_id, "claimed", owner=owner, **lane)
-    PENDING = (item_id, event.id)
+    PENDING.append((item_id, event.id))
 
 
 def _confirmed(ledger: Ledger, item_id: str, owner: str, lane: dict) -> None:
@@ -105,7 +104,7 @@ def release(config: Config, ledger: Ledger, item_id: str) -> None:
         raise QewError(f"cannot release {item_id}: the primary forge is unreachable ({error.detail})", 3) from None
 
 
-def take_pending() -> Optional[Tuple[str, str]]:
-    global PENDING
-    pending, PENDING = PENDING, None
+def take_pending() -> List[Tuple[str, str]]:
+    pending = list(PENDING)
+    PENDING.clear()
     return pending

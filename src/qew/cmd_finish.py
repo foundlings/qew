@@ -105,10 +105,25 @@ def _branch(name: str) -> str:
     return name
 
 
+def _holds_ancestor(snapshot: Snapshot, item_id: str, who: str) -> bool:
+    """True when `who` holds an epic above the item (the cascade of an epic claim is theirs to work)."""
+    seen, cursor = set(), snapshot.items[item_id].parent
+    while cursor and cursor in snapshot.items and cursor not in seen:
+        seen.add(cursor)
+        if snapshot.folds[cursor].state == State.CLAIMED and snapshot.folds[cursor].owner == who:
+            return True
+        cursor = snapshot.items[cursor].parent
+    return False
+
+
 def evidence(config: Config, reference: str, changes: List[str], vcs: Optional[str]) -> str:
     ledger, snapshot, item_id = _load(config, reference)
     if snapshot.folds[item_id].state not in (State.APPROVED, State.CLAIMED):
         raise _refuse(snapshot, item_id, "record evidence for", "an approved or claimed item")
+    folded = snapshot.folds[item_id]
+    if folded.state == State.CLAIMED and folded.owner != actor() and not _holds_ancestor(snapshot, item_id, actor()):
+        raise QewError(f"cannot record evidence for {item_id}: it is claimed by {holding(snapshot, item_id)}; "
+                       "evidence needs the claim or the claim of its epic", 3)
     kind = vcs or code_vcs.detect(config.root)
     cited = changes or [code_vcs.current_change(config.root, kind)]
     for change in cited:
@@ -131,7 +146,7 @@ def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> Optional
         raise QewError(f"cannot complete {item_id}: it is unclaimed; claim it first with `qew start {item_id}`", 2)
     if folded.state != State.CLAIMED:
         raise _refuse(snapshot, item_id, "complete", "a claimed item")
-    if folded.owner == actor():
+    if folded.owner == actor() or _holds_ancestor(snapshot, item_id, actor()):
         if take_over:
             raise QewError(f"nothing to take over: you already hold {item_id}", 2)
         return None
