@@ -13,7 +13,7 @@ from qew.errors import QewError
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import Event, State, fold, parse_event
 from qew.ledger_ids import valid_id
-from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
+from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header, title_is_one_line
 from qew.ledger_store import Ledger, actor, now, open_ledger
 from qew.requester import require_quote
 
@@ -84,8 +84,8 @@ def set_fields(
     remove_labels: Sequence[str] = (),
 ) -> List[Change]:
     """Change header fields and the body of one or more items; every change is audited and read back."""
-    if "title" in changes and (not changes["title"].strip() or "\n" in changes["title"]):
-        raise QewError("a title is one non-blank line", 2)
+    if "title" in changes and (not changes["title"].strip() or not title_is_one_line(changes["title"])):
+        raise QewError("a title is one line and not blank", 2)
     if body is not None and not body.strip():
         raise QewError("a replacement body must not be empty", 2)
     ledger = ledger_for(config)

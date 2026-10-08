@@ -12,7 +12,7 @@ from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import State, fold, needs_after, parse_event, valid_actor
 from qew.ledger_ids import sort_key
-from qew.ledger_item import Item, Kind, check_header_values, parse_item
+from qew.ledger_item import Item, Kind, check_header_values, parse_item, read_item_text
 from qew.ledger_store import Ledger, Snapshot
 
 SCHEMA_VERSION = 1
@@ -40,7 +40,7 @@ def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
     for path in sorted(ledger.items_dir.glob("*.md")) if ledger.items_dir.is_dir() else []:
         where = f"items/{path.name}"
         try:
-            item = parse_item(path.read_text(encoding="utf-8"), where)
+            item = parse_item(read_item_text(path, where), where)
         except (QewError, OSError, UnicodeError) as error:
             problems.append(str(error))
             continue

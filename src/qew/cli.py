@@ -180,6 +180,8 @@ def _plan(arguments: argparse.Namespace) -> plan_file.Plan:
         return plan_file.parse(plan_file.read_bytes(arguments.from_file), os.path.basename(arguments.from_file))
     if not arguments.title:
         raise QewError("--title is required", 2)
+    if not plan_file.title_is_one_line(arguments.title):
+        raise QewError("--title: title must be one line", 2)
     body = arguments.body
     structured = body_sections.compose(arguments)
     sources = [bool(arguments.body is not None), bool(arguments.body_file), arguments.edit, structured is not None]

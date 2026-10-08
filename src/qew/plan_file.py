@@ -13,6 +13,7 @@ import sys
 from typing import Dict, List, Optional, Tuple
 
 from qew.errors import QewError
+from qew.ledger_item import title_is_one_line
 
 KINDS = ("epic", "issue", "task")
 # `events` is validated by the importer, `quote` and `approved` by the release rule.
@@ -109,7 +110,7 @@ def _checked(value: dict, label: str) -> dict:
     title = value.get("title")
     if not isinstance(title, str) or not title.strip():
         raise QewError(f"{label}: title must be a non-blank string", 2)
-    if "\n" in title:
+    if not title_is_one_line(title):
         raise QewError(f"{label}: title must be one line", 2)
     kind = value.get("kind", "issue")
     if kind not in KINDS:

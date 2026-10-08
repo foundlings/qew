@@ -1,6 +1,7 @@
 """The item file: a fixed `key: value` header ended by a `---` line, then a free Markdown body."""
 
 import re
+from pathlib import Path
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Dict, List, Tuple
@@ -95,6 +96,23 @@ def parse_item(text: str, where: str = "item") -> Item:
     return from_header(header, body, where)
 
 
+_LONE_CR = re.compile(r"\r(?!\n)")
+
+
+def read_item_text(path: Path, where: str) -> str:
+    """Read an item file without newline translation, refusing a lone carriage return (a title that spans lines)."""
+    with open(path, encoding="utf-8", newline="") as handle:
+        text = handle.read()
+    if _LONE_CR.search(text):
+        raise QewError(f"{where}: a carriage return outside a line ending (a title must be one line)", 1)
+    return text.replace("\r\n", "\n")
+
+
+def title_is_one_line(title: str) -> bool:
+    """True when the title holds no line break of any kind (LF, CR, form feed, NEL, line and paragraph separators); the write-side rule."""
+    return title.splitlines() in ([title], [])
+
+
 def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> Item:
     for key in REQUIRED:
         if not header.get(key):
@@ -118,7 +136,7 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
     for need in needs:
         if not valid_id(need):
             raise QewError(f"{where}: `{need}` in needs is not an item id", 1)
-    if "\n" in header["title"]:
+    if "\n" in header["title"] or "\r" in header["title"]:  # what the file format cannot hold; other separators are only refused on write
         raise QewError(f"{where}: title must be one line", 1)
     return Item(
         id=header["id"],

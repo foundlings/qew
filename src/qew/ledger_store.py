@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from qew.errors import QewError
 from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import Event, Folded, fold, needs_after, parse_event, valid_actor
-from qew.ledger_item import Item, parse_item, render_item
+from qew.ledger_item import Item, parse_item, read_item_text, render_item
 from qew.ledger_ids import event_id, next_id, parse_modes, sort_key
 
 def now() -> str:
@@ -78,7 +78,7 @@ class Ledger:
     def load_item(self, item_id: str) -> Item:
         path = self.items_dir / f"{item_id}.md"
         try:
-            text = path.read_text(encoding="utf-8")
+            text = read_item_text(path, str(path))
         except (OSError, UnicodeError) as error:
             raise QewError(f"{path}: {error}", 1) from None
         item = parse_item(text, str(path))
