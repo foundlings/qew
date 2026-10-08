@@ -25,6 +25,7 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 ```
 
 ## Setup
+- `qew --version`: print `qew X.Y.Z` (the installed package version); needs no repository, ledger or network.
 - `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml`.
 - `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: wire agents (none = all four; output order claude, codex, cursor, opencode, git). `--git` installs the tracked `.githooks/pre-push` and sets `core.hooksPath`; it is never part of the default.
 - `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: remove exactly Qew's entries.

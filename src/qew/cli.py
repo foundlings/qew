@@ -6,7 +6,7 @@ import json
 import sys
 from typing import List, Optional, Sequence
 
-from qew import replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
+from qew import __version__, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
 from qew.errors import QewError
 
 
@@ -69,6 +69,7 @@ def _parser() -> argparse.ArgumentParser:
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--version", action="version", version=f"qew {__version__}", help="print the installed version and exit")
     commands = parser.add_subparsers(dest="command", required=True)
 
     init = commands.add_parser("init", help="create .qew/config.toml and the ledger")
