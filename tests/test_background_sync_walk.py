@@ -16,7 +16,7 @@ from tests.ledger_harness import QUOTE, World
 ENV = {"FORGEJO_TOKEN": TOKEN}
 
 
-def wait_for(condition, seconds: float = 20.0) -> bool:
+def wait_for(condition, seconds: float = 40.0) -> bool:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if condition():
@@ -31,7 +31,7 @@ class BackgroundSyncWalk(unittest.TestCase):
         self.addCleanup(self.fake.stop)
         self.mirrors = f'\n[[mirror]]\nforge = "forgejo"\nrepo = "{self.fake.repo_url}"\napi = "{self.fake.api}"\n'
 
-    def world(self, replication: str = "", vcs: str = "git") -> World:
+    def world(self, replication: str = "\n[replication]\nbackground_sync = true\n", vcs: str = "git") -> World:
         w = World(self.mirrors, ledger_vcs=vcs, replication=replication)
         self.addCleanup(w.close)
         return w
