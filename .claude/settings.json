@@ -2,12 +2,11 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
         "hooks": [
           {
             "args": [
               "hook",
-              "pre-shell",
+              "pre-tool",
               "--agent",
               "claude"
             ],
@@ -15,22 +14,40 @@
             "timeout": 10,
             "type": "command"
           }
-        ]
+        ],
+        "matcher": "Bash"
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
         "hooks": [
           {
             "args": [
               "hook",
-              "post-shell",
+              "post-tool",
               "--agent",
               "claude"
             ],
             "command": "qew",
-            "timeout": 60,
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "session-start",
+              "--agent",
+              "claude"
+            ],
+            "command": "qew",
+            "timeout": 10,
             "type": "command"
           }
         ]

@@ -7,3 +7,4 @@ target = "main"
 [[mirror]]
 forge = "github"
 repo = "https://github.com/foundlings/qew"
+project = 1
