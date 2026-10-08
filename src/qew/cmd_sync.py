@@ -90,7 +90,7 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     output = "\n".join(lines)
     if failed:
         print(output)
-        raise QewError("sync finished with failures", 1)
+        raise QewError("sync finished with failures; fix the cause above, then run `qew sync` to catch the mirrors up", 1)
     return output
 
 

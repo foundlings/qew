@@ -86,6 +86,37 @@ class LedgerRemoteWalk(unittest.TestCase):
         self.assertEqual(self.b.ledger_dirty(), [])
 
 
+class MirrorConflictWalk(unittest.TestCase):
+    def test_conflicts_confined_to_mirror_files_resolve_to_the_remote_copy_and_other_conflicts_stay_loud(self) -> None:
+        """Prevents one machine's stale sync bookkeeping in an old-format mirror file wedging every writer (seen live)."""
+        every = "\n[replication]\nfetch_interval_s = 0\nauto_forge_sync = false\n"
+        a = World(ledger_vcs="git", remote=True, replication=every)
+        self.addCleanup(a.close)
+        b = a.clone("b", replication=every)
+        item = a.create("--title", "Mirrored")
+        b.run("list")
+        for world, stamp in ((a, "A"), (b, "B")):
+            directory = world.ledger / "mirrors" / item
+            directory.mkdir(parents=True)
+            (directory / "t.json").write_text('{"forge": "forgejo", "url": "u", "kind": "issue", "number": 1, "synced_at": "%s"}\n' % stamp)
+            git(world.ledger, "add", "-A")
+            git(world.ledger, "commit", "-qm", f"old-format mirror from {stamp}")
+        git(a.ledger, "push", "-q", "origin", "main")
+        result = b.run("create", "--title", "After the clash")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"synced_at": "A"', (b.ledger / "mirrors" / item / "t.json").read_text())
+        self.assertEqual(b.ledger_dirty(), [])
+        self.assertEqual(b.run("check").returncode, 0)
+
+    def test_a_long_conflict_report_names_a_few_files_and_the_count(self) -> None:
+        """Prevents a 60-file conflict flooding the terminal: the message stays short."""
+        from qew.ledger_repo import conflict_message
+
+        text = conflict_message("main@origin", [f"items/{n}.md" for n in range(60)], "/ledger")
+        self.assertLess(len(text), 600)
+        self.assertIn("60 files", text)
+
+
 @unittest.skipUnless(jj_available(), "jj is not installed")
 class LedgerRemoteJujutsuWalk(LedgerRemoteWalk):
     vcs = "jj"

@@ -20,11 +20,11 @@ readable: every read refuses it (exit 1) and names the file instead of listing w
 needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | needs owner parent schema_version text_findings work_state holders stale
+shape row: id kind labels priority state title | children_done children_open completable needs owner parent schema_version text_findings work_state holders stale
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings holders stale
 shape edge: item schema_version | needs parent
-shape show: author id kind labels priority schema_version state title claim holders | blocks body children evidence mirrors needs owner parent text_findings stale completion closure closed_duplicates supersedes discovered_from discovered comments
+shape show: author id kind labels priority schema_version state title claim holders | children_done children_open completable blocks body children evidence mirrors needs owner parent text_findings stale completion closure closed_duplicates supersedes discovered_from discovered comments
 ```
 
 ## Setup
@@ -40,7 +40,7 @@ shape show: author id kind labels priority schema_version state title claim hold
   trailers cite an item without evidence for that commit (exit 2, the exact `qew evidence` command on stderr); see hooks.md.
 
 ## Read
-- `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
+- `qew show ITEM [--json]`: for an epic also `children_open`, `children_done`, `completable`; header, state, owner, derived children and blocks, evidence, mirrors, body.
 - `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
   [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
@@ -49,6 +49,9 @@ shape show: author id kind labels priority schema_version state title claim hold
   (an epic), `needs_decision` (a draft), `completed`, `closed`; then priority, then id. A filter that
   matches nothing prints nothing and exits 0; `--limit` cuts with a stderr warning. A claimed row carries `stale`
   and a text marker when its recorded pull request merged; `qew check` notes `claimed but its pull request merged: IDS (fix: qew land N)`.
+  `qew list --kind epic` rows carry `children_open`, `children_done`, `completable` (not closed or completed, at
+  least one child, none open) and, only when completable and the title was not rewritten, `-> qew complete ID`;
+  closed epics are left out unless `--state`/`--work-state` asks for them.
 - `qew ready [--limit N] [--json]`: at most 30 items by default, `--limit 0` for all; a cut is reported as
   `truncated` with `total` in JSON and on stderr. A negative or non-integer limit is a usage error (exit 2).
   Ordered by priority, then the longest chain it unblocks, then direct dependents, then id.
@@ -74,6 +77,13 @@ shape show: author id kind labels priority schema_version state title claim hold
 - `qew inbox [--login L] [--count] [--json]`: `waiting` (drafts whose author is L) and `assigned` (items L has
   claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
   that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
+
+- `qew export DIRECTORY`: write every item to a new (or empty) directory as `items/ID.md` (the ledger's own file
+  format) and `events.json` (per item: event type, time, actor; import ignores it). Output is deterministic. A
+  non-empty directory, a symbolic link or a ledger with a dangling edge or a cycle is refused before any write.
+- `qew export --json`: print the items as one JSON array that `qew create --from-file` accepts (keys `id kind title
+  parent needs labels priority created body`), each item after the items it references. Exactly one of
+  DIRECTORY and `--json`.
 
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
@@ -126,7 +136,7 @@ shape show: author id kind labels priority schema_version state title claim hold
   lane's) needs `--force`, recorded as `forced` with the `previous_owner`. Unclaimed work is exit 2.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: refused (exit 3
-  naming the holder) unless the caller holds the claim; an already completed item is refused without a second event;
+  naming the holder) unless the caller holds the claim; an already completed item is a quiet no-op (`completed (unchanged)`, no second event);
   every child must be completed or closed; and (not for epics) an evidence event whose change IDs all landed on the
   target branch (`--landed-on` overrides the configured one for stacked branches) must exist. The `completed` event
   records the `reason`, the full `commits`, the `branch` and the numbers of the item's pull requests recorded as
@@ -138,7 +148,7 @@ shape show: author id kind labels priority schema_version state title claim hold
   `--no-commit WHY` completes without code for work delivered outside the repository, only when no evidence exists
   (exactly one of landed evidence or `--no-commit`); `qew check` counts these as `completed without code: N`.
   An epic needs at least one child and no evidence. When a completion or a close finishes the last open child of
-  an epic that has at least one completed child, the epic completes in the same command (`children_finished`); a
+  an epic that has at least one completed child, the epic completes in the same command (`children_finished`) unless someone holds the epic, who completes it; a
   failure of that step is a warning naming `qew complete EPIC` and the command still exits 0.
 - `qew close ITEM --reason not_planned|duplicate|superseded [--of ITEM | --by ITEM] [--note TEXT] [--json]`:
   `duplicate` needs `--of` (the original), `superseded` needs `--by` (the replacement), `not_planned` takes neither;
@@ -200,6 +210,11 @@ shape show: author id kind labels priority schema_version state title claim hold
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the
   divergence event id (a unique prefix) or an item with exactly one open divergence.
 - `qew reject DIVERGENCE`: keep the ledger value; the mirror is marked stale so the next push rewrites the forge.
+- `qew import DIRECTORY [--quote Q]`: read a tree written by `qew export` into the ledger, ids kept, as drafts (approved
+  with a human's quote, as on create). Mechanical: each `items/ID.md` is parsed header-only (unknown keys, a file name
+  that differs from the header id, a set owner, a symbolic link or a non-Markdown file fail and name the file), then
+  every id, reference, nesting and cycle is validated against the ledger before the first write (exit 2, nothing
+  written). `events.json` is ignored. Not combinable with `--from`, `--forge`, `--repo` or `--history`.
 - `qew import [--from TARGET | --forge F --repo URL [--api URL]] [--history]`: read a forge project into the ledger. Issues
   carrying qew's body marker restore their item (id, kind, priority, labels, parent, needs, state from the footer and managed
   labels); any other issue becomes a fresh draft (closed ones arrive closed). Idempotent; records mirrors. `--history` is

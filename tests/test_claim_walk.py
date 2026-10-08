@@ -133,8 +133,8 @@ class CompleteOwnershipWalk(unittest.TestCase):
         self.assertIn("--take-over", other.stderr)
         self.assertEqual(w.run("complete", item).returncode, 0)
         again = w.run("complete", item)
-        self.assertEqual(again.returncode, 2)
-        self.assertIn("already completed", again.stderr)
+        self.assertEqual(again.returncode, 0)
+        self.assertIn("unchanged", again.stdout)
         self.assertEqual(event_types(w, item).count("completed"), 1)
 
     def test_complete_of_never_claimed_work_names_start(self) -> None:

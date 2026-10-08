@@ -120,11 +120,11 @@ def evidence(config: Config, reference: str, changes: List[str], vcs: Optional[s
     return f"{item_id} evidence {kind} {' '.join(cited)}"
 
 
-def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> Optional[str]:
+def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> Optional[str]:  # "completed" when already done
     """Complete only work the caller holds; returns the previous holder when it is a take-over."""
     folded = snapshot.folds[item_id]
     if folded.state == State.COMPLETED:
-        raise QewError(f"cannot complete {item_id}: it is already completed", 2)
+        return "completed"
     if folded.state == State.APPROVED:
         if take_over:
             raise QewError(f"nothing to take over: {item_id} is unclaimed", 2)
@@ -152,20 +152,23 @@ def complete(config: Config, reference: str, reason: Optional[str] = None, take_
     ledger, snapshot, item_id = _load(config, reference)
     item = snapshot.items[item_id]
     previous = _holder_check(snapshot, item_id, take_over)
+    if previous == "completed":  # a repeat is a quiet no-op: no second event
+        return {"line": f"{item_id} completed (unchanged)", "id": item_id, "state": "unchanged"}
     unmet = ledger_graph.blockers(snapshot, item_id)
     if unmet:
         raise QewError(f"cannot complete {item_id}: it needs {' '.join(unmet)} completed first", 2)
     kids = ledger_graph.children(snapshot).get(item_id, [])
     open_kids = [k for k in kids if snapshot.folds[k].state not in (State.COMPLETED, State.CLOSED)]
     if open_kids:
-        raise QewError(f"cannot complete {item_id}: unfinished children {' '.join(open_kids)}", 2)
+        count = f"{len(open_kids)} open child{'ren' if len(open_kids) != 1 else ''}"
+        raise QewError(f"cannot complete {item_id}: {count}, unfinished children {' '.join(open_kids)}", 2)
     data: Dict[str, object] = {}
     commits: List[str] = []
     if item.kind == Kind.EPIC:
         if no_commit is not None:
             raise QewError(f"{item_id} is an epic: it needs children, not code, so --no-commit does not apply", 2)
         if not kids:
-            raise QewError(f"cannot complete {item_id}: an epic with no children has nothing to prove; close it", 2)
+            raise QewError(f"cannot complete {item_id}: an epic with no children has no completed work; close it", 2)
     elif no_commit is not None:
         if snapshot.folds[item_id].evidence:
             raise QewError(f"{item_id} has evidence recorded: complete it on that proof, or drop --no-commit", 2)
@@ -245,7 +248,7 @@ def _finish_parent(ledger: Ledger, child_id: str) -> Dict[str, object]:
         snapshot = ledger.snapshot()
         parent_id = snapshot.items[child_id].parent
         parent = snapshot.items.get(parent_id)
-        if parent is None or parent.kind != Kind.EPIC or snapshot.folds[parent_id].state not in (State.APPROVED, State.CLAIMED):
+        if parent is None or parent.kind != Kind.EPIC or snapshot.folds[parent_id].state != State.APPROVED:  # an epic someone holds is finished by its holder
             return {}
         kids = ledger_graph.children(snapshot)[parent_id]
         states = [snapshot.folds[k].state for k in kids]

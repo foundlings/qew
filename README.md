@@ -73,12 +73,12 @@ Repo and API URLs must be http(s) without credentials, query or fragment, and `r
 Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the full contract is
 `docs/specs/commands.md`.
 
-- Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`, `qew inbox`
+- Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`, `qew export`, `qew inbox`
 - Board (offline kanban): `qew board`, `qew board columns`, `qew board list`, `qew board create`, `qew board set`
 - Work: `qew create`, `qew set`, `qew comment`, `qew block`, `qew unblock`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr check`, `qew pr ready`, `qew pr merge`, and `qew land` once one merged
-- Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
+- Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`
 - Setup: `qew --version`, `qew init`, `qew hook install`, `qew hook remove`
 
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`), `qew hook vcs-check`.

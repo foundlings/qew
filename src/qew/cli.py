@@ -21,6 +21,7 @@ Read
   qew board       the offline kanban: seven status columns
   qew check       validate the ledger
   qew inbox       one person's waiting drafts and assigned work
+  qew export      write items as Markdown files or JSON
 Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
@@ -42,7 +43,7 @@ Mirrors
   qew sync        push the ledger to every mirror target
   qew project     ensure the board on each target
   qew status      replication state: uncommitted, unpushed, pending per target, divergences
-  qew import      read a forge project into the ledger
+  qew import      read a forge project, or an exported Markdown tree, into the ledger
   qew restore     recreate a forge project from the ledger alone
   qew accept      apply a forge-side change the ledger had not made
   qew reject      keep the ledger value; the next push restores the forge
@@ -60,6 +61,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # A module that does not exist yet is skipped; any other import failure is loud.
 _MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox", "cmd_claim", "cmd_finish", "cmd_edit")
 _MODULES += ("cmd_board",)
+_MODULES += ("cmd_transfer",)
 
 
 def _plugins() -> list:

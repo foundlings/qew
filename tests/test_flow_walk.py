@@ -80,8 +80,8 @@ class FlowWalk(unittest.TestCase):
         w.run("start", child)
         w.run("evidence", child, "--change", w.commit())
         w.run("complete", child)
-        self.assertEqual(w.events(epic)[-1]["type"], "completed", "the last finished child completes its epic")
-        self.assertEqual(w.run("complete", epic).returncode, 2, "and an explicit retry adds no second event")
+        self.assertEqual(w.events(epic)[-1]["type"], "claimed", "a held epic is finished by its holder, not automatically")
+        self.assertEqual(w.run("complete", epic).returncode, 0)
 
     def test_start_refuses_drafts_and_blocked_work(self) -> None:
         w = self.world
