@@ -107,6 +107,12 @@ class SyncWalk(unittest.TestCase):
         self.assertFalse(self.a.issues[1].open)
         self.assertIn("qew:completed", self.a.issues[1].labels)
 
+    def test_every_synced_issue_carries_the_managed_label(self) -> None:
+        """Prevents the managed-label view filter from hiding qew's own issues."""
+        self.world.create("--kind", "epic", "--title", "E")
+        self.sync("forgejo-git.example-o-r")
+        self.assertIn("qew:managed", self.a.issues[1].labels)
+
     def test_a_dead_forge_does_not_block_another_and_leaves_no_mirror_file(self) -> None:
         w = self.world
         item = w.create("--kind", "epic", "--title", "E")
