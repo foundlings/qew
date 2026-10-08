@@ -75,7 +75,7 @@ class MemoryForge(Forge):
         if (number, blocked_by) not in self.links:
             self.links.append((number, blocked_by))
 
-    def ensure_board(self, columns: Tuple[str, ...]) -> Board:
+    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
         if not self.supports_boards:
             raise Unsupported("ensure_board")
         self._live("board")

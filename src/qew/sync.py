@@ -74,7 +74,7 @@ def _read_mirror(ledger: Ledger, item_id: str, slug: str) -> Optional[dict]:
 
 def _board(target: Target, report: TargetReport) -> Optional[Board]:
     try:
-        return target.forge.ensure_board(COLUMNS)
+        return target.forge.ensure_board(COLUMNS, sync_plan.managed_filter(target.mirror.select))
     except Unsupported as error:
         report.skipped.append(error.capability)
         return None

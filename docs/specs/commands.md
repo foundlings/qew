@@ -77,8 +77,12 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 - `qew restore [--to TARGET | --forge F --repo URL [--api URL]]`: recreate the issues, links and board of a target from the ledger
   alone; mirror files whose remote issue is gone are forgotten first. Idempotent and resumable.
 - `qew project`: the group for `ensure`.
-- `qew project ensure [--target T]`: create the seven-status board where
-  the forge has boards; the board id is recorded in `boards/` in the ledger.
+- `qew project ensure [--target T]`: create or repair the full board where the forge has boards: the seven
+  Status options (colors, descriptions), the Priority field P0-P4 and eight views (Kanban, Table, Ready, Blocked,
+  Active, Review, Drafts, Roadmap). Idempotent; a corrected view or kept foreign option is printed as a note; extra
+  human views are left alone. An overlay mirror (non-empty `select`) prefixes every view filter with
+  `label:qew:managed`; repository mode leaves them bare. The board id is recorded in `boards/` in the ledger and
+  found by that id even if a human renamed the project. A forge without boards prints `boards unsupported`, exit 0.
 
 ## Pull requests
 - `qew pr`: the group for the three commands below.

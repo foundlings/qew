@@ -290,7 +290,7 @@ class GitLab(Forge):
 
     # ----- boards -----
 
-    def ensure_board(self, columns: Tuple[str, ...]) -> Board:
+    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
         name = self._mirror.project or self._repo
         board = self._find_board(name)  # `project` may be a board id this method returned earlier
         if board is None:

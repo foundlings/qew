@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 from qew import ledger_graph
 from qew.errors import QewError
-from qew.forge import COLUMNS, MARKER_PREFIX, IssueSpec, marker_for
+from qew.forge import COLUMNS, MANAGED_FILTER, MARKER_PREFIX, IssueSpec, marker_for
 from qew.ledger_event import State
 from qew.ledger_item import Item, Kind
 from qew.ledger_store import Snapshot
@@ -101,9 +101,14 @@ def _has_open_pull_request(snapshot: Snapshot, item_id: str) -> bool:
     )
 
 
+def managed_filter(select: str) -> str:
+    """Overlay mirrors (select narrows the items) keep human issues off the board; repository mode is bare."""
+    return MANAGED_FILTER if select.strip() else ""
+
+
 def labels(snapshot: Snapshot, item: Item) -> Tuple[str, ...]:
     state = snapshot.folds[item.id].state
-    managed = (f"qew:{state.value if state else 'unknown'}", f"kind:{item.kind.value}", f"priority:{item.priority}")
+    managed = ("qew:managed", f"qew:{state.value if state else 'unknown'}", f"kind:{item.kind.value}", f"priority:{item.priority}")
     return tuple(dict.fromkeys((*item.labels, *managed)))
 
 

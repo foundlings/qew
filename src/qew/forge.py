@@ -142,11 +142,29 @@ class RemotePullRequest:
     merge_sha: str = ""  # the merge commit once state is "merged", else ""
 
 
+# (name, layout, filter): the views `project ensure` keeps, in order. Layouts are GitHub's names.
+BOARD_VIEWS = (
+    ("Kanban", "BOARD_LAYOUT", ""),
+    ("Table", "TABLE_LAYOUT", ""),
+    ("Ready", "TABLE_LAYOUT", "status:Ready"),
+    ("Blocked", "TABLE_LAYOUT", "is:blocked"),
+    ("Active", "TABLE_LAYOUT", 'status:"In progress"'),
+    ("Review", "TABLE_LAYOUT", 'status:"In review"'),
+    ("Drafts", "TABLE_LAYOUT", "status:Draft"),
+    ("Roadmap", "ROADMAP_LAYOUT", ""),
+)
+# Prefixed to every view filter when the mirror only selects part of the repository.
+MANAGED_FILTER = "label:qew:managed"
+# Old Status option names and the current option each one becomes.
+LEGACY_STATUS = {"To triage": "Draft"}
+
+
 @dataclass(frozen=True)
 class Board:
     id: str
     url: str
     columns: Tuple[str, ...]
+    notes: Tuple[str, ...] = ()  # corrections and foreign leftovers `ensure_board` reports
 
 
 class Forge(ABC):
@@ -191,8 +209,11 @@ class Forge(ABC):
         """Record on the forge that issue `number` is blocked by issue `blocked_by` (idempotent)."""
         raise Unsupported("link_dependency")
 
-    def ensure_board(self, columns: Tuple[str, ...]) -> Board:
-        """Find or create the board named by the mirror's `project` with these columns."""
+    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
+        """Find or create the board named by the mirror's `project` with these columns.
+
+        `managed_filter` (when non-empty) is prefixed to every view filter on forges with views.
+        """
         raise Unsupported("ensure_board")
 
     def place_on_board(self, board: Board, number: int, column: str) -> None:
