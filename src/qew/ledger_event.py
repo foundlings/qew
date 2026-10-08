@@ -51,8 +51,9 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     "edge": (("op", "need"), tuple(State)),
 }
 # A `completed` event with one of these keys finished the item without a claim: its children
-# finished it, or the code that delivers it landed without anyone claiming it.
-_UNCLAIMED_COMPLETION = ("children_finished", "delivered_by")
+# finished it, the code that delivers it landed without anyone claiming it, or it was made under a
+# provisional (offline) claim that sync may later record as lost: the completion stands either way.
+_UNCLAIMED_COMPLETION = ("children_finished", "delivered_by", "provisional_claim")
 MAX_COMMENT_BYTES = 20_000
 PROVENANCE = ("import", "forge", "forge-import")
 _INITIAL = {"drafted": State.DRAFT, "approved": State.APPROVED}
@@ -139,6 +140,8 @@ def _check_optional_fields(kind: str, value: Dict[str, Any], where: str) -> None
             raise QewError(f"{where}: `{key}` must be non-empty text", 1)
 
     if kind == "claimed":
+        if "provisional" in value and value["provisional"] is not True:
+            raise QewError(f"{where}: claim `provisional` must be true when present", 1)
         for key in ("lane", "workspace", "kind"):
             if key in value and not isinstance(value[key], str):
                 raise QewError(f"{where}: claim `{key}` must be text", 1)
@@ -152,7 +155,7 @@ def _check_optional_fields(kind: str, value: Dict[str, Any], where: str) -> None
         if "forced" in value and not isinstance(value["forced"], bool):
             raise QewError(f"{where}: `forced` must be true or false", 1)
     elif kind == "completed":
-        for key in ("reason", "branch", "no_commit", "taken_over_from"):
+        for key in ("reason", "branch", "no_commit", "taken_over_from", "provisional_claim"):
             text(key)
         for key in ("commits", "delivered_by"):
             if key in value and not _strings(value[key]):

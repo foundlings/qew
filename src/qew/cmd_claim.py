@@ -29,6 +29,8 @@ def register(commands) -> None:
     start.add_argument("--lane", help="agent lane holding the claim, to tell lanes of one actor apart")
     start.add_argument("--workspace", help="with --lane: absolute path of the lane's workspace")
     start.add_argument("--kind", help="with --lane: compute (default) or token")
+    start.add_argument("--offline", action="store_true",
+                       help="take a provisional claim without asking the arbiter (primary forge or ledger remote); sync settles it")
     start.add_argument("--json", action="store_true", help="machine-readable output")
     release = commands.add_parser("release", help="give up a claim without closing the work")
     release.add_argument("item", help="item id or alias")
@@ -42,7 +44,7 @@ def run(arguments) -> bool:
     if arguments.command == "start":
         config = _config()
         result = start(config, arguments.item, arguments.take_over, arguments.reason,
-                       arguments.lane, arguments.workspace, arguments.kind)
+                       arguments.lane, arguments.workspace, arguments.kind, arguments.offline)
         line = outcome.render(arguments, result.pop("line"), **result)
         if not claim_authority.PENDING:
             print(line)
@@ -80,8 +82,11 @@ def _refuse_state(snapshot: Snapshot, item_id: str, verb: str) -> QewError:
 
 
 def start(config: Config, reference: str, take_over: bool = False, reason: Optional[str] = None,
-          lane: Optional[str] = None, workspace: Optional[str] = None, kind: Optional[str] = None) -> Dict[str, object]:
+          lane: Optional[str] = None, workspace: Optional[str] = None, kind: Optional[str] = None,
+          offline: bool = False) -> Dict[str, object]:
     claim_fields.validate(lane, workspace, kind)
+    if offline and take_over:
+        raise QewError("--offline cannot be combined with --take-over: a takeover is arbitrated, never provisional", 2)
     if take_over and not (reason or "").strip():
         raise QewError("--take-over needs --reason TEXT: say why the claim is taken", 2)
     if reason is not None and not take_over:
@@ -107,14 +112,26 @@ def start(config: Config, reference: str, take_over: bool = False, reason: Optio
     if unmet:
         raise QewError(f"cannot start {item_id}: it needs {' '.join(unmet)} completed first", 2)
     fields = {key: value for key, value in (("lane", lane), ("workspace", workspace), ("kind", kind)) if value is not None}
+    mode = claim_authority.ClaimMode.OFFLINE if offline else claim_authority.ClaimMode.ARBITRATED
     if snapshot.items[item_id].kind == Kind.EPIC and not take_over:
-        return _start_epic(config, ledger, snapshot, item_id, me, fields)
+        return _start_epic(config, ledger, snapshot, item_id, me, fields, mode)
     _enforce_cap(config, snapshot, me)
     if take_over:
         claim_authority.release(config, ledger, item_id)
         ledger.append_event(item_id, "released", reason=reason.strip(), previous_owner=holder, forced=True)
-    claim_authority.claim(config, ledger, item_id, me, **fields)
-    return {"line": f"{item_id} claimed by {me}", "id": item_id, "state": "started", "actor": me, **fields}
+    claimed = claim_authority.claim(config, ledger, item_id, me, mode, **fields)
+    return {"line": f"{item_id} claimed by {me}" + _PROVISIONAL_NOTE[claimed], "id": item_id, "state": "started",
+            "actor": me, **_provisional_field(claimed), **fields}
+
+
+_PROVISIONAL_NOTE = {
+    claim_authority.Claimed.CONFIRMED: "",
+    claim_authority.Claimed.PROVISIONAL: " (provisional: offline; `qew sync` settles it with the arbiter)",
+}
+
+
+def _provisional_field(*claimed: "claim_authority.Claimed") -> Dict[str, object]:
+    return {"provisional": True} if claim_authority.Claimed.PROVISIONAL in claimed else {}
 
 
 def _descendants(snapshot: Snapshot, root: str) -> List[str]:
@@ -130,7 +147,8 @@ def _descendants(snapshot: Snapshot, root: str) -> List[str]:
     return found
 
 
-def _start_epic(config: Config, ledger, snapshot: Snapshot, epic_id: str, me: str, fields: Dict[str, str]) -> Dict[str, object]:
+def _start_epic(config: Config, ledger, snapshot: Snapshot, epic_id: str, me: str, fields: Dict[str, str],
+                mode: "claim_authority.ClaimMode") -> Dict[str, object]:
     """Claim an epic and its open descendants in one operation: all of them or none.
 
     Descendants that cannot start (drafts, work with unmet needs, finished work) are left alone; one held by
@@ -153,9 +171,10 @@ def _start_epic(config: Config, ledger, snapshot: Snapshot, epic_id: str, me: st
         if mine + len(targets) > cap:
             raise QewError(f"claiming {len(targets)} items would give {me} more than max_active_claims = {cap}", 6)
     posted: List[str] = []
+    outcomes: List["claim_authority.Claimed"] = []
     try:
         for item_id in targets:
-            claim_authority.claim(config, ledger, item_id, me, **fields)
+            outcomes.append(claim_authority.claim(config, ledger, item_id, me, mode, **fields))
             posted.append(item_id)
     except QewError:
         for item_id in posted:
@@ -165,8 +184,9 @@ def _start_epic(config: Config, ledger, snapshot: Snapshot, epic_id: str, me: st
                 pass  # best effort: the refusal that stopped the cascade is the error to report
         claim_authority.take_pending()
         raise
-    return {"line": f"{epic_id} claimed by {me} ({len(targets)} items)", "id": epic_id, "state": "started",
-            "actor": me, "claimed": targets, **fields}
+    note = _PROVISIONAL_NOTE[claim_authority.Claimed.PROVISIONAL] if _provisional_field(*outcomes) else ""
+    return {"line": f"{epic_id} claimed by {me} ({len(targets)} items)" + note, "id": epic_id, "state": "started",
+            "actor": me, "claimed": targets, **_provisional_field(*outcomes), **fields}
 
 
 def _refuse_own_claim(item_id: str, folded: Folded, lane: Optional[str], take_over: bool) -> None:
