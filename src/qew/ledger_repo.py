@@ -4,7 +4,10 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import random
+import re
 import subprocess
+import time
 from typing import Dict, List, Optional, Sequence
 
 from qew import trace
@@ -14,6 +17,66 @@ from qew.errors import QewError
 # Directories and files whose changes are qew's own writes (never a human's notes).
 OWNED = ("items", "events", "mirrors", "boards", "views", "proposals")
 SHOWN_CONFLICTS = 5
+
+
+# git (and jj through its git backend) report a held repository lock this way; the lock is a sentinel file, not a
+# kernel lock, so a crashed git leaves it behind. qew waits for a live one, names a dead one, and never deletes it.
+LOCK_ERROR = re.compile(r"Unable to create '([^']*\.lock)'|Another git process seems to be running|cannot lock ref|unable to lock|could not lock|Failed to lock", re.IGNORECASE)
+STALE_AFTER_S = 60.0
+DEFAULT_REPO_LOCK_WAIT_S = 20.0
+
+
+def repo_lock_wait() -> float:
+    try:
+        return max(0.0, float(os.environ.get("QEW_REPO_LOCK_WAIT_S", DEFAULT_REPO_LOCK_WAIT_S)))
+    except ValueError:
+        return DEFAULT_REPO_LOCK_WAIT_S
+
+
+def git_is_running() -> bool:
+    """Whether any git process exists on this machine; unknown counts as running (so a lock is never called stale by guess)."""
+    argv = ["tasklist", "/FO", "CSV", "/NH"] if os.name == "nt" else ["ps", "-A", "-o", "comm="]
+    try:
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=5, check=False).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    names = [Path(line.strip().strip('"').split('","')[0]).name.lower() for line in out.splitlines() if line.strip()]
+    return any(name in ("git", "git.exe") for name in names)
+
+
+def lock_age(stderr: str) -> Optional[tuple]:
+    """(path, seconds old) of the lock file a git error names, when it can be read."""
+    found = LOCK_ERROR.search(stderr)
+    if not found or not found.group(1):
+        return None
+    try:
+        return found.group(1), max(0.0, time.time() - os.stat(found.group(1)).st_mtime)
+    except OSError:
+        return found.group(1), 0.0  # it vanished between the error and now: the next attempt will see
+
+
+class RepoLocked(QewError):
+    """A repository lock (index.lock, a ref lock) stayed held: environment trouble, exit 3, never a data problem."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, 3)
+
+
+def stale_lock_error(stderr: str, waited: float) -> Optional[RepoLocked]:
+    """The error for a lock that looks dead (old, and no git process anywhere); None while it may still be live."""
+    named = lock_age(stderr)
+    if named is None or named[1] < STALE_AFTER_S or git_is_running():
+        return None
+    return RepoLocked(f"git cannot proceed: {named[0]} is {named[1]:.0f}s old and no git process is running, so the lock looks "
+                      f"stale; it was not removed (qew never deletes a repository lock). If nothing uses that repository, "
+                      f"delete the file yourself and rerun")
+
+
+def held_lock_error(stderr: str, waited: float) -> RepoLocked:
+    named = lock_age(stderr)
+    where = f"{named[0]} ({named[1]:.0f}s old)" if named else "a repository lock"
+    return RepoLocked(f"git cannot proceed: {where} is still held after {waited:.0f}s; another process is using the repository "
+                      "(raise QEW_REPO_LOCK_WAIT_S to wait longer); the lock was not removed")
 
 
 MERGE_MARKER = "merge-conflict.json"  # in the ledger's local-only .qew/ cache
@@ -75,8 +138,27 @@ class LedgerRepo:
 
     # -- plumbing
     def run(self, argv: Sequence[str], timeout: Optional[float] = None, check: bool = True) -> subprocess.CompletedProcess:
+        started = time.monotonic()
+        attempt = 0
+        while True:
+            result = self._run_once(argv, timeout)
+            if result.returncode == 0 or not LOCK_ERROR.search(result.stderr or ""):
+                break
+            waited = time.monotonic() - started
+            stale = stale_lock_error(result.stderr, waited)
+            if stale is not None:
+                raise stale
+            if waited >= repo_lock_wait():
+                raise held_lock_error(result.stderr, waited)
+            time.sleep(min(0.5, 0.05 * 2 ** min(attempt, 4)) + random.uniform(0, 0.05))
+            attempt += 1
+        if check and result.returncode != 0:
+            raise QewError(f"`{' '.join(argv[:4])}` failed: {(result.stderr or result.stdout).strip()[:300]}", 3)
+        return result
+
+    def _run_once(self, argv: Sequence[str], timeout: Optional[float]) -> subprocess.CompletedProcess:
         try:
-            result = subprocess.run(
+            return subprocess.run(
                 list(argv), cwd=self.path, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                 timeout=timeout, check=False, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
@@ -84,9 +166,6 @@ class LedgerRepo:
             raise QewError(f"`{' '.join(argv[:3])}` timed out after {timeout}s", 3) from None
         except OSError as error:
             raise QewError(f"cannot run `{argv[0]}`: {error}", 3) from None
-        if check and result.returncode != 0:
-            raise QewError(f"`{' '.join(argv[:4])}` failed: {(result.stderr or result.stdout).strip()[:300]}", 3)
-        return result
 
     def exclude_cache(self) -> None:
         """Keep `.qew/` (lock, log) out of the repository without committing anything."""

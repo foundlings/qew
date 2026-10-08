@@ -14,7 +14,7 @@ from typing import Callable, Iterator, List, Optional, Set
 
 from qew import claim_authority, filelock, ledger_config, ledger_store, trace
 from qew.errors import QewError
-from qew.ledger_repo import LedgerRepo
+from qew.ledger_repo import LedgerRepo, RepoLocked
 
 LOCK_WAIT_SECONDS = 60.0
 CHECKPOINT_EVERY = 25
@@ -328,7 +328,8 @@ def _commit(repo: LedgerRepo, config, verb: str, entries, rollback_on_failure: b
     except QewError as error:
         if rollback_on_failure:
             ledger_store.journal_rollback(entries)
-            raise QewError(f"ledger commit failed, the write was rolled back: {error}", 1) from None
+            raise QewError(f"ledger commit failed, the write was rolled back: {error}",
+                           error.exit_code if isinstance(error, RepoLocked) else 1) from None
         raise
 
 
