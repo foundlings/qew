@@ -24,6 +24,7 @@ from qew.forge import (
     PullRequestSpec,
     RemoteComment,
     RemoteIssue,
+    RemoteBranch,
     RemotePullRequest,
     Transport,
 )
@@ -373,6 +374,37 @@ class Forgejo(Forge):
                 return False
             raise
         return _typed(_object(data, "branch protection"), "enable_status_check", bool, "branch protection")
+
+    # -- branches --
+
+    def list_branches(self) -> List[RemoteBranch]:
+        repository, _ = self._call("GET", "")
+        default = _typed(_object(repository, "repository"), "default_branch", str, "repository")
+        found: List[RemoteBranch] = []
+        for entry in self._list("/branches"):
+            branch = _object(entry, "branch")
+            name = _typed(branch, "name", str, "branch")
+            found.append(RemoteBranch(name, name == default, _typed(branch, "protected", bool, "branch")))
+        return found
+
+    def branch_is_merged(self, name: str, base: str) -> bool:
+        spec = f"{urllib.parse.quote(base, safe='/')}...{urllib.parse.quote(name, safe='/')}"
+        data, _ = self._call("GET", f"/compare/{spec}")
+        return _typed(_object(data, "comparison"), "total_commits", int, "comparison") == 0
+
+    def delete_branch(self, name: str) -> None:
+        try:
+            self._call("DELETE", f"/branches/{urllib.parse.quote(name, safe='/')}")
+        except ForgeRejected as error:
+            if error.status != 404:  # a branch that is already gone is success
+                raise
+
+    def list_open_pull_heads(self) -> List[str]:
+        heads: List[str] = []
+        for entry in self._list("/pulls", {"state": "open"}):
+            head = _object(_object(entry, "pull request").get("head"), "pull request.head")
+            heads.append(_typed(head, "ref", str, "pull request.head"))
+        return heads
 
     def _with_checks(self, data: Any) -> RemotePullRequest:
         sha = _typed(_object(_object(data, "pull request").get("head"), "pull request.head"), "sha", str, "head")

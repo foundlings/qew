@@ -12,7 +12,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from qew import forge_http
-from qew.forge import Forge, ForgeRejected, PullRequestSpec, RemoteBranch, Unsupported
+from qew.forge import Forge, ForgeError, PullRequestSpec, RemoteBranch, Unsupported
 from qew.forge_forgejo import Forgejo
 from qew.forge_github import GitHub
 from qew.forge_gitlab import GitLab
@@ -30,7 +30,7 @@ class BranchContract:
         self.fake.add_branch("main")
         self.fake.add_branch("feature/done", contained_in=("main",))
         self.fake.add_branch("wip")
-        self.fake.protection["main"] = {"required_status_checks": None, "enable_status_check": False}
+        self.protect("main")
 
     def test_branches_are_listed_with_default_and_protected_flags(self) -> None:
         """Prevents treating the default or a protected branch as an ordinary prune candidate."""
@@ -57,7 +57,7 @@ class BranchContract:
     def test_a_refused_delete_is_an_error_not_a_silent_success(self) -> None:
         """Prevents reporting a protected branch as deleted."""
         self.populate()
-        with self.assertRaises(ForgeRejected):
+        with self.assertRaises(ForgeError):
             self.backend.delete_branch("main")
         self.assertIn("main", self.fake.branches)
 
@@ -75,6 +75,9 @@ class GitHubBranchWalk(BranchContract, unittest.TestCase):
         mirror = Mirror("github", self.fake.repo_url, None, "", {"api": self.fake.api})
         self.backend = GitHub(mirror, forge_http.urllib_transport(timeout=5), {"GITHUB_TOKEN": fake_github.TOKEN})
 
+    def protect(self, name: str) -> None:
+        self.fake.protection[name] = {"required_status_checks": None}
+
     def open_pulls(self) -> None:
         for head, state in (("wip", "open"), ("feature/done", "closed")):
             number = self.fake.new_pull({"title": head, "head": head, "base": "main"})["number"]
@@ -87,6 +90,9 @@ class ForgejoBranchWalk(BranchContract, unittest.TestCase):
         self.addCleanup(self.fake.stop)
         mirror = Mirror("forgejo", self.fake.repo_url, None, "", {"api": self.fake.api})
         self.backend = Forgejo(mirror, forge_http.urllib_transport(timeout=5), {"FORGEJO_TOKEN": fake_forgejo.TOKEN})
+
+    def protect(self, name: str) -> None:
+        self.fake.protections[name] = {"enable_status_check": False}
 
     def open_pulls(self) -> None:
         for head, state in (("wip", "open"), ("feature/done", "closed")):

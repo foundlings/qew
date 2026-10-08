@@ -13,7 +13,7 @@ import re
 import sys
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
 
-from qew import forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, vcs
+from qew import branch_cleanup, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -415,6 +415,16 @@ def _hand_off(loaded: Loaded, number: int) -> List[str]:
     return lines
 
 
+def _branch_line(cleanup: branch_cleanup.HeadFate, branch: str) -> List[str]:
+    """The merge output about the head branch; a failure to delete it is a warning on stderr, never an error."""
+    if cleanup.fate == branch_cleanup.Fate.DELETED:
+        return [f"branch {branch} deleted"]
+    if cleanup.fate == branch_cleanup.Fate.KEPT:
+        return [f"branch {branch} kept: {cleanup.note}"]
+    print(f"qew: branch {branch} not deleted: {untrusted_text.show(cleanup.note).text}", file=sys.stderr)
+    return []
+
+
 def merge_pull_request(
     config: Config, number: int, target: Optional[str], options: MergeOptions = MergeOptions(),
     build: Optional[Build] = None, sleep: Optional[Callable[[float], None]] = None,
@@ -475,5 +485,7 @@ def merge_pull_request(
     with forge_errors(slug):
         merged = forge.read_pull_request(number)
     where = f" (merge commit {merged.merge_sha[:12]})" if merged.merge_sha else ""
-    lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *_hand_off(loaded, number))
+    cleanup = branch_cleanup.delete_merged_head(forge, pull.head_branch, {pull.base_branch, config.target})
+    branch = untrusted_text.show(cleanup.name).text
+    lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *_branch_line(cleanup, branch), *_hand_off(loaded, number))
     return Merged(number, pull.head_sha, merged.merge_sha, True, covered, lines)

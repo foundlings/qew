@@ -107,7 +107,9 @@ class PruneWalk(unittest.TestCase):
         for name in ("done-a", "done-b"):
             self.assertIn(f"deleted {name}", run.out)
         self.assertNotIn("wip", run.out)
-        self.assertEqual(self.w.qew("branch", "prune").out.count("deleted"), 0)
+        deletes = self.w.forge.count("delete_branch")
+        self.assertEqual(self.w.qew("branch", "prune").code, 0)
+        self.assertEqual(self.w.forge.count("delete_branch"), deletes)
 
     def test_the_base_and_the_default_branch_are_never_deleted_even_when_merged(self) -> None:
         """Prevents pruning the branch everything else is measured against, or the repository's default."""

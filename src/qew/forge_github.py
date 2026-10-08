@@ -22,6 +22,7 @@ from qew.forge import (
     ForgeUnavailable,
     IssueSpec,
     PullRequestSpec,
+    RemoteBranch,
     RemoteComment,
     RemoteIssue,
     RemotePullRequest,
@@ -695,6 +696,38 @@ class GitHub(Forge):
         for page in self._wire.pages(f"{base}/check-runs?per_page=100"):
             runs.extend(_run_outcome(run) for run in _array(_obj(page, "check runs").get("check_runs"), "check_runs"))
         return combine_checks(state, runs)
+
+    # branches
+
+    def list_branches(self) -> List[RemoteBranch]:
+        default = _str(_obj(self._wire.rest("GET", self._repo_path), "repository"), "default_branch", "repository")
+        found: List[RemoteBranch] = []
+        for page in self._wire.pages(f"{self._repo_path}/branches?per_page=100"):
+            for entry in _array(page, "branch list"):
+                branch = _obj(entry, "branch")
+                name = _str(branch, "name", "branch")
+                found.append(RemoteBranch(name, name == default, _bool(branch, "protected", "branch")))
+        return found
+
+    def branch_is_merged(self, name: str, base: str) -> bool:
+        spec = f"{quote(base, safe='/')}...{quote(name, safe='/')}"
+        comparison = _obj(self._wire.rest("GET", f"{self._repo_path}/compare/{spec}"), "comparison")
+        return _int(comparison, "ahead_by", "comparison") == 0
+
+    def delete_branch(self, name: str) -> None:
+        try:
+            self._wire.rest("DELETE", f"{self._repo_path}/git/refs/heads/{quote(name, safe='/')}")
+        except ForgeRejected as error:
+            if error.status != 422 or "does not exist" not in error.detail:  # a ref that is already gone is success
+                raise
+
+    def list_open_pull_heads(self) -> List[str]:
+        heads: List[str] = []
+        for page in self._wire.pages(f"{self._repo_path}/pulls?state=open&per_page=100"):
+            for entry in _array(page, "pull request list"):
+                head = _obj(_obj(entry, "pull request").get("head"), "pull request head")
+                heads.append(_str(head, "ref", "pull request head"))
+        return heads
 
     # boards
 

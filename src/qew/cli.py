@@ -44,6 +44,7 @@ Drafts (only a human's quoted words release work)
 Pull requests
   qew pr          open | check | ready | merge
   qew land        complete the items of a merged pull request
+  qew branch      prune: delete merged branches no open pull request uses
 Mirrors
   qew sync        push the ledger to every mirror target
   qew mirror      add | remove | list mirror targets
@@ -72,6 +73,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
+_MODULES += ("cmd_branch",)
 
 
 def top_level_commands() -> list:

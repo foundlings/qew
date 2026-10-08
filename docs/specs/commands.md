@@ -390,7 +390,16 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   and reports a merge that did not land (exit 3). `--auto` enables forge auto-merge for pending checks, only where the
   base branch requires status checks. `--admin --reason` merges past the check rule only and records the reason on the
   covered items. `--other-author --reason` merges a pull request someone else opened; it overrides ownership only.
-  `--json`: `{merged, number, head_sha, items, schema_version}`.
+  `--json`: `{merged, number, head_sha, items, schema_version}`. After a landed merge the head branch is deleted on the
+  forge, never the base, the configured target branch or a head another open pull request uses (`branch NAME kept: ...`);
+  a forge that cannot delete only warns on stderr and the merge still succeeds.
+- `qew branch`: the group for `prune`.
+- `qew branch prune [--target T] [--base BRANCH] [--dry-run]`: per forge target (read-only targets skipped), delete every
+  branch whose tip `BRANCH` (default the configured target branch) already holds and that no open pull request uses.
+  The base, the configured target branch, the forge's default branch and protected branches are never touched. Deleting
+  needs no flag and prints each name; `--dry-run` prints `would delete NAME` and deletes nothing. A forge that cannot
+  list or delete (GitLab) prints `branches unsupported`, exit 0; any other forge failure is exit 1 and a branch whose
+  merged state could not be read is never deleted.
 - Ownership: `ready`, `check` and `merge` act on a pull request the caller opened, or whose open covered items the
   caller holds every claim on; otherwise exit 3 naming the opener and the ways forward (`qew start ITEM --take-over
   --reason TEXT`; for merge also `--other-author --reason TEXT`). A merge also refuses an item another actor holds,

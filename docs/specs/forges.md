@@ -22,6 +22,10 @@ feature needs no GitLab scenario. `tests/test_forge_priority_walk.py` holds the 
 - `create_issue` is not idempotent; the caller first calls `find_issue(marker)` (the marker is a whole line of the body: a marker merely quoted in text, blockquoted, recased or of another id never matches; pull requests are skipped; several matches resolve to the lowest number, which is how a race between two creators ends).
 - `merge_pull_request(number, expected_head_sha)` merges exactly that head (merge commit, no squash) and
   raises `ForgeRejected` if the head moved. `open_pull_request` honors `draft`.
+- Branches: `list_branches()` (name, default, protected; a truncated listing raises), `branch_is_merged(name, base)`
+  (the forge's own comparison says `base` holds the tip: GitHub `compare` `ahead_by == 0`, Forgejo `compare`
+  `total_commits == 0`), `delete_branch(name)` (a branch already gone is success; a refusal raises) and
+  `list_open_pull_heads()`. GitLab raises `Unsupported` for all four. Rules for what may be deleted: `branch_cleanup.py`.
 - API roots: GitHub `https://api.github.com` (a GHES host uses `<host>/api/v3`; GraphQL `<host>/api/graphql`),
   Forgejo `<host>/api/v1`, GitLab `<host>/api/v4`. The mirror option `api = "URL"` overrides the root
   (self-hosted installs, and the fake servers in tests).
