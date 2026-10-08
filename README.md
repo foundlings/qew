@@ -2,20 +2,26 @@
 
 # Qew
 
-Offline-first, file-based work ledger with dependency-aware readiness, mirrored to GitHub, Forgejo/Gitea and
-GitLab. The ledger is the source of truth; forges are views. A forge being down never blocks work.
+Offline-first, file-based work ledger with dependency-aware readiness, mirrored to GitHub, Forgejo/Gitea and GitLab
+(any number of repositories across these forges at once). The ledger is the source of truth; forges are views. A forge
+being down never blocks reading, planning or finishing work.
 
 - Items, dependencies, state and evidence are plain files in a ledger repository (any git or jj repo).
   Every write adds a file or edits one item's own file, so concurrent branches merge cleanly.
 - Readiness, blocked work and the dependency graph are derived from files: no network, no tokens spent.
 - `qew complete` is gated: claimed, children done, and evidence whose changes are ancestors of the target branch.
 - Only a human's quoted words release a draft to approved work.
-- `qew sync` mirrors to any number of repositories across forges; each item records every mirror.
+- Replication: every write commits to the ledger, pushes it and syncs the forges in a background worker; checkouts on
+  several machines converge, and a forge can be the single authority for who owns what.
+- `qew sync` mirrors issues, labels, dependencies, pull requests and project boards to each forge, and pulls forge-side
+  edits back (only what changed since the last pull, deletions included); a state change made on a forge is a
+  divergence a human settles with `qew accept` / `qew reject`.
 - Claude, Codex, Cursor and opencode hooks prime sessions and refuse forge-side bypasses.
 
 ## Install
 
-Python 3.11+, no runtime dependencies. `python3 scripts/setup_user.py` installs `qew` into `~/.local/bin`.
+Python 3.11+, no runtime dependencies. On Linux and macOS `sh scripts/install.sh` installs `qew` into `~/.local/bin`
+(details: `docs/specs/installation.md`).
 
 ## Quickstart
 
@@ -47,6 +53,27 @@ before `qew migrate-ids`, and `qew show OLD` still resolves them). Kinds: epic, 
 draft, approved, claimed, completed, closed. IDs come from `id_mode` per kind: `time` (default, 9 chars),
 `letters` (A, B .. AA) or `counter`; imports keep their IDs. `qew migrate-ids --to time [--dry-run]` rewrites every
 id that is not a time id (and every reference to it) in one commit, keeping the old id as an alias. Details: `docs/specs/ledger.md`.
+
+## Replication and authority
+
+Ledger commands run in a write session: lock, fetch and merge the ledger remote, write, commit
+(`qew: <verb> <ID> by <actor>`), push, then a detached worker syncs the forges. `QEW_OFFLINE=1` skips every network
+step; the work is pushed and mirrored the next time you are online. `[replication]` in `.qew/config.toml`
+(`auto_commit`, `auto_push`, `auto_forge_sync`, `background_sync`, `fetch_interval_s`, `branch`, ...) tunes it;
+`qew status` shows the authority, ledger and per-target state and any open divergences.
+
+- **Primary forge.** `[authority] primary = "<target slug>"` makes that forge arbitrate claims, so two checkouts or agents
+  never both own an item; `primary = "none"` (default) lets the ledger remote arbitrate. Every other mirror is read-only.
+- **Mirror mode.** `mode = "repository"` (default) makes qew the tracker's owner; `"overlay"` shares a tracker with other
+  tools and marks qew's issues with `qew:managed`.
+- **Moving and copying.** `qew forge migrate --to TARGET` verifies a new forge and makes it primary; `qew ledger fork`
+  creates an independent ledger under a new identity; `qew import` and `qew restore` rebuild a ledger from a forge and a
+  forge from a ledger.
+- **Boards.** `qew project ensure` builds the Status/Priority board and its eight views on the forge; `qew board` renders
+  the same kanban offline.
+- **Identity.** The actor comes from `QEW_ACTOR`, else the git or jj `user.name`; never the operating-system login.
+
+Contracts: `docs/specs/ledger.md` and `docs/specs/forges.md`.
 
 ## Mirrors
 
@@ -114,7 +141,8 @@ Discussion: `qew comment ITEM --body TEXT` (or `--body-file F`) appends a commen
 
 `qew hook install --git` adds a tracked pre-push hook and `qew hook vcs-check` refuses pushes of commits whose `Refs: ID` trailers cite items without evidence (jj pushes are checked by the agent guard). `qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
 (`.codex/hooks.json`), Cursor and opencode. Session start prints a bounded list of ready work; before a shell
-tool call, forge-side issue/label/board edits and pull request merges that bypass qew are refused. See
+tool call, forge-side issue/label/board edits and pull request merges that bypass qew are refused. A deliberate exception
+is spelled `QEW_ALLOW_FORGE_BYPASS=1` before that one command (set in the hook's environment it allows the session). See
 `docs/specs/hooks.md`.
 
 ## Tests
