@@ -98,6 +98,7 @@ def open_pull_request(
             "forge": mirror.forge,
             "url": mirror.repo,
             "kind": "pr",
+            "draft": draft,
             "number": remote.number,
             "issue_url": remote.url,
             "head": spec.head,

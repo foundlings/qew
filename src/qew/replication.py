@@ -20,7 +20,7 @@ from qew.ledger_repo import LedgerRepo
 LOCK_WAIT_SECONDS = 15.0
 CHECKPOINT_EVERY = 25
 # Commands that keep partial work when they fail midway (see module docstring).
-KEEP_PARTIAL = {"sync", "board", "import", "restore"}
+KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert"}
 
 
 def verb_for(arguments) -> Optional[str]:
@@ -118,10 +118,11 @@ def session(arguments) -> Iterator[None]:
             yield
         except BaseException:
             entries = ledger_store.journal_take()
-            if verb in KEEP_PARTIAL and committing and entries:
-                _commit(repo, config, verb, entries, rollback_on_failure=False)
-                if replicating:
-                    repo.push(rep.timeout_s)
+            if verb in KEEP_PARTIAL:
+                if committing and entries:
+                    _commit(repo, config, verb, entries, rollback_on_failure=False)
+                    if replicating:
+                        repo.push(rep.timeout_s)
             else:
                 ledger_store.journal_rollback(entries)
             raise

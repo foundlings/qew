@@ -125,15 +125,19 @@ def _parser() -> argparse.ArgumentParser:
     draft = commands.add_parser("draft", help="drafts and their release by a human")
     draft_commands = draft.add_subparsers(dest="draft_command", required=True)
     draft_list = draft_commands.add_parser("list", help="list drafts")
+    draft_list.add_argument("--parent", help="only the direct draft children of this item")
     draft_list.add_argument("--json", action="store_true", help="machine-readable output")
     approve = draft_commands.add_parser("approve", help="release drafts with a human's quoted words")
     approve.add_argument("items", nargs="+", help="items to release")
     approve.add_argument("--tree", action="store_true", help="release every draft below the items too")
     approve.add_argument("--quote", required=True, help="a human's words, \"Name: 'their words'\"")
+    approve.add_argument("--json", action="store_true", help="machine-readable output")
     revert = draft_commands.add_parser("revert", help="return approved, unclaimed work to draft")
     revert.add_argument("items", nargs="+", help="items to revert")
+    revert.add_argument("--tree", action="store_true", help="return every approved, unclaimed item below the items too")
     revert.add_argument("--reason", required=True, help="why the release is withdrawn")
     revert.add_argument("--quote", required=True, help="a human's words, \"Name: 'their words'\"")
+    revert.add_argument("--json", action="store_true", help="machine-readable output")
     for plugin in _plugins():
         plugin.register(commands)
     return parser
@@ -223,11 +227,11 @@ def _run(arguments: argparse.Namespace) -> None:
         print("\n".join([f"ok {len(ledger.item_ids())} items", *notes]))
     elif command == "draft":
         if arguments.draft_command == "list":
-            cmd_draft.list_drafts(config, arguments.json)
+            cmd_draft.list_drafts(config, arguments.parent, arguments.json)
         elif arguments.draft_command == "approve":
-            print("\n".join(cmd_draft.approve(config, arguments.items, arguments.tree, arguments.quote)))
+            print("\n".join(cmd_draft.approve(config, arguments.items, arguments.tree, arguments.quote, arguments.json)))
         else:
-            print("\n".join(cmd_draft.revert(config, arguments.items, arguments.reason, arguments.quote)))
+            print("\n".join(cmd_draft.revert(config, arguments.items, arguments.tree, arguments.reason, arguments.quote, arguments.json)))
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

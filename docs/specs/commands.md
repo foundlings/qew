@@ -39,10 +39,21 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 
 ## Drafts
 - `qew draft`: the group for the three commands below.
-- `qew draft list [--json]`.
-- `qew draft approve ITEM... [--tree] --quote Q`: only a human's quoted words release work; `--tree`
-  releases the drafts below the items too.
-- `qew draft revert ITEM... --reason TEXT --quote Q`: approved, unclaimed work back to draft.
+- `qew draft list [--parent ID] [--json]`: open drafts by priority then id, with kind and parent;
+  `--parent` keeps the direct children of one item. Files only, no network.
+- `qew draft approve ITEM... [--tree] --quote Q [--json]`: only a human's quoted words release work. Duplicate
+  references are one target. A named item that is not a draft is skipped and reported when another target
+  remains; when none remains the command exits 2 `nothing to approve`. A closed root is refused before any
+  write. `--tree` follows `parent` edges (never `needs`), visits each item once (at most 1000) and releases
+  only drafts. Output is `ID approved` / `ID skipped (why)`; `--json` is `{"approved": [...], "skipped": [...]}`.
+- `qew draft revert ITEM... [--tree] --reason TEXT --quote Q [--json]`: approved, unclaimed work back to draft
+  (`ID draft`; `--json` `{"reverted": [...], "skipped": [...]}`). The reason must not be blank. Claimed work
+  (any item in a `--tree`) is refused with exit 3 naming `qew release`; there is no force flag. Approved work
+  with a pull request mirror that is not recorded as a draft is refused (exit 2); a draft pull request does not
+  block. Drafts and closed items in a list or tree are skipped; a lone draft is `nothing to revert`.
+- A move that fails after its first write exits 3 and prints `approved: IDS; not approved: IDS; rerun the same
+  command to finish`, plus `qew sync` for the mirrors (`reverted:` / `not reverted:` for revert). Each event is
+  read back; a state other than the intended one is exit 3, never success. Written events stay (no rollback).
 
 ## Mirrors
 - `qew sync [--target T] [--item ID] [--dry-run]`: push to every `[[mirror]]` target independently.

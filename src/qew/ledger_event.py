@@ -81,7 +81,7 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
         if not isinstance(value.get(key), str) or not value[key]:
             raise QewError(f"{where}: event is missing `{key}`", 1)
     for key in _RULES[kind][0]:
-        if key not in value or value[key] in ("", None):
+        if key not in value or value[key] in ("", None) or (isinstance(value[key], str) and not value[key].strip()):
             raise QewError(f"{where}: `{kind}` event is missing `{key}`", 1)
     if kind == "closed" and value["reason"] not in CLOSE_REASONS:
         raise QewError(f"{where}: close reason must be one of {', '.join(CLOSE_REASONS)}", 1)

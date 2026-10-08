@@ -119,7 +119,7 @@ class FlowWalk(unittest.TestCase):
         w.approve(item)
         w.run("start", item)
         refused = w.run("draft", "revert", item, "--reason", "late", "--quote", quote)
-        self.assertEqual(refused.returncode, 2)
+        self.assertEqual(refused.returncode, 3)
 
     def test_approve_without_a_human_quote_is_refused(self) -> None:
         w = self.world
