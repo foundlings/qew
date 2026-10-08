@@ -26,6 +26,7 @@ from qew.forge import (
     RemoteIssue,
     RemotePullRequest,
     Transport,
+    marker_alone,
 )
 from qew.forge_http import MAX_PAGES, api_base, call_json, resolve_token, split_repo
 from qew.ledger_config import Mirror
@@ -444,14 +445,15 @@ class GitHub(Forge):
     # issues
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
+        matches = []
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
             for entry in _array(page, "issue list"):
                 issue = _obj(entry, "issue list entry")
                 if "pull_request" in issue:
                     continue
-                if marker in _nullable_str(issue, "body", "issue"):
-                    return parse_issue(issue)
-        return None
+                if marker_alone(_nullable_str(issue, "body", "issue"), marker):
+                    matches.append(parse_issue(issue))
+        return min(matches, key=lambda found: found.number) if matches else None
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)

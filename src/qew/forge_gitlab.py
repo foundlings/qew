@@ -10,6 +10,7 @@ from urllib.parse import quote, urlencode
 
 from qew import forge_http
 from qew.forge import (
+    marker_alone,
     Board,
     Forge,
     Placement,
@@ -222,11 +223,9 @@ class GitLab(Forge):
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
         query = {"search": marker, "in": "description", "state": "all"}
-        for raw in self._pages(f"{self._project}/issues", query):
-            issue = _parse_issue(raw)
-            if marker in issue.body:
-                return issue
-        return None
+        matches = [issue for issue in map(_parse_issue, self._pages(f"{self._project}/issues", query))
+                   if marker_alone(issue.body, marker)]
+        return min(matches, key=lambda found: found.number) if matches else None
 
     def list_issues(self) -> List[RemoteIssue]:
         query = {"state": "all", "order_by": "created_at", "sort": "asc"}

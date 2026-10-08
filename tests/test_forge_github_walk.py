@@ -26,7 +26,7 @@ from qew.forge_http import urllib_transport
 from qew.ledger_config import Mirror
 
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
-SPEC = IssueSpec(title="Title", body="Body <!-- qew:TST-1 -->", labels=("qew:ready",), open=True)
+SPEC = IssueSpec(title="Title", body="<!-- qew:TST-1 -->\nBody", labels=("qew:ready",), open=True)
 
 
 def mirror_for(fake: FakeGitHub, project: Optional[str] = None, **options: object) -> Mirror:

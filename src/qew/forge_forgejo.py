@@ -13,6 +13,7 @@ import urllib.parse
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from qew.forge import (
+    marker_alone,
     Forge,
     ForgeRejected,
     IssueSpec,
@@ -229,7 +230,7 @@ class Forgejo(Forge):
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
         hits = self._list("/issues", {"q": marker, "type": "issues", "state": "all"})
-        matches = [issue for issue in map(_parse_issue, hits) if marker in issue.body]
+        matches = [issue for issue in map(_parse_issue, hits) if marker_alone(issue.body, marker)]
         return min(matches, key=lambda issue: issue.number) if matches else None
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:

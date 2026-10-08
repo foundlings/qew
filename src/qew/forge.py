@@ -272,3 +272,8 @@ class Forge(ABC):
 def marker_for(item_id: str) -> str:
     """The HTML-comment marker embedded in every mirrored body; unique per ledger item."""
     return f"<!-- {MARKER_PREFIX}{item_id} -->"
+
+
+def marker_alone(body: str, marker: str) -> bool:
+    """True when `marker` is a whole line of `body` (the first line or any other), never merely quoted in text."""
+    return any(line.strip() == marker for line in body.splitlines())
