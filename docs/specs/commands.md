@@ -181,7 +181,8 @@ shape prime: additional_context context_bytes schema_version
   board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
   warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
-  lose their card (`pruned N`); their issues are never closed.
+  lose their card (`pruned N`); their issues are never closed. `--item ID` also refreshes the mirrored items whose
+  card that item moves: its direct dependents and its parent epics (each card written only when it differs).
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
 - `qew board [--json] [--compact] [--sort KEY[:desc]] [--group-by KEY] [--filter TERMS]`: the offline kanban, derived from the ledger alone (no forge, no network). Columns
   are the seven statuses of `sync_plan.column`, stacked top to bottom (`Draft (2)` then one card line per card:

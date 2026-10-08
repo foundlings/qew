@@ -64,8 +64,10 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
     placements = _listing(target, report, board) if board is not None else None
     if report.stopped:
         return report
+    # a targeted sync also refreshes the mirrored items whose card the change moves (dependents, parent epics)
+    refresh = {chosen, *(i for i in sync_plan.moved_by(snapshot, chosen) if i in numbers)} if chosen else None
     for item_id in ids:
-        if chosen and item_id != chosen:
+        if refresh is not None and item_id not in refresh:
             continue
         if deadline is not None and time.monotonic() > deadline:
             report.stopped = "time budget used; the rest stays pending"
