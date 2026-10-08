@@ -6,7 +6,7 @@ import json
 import sys
 from typing import List, Optional, Sequence
 
-from qew import replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
+from qew import editor, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
 from qew.errors import QewError
 
 
@@ -84,6 +84,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--priority", type=int, default=2, help="lower is sooner")
     create.add_argument("--body", help="Markdown body")
     create.add_argument("--body-file", help="read the body from a file, or - for stdin")
+    create.add_argument("--edit", action="store_true", help="write the body in $VISUAL or $EDITOR")
     create.add_argument("--quote", help="a human's words, \"Name: 'their words'\"; releases the item")
     create.add_argument("--from-file", help="JSON object or array of items, or - for stdin")
     create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")
@@ -96,6 +97,7 @@ def _parser() -> argparse.ArgumentParser:
     set_.add_argument("--labels", nargs="*", help="replace the labels")
     set_.add_argument("--priority", type=int, help="new priority")
     set_.add_argument("--body", help="replace the body")
+    set_.add_argument("--edit", action="store_true", help="rewrite the body in $VISUAL or $EDITOR")
     set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
 
     show = commands.add_parser("show", help="show one item with derived edges and evidence")
@@ -165,8 +167,13 @@ def _specs(arguments: argparse.Namespace) -> List[dict]:
     if not arguments.title:
         raise QewError("--title is required", 2)
     body = arguments.body
+    sources = [bool(arguments.body is not None), bool(arguments.body_file), arguments.edit]
+    if sum(sources) > 1:
+        raise QewError("use only one of --body, --body-file and --edit", 2)
     if arguments.body_file:
-        body = sys.stdin.read() if arguments.body_file == "-" else _read(arguments.body_file)
+        body = sys.stdin.read() if arguments.body_file == "-" else editor.read_body_file(arguments.body_file)
+    if arguments.edit:
+        body = editor.edit_body()
     return [
         {
             "kind": arguments.kind,
@@ -209,7 +216,10 @@ def _run(arguments: argparse.Namespace) -> None:
             value = getattr(arguments, key)
             if value is not None:
                 changes[key] = " ".join(value)
-        print("\n".join(cmd_items.set_fields(config, arguments.items, changes, arguments.body, arguments.closed)))
+        if arguments.edit and arguments.body is not None:
+            raise QewError("use only one of --body and --edit", 2)
+        body = editor.edit_body() if arguments.edit else arguments.body
+        print("\n".join(cmd_items.set_fields(config, arguments.items, changes, body, arguments.closed)))
     elif command == "show":
         cmd_items.show(config, arguments.item, arguments.json)
     elif command == "list":
