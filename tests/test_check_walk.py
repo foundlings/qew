@@ -120,13 +120,17 @@ class CheckReportWalk(unittest.TestCase):
         self.assertFalse(data["valid"])
         self.assertEqual(data["cycles"], [[a, b, c, a]])
 
-    def test_claimed_epic_is_a_contradiction(self) -> None:
-        """Epics are never claimed; a merged claim event on one is reported by id."""
+    def test_open_work_under_a_completed_epic_is_a_contradiction(self) -> None:
+        """A plan marked done that still has open work is reported by id, and is advisory (the check stays valid)."""
         w = self.world
         epic = w.create("--kind", "epic", "--title", "E")
-        w.approve(epic)
-        event = w.ledger / "events" / epic / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json"
-        event.write_text(json.dumps({"type": "claimed", "owner": "x", "at": "2026-01-01T00:00:00Z", "actor": "x"}))
+        kid = w.create("--title", "K", "--parent", epic)
+        w.approve(epic, kid)
+        w.run("start", epic)
+        w.run("start", kid)
+        w.run("evidence", kid, "--change", w.commit())
+        w.run("complete", kid)
+        w.run("complete", epic)
+        late = w.create("--title", "late", "--parent", epic)
         data = self.report(0)
-        self.assertEqual(data["contradictions"], [{"item": epic, "kind": "claimed_epic"}])
-        self.assertTrue(data["valid"], "a contradiction is advisory: claiming an epic is how its pull request opens")
+        self.assertEqual(data["contradictions"], [{"item": late, "kind": "open_child_of_completed_epic"}])

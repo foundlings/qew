@@ -6,7 +6,7 @@ from pathlib import Path
 import tomllib
 from typing import Dict, List, Tuple
 
-from qew import board_config, ledger_graph, ledger_invariants, text_findings as text_findings_module
+from qew import board_config, ledger_graph, ledger_labels, ledger_invariants, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
@@ -108,6 +108,8 @@ def analyse(ledger: Ledger) -> Report:
     _check_claim_refs(snapshot, problems)
     problems.extend(board_config.problems(ledger))
     ledger_invariants.report(snapshot, problems)
+    problems.extend(f"items/{item.id}.md: {found}" for item in snapshot.items.values()
+                    for found in map(ledger_labels.problem, item.labels) if found)  # flagged by check; reads stay available
     found = contradictions(snapshot)
     findings = text_findings(snapshot)
     notes = [f"imported without evidence: {imported}"] if imported else []
