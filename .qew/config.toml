@@ -2,7 +2,7 @@
 path = "../qew-ledger"
 
 [code]
-target = "main"
+target = "v1-ledger"
 
 [[mirror]]
 forge = "github"
