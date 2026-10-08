@@ -12,11 +12,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from qew import forge_http, ledger_config
 from qew.errors import QewError
-from qew.forge import IssueSpec
+from qew.forge import ForgeRejected, IssueSpec, PullRequestSpec
+from qew.forge_github import GitHub
 from qew.forge_forgejo import Forgejo
 from qew.forge_gitlab import GitLab
 from qew.ledger_config import Mirror
 from tests.fake_forgejo import TOKEN as FORGEJO_TOKEN, FakeForgejo
+from tests.fake_github import TOKEN as GITHUB_TOKEN, FakeGitHub
 from tests.fake_gitlab import TOKEN as GITLAB_TOKEN, FakeGitLab
 from tests.ledger_harness import World
 
@@ -100,6 +102,31 @@ class ForeignLinkWalk(unittest.TestCase):
             backend.create_issue(IssueSpec(f"T{n}", f"<!-- qew:TST-{n} -->", (), True))
         self.assertIsNotNone(backend.find_issue("<!-- qew:TST-2 -->"))
         self.assertEqual(other.log, [])
+
+
+class BoundedReadWalk(unittest.TestCase):
+    """The reads a merge decision rests on stop at MAX_PAGES with a typed error, never a truncated list."""
+
+    def test_github_check_runs_that_never_end_are_refused_not_summarised(self) -> None:
+        fake = FakeGitHub().start()
+        self.addCleanup(fake.stop)
+        backend = GitHub(Mirror("github", fake.repo_url, None, "", {"api": fake.api}), forge_http.urllib_transport(timeout=5),
+                         {"GITHUB_TOKEN": GITHUB_TOKEN, "QEW_NO_GH_TOKEN": "1"})
+        pull = backend.open_pull_request(PullRequestSpec("topic", "main", "T", "b", False))
+        fake.endless_check_runs = True
+        before = len(fake.calls("GET", "/check-runs"))
+        with self.assertRaises(ForgeRejected):
+            backend.read_pull_request(pull.number)
+        self.assertLessEqual(len(fake.calls("GET", "/check-runs")) - before, forge_http.MAX_PAGES)
+
+    def test_gitlab_lists_that_never_end_are_refused(self) -> None:
+        fake = FakeGitLab().start()
+        self.addCleanup(fake.stop)
+        backend = GitLab(Mirror("gitlab", f"{fake.host}/group/repo", None, "", {"api": fake.api}), forge_http.urllib_transport(timeout=5), {"GITLAB_TOKEN": GITLAB_TOKEN})
+        backend.create_issue(IssueSpec("T", "<!-- qew:TST-1 -->", (), True))
+        fake.endless_pages = True
+        with self.assertRaises(ForgeRejected):
+            backend.find_issue("<!-- qew:TST-404 -->")
 
 
 if __name__ == "__main__":

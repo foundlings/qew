@@ -27,6 +27,7 @@ class FakeGitHub:
         self.check_runs: Dict[str, List[Dict[str, Any]]] = {}
         self.projects: Dict[str, Dict[str, Any]] = {}
         self.requests: List[Tuple[str, str, Any]] = []
+        self.endless_check_runs = False  # check-run pages never end
         self.auto_merge_ignored = False  # accept the enable call yet change nothing
         self.rules: Dict[str, List[Dict[str, Any]]] = {}  # branch -> active ruleset rules
         self.protection: Dict[str, Dict[str, Any]] = {}  # branch -> classic protection record
@@ -437,6 +438,10 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _get_check_runs(self, sha: str, query: Dict[str, List[str]], body: Any) -> None:
         runs = self.fake.check_runs.get(sha, [])
+        if self.fake.endless_check_runs:
+            page = int(query.get("page", ["1"])[0])
+            link = f'<{self.fake.base}{API_PREFIX}/repos/{OWNER}/{REPO}/commits/{sha}/check-runs?per_page=100&page={page + 1}>; rel="next"'
+            return self._send(200, {"total_count": 1, "check_runs": [{"status": "completed", "conclusion": "success"}]}, link)
         window, link = self._page(runs, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/commits/{sha}/check-runs")
         self._send(200, {"total_count": len(runs), "check_runs": window}, link)
 
