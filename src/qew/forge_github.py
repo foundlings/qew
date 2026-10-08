@@ -43,6 +43,10 @@ query OwnerProjects($owner: String!, $cursor: String) {
     }
   }
 }"""
+_ENABLE_AUTO_MERGE = """
+mutation EnableAutoMerge($id: ID!) {
+  enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { pullRequest { id } }
+}"""
 _CREATE_PROJECT = """
 mutation CreateProject($ownerId: ID!, $title: String!) {
   createProjectV2(input: {ownerId: $ownerId, title: $title}) {
@@ -185,6 +189,18 @@ class _PullFacts:
     head_branch: str
     base_branch: str
     mergeable: Optional[bool]
+    body: str
+    author: str
+    assignee: str
+    auto_merge: bool
+    merge_sha: str
+
+
+def _login(data: Dict[str, Any], key: str, what: str, nullable: bool) -> str:
+    """The `login` of a user object; a null user reads as "" only where GitHub may send one."""
+    if key not in data or (data[key] is None and not nullable):
+        raise _malformed(f"{what}.{key}")
+    return "" if data[key] is None else _str(_obj(data[key], f"{what}.{key}"), "login", f"{what}.{key}")
 
 
 def parse_pull(data: Any) -> _PullFacts:
@@ -206,7 +222,18 @@ def parse_pull(data: Any) -> _PullFacts:
         head_branch=_str(head, "ref", "pull.head"),
         base_branch=_str(base, "ref", "pull.base"),
         mergeable=pull["mergeable"],
+        body=_nullable_str(pull, "body", "pull"),
+        author=_login(pull, "user", "pull", nullable=False),
+        assignee=_login(pull, "assignee", "pull", nullable=True),
+        auto_merge=_auto_merge(pull),
+        merge_sha=_nullable_str(pull, "merge_commit_sha", "pull") if _bool(pull, "merged", "pull") else "",
     )
+
+
+def _auto_merge(pull: Dict[str, Any]) -> bool:
+    if "auto_merge" not in pull or not (pull["auto_merge"] is None or isinstance(pull["auto_merge"], dict)):
+        raise _malformed("pull.auto_merge")
+    return pull["auto_merge"] is not None
 
 
 def combine_checks(status_state: Optional[str], run_outcomes: List[str]) -> str:
@@ -406,7 +433,35 @@ class GitHub(Forge):
 
     def open_pull_request(self, spec: PullRequestSpec) -> RemotePullRequest:
         payload = {"title": spec.title, "head": spec.head, "base": spec.base, "body": spec.body, "draft": spec.draft}
-        return self._with_checks(parse_pull(self._wire.rest("POST", f"{self._repo_path}/pulls", payload)))
+        created = parse_pull(self._wire.rest("POST", f"{self._repo_path}/pulls", payload))
+        if spec.assignee:
+            # A pull request is assigned through its issue; the create call has no such field.
+            self._wire.rest("PATCH", f"{self._repo_path}/issues/{created.number}", {"assignees": [spec.assignee]})
+            return self.read_pull_request(created.number)
+        return self._with_checks(created)
+
+    def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
+        self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"body": body})
+        return self.read_pull_request(number)
+
+    def requires_status_checks(self, branch: str) -> bool:
+        name = quote(branch, safe="")
+        rules = _array(self._wire.rest("GET", f"{self._repo_path}/rules/branches/{name}"), "branch rules")
+        if any(_str(_obj(rule, "branch rule"), "type", "branch rule") == "required_status_checks" for rule in rules):
+            return True
+        try:
+            protection = _obj(self._wire.rest("GET", f"{self._repo_path}/branches/{name}/protection"), "branch protection")
+        except ForgeRejected as error:
+            if error.status == 404:  # the forge's "Branch not protected"
+                return False
+            raise
+        return protection.get("required_status_checks") is not None
+
+    def enable_auto_merge(self, number: int) -> RemotePullRequest:
+        facts = self._read_pull(number)
+        if not facts.auto_merge:
+            self._wire.graphql(_ENABLE_AUTO_MERGE, {"id": facts.node_id})
+        return self.read_pull_request(number)
 
     def read_pull_request(self, number: int) -> RemotePullRequest:
         return self._with_checks(self._read_pull(number))
@@ -418,7 +473,8 @@ class GitHub(Forge):
             facts = self._read_pull(number)
         return self._with_checks(facts)
 
-    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
+    def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
+        # GitHub has no bypass flag: an administrator's token merges past protection with this same call.
         facts = self._read_pull(number)
         if facts.head_sha != expected_head_sha:
             raise ForgeRejected(409, f"head moved: expected {expected_head_sha}, found {facts.head_sha}")
@@ -433,7 +489,8 @@ class GitHub(Forge):
         return RemotePullRequest(
             number=facts.number, url=facts.url, state=facts.state, draft=facts.draft,
             head_sha=facts.head_sha, head_branch=facts.head_branch, base_branch=facts.base_branch,
-            mergeable=facts.mergeable, checks=self._checks(facts.head_sha),
+            mergeable=facts.mergeable, checks=self._checks(facts.head_sha), body=facts.body,
+            author=facts.author, assignee=facts.assignee, auto_merge=facts.auto_merge, merge_sha=facts.merge_sha,
         )
 
     def _checks(self, sha: str) -> str:

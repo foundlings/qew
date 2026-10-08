@@ -19,6 +19,7 @@ from qew.forge import (
     RemoteIssue,
     RemotePullRequest,
     Transport,
+    Unsupported,
 )
 from qew.ledger_config import Mirror
 
@@ -127,12 +128,31 @@ def _parse_mergeable(status: str) -> Optional[bool]:
     return None if status in _MERGE_UNDECIDED else False
 
 
+def _assignee_name(data: Mapping[str, Any]) -> str:
+    assignees = _list(data.get("assignees"), "assignees")
+    return _field(_object(assignees[0], "assignee"), "username", str) if assignees else ""
+
+
+def _merge_sha(data: Mapping[str, Any], state: str) -> str:
+    value = data.get("merge_commit_sha")
+    if value is None or state != "merged":
+        return ""
+    if not isinstance(value, str):
+        raise _malformed("merge request.merge_commit_sha")
+    return value
+
+
 def _parse_merge_request(raw: Any) -> RemotePullRequest:
     data = _object(raw, "merge request")
     state = _field(data, "state", str)
     if state not in _MR_STATES:
         raise _malformed(f"merge request state `{state}`")
     return RemotePullRequest(
+        body=_description(data),
+        author=_field(_object(data.get("author"), "author"), "username", str),
+        assignee=_assignee_name(data),
+        auto_merge=_field(data, "merge_when_pipeline_succeeds", bool),
+        merge_sha=_merge_sha(data, state),
         number=_field(data, "iid", int),
         url=_field(data, "web_url", str),
         state=_MR_STATES[state],
@@ -332,6 +352,8 @@ class GitLab(Forge):
             "title": DRAFT_TITLE + title if spec.draft else title,
             "description": spec.body, "remove_source_branch": False,
         }
+        if spec.assignee:
+            payload["assignee_ids"] = self._assignee_ids(spec.assignee)
         data, _ = self._call("POST", f"{self._project}/merge_requests", payload=payload)
         return _parse_merge_request(data)
 
@@ -348,7 +370,30 @@ class GitLab(Forge):
         data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"title": title})
         return _parse_merge_request(data)
 
-    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
+    def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
+        data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"description": body})
+        return _parse_merge_request(data)
+
+    def requires_status_checks(self, branch: str) -> bool:
+        project, _ = self._call("GET", self._project)
+        if not _field(_object(project, "project"), "only_allow_merge_if_pipeline_succeeds", bool):
+            return False
+        try:
+            self._call("GET", f"{self._project}/protected_branches/{quote(branch, safe='')}")
+        except ForgeRejected as error:
+            if error.status == 404:  # the branch is not protected
+                return False
+            raise
+        return True
+
+    def enable_auto_merge(self, number: int) -> RemotePullRequest:
+        payload = {"merge_when_pipeline_succeeds": True, "should_remove_source_branch": False, "squash": False}
+        self._call("PUT", f"{self._project}/merge_requests/{number}/merge", payload=payload)
+        return self.read_pull_request(number)
+
+    def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
+        if bypass_checks:
+            raise Unsupported("merge_pull_request with bypass_checks")
         payload = {"sha": expected_head_sha, "should_remove_source_branch": False, "squash": False}
         data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}/merge", payload=payload)
         merged = _parse_merge_request(data)

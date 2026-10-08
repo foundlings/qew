@@ -3,8 +3,10 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 import tomllib
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from qew.errors import QewError
 
@@ -125,14 +127,52 @@ def load(start: Optional[Path] = None) -> Config:
                   _replication(data.get("replication")), _authority(data.get("authority"), mirrors))
 
 
+_SEGMENT = re.compile(r"[A-Za-z0-9_.-]+")
+_URL_OPTIONS = ("api", "graphql")
+
+
+def _checked_url(value: object, name: str, forge: str, repository: bool) -> str:
+    """A mirror URL that is safe to send a token to: http(s), no credentials, query or fragment.
+
+    A repository URL also names `owner/repo` (GitLab may nest groups) in the forge character set.
+    """
+    where = f"[[mirror]] {name}"
+    if not isinstance(value, str) or re.search(r"[\s\x00-\x1f\x7f]", value):
+        raise QewError(f"{where} must be a URL without whitespace", 2)
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - a malformed port raises here
+    except ValueError:
+        raise QewError(f"{where} `{value}` is not a valid URL", 2) from None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise QewError(f"{where} `{value}` must be an http or https URL with a host", 2)
+    if "@" in parts.netloc or parts.query or parts.fragment or "?" in value or "#" in value:
+        raise QewError(f"{where} `{value}` must not carry credentials, a query or a fragment", 2)
+    if repository:
+        segments = parts.path.strip("/").split("/")
+        shallow = len(segments) == 2
+        if not (shallow or (forge == "gitlab" and len(segments) > 2)) or not all(
+            _SEGMENT.fullmatch(segment) and segment not in (".", "..") for segment in segments
+        ):
+            raise QewError(f"{where} `{value}` must name `owner/repo` with letters, digits, `_`, `.` and `-`", 2)
+    return value
+
+
 def _mirror(entry: object) -> Mirror:
     if not isinstance(entry, dict) or not isinstance(entry.get("forge"), str) or not isinstance(entry.get("repo"), str):
         raise QewError("each [[mirror]] needs string `forge` and `repo`", 1)
     known = {"forge", "repo", "project", "select"}
     project = entry.get("project")
+    forge = ALIASES.get(entry["forge"], entry["forge"])
+    for name in _URL_OPTIONS:
+        if name in entry:
+            _checked_url(entry[name], name, forge, repository=False)
+    timeout = entry.get("timeout")
+    if "timeout" in entry and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+        raise QewError("[[mirror]] timeout must be a positive number of seconds", 2)
     return Mirror(
-        forge=ALIASES.get(entry["forge"], entry["forge"]),
-        repo=entry["repo"].rstrip("/"),
+        forge=forge,
+        repo=_checked_url(entry["repo"], "repo", forge, repository=True).rstrip("/"),
         project=None if project is None else str(project),
         select=str(entry.get("select", "")),
         options={key: value for key, value in entry.items() if key not in known},
