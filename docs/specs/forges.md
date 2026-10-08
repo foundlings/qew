@@ -121,3 +121,7 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   past the page cap raises instead of truncating. `qew.board_cards.local_cards` is the one reading rule: cards of another
   repository are ignored (a shared board's numbers collide), one card id seen twice is a pagination overlap, two ids for one
   issue is an error naming both (exit 1). `delete_card(board, card_id)` removes a card and never touches its issue.
+- Milestones (opt-in per target, see commands.md `sync`): `find_milestone(title)`, `create_milestone`, `update_milestone`,
+  `read_milestone`, `set_milestone_open` and `assign_milestone(issue, milestone)`; `RemoteIssue.milestone` is the milestone an
+  issue sits in (0 none). GitHub and Forgejo use `/milestones` (`due_on`), GitLab project milestones (`due_date`,
+  `state_event`). Dates are `YYYY-MM-DD` at this interface. A forge without them raises `Unsupported`.

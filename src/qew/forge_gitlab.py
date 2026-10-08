@@ -13,6 +13,8 @@ from qew.forge import (
     LABEL_COLOR,
     LABEL_DESCRIPTION,
     LabelNotPersisted,
+    Milestone,
+    MilestoneSpec,
     marker_alone,
     Board,
     Forge,
@@ -104,7 +106,22 @@ def _parse_issue(raw: Any) -> RemoteIssue:
         labels=labels,
         assignee=assignee,
         comments=_field(data, "user_notes_count", int) if "user_notes_count" in data else 0,
+        milestone=0 if data.get("milestone") is None else _field(_object(data["milestone"], "milestone"), "id", int),
     )
+
+
+def _parse_milestone(raw: Any) -> Milestone:
+    data = _object(raw, "milestone")
+    state = _field(data, "state", str)
+    if state not in ("active", "closed"):
+        raise _malformed(f"milestone state `{state}`")
+    due = data.get("due_date")
+    return Milestone(_field(data, "id", int), _field(data, "title", str), _description(data),
+                     "" if due is None else _field(data, "due_date", str), state == "active")
+
+
+def _milestone_payload(spec: MilestoneSpec) -> Dict[str, Any]:
+    return {"title": spec.title, "description": spec.description, "due_date": spec.due or None}
 
 
 def _parse_note(raw: Any) -> RemoteComment:
@@ -247,6 +264,32 @@ class GitLab(Forge):
     def read_issue(self, number: int) -> RemoteIssue:
         data, _ = self._call("GET", f"{self._project}/issues/{number}")
         return _parse_issue(data)
+
+    def find_milestone(self, title: str) -> Optional[Milestone]:
+        found = [_parse_milestone(raw) for raw in self._pages(f"{self._project}/milestones", {"state": "all"})]
+        return next((m for m in found if m.title == title), None)
+
+    def create_milestone(self, spec: MilestoneSpec) -> Milestone:
+        data, _ = self._call("POST", f"{self._project}/milestones", payload=_milestone_payload(spec))
+        return _parse_milestone(data)
+
+    def update_milestone(self, number: int, spec: MilestoneSpec) -> Milestone:
+        data, _ = self._call("PUT", f"{self._project}/milestones/{number}", payload=_milestone_payload(spec))
+        return _parse_milestone(data)
+
+    def read_milestone(self, number: int) -> Milestone:
+        found = next((m for m in map(_parse_milestone, self._pages(f"{self._project}/milestones", {"state": "all"}))
+                      if m.number == number), None)
+        if found is None:
+            raise ForgeRejected(404, f"milestone {number} not found")
+        return found
+
+    def set_milestone_open(self, number: int, open: bool) -> Milestone:
+        data, _ = self._call("PUT", f"{self._project}/milestones/{number}", payload={"state_event": "activate" if open else "close"})
+        return _parse_milestone(data)
+
+    def assign_milestone(self, number: int, milestone: int) -> RemoteIssue:
+        return self._write_issue(number, {"milestone_id": milestone})
 
     def _ensure_issue_labels(self, wanted: Tuple[str, ...]) -> None:
         """Create the project labels that are missing (neutral, never touching an existing one) and confirm them."""
