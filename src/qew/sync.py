@@ -43,6 +43,9 @@ class TargetReport:
     failures: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     pruned: int = 0
+    milestones_created: int = 0
+    milestones_updated: int = 0
+    milestones_unchanged: int = 0
     stopped: Optional[str] = None  # set when the forge went away and the rest of the target was not tried
     retry_after: float = 0.0  # seconds the forge asked to wait (rate limit), 0 when it named none
 
