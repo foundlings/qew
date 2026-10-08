@@ -126,7 +126,8 @@ def _parser() -> argparse.ArgumentParser:
     close = commands.add_parser("close", help="close work that will not be completed")
     close.add_argument("item", help="item id or alias")
     close.add_argument("--reason", required=True, help="not_planned, duplicate or superseded")
-    commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
+    check = commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
+    check.add_argument("--json", action="store_true", help="machine-readable report: valid, cycles, contradictions, text_findings")
 
     draft = commands.add_parser("draft", help="drafts and their release by a human")
     draft_commands = draft.add_subparsers(dest="draft_command", required=True)
@@ -226,6 +227,12 @@ def _run(arguments: argparse.Namespace) -> None:
         print(cmd_flow.close(config, arguments.item, arguments.reason))
     elif command == "check":
         ledger = cmd_items.ledger_for(config)
+        if arguments.json:
+            report = ledger_check.analyse(ledger)
+            print(json.dumps(report.as_json()))
+            if report.problems:
+                raise QewError(f"{len(report.problems)} problem(s)", 1)
+            return
         problems, notes = ledger_check.check_report(ledger)
         if problems:
             print("\n".join(problems))

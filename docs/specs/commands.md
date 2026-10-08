@@ -16,8 +16,11 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 - `qew list [--kind K] [--state S] [--label L] [--author LOGIN] [--json]`, `qew ready [--json]`, `qew blocked [--json]`,
   `qew graph [--json]`: readiness is derived from files; no network. `ready` lists by priority, then the
   longest chain it unblocks, then direct dependents, then id.
-- `qew check`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
-  evidence, malformed mirrors. Writes nothing; exit 1 on any problem.
+- `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
+  evidence, malformed mirrors, text findings, contradictions (claimed epic, completed item with open needs,
+  open child of a completed epic), reserved labels. Writes nothing; exit 1 on any problem. `--json` prints
+  `schema_version`, `valid`, `cycles` (each once, rotated to the smallest id, closed on it), `contradictions`,
+  `text_findings`, `problems`.
 
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
