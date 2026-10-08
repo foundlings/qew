@@ -232,6 +232,22 @@ class Ledger:
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_local(path, json.dumps(value, sort_keys=True, indent=2) + "\n")
 
+    def layout_path(self, target: str) -> Path:
+        return self.path / ".qew" / "state" / target / "board-layout.json"
+
+    def read_board_layout(self, target: str) -> Optional[dict]:
+        """The board structure a worker cached for one target (see Forge.board_layout); None when absent or damaged."""
+        try:
+            value = json.loads(self.layout_path(target).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            return None  # a damaged cache only costs one structure read
+        return value if isinstance(value, dict) else None
+
+    def write_board_layout(self, target: str, value: dict) -> None:
+        path = self.layout_path(target)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_local(path, json.dumps(value, sort_keys=True) + "\n")
+
     def read_page_files(self, target: str) -> Dict[int, object]:
         """The cached listing pages of a target by page number; damaged files are left out."""
         found: Dict[int, object] = {}

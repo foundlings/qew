@@ -70,6 +70,9 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Union[None
     board = (_recorded_board(ledger, target) if chosen is not None else None) or (_board(target, report) if target.mirror.project is not None else None)
     if report.stopped:
         return report
+    cached_layout = ledger.read_board_layout(target.slug) if board is not None else None
+    if cached_layout is not None and chosen is not None:
+        target.forge.adopt_board_layout(board, cached_layout)
     placements = _listing(target, report, board) if board is not None and chosen is None else None
     if report.stopped:
         return report
@@ -97,6 +100,9 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Union[None
         sync_milestones.sync_milestones(ledger, snapshot, target, report, ids, numbers)
     if board is not None and chosen is None and report.stopped is None:
         _prune(ledger, snapshot, target, report, set(ids), board)
+    layout = target.forge.board_layout(board) if board is not None else None
+    if layout is not None and layout != cached_layout:
+        ledger.write_board_layout(target.slug, layout)
     return report
 
 
@@ -180,8 +186,9 @@ def _sync_item(
     column = sync_plan.column(snapshot, item_id)
     record = _read_mirror(ledger, item_id, target.slug)
     fingerprint = sync_plan.fingerprint(spec, column if board else None)
+    unchecked = False  # a scoped create whose duplicate guard runs after the card is placed
     if record is None:
-        remote, adopted = _find_or_create(target.forge, item_id, spec, item.aliases, recent)
+        remote, adopted, unchecked = _find_or_create(target.forge, item_id, spec, item.aliases, recent)
         numbers[item_id] = remote.number
         # The create carried `spec`, so a created issue is already current; an adopted one is not.
         record = _new_record(target, remote, snapshot, item_id, "" if adopted else fingerprint)
@@ -202,28 +209,62 @@ def _sync_item(
         report.unchanged += 1
     _link(ledger, snapshot, target, report, item_id, numbers, record)
     if board is not None:
-        _place(ledger, snapshot, target, report, item_id, board, column, record, placements)
+        _place(ledger, snapshot, target, report, item_id, board, column, record, placements, fresh=unchecked)
+    if unchecked:
+        _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assignees, board, column, record, spec, fingerprint, placements)
 
 
 def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[str, ...] = (), recent: bool = False):
-    """Adopt the issue carrying the item's marker, or one still carrying the marker of an id it had before a migration."""
+    """(issue, adopted, unchecked): adopt the issue carrying the item's marker, or one still carrying the marker of an id
+    it had before a migration. A scoped create (`recent`, no aliases) skips the lookup before the create and leaves the
+    duplicate guard to `_settle_duplicate`, which runs once the card is on the board; `unchecked` says so."""
+    if recent and not aliases:
+        return forge.create_issue(spec), False, True
     try:
         found = next((hit for hit in (forge.find_issue(marker_for(name), recent) for name in (item_id, *aliases)) if hit is not None), None)
     except Unsupported:
         found = None
     if found is not None:
-        return found, True
+        return found, True, False
     created = forge.create_issue(spec)
     try:
         winner = forge.find_issue(marker_for(item_id), recent)
     except Unsupported:
-        return created, False
+        return created, False, False
     if winner is not None and winner.number < created.number:
         # Another checkout created the same item at the same moment; the lowest number wins everywhere.
         forge.update_issue(created.number, replace(spec, body=spec.body.replace(marker_for(item_id), DUPLICATE_MARKER),
                                                    open=False, close_reason="not_planned"))
-        return winner, True
-    return created, False
+        return winner, True, False
+    return created, False, False
+
+
+def _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assignees, board, column, record, spec, fingerprint, placements) -> None:
+    """The duplicate guard of a scoped create, after the card is placed: a lower-numbered issue with the item's marker
+    (an orphan of a crash, or another checkout's create) wins; ours closes, loses its card, and the mirror follows the winner."""
+    try:
+        winner = target.forge.find_issue(marker_for(item_id), True)
+    except Unsupported:
+        return
+    mine = record["number"]
+    if winner is None or winner.number >= mine:
+        return
+    target.forge.update_issue(mine, replace(spec, body=spec.body.replace(marker_for(item_id), DUPLICATE_MARKER),
+                                            open=False, close_reason="not_planned"))
+    if board is not None:
+        try:
+            target.forge.remove_from_board(board, mine)
+        except Unsupported:
+            pass
+    numbers[item_id] = winner.number
+    adopted = _new_record(target, winner, snapshot, item_id, "")
+    ledger.write_mirror(item_id, target.slug, {**adopted, "column": None, "priority": None})
+    report.created -= 1
+    report.adopted += 1
+    adopted = _push(ledger, target, adopted, item_id, spec, fingerprint)
+    _link(ledger, snapshot, target, report, item_id, numbers, adopted)
+    if board is not None:
+        _place(ledger, snapshot, target, report, item_id, board, column, adopted, placements)
 
 
 def _new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id: str, fingerprint: str) -> dict:
@@ -273,8 +314,10 @@ def _link(ledger, snapshot, target, report, item_id, numbers, record) -> None:
         ledger.write_mirror(item_id, target.slug, {**clean, "linked": sorted(linked)})
 
 
-def _place(ledger, snapshot, target, report, item_id, board, column, record, placements=None) -> None:
-    """Make the card show `column` and the item's priority, verified by reading the forge back."""
+def _place(ledger, snapshot, target, report, item_id, board, column, record, placements=None, fresh: bool = False) -> None:
+    """Make the card show `column` and the item's priority, verified by reading the forge back.
+
+    `fresh`: the issue was created a moment ago, so it has no card to read first."""
     current = _read_mirror(ledger, item_id, target.slug) or record
     priority, clamped = sync_plan.priority_option(snapshot.items[item_id].priority)
     if clamped:
@@ -283,7 +326,9 @@ def _place(ledger, snapshot, target, report, item_id, board, column, record, pla
     number = current["number"]
     try:
         verifiable = True
-        if placements is not None:
+        if fresh and placements is None:
+            seen = None
+        elif placements is not None:
             seen = placements.get(number)
         else:
             try:

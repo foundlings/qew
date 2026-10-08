@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from typing import Any, List, Mapping, Optional, Tuple, Union
 
+from qew import trace
 from qew.forge import (
     ForgeAuth,
     ForgeRejected,
@@ -121,6 +122,19 @@ def header(headers: Mapping[str, str], name: str) -> Optional[str]:
     return next((value for key, value in headers.items() if key.lower() == lowered), None)
 
 
+def _timed(transport: Transport, request: HttpRequest) -> HttpResponse:
+    if not trace.enabled():
+        return transport(request)
+    begun = time.perf_counter()
+    status: object = "error"
+    try:
+        response = transport(request)
+        status = response.status
+        return response
+    finally:
+        trace.http(request.method, request.url, status, time.perf_counter() - begun)
+
+
 def call_json(
     transport: Transport,
     method: str,
@@ -134,7 +148,7 @@ def call_json(
     merged = {"Accept": "application/json", **headers}
     if body is not None:
         merged["Content-Type"] = "application/json"
-    return _interpret(transport(HttpRequest(method, url, merged, body)), ok)
+    return _interpret(_timed(transport, HttpRequest(method, url, merged, body)), ok)
 
 
 def get_conditional(
@@ -144,7 +158,7 @@ def get_conditional(
     sent = {"Accept": "application/json", **headers}
     if etag:
         sent["If-None-Match"] = etag
-    response = transport(HttpRequest("GET", url, sent, None))
+    response = _timed(transport, HttpRequest("GET", url, sent, None))
     if response.status == 304:
         return NotModified(response.headers)
     return _interpret(response, (200,))

@@ -240,6 +240,14 @@ New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence
   change moves (dependents, parent epics): it reads each item's issue and card one by one, reuses the recorded
   board, looks for an existing issue only among the newest page, and never lists every issue or every card, so a
   create, start or complete reaches the board in seconds whatever the ledger size. Ten quick writes make one run.
+  Where the seconds go, and what was cut (live, `foundlings/qew`: a draft's card showed about 5 s after the command
+  started, down from about 8 s): the write STARTS ITS WORKER BEFORE its ledger push (the worker's own ledger commit
+  waits on `.qew/push.lock`, held by the write for the spawn and the push, so the two never touch the checkout at
+  once); a new issue is created without a listing first and the duplicate guard (lowest number wins, the other closes
+  and loses its card) runs after the card is placed; Status and Priority are set in one GraphQL request; a card that
+  was just created is not read before it is placed (the read-back stays); the project structure is cached per target
+  in `.qew/state/TARGET/board-layout.json` (never committed) and re-read once when GitHub refuses a cached id.
+  `QEW_TRACE=1` prints every phase and HTTP call with its wall time on stderr (a worker's stderr is `.qew/sync.log`).
   After a failed pass, or with an empty queue, the worker syncs the whole target (`qew sync`, `qew sync --full`);
   a human-filed issue is imported and gets its card (Draft: it is not approved) on that full pull.
 - Write verbs answer in ONE compact line and print nothing about syncing: `ID claimed by OWNER: TITLE`,

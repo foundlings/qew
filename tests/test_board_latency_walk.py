@@ -40,13 +40,13 @@ class BoardLatencyWalk(unittest.TestCase):
         """Prevents the minute-long wait: create, card, one batched Status+Priority update, one read-back, one duplicate guard."""
         w = self.board_world()
         new = w.create("--title", "The new one", "--quote", QUOTE)
-        before = len(self.fake.requests)
+        before, queries = len(self.fake.requests), len(self.fake.graphql_operations())
         self.assertEqual(w.run("sync", "--item", new, env=ENV).returncode, 0)
         made = self.fake.requests[before:]
         self.assertLessEqual(len(made), 6, [f"{m} {p}" for m, p, _ in made])
         first_post = next(i for i, (m, p, _) in enumerate(made) if m == "POST" and p.endswith("/issues"))
         self.assertFalse([1 for m, p, _ in made[:first_post] if m == "GET" and "/issues?" in p], "no issue listing before the create")
-        operations = self.fake.graphql_operations()[-(len(made)):]
+        operations = self.fake.graphql_operations()[queries:]
         self.assertEqual(operations.count("SetCard"), 1)
         self.assertNotIn("SetStatus", operations)
         number = max(self.fake.issues)
@@ -56,10 +56,10 @@ class BoardLatencyWalk(unittest.TestCase):
     def test_the_project_structure_is_read_once_per_machine_not_once_per_process(self) -> None:
         """Prevents a structure query in every worker: the second process places its card from the cached layout."""
         w = self.board_world()
-        before = len(self.fake.requests)
+        queries = len(self.fake.graphql_operations())
         new = w.create("--title", "Another", "--quote", QUOTE)
         self.assertEqual(w.run("sync", "--item", new, env=ENV).returncode, 0)
-        operations = self.fake.graphql_operations()[-(len(self.fake.requests) - before):]
+        operations = self.fake.graphql_operations()[queries:]
         self.assertNotIn("OwnerProjects", operations)
 
     def test_a_stale_cached_layout_repairs_itself_by_one_fresh_read(self) -> None:

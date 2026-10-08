@@ -337,6 +337,13 @@ class Forge(ABC):
         """What the forge shows now for the issue on the board, or None when it is not on it."""
         raise Unsupported("read_placement")
 
+    def board_layout(self, board: Board) -> Optional[dict]:
+        """The board's structure as this run read it (JSON-serialisable and opaque), or None where nothing is worth caching."""
+        return None
+
+    def adopt_board_layout(self, board: Board, layout: dict) -> None:
+        """Start from a layout cached earlier instead of reading the structure again; a stale one is repaired on first refusal."""
+
     def find_milestone(self, title: str) -> Optional[Milestone]:
         """The milestone with exactly this title (any state), else None."""
         raise Unsupported("find_milestone")

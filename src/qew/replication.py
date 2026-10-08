@@ -13,7 +13,7 @@ from pathlib import Path
 import time
 from typing import Callable, Iterator, List, Optional, Set
 
-from qew import claim_authority, ledger_config, ledger_store
+from qew import claim_authority, ledger_config, ledger_store, trace
 from qew.errors import QewError
 from qew.ledger_repo import LedgerRepo
 
@@ -74,10 +74,12 @@ def message(verb: str, relative_paths: List[str]) -> str:
 
 
 @contextmanager
-def _lock(ledger_path: Path) -> Iterator[None]:
+def _lock(ledger_path: Path, name: str = "lock") -> Iterator[None]:
+    """The write lock (`lock`), or the push lock (`push.lock`): held by a write while its worker starts and its push runs,
+    so the worker commits its mirror files only after that push is done."""
     cache = ledger_path / ".qew"
     cache.mkdir(exist_ok=True)
-    handle = open(cache / "lock", "a+")
+    handle = open(cache / name, "a+")
     deadline = time.monotonic() + LOCK_WAIT_SECONDS
     try:
         while True:
@@ -154,11 +156,19 @@ def session(arguments) -> Iterator[None]:
         for callback in confirmed:
             callback()
         push_after = replicating and not pending
+    touched = _item_ids(_relative(config, entries)) if entries and verb != "board" else []
+    if touched and push_after and _worker_starts(config):
+        # The board work is what the owner waits for: start its worker first, then push. The worker's own ledger commit
+        # waits on the push lock, so the two never touch the checkout at once.
+        with _lock(config.ledger_path, "push.lock"):
+            _after_write(config, touched)
+            _note(config, repo.push(rep.timeout_s))
+        return
     if push_after:
         # Outside the write lock: a slow remote must not queue every other writer behind this one.
         _note(config, repo.push(rep.timeout_s))
-    if entries and verb != "board":
-        _after_write(config, _item_ids(_relative(config, entries)))
+    if touched:
+        _after_write(config, touched)
 
 
 def _write_claim_event(config, repo: LedgerRepo, ledger_path, item_id: str, event_type: str, **data) -> None:
@@ -226,7 +236,7 @@ def _sync_session(config, repo: LedgerRepo, committing: bool, replicating: bool,
         _ACTIVE = None
         entries = ledger_store.journal_take()
         if committing and entries:
-            with _lock(config.ledger_path):
+            with _lock(config.ledger_path, "push.lock"), _lock(config.ledger_path):
                 _commit(repo, config, "sync", entries, rollback_on_failure=False)
                 if replicating:
                     repo.push(rep.timeout_s)
@@ -246,10 +256,16 @@ def checkpoint() -> None:
     entries = ledger_store.journal_take()
     ledger_store.journal_start()
     if committing and len(entries) >= CHECKPOINT_EVERY:
-        with _lock(config.ledger_path):
+        with _lock(config.ledger_path, "push.lock"), _lock(config.ledger_path):
             _commit(repo, config, "sync", entries, rollback_on_failure=False)
     else:
         ledger_store.JOURNAL.extend(entries)
+
+
+def _worker_starts(config) -> bool:
+    """Whether `_after_write` will start a detached worker (so it can run before the push)."""
+    rep = config.replication
+    return bool(config.mirrors) and rep.auto_forge_sync and not rep.offline and rep.background_sync and not os.environ.get("QEW_BACKGROUND")
 
 
 def _after_write(config, item_ids) -> None:
@@ -317,7 +333,8 @@ def _relative(config, entries) -> List[str]:
 def _commit(repo: LedgerRepo, config, verb: str, entries, rollback_on_failure: bool) -> None:
     paths = _relative(config, entries)
     try:
-        repo.commit(paths, message(verb, paths))
+        with trace.phase(f"ledger commit ({len(paths)} files)"):
+            repo.commit(paths, message(verb, paths))
     except QewError as error:
         if rollback_on_failure:
             ledger_store.journal_rollback(entries)

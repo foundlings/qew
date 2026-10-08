@@ -151,6 +151,15 @@ mutation SetStatus($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: Stri
     projectV2Item { id }
   }
 }"""
+_SET_CARD = """
+mutation SetCard($projectId: ID!, $itemId: ID!, $statusField: ID!, $statusOption: String!, $priorityField: ID!, $priorityOption: String!) {
+  status: updateProjectV2ItemFieldValue(input: {projectId: $projectId, itemId: $itemId, fieldId: $statusField, value: {singleSelectOptionId: $statusOption}}) {
+    projectV2Item { id }
+  }
+  priority: updateProjectV2ItemFieldValue(input: {projectId: $projectId, itemId: $itemId, fieldId: $priorityField, value: {singleSelectOptionId: $priorityOption}}) {
+    projectV2Item { id }
+  }
+}"""
 _MARK_READY = """
 mutation MarkReady($id: ID!) {
   markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { id } }
@@ -500,6 +509,8 @@ class GitHub(Forge):
         self._wire = _Wire(mirror, transport, env)
         self._nodes: Dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
         self._projects: Dict[int, _Project] = {}  # project number -> structure read this run
+        self._raw_projects: Dict[int, Dict[str, Any]] = {}  # project number -> the structure node as GitHub sent it
+        self._adopted: set = set()  # project numbers whose structure came from a cache, not from this run
         self._known_labels: set = set()
 
     # issues
@@ -864,6 +875,7 @@ class GitHub(Forge):
         """The project's structure, read once per backend instance (`fresh` forces a re-read)."""
         wanted = _project_number(board.id)
         if fresh or wanted not in self._projects:
+            self._adopted.discard(wanted)
             _, projects = self._owner_projects()
             project = next((p for p in projects if p.number == wanted), None)
             if project is None:
@@ -871,7 +883,36 @@ class GitHub(Forge):
             self._projects[wanted] = project
         return self._projects[wanted]
 
+    def board_layout(self, board: Board) -> Optional[dict]:
+        node = self._raw_projects.get(_project_number(board.id))
+        if node is None:
+            return None
+        return {"project": {key: value for key, value in node.items() if key != "views"} | {"views": {"nodes": []}}}
+
+    def adopt_board_layout(self, board: Board, layout: dict) -> None:
+        number = _project_number(board.id)
+        try:
+            node = _obj(layout.get("project"), "cached project")
+            self._projects[number] = parse_project(node)
+        except ForgeRejected:
+            return  # a damaged cache is only a missed shortcut
+        self._raw_projects[number] = node
+        self._adopted.add(number)
+
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
+        wanted = _project_number(board.id)
+        try:
+            self._place(board, number, column, priority)
+        except ForgeRejected:
+            if wanted not in self._adopted:
+                raise
+            # the cached structure predates a human's edit of the board: read it again once, then place
+            self._adopted.discard(wanted)
+            self._projects.pop(wanted, None)
+            self._raw_projects.pop(wanted, None)
+            self._place(board, number, column, priority)
+
+    def _place(self, board: Board, number: int, column: str, priority: str) -> None:
         node_id = self._node_id(number)
         project = self._board_project(board)
         if not _has_options(project, column, priority):
@@ -885,13 +926,15 @@ class GitHub(Forge):
         if priority and priority not in urgent:
             raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field; run `qew project ensure`")
         item_id = self._item_on_board(board, project, number, node_id)
+        if priority and urgency is not None:  # one request sets both fields
+            self._wire.graphql(_SET_CARD, {
+                "projectId": project.id, "itemId": item_id, "statusField": status.id, "statusOption": options[column],
+                "priorityField": urgency.id, "priorityOption": urgent[priority],
+            })
+            return
         self._wire.graphql(_SET_STATUS, {
             "projectId": project.id, "itemId": item_id, "fieldId": status.id, "optionId": options[column],
         })
-        if priority and urgency is not None:
-            self._wire.graphql(_SET_STATUS, {
-                "projectId": project.id, "itemId": item_id, "fieldId": urgency.id, "optionId": urgent[priority],
-            })
 
     def _item_on_board(self, board: Board, project: _Project, number: int, node_id: str) -> str:
         """The card's item id, adding the issue unless it is already there (GitHub refuses a second add)."""
@@ -1015,7 +1058,10 @@ class GitHub(Forge):
                 raise ForgeRejected(404, f"owner {self._owner} not found")
             owner = _obj(data["repositoryOwner"], "repositoryOwner")
             listing = _obj(owner.get("projectsV2"), "projectsV2")
-            projects.extend(parse_project(node) for node in _array(listing.get("nodes"), "projectsV2.nodes"))
+            for node in _array(listing.get("nodes"), "projectsV2.nodes"):
+                project = parse_project(node)
+                projects.append(project)
+                self._raw_projects[project.number] = _obj(node, "project")
             info = _obj(listing.get("pageInfo"), "pageInfo")
             if not _bool(info, "hasNextPage", "pageInfo"):
                 return _str(owner, "id", "repositoryOwner"), projects

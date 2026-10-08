@@ -13,6 +13,7 @@ import sys
 import time
 from typing import Optional
 
+from qew import trace
 from qew.ledger_config import Config
 
 _backoff = 0.0  # seconds a rate-limited forge asked this process to wait; the worker records it
@@ -144,6 +145,12 @@ def run_worker(config: Config, run_once) -> None:
         return
     global _backoff
     _backoff = 0.0
+    if trace.enabled():
+        try:
+            spawned = float((cache_dir(config) / "sync.spawned").read_text(encoding="utf-8"))
+            trace.note("worker start lag since spawn", time.time() - spawned)
+        except (OSError, ValueError):
+            pass
     try:
         failed = False
         for _ in range(3):

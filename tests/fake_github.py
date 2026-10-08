@@ -389,7 +389,12 @@ class FakeGitHub:
         return {"data": {"addProjectV2ItemById": {"item": {"id": item["id"]}}}}
 
     def gql_SetStatus(self, variables: Dict[str, Any]) -> Dict[str, Any]:
-        project = self.projects[variables["projectId"]]
+        project = self.projects.get(variables["projectId"])
+        if project is None:
+            return {"errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a node with the global id"}]}
+        field = next((f for f in project["fields"] if f["id"] == variables["fieldId"]), None)
+        if field is None or variables["optionId"] not in {o.get("id") for o in field["options"]}:
+            return {"errors": [{"type": "NOT_FOUND", "message": "The field or option does not exist on this project"}]}
         for item in project["items"].values():
             if item["id"] == variables["itemId"]:
                 item["field"] = variables["fieldId"]

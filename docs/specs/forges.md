@@ -60,6 +60,10 @@ listing (`read_board_placements`) instead of a call per card, so an unchanged bo
 reads them back (None = not on the board); `remove_from_board` drops only the card. Sync reads before writing (drift is
 repaired), reads back `sync.READBACK_ATTEMPTS` times after a write, and records `column`/`priority` in the mirror file only
 once the forge shows them. A forge without `read_placement` falls back to the recorded column.
+GitHub sets Status and Priority in one request (`SetCard`). `board_layout(board)` hands the sync layer the project
+structure the backend read (opaque JSON, cached in `.qew/state/TARGET/board-layout.json`); `adopt_board_layout` starts a
+later process from it, and a refusal of a cached id makes the backend re-read the structure once and place again. A card
+for an issue created a moment ago is placed without reading it first; the read-back after placing stays.
 
 ## Tests (offline, no network)
 Each backend ships a stdlib `http.server` fake of the forge's real wire format on 127.0.0.1 in

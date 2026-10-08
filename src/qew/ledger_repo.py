@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 from typing import Dict, List, Optional, Sequence
 
+from qew import trace
 from qew import ledger_lineage
 from qew.errors import QewError
 
@@ -140,6 +141,7 @@ class LedgerRepo:
             self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@-"])
 
     # -- replication (best effort; the caller decides what a failure means)
+    @trace.traced("ledger fetch+merge")
     def fetch_merge(self, timeout: float) -> str:
         """Bring remote commits in. Returns `ok`, `no-remote` or `offline`; a real conflict raises `LedgerConflict`."""
         if not self.has_remote():
@@ -348,12 +350,14 @@ class LedgerRepo:
         if self._jj_ids("@ & empty()") and self._jj_ids(f'bookmarks(exact:"{self.branch}") ~ ::@'):
             self.run(["jj", "--no-pager", "new", self.branch])
 
+    @trace.traced("ledger push (strict)")
     def push_strict(self, timeout: float) -> str:
         """Push and say why it failed: `ok`, `rejected` (the remote moved: fetch and merge) or `offline`."""
         if self.push(timeout) == "ok":
             return "ok"
         return "offline" if self.fetch_merge(timeout) == "offline" else "rejected"
 
+    @trace.traced("ledger push")
     def push(self, timeout: float) -> str:
         """Push the branch. Returns `ok`, `no-remote` or `offline`."""
         if not self.has_remote():

@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Callable, List, Optional, Sequence, Union
 
-from qew import claim_reconcile, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
+from qew import trace, claim_reconcile, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.forge import Forge
@@ -90,7 +90,8 @@ def sync_command(config: Config, wanted: Optional[str], item: Union[None, str, S
     ledger = ledger_for(config)
     items = [item] if isinstance(item, str) else list(item or ())
     # Contradictions and unsafe actor names are reported by `qew check` but must never stop mirroring.
-    problems = [p for p in ledger_check.check(ledger) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
+    with trace.phase("ledger check"):
+        problems = [p for p in ledger_check.check(ledger) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
     if problems:
         raise QewError(f"the ledger has {len(problems)} problem(s); run `qew check`", 1)
     mirrors = choose(mirrors_with_boards(ledger, config), wanted)
@@ -112,20 +113,23 @@ def sync_command(config: Config, wanted: Optional[str], item: Union[None, str, S
     for mirror in mirrors:
         target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror), ledger_config.is_read_only(config, mirror))
         # forge-side edits first, so the push cannot overwrite them; an item sync reads only those items' issues
-        pulled = (pull_items(ledger, target, _touched(ledger, items)) if items and not full
-                  else pull_target(ledger, target, full=full, clock=clock))
+        with trace.phase("pull"):
+            pulled = (pull_items(ledger, target, _touched(ledger, items)) if items and not full
+                      else pull_target(ledger, target, full=full, clock=clock))
         if pulled.retry_after:  # rate limited while reading: pushing would only hit the same wall
             syncworker.set_backoff(pulled.retry_after)
             failed = True
             lines.append(f"{target.slug}: rate limited; retry after {int(pulled.retry_after)}s")
             continue
-        report = sync_target(ledger, target, config, items or None,
-                             deadline=None if budget_s is None else time.monotonic() + budget_s, tick=tick)
+        with trace.phase("push (sync_target)"):
+            report = sync_target(ledger, target, config, items or None,
+                                 deadline=None if budget_s is None else time.monotonic() + budget_s, tick=tick)
         if report.retry_after:
             syncworker.set_backoff(report.retry_after)
         failed = failed or bool(report.failures)
         lines.extend(render(report, pulled))
-    settled = claim_reconcile.reconcile(config, ledger, build, items[0] if len(items) == 1 else None) if wanted is None else []
+    with trace.phase("claim reconcile"):
+        settled = claim_reconcile.reconcile(config, ledger, build, items[0] if len(items) == 1 else None) if wanted is None else []
     lines.extend(s.line() for s in settled)
     output = "\n".join(lines)
     if failed:
