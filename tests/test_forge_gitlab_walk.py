@@ -11,6 +11,8 @@ import unittest
 from unittest import mock
 
 from qew import forge_http
+from dataclasses import replace
+
 from qew.forge import (
     COLUMNS,
     ForgeAuth,
@@ -18,6 +20,7 @@ from qew.forge import (
     ForgeUnavailable,
     IssueSpec,
     PullRequestSpec,
+    Unsupported,
     marker_for,
 )
 from qew.forge_gitlab import GitLab
@@ -205,6 +208,36 @@ class GitLabWalk(GitLabBase):
         self.assertEqual(body["sha"], ready.head_sha)
         self.assertEqual(body["should_remove_source_branch"], False)
         self.assertEqual(body["squash"], False)
+
+    def test_body_author_and_assignee_round_trip_and_an_edit_changes_only_the_body(self):
+        """A backend that truncates, escapes or drops the opener would let a checklist or ownership drift."""
+        opened = self.forge.open_pull_request(PullRequestSpec("f", "main", "T", "- [ ] one\r\n", False, "alice"))
+        self.assertEqual((opened.body, opened.author, opened.assignee), ("- [ ] one\r\n", "opener", "alice"))
+        edited = self.forge.update_pull_request_body(1, "- [x] one\r\n")
+        self.assertEqual(edited, replace(opened, body="- [x] one\r\n"))
+        self.project().merge_requests[0]["description"] = 4
+        with self.assertRaises(ForgeRejected):
+            self.forge.read_pull_request(1)
+
+    def test_status_check_rule_needs_a_protected_branch_and_the_project_setting(self):
+        """An unreadable rule set must not be read as 'no checks required'."""
+        self.assertFalse(self.forge.requires_status_checks("main"))
+        self.project().only_allow_merge_if_pipeline_succeeds = True
+        self.assertFalse(self.forge.requires_status_checks("main"))
+        self.project().protected_branches["main"] = {"name": "main"}
+        self.assertTrue(self.forge.requires_status_checks("main"))
+        self.fake.fail_next(403, "protected_branches")
+        with self.assertRaises(ForgeAuth):
+            self.forge.requires_status_checks("main")
+
+    def test_auto_merge_waits_for_the_pipeline_and_a_bypass_merge_is_unsupported(self):
+        opened = self.open_mr(draft=False)
+        self.assertFalse(opened.auto_merge)
+        self.assertTrue(self.forge.enable_auto_merge(1).auto_merge)
+        self.assertEqual(self.fake.requests("PUT", "/merge_requests/1/merge")[0]["body"]["merge_when_pipeline_succeeds"], True)
+        with self.assertRaises(Unsupported):
+            self.forge.merge_pull_request(1, opened.head_sha, bypass_checks=True)
+        self.assertEqual(self.forge.merge_pull_request(1, opened.head_sha).merge_sha, "d" * 40)
 
     def test_open_ready_directly(self):
         self.assertFalse(self.open_mr(draft=False).draft)

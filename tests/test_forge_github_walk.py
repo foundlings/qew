@@ -179,6 +179,72 @@ class PullRequestWalk(GitHubWalk):
         self.assertEqual(self.backend.read_pull_request(pull.number).state, "closed")
 
 
+class PullRequestEditWalk(GitHubWalk):
+    def open_with(self, body: str = "Body", assignee: str = "") -> forge.RemotePullRequest:
+        return self.backend.open_pull_request(PullRequestSpec("topic", "main", "Add", body, False, assignee))
+
+    def test_body_author_and_assignee_round_trip_and_an_edit_changes_only_the_body(self) -> None:
+        """A backend that truncates, escapes or drops the opener would let a checklist or ownership drift."""
+        opened = self.open_with("- [ ] one\r\n- [ ] two\r\n", "alice")
+        self.assertEqual((opened.body, opened.author, opened.assignee), ("- [ ] one\r\n- [ ] two\r\n", "opener", "alice"))
+        edited = self.backend.update_pull_request_body(opened.number, "- [x] one\r\n- [ ] two\r\n")
+        self.assertEqual(edited, replace(opened, body="- [x] one\r\n- [ ] two\r\n"))
+        self.assertEqual(self.backend.read_pull_request(opened.number), edited)
+        self.assertEqual(self.fake.calls("PATCH", f"/pulls/{opened.number}"), [{"body": "- [x] one\r\n- [ ] two\r\n"}])
+
+    def test_a_null_pull_body_reads_empty_and_a_mistyped_one_is_rejected(self) -> None:
+        """A fabricated empty body would hide an open checklist from the merge gate."""
+        opened = self.open_with()
+        self.fake.pulls[opened.number]["body"] = None
+        self.assertEqual(self.backend.read_pull_request(opened.number).body, "")
+        self.fake.pulls[opened.number]["body"] = 7
+        with self.assertRaises(ForgeRejected):
+            self.backend.read_pull_request(opened.number)
+
+    def test_status_check_rules_come_from_rulesets_and_classic_protection_and_never_default_to_false(self) -> None:
+        """An unreadable rule set must not be read as 'no checks required'."""
+        self.assertFalse(self.backend.requires_status_checks("main"))
+        self.fake.rules["main"] = [{"type": "pull_request"}]
+        self.assertFalse(self.backend.requires_status_checks("main"))
+        self.fake.rules["main"] = [{"type": "required_status_checks"}]
+        self.assertTrue(self.backend.requires_status_checks("main"))
+        self.fake.rules.clear()
+        self.fake.protection["main"] = {"required_status_checks": {"contexts": ["ci"]}}
+        self.assertTrue(self.backend.requires_status_checks("main"))
+        self.fake.protection["main"] = {"required_status_checks": None}
+        self.assertFalse(self.backend.requires_status_checks("main"))
+        self.fake.fail_next(403, "/rules/branches/")
+        with self.assertRaises(ForgeAuth):
+            self.backend.requires_status_checks("main")
+
+    def test_auto_merge_is_enabled_through_the_forge_and_read_back(self) -> None:
+        """The caller must see whether the forge took the request, not assume it."""
+        opened = self.open_with()
+        self.assertFalse(opened.auto_merge)
+        self.assertTrue(self.backend.enable_auto_merge(opened.number).auto_merge)
+        self.fake.pulls[opened.number]["auto_merge"] = False
+        self.fake.auto_merge_ignored = True
+        self.assertFalse(self.backend.enable_auto_merge(opened.number).auto_merge)
+
+    def test_a_bypass_merge_sends_the_same_pinned_request_and_names_the_merge_commit(self) -> None:
+        opened = self.open_with()
+        merged = self.backend.merge_pull_request(opened.number, opened.head_sha, bypass_checks=True)
+        self.assertEqual((merged.state, merged.merge_sha), ("merged", "f" * 40))
+        self.assertEqual(self.fake.calls("PUT", "/merge"), [{"merge_method": "merge", "sha": opened.head_sha}])
+
+    def test_a_failing_check_run_on_the_second_page_makes_the_pull_request_failing(self) -> None:
+        """Merging a red PR because page one was green is the failure this prevents."""
+        fake = FakeGitHub(page_size=2).start()
+        self.addCleanup(fake.stop)
+        backend = GitHub(mirror_for(fake), urllib_transport(), ENV)
+        pull = backend.open_pull_request(PullRequestSpec("topic", "main", "T", "b", False))
+        for conclusion in ("success", "success", "failure"):
+            fake.set_check_run(pull.head_sha, "completed", conclusion)
+        before = len(fake.calls("GET", "/check-runs"))
+        self.assertEqual(backend.read_pull_request(pull.number).checks, "failing")
+        self.assertEqual(len(fake.calls("GET", "/check-runs")) - before, 2)
+
+
 class BoardWalk(GitHubWalk):
     def status_field(self, board: forge.Board) -> dict:
         project = self.fake.project(board.id)

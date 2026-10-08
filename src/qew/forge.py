@@ -121,6 +121,7 @@ class PullRequestSpec:
     title: str
     body: str
     draft: bool
+    assignee: str = ""  # forge login the pull request is assigned to; "" assigns nobody
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,11 @@ class RemotePullRequest:
     base_branch: str
     mergeable: Optional[bool]  # None while the forge is still computing it
     checks: str  # "passing", "failing", "pending" or "none"
+    body: str = ""  # a null body reads as ""
+    author: str = ""  # forge login of the opener
+    assignee: str = ""  # forge login it is assigned to, "" when nobody
+    auto_merge: bool = False  # the forge will merge it once its checks pass
+    merge_sha: str = ""  # the merge commit once state is "merged", else ""
 
 
 @dataclass(frozen=True)
@@ -202,9 +208,27 @@ class Forge(ABC):
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
         raise Unsupported("mark_pull_request_ready")
 
-    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
-        """Merge exactly `expected_head_sha` (no squash); refuse if the head moved."""
+    def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
+        """Merge exactly `expected_head_sha` (no squash); refuse if the head moved.
+
+        `bypass_checks` merges past branch protection only; a forge with no bypass raises `Unsupported`.
+        """
         raise Unsupported("merge_pull_request")
+
+    def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
+        """Replace the description and return the re-read pull request (idempotent)."""
+        raise Unsupported("update_pull_request_body")
+
+    def requires_status_checks(self, branch: str) -> bool:
+        """True when `branch` is protected by a rule that requires status checks.
+
+        An unreadable rule set raises a typed forge error; it is never read as False.
+        """
+        raise Unsupported("requires_status_checks")
+
+    def enable_auto_merge(self, number: int) -> RemotePullRequest:
+        """Merge the pull request once its checks pass; returns the re-read pull request."""
+        raise Unsupported("enable_auto_merge")
 
 
 def marker_for(item_id: str) -> str:

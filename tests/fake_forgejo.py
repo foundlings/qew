@@ -21,10 +21,12 @@ class FakeForgejo:
         self.labels: Dict[int, str] = {}
         self.pulls: Dict[int, Dict[str, Any]] = {}
         self.branches: Dict[str, str] = {}  # branch -> head sha
+        self.protections: Dict[str, Dict[str, Any]] = {}  # branch -> branch protection record
         self.statuses: Dict[str, Tuple[str, int]] = {}  # sha -> (combined state, total_count)
         self.dependencies: Dict[int, List[int]] = {}  # issue -> issues blocking it
         self.requests: List[Tuple[str, str, Optional[Any]]] = []
         self.max_limit = 50
+        self.link_base = ""  # when set, pagination Link headers point here instead of at this API
         self.endless = False  # lists answer a full page forever, with a next link and no total header
         self.delay = 0.0  # seconds every request waits before it is served
         self.down = False  # every request answers 503
@@ -130,6 +132,10 @@ class FakeForgejo:
             "mergeable": pull["mergeable"],
             "head": dict(pull["head"]),
             "base": {"ref": pull["base"]},
+            "body": pull.get("body", ""),
+            "user": {"login": "opener"},
+            "assignees": [{"login": a} for a in pull.get("assignees", [])] or None,
+            "merge_commit_sha": pull.get("merge_sha"),
         }
 
 
@@ -205,11 +211,11 @@ def _page(fake: FakeForgejo, items: List[Any], params: Dict[str, str]) -> Tuple[
     page = int(params.get("page", "1"))
     limit = min(int(params.get("limit", "30")), fake.max_limit)
     if fake.endless:
-        return 200, items[:limit], {"Link": f'<{fake.api}?page={page + 1}>; rel="next"'}
+        return 200, items[:limit], {"Link": f'<{fake.link_base or fake.api}?page={page + 1}>; rel="next"'}
     chunk = items[(page - 1) * limit : page * limit]
     headers = {"X-Total-Count": str(len(items))}
     if page * limit < len(items):
-        headers["Link"] = f'<{fake.api}?page={page + 1}>; rel="next"'
+        headers["Link"] = f'<{fake.link_base or fake.api}?page={page + 1}>; rel="next"'
     return 200, chunk, headers
 
 
@@ -311,6 +317,8 @@ def _route(
         number = fake._index()
         fake.pulls[number] = {
             "title": payload["title"],
+            "body": payload.get("body", ""),
+            "assignees": list(payload.get("assignees") or []),
             "state": "open",
             "merged": False,
             "mergeable": True,
@@ -326,7 +334,9 @@ def _route(
         if method == "GET":
             return ok(fake._pull_json(number))
         if method == "PATCH":
-            fake.pulls[number]["title"] = payload["title"]
+            for field in ("title", "body"):
+                if field in payload:
+                    fake.pulls[number][field] = payload[field]
             return ok(fake._pull_json(number))
     match = re.match(_BASE + r"/pulls/(\d+)/merge$", path)
     if match and method == "POST":
@@ -342,7 +352,14 @@ def _route(
             raise _Reply(405, "pull request is not open")
         pull["state"] = "closed"
         pull["merged"] = True
+        pull["merge_sha"] = "e" * 40
         return ok(None, 200)
+    match = re.match(_BASE + r"/branch_protections/([\w.-]+)$", path)
+    if match and method == "GET":
+        record = fake.protections.get(match.group(1))
+        if record is None:
+            raise _Reply(404, "branch protection does not exist")
+        return ok(record)
     match = re.match(_BASE + r"/commits/([0-9a-zA-Z]+)/status$", path)
     if match and method == "GET":
         state, total = fake.statuses.get(match.group(1), ("pending", 0))

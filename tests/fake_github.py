@@ -27,6 +27,9 @@ class FakeGitHub:
         self.check_runs: Dict[str, List[Dict[str, Any]]] = {}
         self.projects: Dict[str, Dict[str, Any]] = {}
         self.requests: List[Tuple[str, str, Any]] = []
+        self.auto_merge_ignored = False  # accept the enable call yet change nothing
+        self.rules: Dict[str, List[Dict[str, Any]]] = {}  # branch -> active ruleset rules
+        self.protection: Dict[str, Dict[str, Any]] = {}  # branch -> classic protection record
         self.failures: List[Dict[str, Any]] = []
         self.next_number = 1
         self.next_id = 1000
@@ -118,6 +121,10 @@ class FakeGitHub:
             "state": pull["state"], "merged": pull["merged"], "draft": pull["draft"],
             "mergeable": pull["mergeable"], "title": pull["title"], "body": pull["body"],
             "head": dict(pull["head"]), "base": {"ref": pull["base"]},
+            "user": {"login": pull.get("author", "opener")},
+            "assignee": None if not self.issues[pull["number"]]["assignee"] else {"login": self.issues[pull["number"]]["assignee"]},
+            "auto_merge": {"merge_method": "merge"} if pull.get("auto_merge") else None,
+            "merge_commit_sha": pull.get("merge_sha"),
         }
 
     def new_pull(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -212,6 +219,15 @@ class FakeGitHub:
                 item["option"] = variables["optionId"]
                 return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": item["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "item not found"}]}
+
+    def gql_EnableAutoMerge(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        for pull in self.pulls.values():
+            if pull["node_id"] == variables["id"]:
+                if self.auto_merge_ignored:
+                    return {"data": {"enablePullRequestAutoMerge": {"pullRequest": {"id": pull["node_id"]}}}}
+                pull["auto_merge"] = True
+                return {"data": {"enablePullRequestAutoMerge": {"pullRequest": {"id": pull["node_id"]}}}}
+        return {"errors": [{"type": "NOT_FOUND", "message": "pull request not found"}]}
 
     def gql_MarkReady(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         for pull in self.pulls.values():
@@ -393,7 +409,27 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(409, {"message": "Head branch was modified. Review and try the merge again."})
         pull["merged"] = True
         pull["state"] = "closed"
+        pull["merge_sha"] = "f" * 40
         self._send(200, {"sha": "f" * 40, "merged": True, "message": "Pull Request successfully merged"})
+
+    def _patch_pull(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        pull = self.fake.pulls.get(int(number))
+        if pull is None:
+            return self._send(404, {"message": "Not Found"})
+        for key in ("title", "body"):
+            if key in body:
+                pull[key] = body[key]
+                self.fake.issues[pull["number"]][key] = body[key]
+        self._send(200, self.fake.pull_json(pull))
+
+    def _get_rules(self, branch: str, query: Dict[str, List[str]], body: Any) -> None:
+        self._send(200, self.fake.rules.get(branch, []))
+
+    def _get_protection(self, branch: str, query: Dict[str, List[str]], body: Any) -> None:
+        record = self.fake.protection.get(branch)
+        if record is None:
+            return self._send(404, {"message": "Branch not protected"})
+        self._send(200, record)
 
     def _get_status(self, sha: str, query: Dict[str, List[str]], body: Any) -> None:
         status = self.fake.statuses.get(sha, {"state": "pending", "total_count": 0})
@@ -413,6 +449,8 @@ _ROUTES = (
     (r"/pulls", "pulls"),
     (r"/pulls/(\d+)", "pull"),
     (r"/pulls/(\d+)/merge", "merge"),
+    (r"/rules/branches/([\w.-]+)", "rules"),
+    (r"/branches/([\w.-]+)/protection", "protection"),
     (r"/commits/([0-9a-f]+)/status", "status"),
     (r"/commits/([0-9a-f]+)/check-runs", "check_runs"),
 )
