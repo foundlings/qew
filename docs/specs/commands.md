@@ -131,6 +131,10 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the
   divergence event id (a unique prefix) or an item with exactly one open divergence.
+  A second effective `claimed` event on a held item (found after a merge) is a divergence too (`DIVERGENCE` is that
+  event's id, field `owner`): the holder is the first claim by event order, never by timestamp; `qew accept` hands the item
+  to the contender, `qew reject` keeps the holder, each by writing `claim_lost` for the loser. `qew check` counts them
+  as a note, `contested claims: N`.
 - `qew reject DIVERGENCE`: keep the ledger value; the mirror is marked stale so the next push rewrites the forge.
 - `qew import [--from TARGET | --forge F --repo URL [--api URL]] [--history]`: read a forge project into the ledger. Issues
   carrying qew's body marker restore their item (id, kind, priority, labels, parent, needs, state from the footer and managed

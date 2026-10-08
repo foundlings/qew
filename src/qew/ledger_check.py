@@ -77,7 +77,11 @@ def check_report(ledger: Ledger):
     _check_mirror_progress(snapshot, problems)
     _check_claim_refs(snapshot, problems)
     problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in text_findings(snapshot) for kind in kinds)
-    return problems, ([f"imported without evidence: {imported}"] if imported else [])
+    notes = [f"imported without evidence: {imported}"] if imported else []
+    contested = sum(1 for fold_ in snapshot.folds.values() for e in fold_.divergences if e.type == "claimed")
+    if contested:
+        notes.append(f"contested claims: {contested} (see `qew status`; settle with `qew accept` or `qew reject`)")
+    return problems, notes
 
 
 def _check_metadata(ledger: Ledger, problems: List[str]) -> None:

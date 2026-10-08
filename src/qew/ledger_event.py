@@ -120,7 +120,7 @@ class Folded:
     evidence: Tuple[Event, ...]
     errors: Tuple[str, ...]
     imported: bool = False  # completed by an import path, without verifiable evidence
-    divergences: Tuple[Event, ...] = ()  # forge-side state changes nobody has accepted or rejected yet
+    divergences: Tuple[Event, ...] = ()  # unresolved: forge-side state changes, and `claimed` events contesting a held item
 
 
 def fold(events: List[Event]) -> Folded:
@@ -130,10 +130,15 @@ def fold(events: List[Event]) -> Folded:
     evidence: List[Event] = []
     errors: List[str] = []
     imported = False
+    contested: List[Event] = []
     lost = {e.get("ref") for e in events if e.type == "claim_lost"}
     for event in sorted(events, key=lambda item: item.id):
         if event.type == "claimed" and event.id in lost:
             continue  # this claim lost arbitration: it never owned the item
+        if event.type == "claimed" and state == State.CLAIMED:
+            if event.get("owner") != owner:
+                contested.append(event)  # two effective claims: a contradiction for accept/reject, not an illegal transition
+            continue
         _, sources = _RULES[event.type]
         if event.type == "completed" and event.get("provenance") in ("import", "forge-import"):
             # Imported history was never claimed here; it may complete from any open state.
@@ -164,7 +169,7 @@ def fold(events: List[Event]) -> Folded:
             state = _NEXT[event.type]
     resolved = {e.get("ref") for e in events if e.type in ("divergence_accepted", "divergence_rejected")}
     open_divergences = tuple(e for e in sorted(events, key=lambda item: item.id)
-                             if e.type == "forge_divergence" and e.id not in resolved)
+                             if (e.type == "forge_divergence" and e.id not in resolved) or e in contested)
     return Folded(state, owner, tuple(evidence), tuple(errors), imported, open_divergences)
 
 

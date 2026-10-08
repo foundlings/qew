@@ -59,6 +59,8 @@ def accept(config: Config, reference: str, reason: str = "not_planned", complete
     item_id, divergence = _find(ledger, reference)
     snapshot = ledger.snapshot()
     state = snapshot.folds[item_id].state
+    if divergence.type == "claimed":
+        return _settle_contest(ledger, snapshot, item_id, divergence, keep_contender=True)
     field = divergence.get("field")
     forge = divergence.get("forge")
     if field == "state" and forge == "closed":
@@ -79,6 +81,8 @@ def accept(config: Config, reference: str, reason: str = "not_planned", complete
 def reject(config: Config, reference: str) -> str:
     ledger = ledger_for(config)
     item_id, divergence = _find(ledger, reference)
+    if divergence.type == "claimed":
+        return _settle_contest(ledger, ledger.snapshot(), item_id, divergence, keep_contender=False)
     ledger.append_event(item_id, "divergence_rejected", ref=divergence.id)
     slug = divergence.get("target")
     for record in ledger.load_mirrors(item_id):
@@ -86,3 +90,14 @@ def reject(config: Config, reference: str) -> str:
             clean = {k: v for k, v in record.items() if k != "_target"}
             ledger.write_mirror(item_id, slug, {**clean, "synced_hash": ""})  # forces the next push to rewrite the forge
     return f"{item_id} rejected {divergence.get('field')}={divergence.get('forge')}"
+
+
+def _settle_contest(ledger: Ledger, snapshot, item_id: str, contender: Event, keep_contender: bool) -> str:
+    """Two effective claims: the loser gets a `claim_lost` naming the winner; no clock is consulted."""
+    holder = snapshot.folds[item_id].owner
+    lost_refs = {e.get("ref") for e in snapshot.events[item_id] if e.type == "claim_lost"}
+    first = next(e for e in sorted(snapshot.events[item_id], key=lambda item: item.id)
+                 if e.type == "claimed" and e.id not in lost_refs and e.get("owner") == holder)
+    loser, winner = (first, contender.get("owner")) if keep_contender else (contender, holder)
+    ledger.append_event(item_id, "claim_lost", ref=loser.id, winner=winner)
+    return f"{item_id} {'accepted' if keep_contender else 'rejected'} owner={contender.get('owner')}"

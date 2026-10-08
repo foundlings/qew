@@ -63,8 +63,9 @@ def _carried(events: List[Event]) -> List[Event]:
     dropped = {e.id for e in folded.divergences}
     if folded.state == State.CLAIMED:
         lost = {e.get("ref") for e in events if e.type == "claim_lost"}
-        claim = [e for e in sorted(events, key=lambda item: item.id) if e.type == "claimed" and e.id not in lost][-1]
-        dropped |= {claim.id} | {e.id for e in events if e.type in ("claim_confirmed", "claim_lost") and e.get("ref") == claim.id}
+        reset = max((e.id for e in events if e.type in ("released", "approved", "reverted", "reopened")), default="")
+        claims = {e.id for e in events if e.type == "claimed" and e.id > reset and e.id not in lost}
+        dropped |= claims | {e.id for e in events if e.type in ("claim_confirmed", "claim_lost") and e.get("ref") in claims}
     kept = [e for e in events if e.id not in dropped]
     if fold(kept).errors:
         raise QewError(f"cannot fork: the history of an item does not fold without its claim ({fold(kept).errors[0]})", 1)
