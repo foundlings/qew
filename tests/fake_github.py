@@ -33,6 +33,7 @@ class FakeGitHub:
         self.protection: Dict[str, Dict[str, Any]] = {}  # branch -> classic protection record
         self.failures: List[Dict[str, Any]] = []
         self.next_number = 1
+        self.strict_add = False  # answer a repeated AddItem with GitHub's "Content already exists" refusal
         self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
         self.next_id = 1000
         self.cards_page_size = 100  # cards per ProjectCards page
@@ -344,6 +345,8 @@ class FakeGitHub:
 
     def gql_AddItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         project = self.projects[variables["projectId"]]
+        if self.strict_add and variables["contentId"] in project["items"]:
+            return {"errors": [{"type": "UNPROCESSABLE", "message": "Content already exists in this project"}]}
         item = project["items"].setdefault(variables["contentId"], {"id": f"PVTI_{len(project['items']) + 1}"})
         return {"data": {"addProjectV2ItemById": {"item": {"id": item["id"]}}}}
 

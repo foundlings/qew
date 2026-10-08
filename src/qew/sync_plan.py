@@ -86,6 +86,18 @@ def column(snapshot: Snapshot, item_id: str) -> str:
     return BACKLOG
 
 
+def moved_by(snapshot: Snapshot, item_id: str) -> List[str]:
+    """Items whose board status can change because `item_id` changed: its direct dependents and its ancestors."""
+    moved = [other.id for other in snapshot.items.values() if item_id in other.needs]
+    parent = snapshot.items[item_id].parent
+    seen = set()
+    while parent and parent in snapshot.items and parent not in seen:
+        seen.add(parent)
+        moved.append(parent)
+        parent = snapshot.items[parent].parent
+    return moved
+
+
 def _child_claimed(snapshot: Snapshot, item_id: str) -> bool:
     return any(
         snapshot.folds[child].state == State.CLAIMED

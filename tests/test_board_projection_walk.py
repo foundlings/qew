@@ -100,6 +100,17 @@ class ProjectionWalk(unittest.TestCase):
         self.assertEqual(self.sync().failures, [])
         self.assertEqual(self.card(1)[0], "In progress")
 
+    def test_a_card_already_on_the_board_without_a_status_gets_one_when_the_forge_refuses_a_second_add(self) -> None:
+        """Prevents cards that sit on the board with no Status staying blank because the forge says the content exists."""
+        self.world.create("--kind", "issue", "--title", "T", "--quote", QUOTE)
+        self.sync()
+        project = self.fake.project("1")
+        next(iter(project["items"].values()))["values"] = {}
+        self.fake.strict_add = True
+        report = self.sync()
+        self.assertEqual(report.failures, [])
+        self.assertEqual(self.card(1), ("Ready", "P2"))
+
     def test_an_item_leaving_the_select_loses_its_card_but_keeps_its_open_issue(self) -> None:
         """Prevents pruning from closing or deleting the human-visible issue."""
         w = self.world = World(self.config("label:board"))

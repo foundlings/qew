@@ -159,6 +159,10 @@ shape prime: additional_context context_bytes schema_version
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
+- Bodies given to `create` and `set` are scanned for commands, flags and paths written as plain prose (`qew start X`,
+  `--force`, `/etc/hosts`, `git push`, `gh pr`, `python -m`, `pipx install`). Each distinct token prints
+  `warning: unmarked code-shaped text: TOKEN` on stderr, in order of appearance; the write still succeeds. Inline
+  code, backtick or tilde fences (an unclosed fence runs to the end) and URLs are not reported.
 - `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N]
   [--body TEXT | --edit] [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--closed] [--json]`: edits the header; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
@@ -215,7 +219,8 @@ shape prime: additional_context context_bytes schema_version
   board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
   warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
-  lose their card (`pruned N`); their issues are never closed.
+  lose their card (`pruned N`); their issues are never closed. `--item ID` also refreshes the mirrored items whose
+  card that item moves: its direct dependents and its parent epics (each card written only when it differs).
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
   After the ledger commit, `sync` pushes the code repo (`[code] target`) and the ledger repo (`[replication] branch`)
   to every target through a git remote `qew-<slug>` (never forced). The clone URLs are the `[[mirror]]` keys `git_url`
