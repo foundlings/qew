@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from typing import Callable, Dict, List, Optional, Tuple
 
 from qew.forge import (
+    Card,
     Board,
     Forge,
     ForgeError,
@@ -36,6 +37,8 @@ class MemoryForge(Forge):
         self.priorities: Dict[int, str] = {}
         self.down = False
         self.board_id = "B1"
+        self.foreign_cards: List[Card] = []
+        self.stubborn_cards = False  # a card delete the forge accepts but does not carry out
         self.hide_next_find = False
         self.reject_title: Optional[str] = None
         self.supports_boards = boards
@@ -118,6 +121,23 @@ class MemoryForge(Forge):
         if number not in self.columns:
             return None
         return Placement(self.columns[number], self.priorities.get(number, ""))
+
+    def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
+        if not self.supports_boards:
+            raise Unsupported("read_board_cards")
+        self._live("read_cards")
+        local = tuple(Card(f"C{n}", "o/r", n, c, self.priorities.get(n, "")) for n, c in sorted(self.columns.items()))
+        return local + tuple(self.foreign_cards)
+
+    def delete_card(self, board: Board, card_id: str) -> None:
+        self._live("delete_card")
+        if self.stubborn_cards:
+            return
+        for card in list(self.foreign_cards):
+            if card.id == card_id:
+                self.foreign_cards.remove(card)
+        if card_id.startswith("C") and card_id[1:].isdigit():
+            self.columns.pop(int(card_id[1:]), None)
 
     def remove_from_board(self, board: Board, number: int) -> None:
         self._live("remove")
