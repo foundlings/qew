@@ -32,6 +32,7 @@ class MemoryForge(Forge):
         self.links: List[Tuple[int, int]] = []
         self.columns: Dict[int, str] = {}
         self.down = False
+        self.board_id = "B1"
         self.reject_title: Optional[str] = None
         self.supports_boards = boards
         self.supports_links = links
@@ -79,7 +80,7 @@ class MemoryForge(Forge):
         if not self.supports_boards:
             raise Unsupported("ensure_board")
         self._live("board")
-        return Board("B1", f"https://{self.host}/o/r/projects/1", columns)
+        return Board(self.board_id, f"https://{self.host}/o/r/projects/{self.board_id}", columns)
 
     def place_on_board(self, board: Board, number: int, column: str) -> None:
         self._live("place")

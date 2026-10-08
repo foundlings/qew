@@ -13,6 +13,7 @@ import unittest
 from qew import __version__
 from tests.ledger_harness import PROJECT_ROOT, World
 
+NOSYNC = "\n[replication]\nauto_forge_sync = false\n"
 MIRROR = '[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/o/r"\n'
 
 
@@ -23,7 +24,7 @@ def newer_than_running() -> str:
 
 class ConfigWalk(unittest.TestCase):
     def world(self, text: str) -> World:
-        world = World(text)
+        world = World(text, replication=NOSYNC)
         self.addCleanup(world.close)
         return world
 
@@ -119,7 +120,7 @@ class TargetIdentityWalk(unittest.TestCase):
     def test_case_and_git_suffix_variants_are_one_target(self) -> None:
         """`Acme/Widgets.git` and `acme/widgets` are one repository: one mirror per item, never two boards."""
         w = World('[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/Acme/Widgets.git"\n'
-                  '[[mirror]]\nforge = "forgejo"\nrepo = "https://GIT.example/acme/widgets"\n')
+                  '[[mirror]]\nforge = "forgejo"\nrepo = "https://GIT.example/acme/widgets"\n', replication=NOSYNC)
         self.addCleanup(w.close)
         w.create("--title", "T")
         lines = [l for l in w.run("sync", "--dry-run").stdout.splitlines() if l.startswith("create")]
