@@ -28,8 +28,20 @@ class Planned:
         return "approved" if self.quote else "draft"
 
 
-def _release(entry: Entry, default_quote: Optional[str]) -> Optional[str]:
-    return require_quote(default_quote) if default_quote is not None else None
+def _release(entry: Entry, default_quote: Optional[str], draft: bool) -> Optional[str]:
+    """The human's words that release this entry, or None to file it as a draft."""
+    spec = entry.spec
+    own = spec.get("quote")
+    verified = require_quote(own, f"{entry.label} quote") if own is not None else None
+    if draft:
+        if spec.get("approved") is True:
+            raise QewError(f"{entry.label}: approved: true conflicts with --draft, which files every item as a draft", 2)
+        return None
+    if verified is None and default_quote is not None:
+        verified = require_quote(default_quote)
+    if spec.get("approved") is True and verified is None:
+        raise QewError(f"{entry.label}: approved: true needs a quote (its own or --quote)", 2)
+    return None if spec.get("approved") is False else verified
 
 
 def _import_events(item: Item, spec: dict) -> List[Event]:
@@ -51,9 +63,11 @@ def _import_events(item: Item, spec: dict) -> List[Event]:
 
 
 def prepare(
-    ledger: Ledger, plan: Plan, default_quote: Optional[str], import_events: bool
+    ledger: Ledger, plan: Plan, default_quote: Optional[str], draft: bool, import_events: bool
 ) -> List[Planned]:
     """Every entry built and every rule checked; nothing has been written."""
+    if draft and default_quote is not None:
+        raise QewError("--draft files drafts; a --quote would release them (give one or the other)", 2)
     snapshot = ledger.snapshot()
     known = list(snapshot.items)
     ids: Dict[str, str] = {}
@@ -61,9 +75,9 @@ def prepare(
         imported = entry.spec.get("id")
         if imported is not None:
             if not valid_id(imported):
-                raise QewError(f"entry {entry.number}: `{imported}` is not a valid id", 2)
+                raise QewError(f"{entry.label}: `{imported}` is not a valid id", 2)
             if imported.lower() in {k.lower() for k in known}:
-                raise QewError(f"entry {entry.number}: item {imported} already exists", 2)
+                raise QewError(f"{entry.label}: item {imported} already exists", 2)
             ids[entry.key] = imported
         else:
             ids[entry.key] = ledger.new_id(entry.spec.get("kind", "issue"), known)
@@ -76,7 +90,7 @@ def prepare(
     for entry in plan.entries:
         spec = entry.spec
         if "events" in spec and not import_events:
-            raise QewError(f"entry {entry.number}: `events` in a file are accepted only with --import", 2)
+            raise QewError(f"{entry.label}: `events` in a file are accepted only with --import", 2)
         ledger_labels.require_valid(spec.get("labels", []))
         header = {
             "id": ids[entry.key],
@@ -89,12 +103,12 @@ def prepare(
             "priority": str(spec.get("priority", DEFAULT_PRIORITY)),
             "created": spec.get("created") or now(),
         }
-        item = from_header(header, spec.get("body") or "", f"entry {entry.number}")
+        item = from_header(header, spec.get("body") or "", entry.label)
         planned.append(
             Planned(
                 entry,
                 item,
-                None if import_events else _release(entry, default_quote),
+                None if import_events else _release(entry, default_quote, draft),
                 _import_events(item, spec) if import_events else None,
             )
         )
@@ -103,10 +117,10 @@ def prepare(
 
 
 def apply(
-    config: Config, plan: Plan, quote: Optional[str], import_events: bool = False
+    config: Config, plan: Plan, quote: Optional[str], draft: bool = False, import_events: bool = False
 ) -> List[str]:
     ledger = ledger_for(config)
-    planned = prepare(ledger, plan, quote, import_events)
+    planned = prepare(ledger, plan, quote, draft, import_events)
     for p in planned:
         ledger.write_item(p.item)
         if p.events is not None:
