@@ -204,7 +204,7 @@ class FakeGitHub:
             fields.append({
                 "id": field["id"], "name": field["name"],
                 "options": [
-                    {"id": o["id"], "name": o["name"], "color": o.get("color", "GRAY"), "description": o.get("description", "")}
+                    {"id": o.get("id"), "name": o["name"], "color": o.get("color", "GRAY"), "description": o.get("description", "")}
                     for o in field["options"]
                 ],
             })

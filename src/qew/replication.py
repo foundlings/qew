@@ -102,6 +102,7 @@ def session(arguments) -> Iterator[None]:
     except QewError:
         yield  # no config yet: the command itself reports it
         return
+    ledger_store.actor()  # refuse before any write when no identity is configured
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
     if not (config.ledger_path / ledger_config.LEDGER_FILE).is_file():
         yield
