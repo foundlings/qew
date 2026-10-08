@@ -1,5 +1,11 @@
 """An in-memory Forge for sync-logic walks: records calls, injects failures, forgets nothing."""
 
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+
 from typing import Dict, List, Optional, Tuple
 
 from qew.forge import (

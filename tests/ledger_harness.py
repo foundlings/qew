@@ -1,5 +1,11 @@
 """An isolated code repo plus ledger repo, driven through `python -m qew.cli`."""
 
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+
 import json
 import os
 from pathlib import Path
