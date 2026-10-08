@@ -171,7 +171,13 @@ shape show: author id kind labels priority schema_version state title | children
   accepted for closed foreign issues.
 - `qew restore [--to TARGET | --forge F --repo URL [--api URL]]`: recreate the issues, links and board of a target from the ledger
   alone; mirror files whose remote issue is gone are forgotten first. Idempotent and resumable.
-- `qew project`: the group for `ensure`.
+- `qew project`: the group for `ensure` and `status`.
+- `qew project status [--target T] [--json]`: read-only drift report of each target's board against the ledger: per
+  target `<slug>: in sync`, or the lists `missing` (selected items with no card, or no mirror), `stale_column`,
+  `stale_priority` and the fix (`qew sync`). JSON rows: `schema_version`, `target`, `in_sync`, `missing`,
+  `stale_column`, `stale_priority`, `fix`. Exit 0 in sync (also `boards unsupported`), 1 drifted or the forge failed,
+  2 a bad target or no recorded or configured board (names `qew project ensure`). Cards of other repositories are
+  ignored. Drift is advisory: forge state is never read back as truth for the ledger.
 - `qew project ensure [--target T]`: create or repair the full board where the forge has boards: the seven
   Status options (colors, descriptions), the Priority field P0-P4 and eight views (Kanban, Table, Ready, Blocked,
   Active, Review, Drafts, Roadmap). Idempotent; a corrected view or kept foreign option is printed as a note; extra
