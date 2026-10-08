@@ -70,7 +70,8 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
                  build: Callable[[Mirror], Forge] = forge_registry.build, budget_s: Optional[float] = None,
                  tick: Optional[Callable[[], None]] = None) -> str:
     ledger = ledger_for(config)
-    problems = ledger_check.check(ledger)
+    # Contradictions and unsafe actor names are reported by `qew check` but must never stop mirroring.
+    problems = [p for p in ledger_check.check(ledger) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
     if problems:
         raise QewError(f"the ledger has {len(problems)} problem(s); run `qew check`", 1)
     mirrors = choose(mirrors_with_boards(ledger, config), wanted)
