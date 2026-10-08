@@ -161,6 +161,13 @@ class RemotePullRequest:
     merge_sha: str = ""  # the merge commit once state is "merged", else ""
 
 
+@dataclass(frozen=True)
+class RemoteBranch:
+    name: str  # untrusted forge text
+    default: bool  # the repository's default branch
+    protected: bool  # the forge protects it from deletion
+
+
 # (name, layout, filter): the views `project ensure` keeps, in order. Layouts are GitHub's names.
 BOARD_VIEWS = (
     ("Kanban", "BOARD_LAYOUT", ""),
@@ -347,6 +354,22 @@ class Forge(ABC):
     def enable_auto_merge(self, number: int) -> RemotePullRequest:
         """Merge the pull request once its checks pass; returns the re-read pull request."""
         raise Unsupported("enable_auto_merge")
+
+    def list_branches(self) -> List[RemoteBranch]:
+        """Every branch of the repository with its default and protected flags; a truncated listing raises."""
+        raise Unsupported("list_branches")
+
+    def branch_is_merged(self, name: str, base: str) -> bool:
+        """True when the tip of branch `name` is already contained in `base` (nothing would be lost by deleting it)."""
+        raise Unsupported("branch_is_merged")
+
+    def delete_branch(self, name: str) -> None:
+        """Delete branch `name`; a branch that is already gone is success (idempotent)."""
+        raise Unsupported("delete_branch")
+
+    def list_open_pull_heads(self) -> List[str]:
+        """The head branch names of every open pull request (drafts included); a truncated listing raises."""
+        raise Unsupported("list_open_pull_heads")
 
 
 def marker_for(item_id: str) -> str:

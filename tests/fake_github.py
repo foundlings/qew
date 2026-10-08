@@ -9,7 +9,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 TOKEN = "test-token"
 OWNER = "acme"
@@ -32,6 +32,9 @@ class FakeGitHub:
         self.rules: Dict[str, List[Dict[str, Any]]] = {}  # branch -> active ruleset rules
         self.protection: Dict[str, Dict[str, Any]] = {}  # branch -> classic protection record
         self.failures: List[Dict[str, Any]] = []
+        self.branches: Dict[str, str] = {}  # branch -> head sha
+        self.default_branch = "main"
+        self.contained_in: Dict[str, List[str]] = {}  # branch -> branches whose history already holds its tip
         self.next_number = 1
         self.strict_add = False  # answer a repeated AddItem with GitHub's "Content already exists" refusal
         self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
@@ -72,6 +75,11 @@ class FakeGitHub:
         """Answer `status` (with `headers`) to the next `count` matching requests, after letting `skip` through."""
         self.failures.append({"status": status, "part": path_part, "left": count, "body": body,
                               "headers": headers or {}, "skip": skip})
+
+    def add_branch(self, name: str, sha: str = "", contained_in: Tuple[str, ...] = ()) -> None:
+        """A branch on the forge; `contained_in` names the branches that already hold its tip (it is merged there)."""
+        self.branches[name] = sha or f"{len(self.branches) + 1:040x}"
+        self.contained_in[name] = list(contained_in)
 
     def graphql_operations(self) -> List[str]:
         """Operation names of every GraphQL request so far, in order."""
@@ -436,6 +444,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_PUT(self) -> None:
         self._serve("PUT")
 
+    def do_DELETE(self) -> None:
+        self._serve("DELETE")
+
     def _serve(self, method: str) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
@@ -597,6 +608,36 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- pull requests -----------------------------------------------------------
 
+    def _get_repo(self, query: Dict[str, List[str]], body: Any) -> None:
+        self._send(200, {"name": REPO, "default_branch": self.fake.default_branch})
+
+    def _get_branches(self, query: Dict[str, List[str]], body: Any) -> None:
+        listed = [{"name": n, "protected": n in self.fake.protection, "commit": {"sha": sha}} for n, sha in self.fake.branches.items()]
+        window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/branches")
+        self._send(200, window, link)
+
+    def _delete_ref(self, name: str, query: Dict[str, List[str]], body: Any) -> None:
+        name = unquote(name)
+        if name not in self.fake.branches:
+            return self._send(422, {"message": "Reference does not exist"})
+        if name in self.fake.protection or name == self.fake.default_branch:
+            return self._send(403, {"message": "Cannot delete a protected branch"})
+        del self.fake.branches[name]
+        self._send(204, b"")
+
+    def _get_compare(self, spec: str, query: Dict[str, List[str]], body: Any) -> None:
+        base, _, head = unquote(spec).partition("...")
+        if base not in self.fake.branches or head not in self.fake.branches:
+            return self._send(404, {"message": "Not Found"})
+        merged = head == base or base in self.fake.contained_in.get(head, [])
+        self._send(200, {"status": "behind" if merged else "ahead", "ahead_by": 0 if merged else 1, "behind_by": 0})
+
+    def _get_pulls(self, query: Dict[str, List[str]], body: Any) -> None:
+        wanted = query.get("state", ["open"])[0]
+        listed = [self.fake.pull_json(p) for _n, p in sorted(self.fake.pulls.items()) if wanted == "all" or p["state"] == wanted]
+        window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/pulls")
+        self._send(200, window, link)
+
     def _post_pulls(self, query: Dict[str, List[str]], body: Any) -> None:
         self._send(201, self.fake.pull_json(self.fake.new_pull(body)))
 
@@ -651,6 +692,10 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 _ROUTES = (
+    (r"", "repo"),
+    (r"/branches", "branches"),
+    (r"/git/refs/heads/(.+)", "ref"),
+    (r"/compare/(.+)", "compare"),
     (r"/labels", "labels"),
     (r"/milestones", "milestones"),
     (r"/milestones/(\d+)", "milestone"),

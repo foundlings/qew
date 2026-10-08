@@ -4,6 +4,7 @@ import json
 import re
 import threading
 import time
+from urllib.parse import unquote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,6 +25,8 @@ class FakeForgejo:
         self.drop_label_creates = False  # accept a label create yet store nothing
         self.pulls: Dict[int, Dict[str, Any]] = {}
         self.branches: Dict[str, str] = {}  # branch -> head sha
+        self.default_branch = "main"
+        self.contained_in: Dict[str, List[str]] = {}  # branch -> branches whose history already holds its tip
         self.protections: Dict[str, Dict[str, Any]] = {}  # branch -> branch protection record
         self.statuses: Dict[str, Tuple[str, int]] = {}  # sha -> (combined state, total_count)
         self.dependencies: Dict[int, List[int]] = {}  # issue -> issues blocking it
@@ -63,6 +66,11 @@ class FakeForgejo:
         for pull in self.pulls.values():
             if pull["head"]["ref"] == branch:
                 pull["head"]["sha"] = sha
+
+    def add_branch(self, name: str, sha: str = "", contained_in: Tuple[str, ...] = ()) -> None:
+        """A branch on the forge; `contained_in` names the branches that already hold its tip (it is merged there)."""
+        self.branches[name] = sha or f"{len(self.branches) + 1:040x}"
+        self.contained_in[name] = list(contained_in)
 
     def issue_labels(self, number: int) -> List[str]:
         return [self.labels[label_id] for label_id in self.issues[number]["label_ids"]]
@@ -166,6 +174,9 @@ def _make_handler(fake: FakeForgejo) -> type:
 
         def do_PUT(self) -> None:
             self._serve("PUT")
+
+        def do_DELETE(self) -> None:
+            self._serve("DELETE")
 
         def _serve(self, method: str) -> None:
             length = int(self.headers.get("Content-Length") or 0)
@@ -385,6 +396,31 @@ def _route(
         pull["merged"] = True
         pull["merge_sha"] = "e" * 40
         return ok(None, 200)
+    if method == "GET" and re.match(_BASE + r"$", path):
+        return ok({"name": REPO, "default_branch": fake.default_branch})
+    if method == "GET" and re.match(_BASE + r"/branches$", path):
+        listed = [{"name": name, "protected": name in fake.protections, "commit": {"id": sha}} for name, sha in fake.branches.items()]
+        return _page(fake, listed, params)
+    match = re.match(_BASE + r"/branches/(.+)$", path)
+    if match and method == "DELETE":
+        name = unquote(match.group(1))
+        if name not in fake.branches:
+            raise _Reply(404, "branch does not exist")
+        if name in fake.protections or name == fake.default_branch:
+            raise _Reply(403, "branch is protected")
+        del fake.branches[name]
+        return ok(None, 204)
+    match = re.match(_BASE + r"/compare/(.+)$", path)
+    if match and method == "GET":
+        base, _, head = unquote(match.group(1)).partition("...")
+        if base not in fake.branches or head not in fake.branches:
+            raise _Reply(404, "branch does not exist")
+        merged = head == base or base in fake.contained_in.get(head, [])
+        return ok({"total_commits": 0 if merged else 1, "commits": [] if merged else [{"sha": fake.branches[head]}]})
+    if method == "GET" and re.match(_BASE + r"/pulls$", path):
+        wanted = params.get("state", "open")
+        opened = [fake._pull_json(n) for n, p in sorted(fake.pulls.items()) if wanted in ("all", p["state"])]
+        return _page(fake, opened, params)
     match = re.match(_BASE + r"/branch_protections/([\w.-]+)$", path)
     if match and method == "GET":
         record = fake.protections.get(match.group(1))

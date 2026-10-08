@@ -20,6 +20,7 @@ from qew.forge import (
     IssueSpec,
     Placement,
     PullRequestSpec,
+    RemoteBranch,
     RemoteComment,
     RemoteIssue,
     RemotePullRequest,
@@ -67,6 +68,12 @@ class MemoryForge(Forge):
         self.supports_auto_merge = True
         self.auto_merge_ignored = False
         self.bypass_supported = True
+        self.branches: Dict[str, List[str]] = {}  # branch -> branches whose history already holds its tip
+        self.default_branch = "main"
+        self.protected_branches: set = set()
+        self.supports_branches = True
+        self.deleted_branches: List[str] = []
+        self.stubborn_branches: set = set()  # a delete the forge accepts but does not carry out
 
     def _live(self, name: str) -> None:
         self.calls.append((name,))
@@ -254,6 +261,36 @@ class MemoryForge(Forge):
         if not self.auto_merge_ignored:
             self.pulls[number] = self._with(number, auto_merge=True)
         return self.pulls[number]
+
+    def add_branch(self, name: str, contained_in: Tuple[str, ...] = ()) -> None:
+        """A branch on the forge; `contained_in` names the branches that already hold its tip."""
+        self.branches[name] = list(contained_in)
+
+    def list_branches(self) -> List[RemoteBranch]:
+        self._live("list_branches")
+        if not self.supports_branches:
+            raise Unsupported("list_branches")
+        return [RemoteBranch(n, n == self.default_branch, n in self.protected_branches) for n in self.branches]
+
+    def branch_is_merged(self, name: str, base: str) -> bool:
+        self._live("branch_is_merged")
+        if not self.supports_branches:
+            raise Unsupported("branch_is_merged")
+        return name == base or base in self.branches[name]
+
+    def delete_branch(self, name: str) -> None:
+        self._live("delete_branch")
+        if not self.supports_branches:
+            raise Unsupported("delete_branch")
+        if name not in self.stubborn_branches:
+            self.branches.pop(name, None)
+        self.deleted_branches.append(name)
+
+    def list_open_pull_heads(self) -> List[str]:
+        self._live("list_open_pull_heads")
+        if not self.supports_branches:
+            raise Unsupported("list_open_pull_heads")
+        return [pull.head_branch for pull in self.pulls.values() if pull.state == "open"]
 
     def edit_pull(self, number: int, **changes) -> None:
         """Change the remote pull request behind qew's back, as a teammate or a CI run would."""
