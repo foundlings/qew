@@ -135,6 +135,8 @@ select = "kind:epic"
   `.qew/config.toml`, default `main`; jj revset `::target`, git `merge-base --is-ancestor`). An epic needs
   at least one child and no evidence of its own.
 - Readiness: approved, unclaimed, not an epic, every need completed. A dangling or closed need keeps it blocked.
+  `qew ready` orders by priority, then the longest chain of unfinished work an item unblocks, then its direct
+  unfinished dependents, then id. A needs cycle below ready work is refused (exit 1), never skipped.
 - Board columns: Draft = not startable (draft or blocked), Ready, In progress (claimed), In review (claimed with a
   pull request mirror), Done (completed or closed).
 - Forge issue bodies start with `<!-- qew:ID -->`; sync adopts an issue found by that marker when a crash lost

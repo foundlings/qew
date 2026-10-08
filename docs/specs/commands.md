@@ -14,7 +14,8 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 ## Read
 - `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
 - `qew list [--kind K] [--state S] [--label L] [--json]`, `qew ready [--json]`, `qew blocked [--json]`,
-  `qew graph [--json]`: readiness is derived from files; no network.
+  `qew graph [--json]`: readiness is derived from files; no network. `ready` lists by priority, then the
+  longest chain it unblocks, then direct dependents, then id.
 - `qew check`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors. Writes nothing; exit 1 on any problem.
 
