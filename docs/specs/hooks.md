@@ -149,3 +149,12 @@ every unrelated entry; `remove` deletes exactly Qew's entries.
   tool output. It never throws.
 - Install refuses to overwrite an unmarked file and removes Qew's own earlier
   `qew-prime.js` only when it carries Qew's marker.
+
+## Hook command shape (v1)
+
+- Claude and Codex entries are one `command` string, no `args` (exec form is newer than some agent
+  versions; on an older one a bare `qew` would exit 2 and block every shell call). The string is
+  `command -v qew >/dev/null 2>&1 || { echo '{"systemMessage":"qew is not on PATH; qew hooks skipped"}'; exit 0; }; exec qew hook EVENT --agent NAME`
+  (`hook_command.guarded`). A missing qew skips with a one-line warning (fail open); `exec` passes qew's own
+  status through, so a real refusal (exit 2 / deny JSON) still blocks (fail closed).
+- Install migrates the earlier exec-form and unguarded entries; remove deletes them too.
