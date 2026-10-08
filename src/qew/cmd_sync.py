@@ -135,9 +135,9 @@ def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[st
         head += f" adopted {report.adopted}"
     if report.skipped:
         head += f" skipped {','.join(report.skipped)}"
-    if pulled is not None and (pulled.applied or pulled.divergences or pulled.new_items or pulled.comments):
+    if pulled is not None and (pulled.applied or pulled.divergences or pulled.new_items or pulled.comments or pulled.duplicates):
         head += (f" pulled applied={pulled.applied} divergences={pulled.divergences}"
-                 f" new={pulled.new_items} comments={pulled.comments}")
+                 f" new={pulled.new_items} comments={pulled.comments} duplicates_closed={pulled.duplicates}")
     if report.pruned:
         head += f" pruned {report.pruned}"
     lines = [head]
