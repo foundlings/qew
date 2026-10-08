@@ -36,6 +36,7 @@ class MemoryForge(Forge):
         self.priorities: Dict[int, str] = {}
         self.down = False
         self.board_id = "B1"
+        self.hide_next_find = False
         self.reject_title: Optional[str] = None
         self.supports_boards = boards
         self.supports_links = links
@@ -74,6 +75,9 @@ class MemoryForge(Forge):
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
         self._live("find")
+        if self.hide_next_find:  # a concurrent creator the first lookup could not see yet
+            self.hide_next_find = False
+            return None
         return next((i for i in self.issues.values() if marker in i.body), None)
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:

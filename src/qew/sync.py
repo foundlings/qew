@@ -7,7 +7,7 @@ body marker. One target's failure never reaches another: callers run targets
 independently and the report says what happened.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import time
 from typing import Callable, Dict, List, Optional
 
@@ -156,7 +156,17 @@ def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec):
         found = None
     if found is not None:
         return found, True
-    return forge.create_issue(spec), False
+    created = forge.create_issue(spec)
+    try:
+        winner = forge.find_issue(marker_for(item_id))
+    except Unsupported:
+        return created, False
+    if winner is not None and winner.number < created.number:
+        # Another checkout created the same item at the same moment; the lowest number wins everywhere.
+        forge.update_issue(created.number, replace(spec, body=spec.body.replace(marker_for(item_id), "<!-- qew-duplicate -->"),
+                                                   open=False, close_reason="not_planned"))
+        return winner, True
+    return created, False
 
 
 def _new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id: str, fingerprint: str) -> dict:
