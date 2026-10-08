@@ -35,7 +35,7 @@ def verb_for(arguments) -> Optional[str]:
     """The commit verb of a ledger-writing command, or None for reads and non-ledger commands."""
     command = arguments.command
     if command in ("create", "set", "start", "release", "evidence", "complete", "close", "reopen", "sync",
-                   "import", "restore", "accept", "reject", "comment", "block", "unblock"):
+                   "import", "restore", "accept", "reject", "resolve", "comment", "block", "unblock"):
         return command
     if command == "draft" and arguments.draft_command in ("approve", "revert"):
         return arguments.draft_command
@@ -127,7 +127,7 @@ def session(arguments) -> Iterator[None]:
         repo.exclude_cache()
         if committing:
             _recover(repo)
-        if replicating:
+        if replicating and verb != "resolve":  # resolve settles a conflict the fetch would only re-raise
             _note(config, repo.fetch_merge(rep.timeout_s))
             (config.ledger_path / ".qew" / "last-fetch").touch()
         ledger_store.journal_start()
@@ -282,7 +282,7 @@ def _note(config, result: str) -> None:
 
 def _pull_for_read(arguments) -> None:
     """Reads see other agents' work: fetch and merge the ledger remote, at most every fetch_interval_s."""
-    if arguments.command in ("init", "hook", "status"):
+    if arguments.command in ("init", "hook", "status", "conflicts"):
         return
     try:
         config = ledger_config.load()

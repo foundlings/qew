@@ -286,7 +286,13 @@ offline work never produces two owners. GitHub and Forgejo/Gitea are first-class
   later). Evidence and completion by someone who does not hold the item or an ancestor are refused.
 - **Conflicts.** Content merges (one file per event). Contested facts (owner, state) follow the authority rule above,
   never timestamps or last writer. In the fold a `claimed` event named by a `claim_lost` is ignored. Remaining
-  contradictions surface in `qew status` as divergences for `qew accept` / `qew reject`.
+  contradictions surface in `qew status` as divergences, and `qew conflicts` lists them all for `qew resolve`.
+  Conflict inventory: needs a decision (listed): `ledger_merge` (same ledger file changed on two checkouts; settled whole
+  file with `qew resolve ledger --take ours|theirs`, ledger-owned files only, the discarded side recorded in a
+  `conflict_resolved` event), `divergence` (`--take forge|ledger`), `claim_contest` (`--take forge|ledger`). Settles itself
+  (not listed): a rejected push (fetch, merge, retry), mirror-only merge conflicts (remote copy), duplicate forge issues
+  (the pull closes the later one), a lost claim (final; `claim_lost` names the winner), a stale or unmirrored item
+  (`qew status` pending; the next sync). A merge conflict stops every fetching command (exit 1) until settled.
 - **Secondary mirrors are read-only.** Every target but the primary is a one-way mirror (ledger -> forge): pull never
   imports their edits (a state edit there may be flagged as a divergence). `qew mirror add FORGE REPO [--read-only]`,
   `qew mirror remove TARGET`, `qew mirror list` edit `[[mirror]]` entries in `.qew/config.toml`.

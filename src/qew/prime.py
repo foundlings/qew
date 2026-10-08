@@ -42,7 +42,7 @@ def quote(title: str, profile: Profile) -> str:
     return json.dumps(flat, ensure_ascii=False)
 
 
-def build(snapshot: Snapshot, profile: Profile) -> str:
+def build(snapshot: Snapshot, profile: Profile, conflicts: int = 0) -> str:
     suspicious = {i: untrusted_text.findings(item.title) for i, item in snapshot.items.items()
                   if snapshot.folds[i].state in (State.APPROVED, State.CLAIMED) and untrusted_text.findings(item.title)}
     ready = [i for i in ledger_graph.ready(snapshot) if i not in suspicious]
@@ -66,6 +66,8 @@ def build(snapshot: Snapshot, profile: Profile) -> str:
         return f"{ready_line(i)} <- {shown}"
 
     lines = [f"Qew ledger: {len(ready)} ready, {len(active)} active, {len(blocked)} blocked, {drafts} draft.", "Conventions:"]
+    if conflicts:
+        lines.insert(1, f"Conflicts: {conflicts} open sync conflicts; run qew conflicts, then qew resolve REF --take SIDE --reason TEXT.")
     lines += [f"- {line}" for line in CONVENTIONS]
     for name, ids, render in (("Next ready", ready, ready_line), ("Active", active, active_line),
                               ("Blocked", blocked, blocked_line), ("Contradictions", contradictions, str)):
