@@ -80,6 +80,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--body-file", help="read the body from a file, or - for stdin")
     create.add_argument("--quote", help="a human's words, \"Name: 'their words'\"; releases the item")
     create.add_argument("--from-file", help="JSON object or array of items, or - for stdin")
+    create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")
 
     set_ = commands.add_parser("set", help="change an item's header fields")
     set_.add_argument("item", help="item id or alias")
