@@ -70,6 +70,12 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the
   divergence event id (a unique prefix) or an item with exactly one open divergence.
 - `qew reject DIVERGENCE`: keep the ledger value; the mirror is marked stale so the next push rewrites the forge.
+- `qew import [--from TARGET | --forge F --repo URL [--api URL]] [--history]`: read a forge project into the ledger. Issues
+  carrying qew's body marker restore their item (id, kind, priority, labels, parent, needs, state from the footer and managed
+  labels); any other issue becomes a fresh draft (closed ones arrive closed). Idempotent; records mirrors. `--history` is
+  accepted for closed foreign issues.
+- `qew restore [--to TARGET | --forge F --repo URL [--api URL]]`: recreate the issues, links and board of a target from the ledger
+  alone; mirror files whose remote issue is gone are forgotten first. Idempotent and resumable.
 - `qew project`: the group for `ensure`.
 - `qew project ensure [--target T]`: create the seven-status board where
   the forge has boards; the board id is recorded in `boards/` in the ledger.

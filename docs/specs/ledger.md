@@ -216,3 +216,42 @@ New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence
 `branch` (`main`). Unknown keys fail. Cache files in the ledger checkout's `.qew/` (excluded from the VCS):
 `lock` (write lock), `sync.lock` (worker), `sync.log`, `sync.pending`, `sync.spawned`, `last-fetch`.
 A `sync` run takes the write lock only to commit (every 25 mirror writes and at the end), never during forge calls.
+
+## Authority and topology
+
+Intent: the ledger is the mind and travels freely; exactly ONE authority decides contested facts (who owns what), so
+offline work never produces two owners. GitHub and Forgejo/Gitea are first-class; GitLab stays as it is.
+
+- **Primary forge per ledger.** `.qew/config.toml` `[authority] primary = "<target slug>" | "none"` (default `none`).
+  - `primary = <target>`: that forge arbitrates CLAIMS. `qew start` needs it online and makes an atomic reservation
+    there: qew posts a claim comment `<!-- qew:claim ITEM OWNER NONCE -->` on the mirrored issue and re-reads the
+    comments; the earliest claim comment (forge order, not timestamps) wins. A lost race writes nothing and refuses.
+    On success the ledger gets `claimed` plus `claim_confirmed`. Release posts `<!-- qew:release ITEM -->`.
+    No offline claims: an unreachable primary refuses `start`.
+  - `primary = "none"`: the LEDGER REMOTE arbitrates. `start` writes `claimed`, pushes, and the claim counts once the
+    push lands (`claim_confirmed`). A rejected push fetches and merges; if another claim for the item is already
+    there, qew writes `claim_lost` (`ref` = the lost claim event, `winner`) and the caller does not own the item. A
+    ledger without a remote is single-writer: the claim confirms at once. A configured but unreachable remote
+    refuses `start` (no offline claims).
+- **Scope.** Claiming an epic claims its open descendants in one operation (all-or-nothing with rollback). Holding an
+  item or its epic allows working it offline: evidence, comments, progress, complete (needs evidence only; syncs
+  later). Evidence and completion by someone who does not hold the item or an ancestor are refused.
+- **Conflicts.** Content merges (one file per event). Contested facts (owner, state) follow the authority rule above,
+  never timestamps or last writer. In the fold a `claimed` event named by a `claim_lost` is ignored. Remaining
+  contradictions surface in `qew status` as divergences for `qew accept` / `qew reject`.
+- **Secondary mirrors are read-only.** Every target but the primary is a one-way mirror (ledger -> forge): pull never
+  imports their edits (a state edit there may be flagged as a divergence). `qew mirror add FORGE REPO [--read-only]`,
+  `qew mirror remove TARGET`, `qew mirror list` edit `[[mirror]]` entries in `.qew/config.toml`.
+- **Mappings stay out of item files.** Item headers hold only ledger-level links (`tracks:`, `pr:` = ledger ids of the
+  tracking issue or pull request item; `parent:` as before), never forge numbers or URLs. Forge mappings live only in
+  `mirrors/` (the per-target index). `qew show` resolves links to forge URLs for display.
+- **Repos pushed everywhere.** Each forge target also receives the code repo and the ledger repo (git remote
+  `qew-<target slug>` per target, pushed by sync), so any forge can become primary.
+- **Forge migration.** `qew forge migrate --to TARGET`: restore the full ledger onto the target (issues, board, pull
+  requests as links), verify counts, switch `primary` to it and demote the old primary to a read-only mirror
+  (`--remove-old` drops it). Idempotent and resumable (progress is derived from mirror files).
+- **Ledger fork.** `qew ledger fork --to REMOTE [--primary TARGET]` creates a new ledger identity with lineage
+  (`forked_from = "<ledger id>@<commit>"`, `ledger_id` in `qew-ledger.toml`). Items keep their ids, events stay;
+  mirrors, boards, claims and open divergences are NOT carried over. Re-merging a fork into its origin is refused.
+
+New event types: `claim_confirmed` (`ref`), `claim_lost` (`ref`, `winner`).

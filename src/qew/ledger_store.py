@@ -134,6 +134,13 @@ class Ledger:
         text = json.dumps(value, sort_keys=True, indent=2) + "\n"
         _write(directory / f"{target}.json", text, exclusive=False)
 
+    def remove_mirror(self, item_id: str, target: str) -> None:
+        """Forget one mirror file (journaled like every write, so the session commits the deletion)."""
+        path = self.mirrors_dir / item_id / f"{target}.json"
+        if JOURNAL is not None:
+            JOURNAL.append((path, path.read_text(encoding="utf-8") if path.exists() else None))
+        path.unlink(missing_ok=True)
+
     def read_board(self, target: str) -> Optional[dict]:
         path = self.path / "boards" / f"{target}.json"
         if not path.is_file():

@@ -35,6 +35,8 @@ Mirrors
   qew sync        push the ledger to every mirror target
   qew project     ensure the board on each target
   qew status      replication state: uncommitted, unpushed, pending per target, divergences
+  qew import      read a forge project into the ledger
+  qew restore     recreate a forge project from the ledger alone
   qew accept      apply a forge-side change the ledger had not made
   qew reject      keep the ledger value; the next push restores the forge
 Setup
@@ -46,7 +48,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence")
+_MODULES = ("cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence", "cmd_forgeio")
 
 
 def _plugins() -> list:
