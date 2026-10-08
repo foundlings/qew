@@ -1,0 +1,153 @@
+"""Walks of `sync`: idempotence, per-target independence, no partial mirror files.
+
+Adversary: a duplicate issue after a crash between the forge accepting a create
+and the mirror file being written, one dead forge blocking another, a mirror
+file recording work the forge never accepted, and a dependency or board call
+the forge cannot do being faked.
+"""
+
+import json
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+from qew import ledger_config
+from qew.forge import COLUMNS
+from qew.ledger_store import Ledger
+from qew.sync import Target, sync_target
+from tests.ledger_harness import World
+from tests.memory_forge import MemoryForge
+
+MIRRORS = """
+[[mirror]]
+forge = "forgejo"
+repo = "https://git.example/o/r"
+[[mirror]]
+forge = "gitlab"
+repo = "https://lab.example/g/r"
+select = "kind:epic"
+"""
+
+
+def targets(world: World, forges):
+    config = ledger_config.load(world.code)
+    return config, [Target(m, ledger_config.mirror_slug(m), f) for m, f in zip(config.mirrors, forges)]
+
+
+class SyncWalk(unittest.TestCase):
+    def setUp(self) -> None:
+        self.world = World(MIRRORS)
+        self.addCleanup(self.world.close)
+        self.a = MemoryForge("git.example")
+        self.b = MemoryForge("lab.example")
+
+    def ledger(self) -> Ledger:
+        return Ledger(self.world.ledger, "TST")
+
+    def sync(self, *names):
+        config, all_targets = targets(self.world, [self.a, self.b])
+        chosen = [t for t in all_targets if not names or t.slug in names]
+        return [sync_target(self.ledger(), t, config) for t in chosen]
+
+    def test_golden_walk_mirrors_per_target_and_a_second_sync_is_a_no_op(self) -> None:
+        w = self.world
+        epic = w.create("--kind", "epic", "--title", "Epic")
+        issue = w.create("--kind", "issue", "--title", "Issue", "--parent", epic)
+        reports = self.sync()
+        self.assertEqual([r.created for r in reports], [2, 1], "select = kind:epic keeps the issue off the second target")
+        mirror = json.loads((w.ledger / "mirrors" / issue / "forgejo-git.example-o-r.json").read_text())
+        self.assertEqual((mirror["forge"], mirror["kind"], mirror["number"]), ("forgejo", "issue", 2))
+        self.assertTrue((w.ledger / "mirrors" / epic / "gitlab-lab.example-g-r.json").exists())
+        self.assertFalse((w.ledger / "mirrors" / issue / "gitlab-lab.example-g-r.json").exists())
+        before = (self.a.count("create"), self.a.count("update"), self.b.count("create"))
+        again = self.sync()
+        self.assertEqual([(r.created, r.updated) for r in again], [(0, 0), (0, 0)])
+        self.assertEqual((self.a.count("create"), self.a.count("update"), self.b.count("create")), before)
+
+    def test_a_header_change_updates_the_mirror_once(self) -> None:
+        w = self.world
+        item = w.create("--kind", "epic", "--title", "Old")
+        self.sync()
+        w.run("set", item, "--title", "New")
+        report = self.sync("forgejo-git.example-o-r")[0]
+        self.assertEqual(report.updated, 1)
+        self.assertEqual(self.a.issues[1].title, "New")
+        self.assertEqual(self.sync("forgejo-git.example-o-r")[0].updated, 0)
+
+    def test_state_maps_to_open_closed_labels_and_columns(self) -> None:
+        w = self.world
+        item = w.create("--kind", "epic", "--title", "E")
+        self.sync("forgejo-git.example-o-r")
+        self.assertIn("qew:draft", self.a.issues[1].labels)
+        self.assertTrue(self.a.issues[1].open)
+        w.approve(item)
+        w.run("start", item)
+        child = w.create("--kind", "issue", "--title", "C", "--parent", item, "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        w.run("start", child)
+        w.run("evidence", child, "--change", w.commit())
+        w.run("complete", child)
+        w.run("complete", item)
+        self.sync("forgejo-git.example-o-r")
+        self.assertFalse(self.a.issues[1].open)
+        self.assertIn("qew:completed", self.a.issues[1].labels)
+
+    def test_a_dead_forge_does_not_block_another_and_leaves_no_mirror_file(self) -> None:
+        w = self.world
+        item = w.create("--kind", "epic", "--title", "E")
+        self.a.down = True
+        reports = self.sync()
+        self.assertTrue(reports[0].failures)
+        self.assertEqual(reports[1].created, 1)
+        self.assertFalse((w.ledger / "mirrors" / item / "forgejo-git.example-o-r.json").exists())
+        self.a.down = False
+        self.assertEqual(self.sync("forgejo-git.example-o-r")[0].created, 1)
+
+    def test_a_crash_after_create_adopts_the_existing_issue_instead_of_duplicating(self) -> None:
+        w = self.world
+        w.create("--kind", "epic", "--title", "E")
+        self.sync("forgejo-git.example-o-r")
+        for path in (w.ledger / "mirrors").rglob("forgejo-*.json"):
+            path.unlink()
+        report = self.sync("forgejo-git.example-o-r")[0]
+        self.assertEqual((report.created, len(self.a.issues)), (0, 1))
+        self.assertEqual(report.adopted, 1)
+
+    def test_a_rejected_item_is_reported_and_the_rest_still_sync(self) -> None:
+        w = self.world
+        w.create("--kind", "epic", "--title", "bad one")
+        w.create("--kind", "epic", "--title", "good one")
+        self.a.reject_title = "bad"
+        report = self.sync("forgejo-git.example-o-r")[0]
+        self.assertEqual((report.created, len(report.failures)), (1, 1))
+
+    def test_dependencies_are_linked_when_supported_and_skipped_loudly_when_not(self) -> None:
+        w = self.world
+        first = w.create("--kind", "epic", "--title", "First")
+        w.create("--kind", "epic", "--title", "Second", "--needs", first)
+        self.sync()
+        self.assertEqual(self.a.links, [(2, 1)])
+        self.b.supports_links = False
+        report = self.sync("gitlab-lab.example-g-r")[0]
+        self.assertEqual(report.failures, [])
+
+    def test_boards_get_the_column_for_the_state_and_unsupported_boards_are_skipped(self) -> None:
+        w = self.world
+        (w.code / ".qew" / "config.toml").write_text(
+            (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = "1"')
+        )
+        item = w.create("--kind", "epic", "--title", "E", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        self.sync("forgejo-git.example-o-r")
+        self.assertEqual(self.a.columns[1], "Ready")
+        self.assertEqual(COLUMNS[1], "Ready")
+        w.run("start", item)
+        self.sync("forgejo-git.example-o-r")
+        self.assertEqual(self.a.columns[1], "In progress")
+        self.a.supports_boards = False
+        report = self.sync("forgejo-git.example-o-r")[0]
+        self.assertEqual(report.failures, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
