@@ -34,7 +34,13 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     "reopened": ((), (State.COMPLETED, State.CLOSED)),
     "closed": (("reason",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED)),
     "field": (("key",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED, State.CLOSED)),
+    # Forge replication (docs/specs/ledger.md, Replication): never change state by themselves.
+    "commented": (("text",), tuple(State)),
+    "forge_divergence": (("target", "field"), tuple(State)),
+    "divergence_accepted": (("ref",), tuple(State)),
+    "divergence_rejected": (("ref",), tuple(State)),
 }
+PROVENANCE = ("import", "forge", "forge-import")
 _INITIAL = {"drafted": State.DRAFT, "approved": State.APPROVED}
 _NEXT = {
     "approved": State.APPROVED,
@@ -86,8 +92,9 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
     if kind == "closed" and value["reason"] not in CLOSE_REASONS:
         raise QewError(f"{where}: close reason must be one of {', '.join(CLOSE_REASONS)}", 1)
     if "provenance" in value:
-        if kind != "completed" or value["provenance"] != "import":
-            raise QewError(f"{where}: `provenance` is only valid as `import` on a `completed` event", 1)
+        allowed = ("import", "forge-import") if kind == "completed" else PROVENANCE
+        if value["provenance"] not in allowed:
+            raise QewError(f"{where}: `provenance` {value['provenance']!r} is not valid on a `{kind}` event", 1)
         ids = value.get("original_ids", [])
         if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
             raise QewError(f"{where}: original_ids must be a list of strings", 1)
@@ -108,6 +115,7 @@ class Folded:
     evidence: Tuple[Event, ...]
     errors: Tuple[str, ...]
     imported: bool = False  # completed by an import path, without verifiable evidence
+    divergences: Tuple[Event, ...] = ()  # forge-side state changes nobody has accepted or rejected yet
 
 
 def fold(events: List[Event]) -> Folded:
@@ -119,7 +127,7 @@ def fold(events: List[Event]) -> Folded:
     imported = False
     for event in sorted(events, key=lambda item: item.id):
         _, sources = _RULES[event.type]
-        if event.type == "completed" and event.get("provenance") == "import":
+        if event.type == "completed" and event.get("provenance") in ("import", "forge-import"):
             # Imported history was never claimed here; it may complete from any open state.
             sources = (State.DRAFT, State.APPROVED, State.CLAIMED)
             imported = True
@@ -146,7 +154,10 @@ def fold(events: List[Event]) -> Folded:
             evidence.append(event)
         if event.type in _NEXT:
             state = _NEXT[event.type]
-    return Folded(state, owner, tuple(evidence), tuple(errors), imported)
+    resolved = {e.get("ref") for e in events if e.type in ("divergence_accepted", "divergence_rejected")}
+    open_divergences = tuple(e for e in sorted(events, key=lambda item: item.id)
+                             if e.type == "forge_divergence" and e.id not in resolved)
+    return Folded(state, owner, tuple(evidence), tuple(errors), imported, open_divergences)
 
 
 def transition_error(state: Optional[State], event_type: str) -> Optional[str]:

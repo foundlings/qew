@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 from qew import ledger_graph
 from qew.errors import QewError
-from qew.forge import COLUMNS, IssueSpec, marker_for
+from qew.forge import COLUMNS, MARKER_PREFIX, IssueSpec, marker_for
 from qew.ledger_event import State
 from qew.ledger_item import Item, Kind
 from qew.ledger_store import Snapshot
@@ -142,3 +142,34 @@ def _body(item: Item, state: Optional[State], numbers: Dict[str, int]) -> str:
 def fingerprint(spec: IssueSpec, extra: object = None) -> str:
     payload = json.dumps([spec.__dict__, extra], sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+MANAGED_LABEL_PREFIXES = ("qew:", "kind:", "priority:")
+
+
+def user_labels(labels) -> list:
+    """Labels qew does not manage: the ones a human may add on the forge."""
+    return sorted(l for l in labels if not l.startswith(MANAGED_LABEL_PREFIXES))
+
+
+def body_from_remote(text: str) -> str:
+    """The item's own body inside a mirrored issue body (inverse of `_body`): no marker, no footer."""
+    lines = text.split("\n")
+    if lines and lines[0].startswith("<!-- " + MARKER_PREFIX):
+        lines = lines[1:]
+    joined = "\n".join(lines)
+    if "\n---\n" in joined:
+        joined = joined.rsplit("\n---\n", 1)[0]
+    return joined.strip()
+
+
+def seen_of(remote, comment_ids) -> dict:
+    """What the forge showed at the last sync or pull: the baseline a later pull diffs against."""
+    return {
+        "title": remote.title,
+        "body": body_from_remote(remote.body),
+        "labels": user_labels(remote.labels),
+        "open": remote.open,
+        "assignee": remote.assignee,
+        "comments": list(comment_ids),
+    }

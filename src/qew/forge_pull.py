@@ -1,7 +1,25 @@
-"""Pull forge-side changes into the ledger (skeleton)."""
+"""Pull forge-side changes into the ledger.
 
-from dataclasses import dataclass, field
-from typing import List
+Content edits (title, body, labels, comments, new issues) merge as events with provenance `forge`; a
+STATE change (closed, reopened, assignee, deleted) never overrides ledger state and is recorded as a
+`forge_divergence` for `qew accept` / `qew reject`. The baseline for "changed on the forge" is the
+`seen` snapshot of the mirror file, written by every push and pull. Forge text is untrusted data:
+titles are flattened to one safe line, bodies lose control characters.
+"""
+
+from dataclasses import dataclass, field, replace
+import hashlib
+import re
+import unicodedata
+from typing import Dict, List, Optional
+
+from qew import sync_plan
+from qew.forge import ForgeError, RemoteIssue, Unsupported, marker_for
+from qew.ledger_item import Item
+from qew.ledger_store import Ledger, Snapshot
+
+TITLE_LIMIT = 200
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 @dataclass
@@ -15,5 +33,163 @@ class PullReport:
     failures: List[str] = field(default_factory=list)
 
 
-def pull_target(ledger, target) -> PullReport:
-    return PullReport(target.slug)
+def clean_line(text: str) -> str:
+    """One printable line: controls, newlines and format characters become spaces, capped in length."""
+    flat = "".join(" " if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") else c for c in text)
+    return " ".join(flat.split())[:TITLE_LIMIT]
+
+
+def clean_body(text: str) -> str:
+    return _CONTROL.sub("", text.replace("\r\n", "\n"))
+
+
+def clean_labels(labels) -> List[str]:
+    return sorted({l for l in labels if l and not any(c.isspace() or c == "," for c in l) and len(l) <= 60})
+
+
+def pull_target(ledger: Ledger, target) -> PullReport:
+    report = PullReport(target.slug)
+    try:
+        remote = target.forge.list_issues()
+    except Unsupported as error:
+        report.skipped.append(error.capability)
+        return report
+    except ForgeError as error:
+        report.failures.append(error.detail)
+        return report
+    snapshot = ledger.snapshot()
+    by_number = {issue.number: issue for issue in remote}
+    mirrored: Dict[int, str] = {}
+    for item_id in snapshot.items:
+        for record in ledger.load_mirrors(item_id):
+            if record["_target"] == target.slug and record.get("kind") == "issue":
+                mirrored[record["number"]] = item_id
+    try:
+        for number, item_id in sorted(mirrored.items()):
+            _pull_item(ledger, snapshot, target, report, item_id, by_number.get(number))
+        for issue in remote:
+            if issue.number not in mirrored and not issue.body.lstrip().startswith("<!-- qew:"):
+                _import_issue(ledger, snapshot, target, report, issue)
+    except Unsupported as error:
+        report.skipped.append(error.capability)
+    except ForgeError as error:
+        report.failures.append(error.detail)
+    return report
+
+
+def _record(ledger: Ledger, item_id: str, slug: str) -> dict:
+    return next(m for m in ledger.load_mirrors(item_id) if m["_target"] == slug)
+
+
+def _save(ledger: Ledger, item_id: str, slug: str, record: dict, seen: dict) -> None:
+    clean = {k: v for k, v in record.items() if k != "_target"}
+    ledger.write_mirror(item_id, slug, {**clean, "seen": seen})
+
+
+def _already_open(snapshot: Snapshot, item_id: str, field_name: str, forge_value: str) -> bool:
+    return any(e.get("field") == field_name and e.get("forge") == forge_value for e in snapshot.folds[item_id].divergences)
+
+
+def _diverge(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, item_id: str, number: int,
+             field_name: str, forge_value: str, ledger_value: str) -> None:
+    if _already_open(snapshot, item_id, field_name, forge_value):
+        return
+    ledger.append_event(item_id, "forge_divergence", target=target.slug, field=field_name, forge=forge_value,
+                        ledger=ledger_value, remote_ref=str(number), provenance="forge")
+    report.divergences += 1
+
+
+def _apply_header(ledger: Ledger, item: Item, key: str, value: str) -> Item:
+    old = item.header()[key]
+    updated = item.with_value(key, value)
+    ledger.write_item(updated, overwrite=True)
+    ledger.append_event(item.id, "field", key=key, old=old, new=value, provenance="forge")
+    return updated
+
+
+def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, item_id: str,
+               issue: Optional[RemoteIssue]) -> None:
+    record = _record(ledger, item_id, target.slug)
+    seen = record.get("seen")
+    item = snapshot.items[item_id]
+    if issue is None:
+        _diverge(ledger, snapshot, target, report, item_id, record["number"], "exists", "missing", "present")
+        return
+    current = sync_plan.seen_of(issue, (seen or {}).get("comments", []))
+    if seen is None:  # a mirror from before pulling existed: adopt what the forge shows as the baseline
+        _save(ledger, item_id, target.slug, record, current)
+        return
+    changed = False
+    title = clean_line(issue.title)
+    if title != seen["title"]:
+        if item.title == seen["title"] and title:
+            item = _apply_header(ledger, item, "title", title)
+            report.applied += 1
+        else:
+            _diverge(ledger, snapshot, target, report, item_id, issue.number, "title", title, item.title)
+        changed = True
+    body = clean_body(current["body"])
+    if body != seen["body"]:
+        if item.body.strip() == seen["body"]:
+            ledger.write_item(replace(item, body=body), overwrite=True)
+            ledger.append_event(item_id, "field", key="body", old="", new="(changed on the forge)", provenance="forge")
+            item = replace(item, body=body)
+            report.applied += 1
+        else:
+            _diverge(ledger, snapshot, target, report, item_id, issue.number, "body", "(edited)", "(edited)")
+        changed = True
+    labels = clean_labels(current["labels"])
+    if labels != seen["labels"]:
+        if sorted(item.labels) == seen["labels"]:
+            item = _apply_header(ledger, item, "labels", " ".join(labels))
+            report.applied += 1
+        else:
+            _diverge(ledger, snapshot, target, report, item_id, issue.number, "labels", " ".join(labels), " ".join(item.labels))
+        changed = True
+    if issue.open != seen["open"]:
+        _diverge(ledger, snapshot, target, report, item_id, issue.number, "state",
+                 "open" if issue.open else "closed", "open" if seen["open"] else "closed")
+        changed = True
+    if issue.assignee != seen["assignee"]:
+        _diverge(ledger, snapshot, target, report, item_id, issue.number, "assignee", issue.assignee or "(none)",
+                 snapshot.folds[item_id].owner or "(none)")
+        changed = True
+    comment_ids = list(seen["comments"])
+    if issue.comments > len(comment_ids):
+        known = {e.get("remote_ref") for e in snapshot.events[item_id] if e.type == "commented"}
+        for comment in target.forge.list_comments(issue.number):
+            if comment.id not in comment_ids:
+                comment_ids.append(comment.id)
+                if f"{target.slug}#{issue.number}/{comment.id}" not in known:
+                    ledger.append_event(item_id, "commented", text=clean_body(comment.body), author=clean_line(comment.author),
+                                        remote_ref=f"{target.slug}#{issue.number}/{comment.id}", provenance="forge")
+                    report.comments += 1
+        changed = True
+    if changed:
+        _save(ledger, item_id, target.slug, record, {**current, "title": title, "body": body, "labels": labels,
+                                                      "comments": comment_ids})
+
+
+def _import_issue(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, issue: RemoteIssue) -> None:
+    from qew.ledger_item import from_header
+    from qew.ledger_store import now
+
+    known = list(snapshot.items)
+    item_id = ledger.new_id("issue", known)
+    labels = clean_labels(issue.labels)
+    item = from_header({
+        "id": item_id, "kind": "issue", "title": clean_line(issue.title) or f"Imported issue {issue.number}",
+        "parent": "", "needs": "", "labels": " ".join(labels), "owner": "", "priority": "2", "created": now(),
+    }, clean_body(issue.body), "imported issue")
+    ledger.write_item(item)
+    ledger.append_event(item_id, "drafted", provenance="forge-import")
+    if not issue.open:
+        ledger.append_event(item_id, "closed", reason="not_planned", provenance="forge-import")
+    seen = sync_plan.seen_of(issue, [])
+    seen = {**seen, "title": item.title, "body": item.body.strip(), "labels": labels}
+    ledger.write_mirror(item_id, target.slug, {
+        "forge": target.mirror.forge, "url": target.mirror.repo, "kind": "issue", "number": issue.number,
+        "node_id": issue.node_id, "issue_url": issue.url, "synced_at": now(),
+        "synced_event": "", "synced_hash": "", "linked": [], "seen": seen,
+    })
+    report.new_items += 1

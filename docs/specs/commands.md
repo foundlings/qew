@@ -65,6 +65,11 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 - `qew sync [--target T] [--item ID] [--dry-run]`: push to every `[[mirror]]` target independently.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
+- `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
+  becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
+  without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the
+  divergence event id (a unique prefix) or an item with exactly one open divergence.
+- `qew reject DIVERGENCE`: keep the ledger value; the mirror is marked stale so the next push rewrites the forge.
 - `qew project`: the group for `ensure`.
 - `qew project ensure [--target T]`: create the seven-status board where
   the forge has boards; the board id is recorded in `boards/` in the ledger.

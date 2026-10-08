@@ -11,6 +11,7 @@ from qew.errors import QewError
 from qew.forge import Forge
 from qew.ledger_config import Config, Mirror
 from qew.ledger_store import Ledger
+from qew.forge_pull import PullReport, pull_target
 from qew.sync import Target, TargetReport, sync_target
 
 
@@ -80,10 +81,12 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     lines = []
     failed = False
     for mirror in mirrors:
-        report = sync_target(ledger, Target(mirror, ledger_config.mirror_slug(mirror), build(mirror)), config, item,
+        target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror))
+        pulled = pull_target(ledger, target)  # forge-side edits first, so the push cannot overwrite them
+        report = sync_target(ledger, target, config, item,
                              deadline=None if budget_s is None else time.monotonic() + budget_s, tick=tick)
         failed = failed or bool(report.failures)
-        lines.extend(render(report))
+        lines.extend(render(report, pulled))
     output = "\n".join(lines)
     if failed:
         print(output)
@@ -118,14 +121,19 @@ def plan(ledger: Ledger, mirrors: List[Mirror], item: Optional[str]) -> str:
     return "\n".join(lines) or "nothing to sync"
 
 
-def render(report: TargetReport) -> List[str]:
+def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[str]:
     head = f"{report.slug}: created {report.created} updated {report.updated} unchanged {report.unchanged}"
     if report.adopted:
         head += f" adopted {report.adopted}"
     if report.skipped:
         head += f" skipped {','.join(report.skipped)}"
+    if pulled is not None and (pulled.applied or pulled.divergences or pulled.new_items or pulled.comments):
+        head += (f" pulled applied={pulled.applied} divergences={pulled.divergences}"
+                 f" new={pulled.new_items} comments={pulled.comments}")
     lines = [head]
     lines.extend(f"  failed {failure}" for failure in report.failures)
+    if pulled is not None:
+        lines.extend(f"  pull failed {failure}" for failure in pulled.failures)
     if report.stopped:
         lines.append(f"  stopped: {report.stopped}")
     return lines

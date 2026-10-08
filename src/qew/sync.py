@@ -143,14 +143,16 @@ def _new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id
         "synced_event": events[-1].id if events else "",
         "synced_hash": fingerprint,
         "linked": [],
+        "seen": sync_plan.seen_of(remote, []),
     }
 
 
 def _push(ledger: Ledger, target: Target, record: dict, item_id: str, spec: IssueSpec, fingerprint: str) -> dict:
-    target.forge.update_issue(record["number"], spec)
+    remote = target.forge.update_issue(record["number"], spec)
     events = ledger.load_events(item_id)
     updated = {
         **{k: v for k, v in record.items() if k != "_target"},
+        "seen": sync_plan.seen_of(remote, (record.get("seen") or {}).get("comments", [])),
         "synced_hash": fingerprint,
         "synced_at": now(),
         "synced_event": events[-1].id if events else "",

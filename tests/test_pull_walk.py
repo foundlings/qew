@@ -120,7 +120,7 @@ class PullWalk(unittest.TestCase):
         """Prevents the divergence path bypassing the gates: close is allowed, completion is not without evidence."""
         self.forge.edit(1, open=False)
         self.pull()
-        divergence = [e for e in self.world.ledger.glob(f"events/{self.item}/*.json")][-1].stem
+        divergence = sorted(self.world.ledger.glob(f"events/{self.item}/*.json"))[-1].stem
         with self.assertRaises(QewError) as refused:
             cmd_divergence.accept(self.config, divergence, completed=True)
         self.assertIn("claimed", str(refused.exception) + "claimed")
@@ -132,7 +132,7 @@ class PullWalk(unittest.TestCase):
         """Prevents a rejected forge edit lingering: the ledger value is pushed back."""
         self.forge.edit(1, open=False)
         self.pull()
-        divergence = [e for e in self.world.ledger.glob(f"events/{self.item}/*.json")][-1].stem
+        divergence = sorted(self.world.ledger.glob(f"events/{self.item}/*.json"))[-1].stem
         cmd_divergence.reject(self.config, divergence)
         self.assertEqual(self.events()[-1]["type"], "divergence_rejected")
         sync_target(self.ledger, self.target, self.config)

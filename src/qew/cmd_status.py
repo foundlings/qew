@@ -44,6 +44,12 @@ def collect(config: Config) -> dict:
     mirrors = mirrors_with_boards(ledger, config)
     pending = pending_by_target(ledger, mirrors)
     ids = ledger.item_ids()
+    snapshot = ledger.snapshot()
+    divergences = [
+        {"id": e.id, "item": item_id, "target": e.get("target"), "field": e.get("field"),
+         "forge": e.get("forge"), "ledger": e.get("ledger")}
+        for item_id in snapshot.items for e in snapshot.folds[item_id].divergences
+    ]
     return {
         "ledger": {
             "uncommitted": len(repo.dirty_owned()),
@@ -55,7 +61,7 @@ def collect(config: Config) -> dict:
             {"target": slug, "pending": len(rows), "last_sync": last_sync(ledger, slug, ids)}
             for slug, rows in pending.items()
         ],
-        "divergences": [],
+        "divergences": divergences,
     }
 
 
@@ -65,4 +71,6 @@ def render(data: dict) -> str:
     for target in data["targets"]:
         lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}")
     lines.append(f"divergences={len(data['divergences'])}")
+    for d in data["divergences"]:
+        lines.append(f"divergence {d['id']} {d['item']} {d['field']} forge={d['forge']} ledger={d['ledger']}")
     return "\n".join(lines)

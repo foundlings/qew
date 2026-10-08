@@ -45,6 +45,9 @@ class World:
         self._temporary = tempfile.TemporaryDirectory()
         base = Path(self._temporary.name)
         self.base = base
+        if not replication:
+            # Walks that do not test replication must not spawn detached workers against fake URLs.
+            replication = "\n[replication]\nauto_forge_sync = false\n"
         self.ledger_vcs = ledger_vcs
         self.remote = base / "remote.git"
         self.code = base / "code"
@@ -90,6 +93,8 @@ class World:
 
     def clone(self, name: str, mirrors: str = "", replication: str = "") -> "World":
         """A second agent: its own code repo and ledger clone of the shared remote."""
+        if not replication:
+            replication = "\n[replication]\nauto_forge_sync = false\n"
         other = World.__new__(World)
         other._temporary = self._temporary
         other.base = self.base
