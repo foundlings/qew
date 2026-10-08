@@ -17,11 +17,11 @@ readable: every read refuses it (exit 1) and names the file instead of listing w
 needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | needs owner parent schema_version text_findings work_state
+shape row: id kind labels priority state title | children_done children_open completable needs owner parent schema_version text_findings work_state
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
 shape edge: item schema_version | needs parent
-shape show: author id kind labels priority schema_version state title | blocks body children evidence mirrors needs owner parent text_findings
+shape show: author id kind labels priority schema_version state title | children_done children_open completable blocks body children evidence mirrors needs owner parent text_findings
 ```
 
 ## Setup
@@ -37,7 +37,7 @@ shape show: author id kind labels priority schema_version state title | blocks b
   trailers cite an item without evidence for that commit (exit 2, the exact `qew evidence` command on stderr); see hooks.md.
 
 ## Read
-- `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
+- `qew show ITEM [--json]`: for an epic also `children_open`, `children_done`, `completable`; header, state, owner, derived children and blocks, evidence, mirrors, body.
 - `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
   [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
@@ -45,6 +45,9 @@ shape show: author id kind labels priority schema_version state title | blocks b
   (open work with an unmet need, claimed or not: a stuck claim is the more urgent fact), `claimed`, `plan`
   (an epic), `needs_decision` (a draft), `completed`, `closed`; then priority, then id. A filter that
   matches nothing prints nothing and exits 0; `--limit` cuts with a stderr warning.
+  `qew list --kind epic` rows carry `children_open`, `children_done`, `completable` (not closed or completed, at
+  least one child, none open) and, only when completable and the title was not rewritten, `-> qew complete ID`;
+  closed epics are left out unless `--state`/`--work-state` asks for them.
 - `qew ready [--limit N] [--json]`: at most 30 items by default, `--limit 0` for all; a cut is reported as
   `truncated` with `total` in JSON and on stderr. A negative or non-integer limit is a usage error (exit 2).
   Ordered by priority, then the longest chain it unblocks, then direct dependents, then id.
