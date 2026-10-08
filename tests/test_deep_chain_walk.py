@@ -9,7 +9,7 @@ import time
 import unittest
 
 from tests.ledger_harness import World
-from tests.plan_support import jsonl
+from tests.plan_support import jsonl, listing
 
 LENGTH = 3000
 
@@ -42,7 +42,7 @@ class DeepChainWalk(unittest.TestCase):
 
     def test_the_same_chain_closed_into_a_ring_reports_a_cycle_without_a_traceback(self) -> None:
         """The opposite failure: a cycle of this size must still be found and named, not crash the check."""
-        rows = json.loads(self.world.run("list", "--json").stdout)
+        rows = listing(self.world)
         first = next(row for row in rows if row["title"] == "Link 0")
         last = next(row for row in rows if row["title"] == f"Link {LENGTH - 1}")
         path = self.world.ledger / "items" / f"{first['id']}.md"  # a hand merge closes the ring; `set` would refuse

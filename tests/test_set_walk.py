@@ -8,7 +8,7 @@ import json
 import unittest
 
 from tests.ledger_harness import World
-from tests.plan_support import snapshot
+from tests.plan_support import listing, snapshot
 
 
 class SetWalk(unittest.TestCase):
@@ -71,6 +71,21 @@ class SetWalk(unittest.TestCase):
         mixed = w.run("set", item, "--labels", "a", "--add-label", "b")
         self.assertEqual(mixed.returncode, 2)
         self.assertEqual(w.run("set", item, "--priority", "-1").returncode, 2)
+        self.assertEqual(snapshot(w), before)
+
+    def test_several_items_attach_to_a_plan_in_one_call_and_one_bad_item_attaches_none(self) -> None:
+        """This is how existing items join a plan (there is no plan-create verb): all or none, never half a plan."""
+        w = self.world
+        epic = w.create("--kind", "epic", "--title", "Plan")
+        one, two = w.create("--title", "One"), w.create("--title", "Two")
+        self.assertEqual(w.run("set", one, two, "--parent", epic).returncode, 0)
+        rows = {r["id"]: r for r in listing(w)}
+        self.assertEqual((rows[one]["parent"], rows[two]["parent"]), (epic, epic))
+        other = w.create("--kind", "epic", "--title", "Other plan")
+        third = w.create("--title", "Third")
+        before = snapshot(w)
+        bad = w.run("set", third, other, "--parent", epic)
+        self.assertEqual(bad.returncode, 2)
         self.assertEqual(snapshot(w), before)
 
 

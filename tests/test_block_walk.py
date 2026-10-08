@@ -8,7 +8,7 @@ import json
 import unittest
 
 from tests.ledger_harness import World
-from tests.plan_support import snapshot
+from tests.plan_support import listing, snapshot
 
 
 class BlockWalk(unittest.TestCase):
@@ -62,7 +62,7 @@ class BlockWalk(unittest.TestCase):
         w.run("block", self.a, "--on", self.b)
         w.run("block", self.a, "--on", third)
         self.assertEqual(w.run("unblock", self.a, "--from", self.b).returncode, 0)
-        rows = {r["id"]: r for r in json.loads(w.run("list", "--json").stdout)}
+        rows = {r["id"]: r for r in listing(w)}
         self.assertEqual(rows[self.a]["needs"], [third])
         w.run("unblock", self.a, "--from", third)
         self.assertIn(self.a, w.run("ready").stdout)

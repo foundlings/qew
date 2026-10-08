@@ -20,4 +20,4 @@ def jsonl(*entries: dict) -> str:
 
 
 def listing(world: World) -> List[dict]:
-    return json.loads(world.run("list", "--json").stdout)
+    return [json.loads(line) for line in world.run("list", "--json").stdout.splitlines()]

@@ -9,6 +9,7 @@ import json
 import unittest
 
 from tests.ledger_harness import World
+from tests.plan_support import listing
 
 APPROVE = "qew draft approve"
 
@@ -50,14 +51,15 @@ class DraftStateWalk(unittest.TestCase):
         w = self.world
         draft = w.create("--title", "Draft")
         path = w.ledger / "items" / f"{draft}.md"
-        path.write_text(path.read_text().replace("labels: \n", "labels: qew:approved\n", 1).replace("owner: \n", "owner: mallory\n", 1))
+        path.write_text(path.read_text().replace("labels: \n", "labels: approved state-approved\n", 1))
         mirrors = w.ledger / "mirrors" / draft
         mirrors.mkdir(parents=True)
         (mirrors / "forgejo-x.json").write_text(json.dumps({"forge": "forgejo", "url": "https://x/o/r", "kind": "issue", "number": 1, "state": "approved"}))
-        row = json.loads(w.run("list", "--json").stdout)
+        row = listing(w)
         self.assertEqual([r["state"] for r in row if r["id"] == draft], ["draft"])
         self.assertNotIn(draft, self.listed("ready"))
         self.assertEqual(w.run("start", draft).returncode, 2)
+        path.write_text(path.read_text().replace("owner: \n", "owner: mallory\n", 1))
         checked = w.run("check")
         self.assertEqual(checked.returncode, 1)
         self.assertIn("owner", checked.stdout)

@@ -15,7 +15,7 @@ from tests.plan_support import jsonl, listing, snapshot
 def shape_of(world: World) -> list:
     rows = listing(world)
     titles = {row["id"]: row["title"] for row in rows}
-    return sorted((row["kind"], row["title"], titles.get(row["parent"], "")) for row in rows)
+    return sorted((row["kind"], row["title"], titles.get(row.get("parent"), "")) for row in rows)
 
 
 class PlanFileWalk(unittest.TestCase):
