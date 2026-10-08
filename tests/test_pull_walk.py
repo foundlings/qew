@@ -145,6 +145,15 @@ class PullWalk(unittest.TestCase):
         self.assertEqual(len(mirrors), 2)
         self.assertEqual(self.forge.issues[number].number, number)
 
+    def test_a_new_forge_issue_keeps_only_the_labels_a_human_owns(self) -> None:
+        """Prevents managed labels (qew:, kind:, priority:, status:, author:) entering the ledger, where they are reserved."""
+        self.forge.add_foreign_issue("Filed", "x", labels=("bug", "qew:approved", "kind:issue", "priority:2", "status:Ready", "author:x"))
+        self.pull()
+        rows = [json.loads(line) for line in self.world.run("list", "--state", "draft", "--json").stdout.splitlines()]
+        row = next(r for r in rows if r["title"] == "Filed")
+        self.assertEqual(row["labels"], ["bug"])
+        self.assertEqual(self.world.run("check").returncode, 0)
+
     def test_a_forge_that_goes_down_mid_pull_records_nothing_partial(self) -> None:
         """Prevents half-applied pulls: an unavailable forge yields a failure line and no events."""
         self.forge.edit(1, title="Changed")
