@@ -134,7 +134,9 @@ def prepare(
     if draft and default_quote is not None:
         raise QewError("--draft files drafts; a --quote would release them (give one or the other)", 2)
     snapshot = ledger.snapshot()
-    known = list(snapshot.items)
+    existing = list(snapshot.items)
+    taken = {name.lower() for name in existing}  # ids in use, for the explicit-id collision check
+    latest: Dict[str, str] = {}  # newest id allocated per kind: all the id modes need to pick the next one
     adopted = _adoptions(ledger, plan) if mark else {}
     ids: Dict[str, str] = {}
     for entry in plan.entries:
@@ -145,12 +147,13 @@ def prepare(
         if imported is not None:
             if not valid_id(imported):
                 raise QewError(f"{entry.label}: `{imported}` is not a valid id", 2)
-            if imported.lower() in {k.lower() for k in known}:
+            if imported.lower() in taken:
                 raise QewError(f"{entry.label}: item {imported} already exists", 2)
             ids[entry.key] = imported
         else:
-            ids[entry.key] = ledger.new_id(entry.spec.get("kind", "issue"), known)
-        known.append(ids[entry.key])
+            kind = entry.spec.get("kind", "issue")
+            ids[entry.key] = latest[kind] = ledger.new_id(kind, existing + list(latest.values()))
+        taken.add(ids[entry.key].lower())
 
     def reference(value: str) -> str:
         return ids[value[1:]] if value.startswith("@") else ledger.resolve(value, list(snapshot.items))
