@@ -107,11 +107,32 @@ class SyncWalk(unittest.TestCase):
         self.assertFalse(self.a.issues[1].open)
         self.assertIn("qew:completed", self.a.issues[1].labels)
 
-    def test_every_synced_issue_carries_the_managed_label(self) -> None:
-        """Prevents the managed-label view filter from hiding qew's own issues."""
-        self.world.create("--kind", "epic", "--title", "E")
-        self.sync("forgejo-git.example-o-r")
+    def test_repository_mode_adds_no_managed_label_and_overlay_mode_does(self) -> None:
+        """Prevents label noise in a tracker qew owns outright (repository mode, the default) while an overlay on a shared
+        tracker still marks its issues so views can filter out human ones."""
+        from dataclasses import replace
+
+        w = self.world
+        w.create("--kind", "epic", "--title", "E")
+        config, all_targets = targets(w, [self.a, self.b])
+        plain = all_targets[0]
+        self.assertEqual(plain.mirror.mode, "repository")
+        sync_target(self.ledger(), plain, config)
+        self.assertNotIn("qew:managed", self.a.issues[1].labels)
+        overlay = Target(replace(plain.mirror, mode="overlay"), plain.slug, plain.forge)
+        sync_target(self.ledger(), overlay, config)
         self.assertIn("qew:managed", self.a.issues[1].labels)
+        sync_target(self.ledger(), plain, config)
+        self.assertNotIn("qew:managed", self.a.issues[1].labels)
+
+    def test_mode_must_be_repository_or_overlay(self) -> None:
+        """Prevents a typo silently choosing a mode."""
+        w = self.world
+        path = w.code / ".qew" / "config.toml"
+        path.write_text(path.read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nmode = "shared"'))
+        result = w.run("status")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("mode", result.stderr)
 
     def test_forges_without_boards_carry_the_status_as_a_label(self) -> None:
         """Prevents a Forgejo repository from showing no sign of the seven-status model."""
