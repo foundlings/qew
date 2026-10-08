@@ -1,6 +1,7 @@
 """Locate the code repo's `.qew/config.toml` and the ledger it names."""
 
 from dataclasses import dataclass
+from enum import Enum
 import os
 import re
 from pathlib import Path
@@ -15,6 +16,12 @@ from qew.errors import QewError
 LEDGER_FILE = "qew-ledger.toml"
 ALIASES = {"gitea": "forgejo"}
 CONFIG = Path(".qew") / "config.toml"
+
+
+class OfflineClaims(Enum):
+    """What `qew start` does when the arbiter of claims (primary forge or ledger remote) cannot be reached."""
+    REFUSE = "refuse"  # the default: no claim without the arbiter
+    ALLOW = "allow"  # fall back to a provisional claim that the next sync settles
 
 
 @dataclass(frozen=True)
@@ -74,7 +81,7 @@ def _authority(section: object, mirrors: Tuple["Mirror", ...]) -> str:
     if not isinstance(section, dict):
         raise QewError("[authority] must be a table", 1)
     for key in section:
-        if key != "primary":
+        if key not in ("primary", "offline_claims"):
             raise QewError(f"[authority] has an unknown key `{key}`", 1)
     primary = section.get("primary", "none")
     if not isinstance(primary, str) or not primary:
@@ -88,6 +95,15 @@ def _authority(section: object, mirrors: Tuple["Mirror", ...]) -> str:
     return found[0]
 
 
+def _offline_claims(section: object) -> OfflineClaims:
+    """`[authority] offline_claims = "allow" | "refuse"` (default refuse)."""
+    value = section.get("offline_claims", "refuse") if isinstance(section, dict) else "refuse"
+    try:
+        return OfflineClaims(value)
+    except ValueError:
+        raise QewError('[authority] offline_claims must be "allow" or "refuse"', 1) from None
+
+
 @dataclass(frozen=True)
 class Config:
     root: Path
@@ -98,6 +114,7 @@ class Config:
     replication: Replication = Replication()
     authority: str = "none"  # slug of the primary forge target, or "none": the ledger remote arbitrates
     max_active_claims: Optional[int] = None  # per-actor cap on claimed items; None = no cap
+    offline_claims: OfflineClaims = OfflineClaims.REFUSE
 
 
 def find_root(start: Optional[Path] = None) -> Optional[Path]:
@@ -135,7 +152,7 @@ def load(start: Optional[Path] = None) -> Config:
     mirrors = _distinct(_mirror(entry) for entry in data.get("mirror", []))
     return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors,
                   _replication(data.get("replication")), _authority(data.get("authority"), mirrors),
-                  _claim_cap(data.get("claims")))
+                  _claim_cap(data.get("claims")), _offline_claims(data.get("authority")))
 
 
 def _refuse_real_ledger_under_test(ledger_path: Path) -> None:

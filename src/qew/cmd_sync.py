@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Callable, List, Optional
 
-from qew import forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
+from qew import claim_reconcile, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.forge import Forge
@@ -88,6 +88,15 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
         raise QewError(f"the ledger has {len(problems)} problem(s); run `qew check`", 1)
     mirrors = choose(mirrors_with_boards(ledger, config), wanted)
     if not mirrors:
+        if not dry_run and wanted is None:
+            settled = claim_reconcile.reconcile(config, ledger, build, item)
+            lost = claim_reconcile.lost_message(settled)
+            if settled:
+                output = "\n".join(s.line() for s in settled)
+                if lost:
+                    print(output)
+                    raise QewError(lost, 3)
+                return output
         return "no mirror targets configured"
     if dry_run:
         return plan(ledger, mirrors, item)
@@ -107,10 +116,16 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
             syncworker.set_backoff(report.retry_after)
         failed = failed or bool(report.failures)
         lines.extend(render(report, pulled))
+    settled = claim_reconcile.reconcile(config, ledger, build, item) if wanted is None else []
+    lines.extend(s.line() for s in settled)
     output = "\n".join(lines)
     if failed:
         print(output)
         raise QewError("sync finished with failures; fix the cause above, then run `qew sync` to catch the mirrors up", 1)
+    lost = claim_reconcile.lost_message(settled)
+    if lost:
+        print(output)
+        raise QewError(lost, 3)
     return output
 
 

@@ -423,6 +423,14 @@ class Forge(ABC):
         raise Unsupported("list_open_pull_heads")
 
 
+DUPLICATE_MARKER = "<!-- qew-duplicate -->"  # replaces the item marker of an issue closed as a twin
+
+
+def is_dead_twin(body: str, open_: bool) -> bool:
+    """A closed issue qew retired as a duplicate; what it carries keeps no label alive."""
+    return not open_ and DUPLICATE_MARKER in (body or "")
+
+
 def marker_for(item_id: str) -> str:
     """The HTML-comment marker embedded in every mirrored body; unique per ledger item."""
     return f"<!-- {MARKER_PREFIX}{item_id} -->"
