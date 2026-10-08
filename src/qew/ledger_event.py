@@ -9,7 +9,7 @@ from enum import Enum
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
-from qew import claim_fields
+from qew import claim_fields, instants
 from qew.errors import QewError
 
 CLOSE_REASONS = ("not_planned", "duplicate", "superseded")
@@ -43,7 +43,6 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     # Claim arbitration (docs/specs/ledger.md, Authority and topology).
     "claim_confirmed": (("ref",), tuple(State)),
     "claim_lost": (("ref",), tuple(State)),
-    "comment": (("text",), tuple(State)),
     "edge": (("op", "need"), tuple(State)),
 }
 # A `completed` event with one of these keys finished the item without a claim: its children
@@ -96,6 +95,8 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
     for key in ("at", "actor"):
         if not isinstance(value.get(key), str) or not value[key]:
             raise QewError(f"{where}: event is missing `{key}`", 1)
+    if instants.parse_instant(value["at"]) is None:
+        raise QewError(f"{where}: event time `{value['at']}` is not a UTC instant (YYYY-MM-DDTHH:MM:SSZ)", 1)
     for key in _RULES[kind][0]:
         if key not in value or value[key] in ("", None) or (isinstance(value[key], str) and not value[key].strip()):
             raise QewError(f"{where}: `{kind}` event is missing `{key}`", 1)
@@ -162,9 +163,6 @@ def _check_optional_fields(kind: str, value: Dict[str, Any], where: str) -> None
             raise QewError(f"{where}: a close names one linked item, `duplicate_of` or `superseded_by`, not both", 1)
     elif kind == "reopened":
         text("reason")
-    elif kind == "comment":
-        if len(value["text"].encode("utf-8")) > MAX_COMMENT_BYTES:
-            raise QewError(f"{where}: comment is larger than {MAX_COMMENT_BYTES} bytes", 1)
     elif kind == "edge":
         if value["op"] not in ("add", "remove"):
             raise QewError(f"{where}: edge op must be add or remove", 1)
@@ -177,7 +175,7 @@ class Folded:
     evidence: Tuple[Event, ...]
     errors: Tuple[str, ...]
     imported: bool = False  # completed by an import path, without verifiable evidence
-    divergences: Tuple[Event, ...] = ()  # forge-side state changes nobody has accepted or rejected yet
+    divergences: Tuple[Event, ...] = ()  # unresolved: forge-side state changes, and `claimed` events contesting a held item
     claim: Optional[Dict[str, Optional[str]]] = None  # {by, kind, lane, workspace} while claimed
     lost_claims: Tuple[Tuple[str, str], ...] = ()  # (event id, actor) of claims that lost a merged race
     completion: Optional[Event] = None  # the `completed` event that finished the item
@@ -200,10 +198,15 @@ def fold(events: List[Event]) -> Folded:
     evidence: List[Event] = []
     errors: List[str] = []
     imported = False
+    contested: List[Event] = []
     lost = {e.get("ref") for e in events if e.type == "claim_lost"}
     for event in sorted(events, key=lambda item: item.id):
         if event.type == "claimed" and event.id in lost:
             continue  # this claim lost arbitration: it never owned the item
+        if event.type == "claimed" and state == State.CLAIMED and event.get("owner") != owner:
+            contested.append(event)  # a second owner: a contradiction for accept/reject, not an illegal transition
+            lost_claims.append((event.id, event.get("owner")))  # and `qew check` names the loser
+            continue
         _, sources = _RULES[event.type]
         if event.type == "completed" and event.get("provenance") in ("import", "forge-import"):
             # Imported history was never claimed here; it may complete from any open state.
@@ -224,9 +227,7 @@ def fold(events: List[Event]) -> Folded:
                 errors.append(f"{event.id}: `{event.type}` before the item was drafted or approved")
             continue
         if event.type == "claimed" and state == State.CLAIMED:
-            if event.get("owner") != owner:
-                lost_claims.append((event.id, event.get("owner")))
-            continue
+            continue  # the same actor claiming again is one claim
         if state not in sources:
             errors.append(f"{event.id}: `{event.type}` is illegal from state {state.value}")
             continue
@@ -252,7 +253,7 @@ def fold(events: List[Event]) -> Folded:
             state = _NEXT[event.type]
     resolved = {e.get("ref") for e in events if e.type in ("divergence_accepted", "divergence_rejected")}
     open_divergences = tuple(e for e in sorted(events, key=lambda item: item.id)
-                             if e.type == "forge_divergence" and e.id not in resolved)
+                             if (e.type == "forge_divergence" and e.id not in resolved) or e in contested)
     return Folded(state, owner, tuple(evidence), tuple(errors), imported, open_divergences, claim,
                   tuple(lost_claims), completion, closure)
 

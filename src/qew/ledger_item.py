@@ -19,7 +19,8 @@ class Kind(str, Enum):
 
 
 # The schema: header keys in file order. Unknown keys are refused, never ignored.
-KEYS = ("id", "kind", "title", "parent", "needs", "labels", "owner", "priority", "created", "discovered_from")
+KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "owner", "priority", "created", "discovered_from")
+LINK_KEYS = ("tracks", "pr")  # ledger ids of the tracking issue / pull request item; optional, omitted when empty
 REQUIRED = ("id", "kind", "title", "created")
 LIST_KEYS = ("needs", "labels")
 DEFAULT_PRIORITY = 2
@@ -38,6 +39,8 @@ class Item:
     priority: int = DEFAULT_PRIORITY
     discovered_from: str = ""  # the item this one was found while working on; never a dependency
     body: str = field(default="", compare=False)
+    tracks: str = ""
+    pr: str = ""
 
     def header(self) -> Dict[str, str]:
         header = {
@@ -46,6 +49,8 @@ class Item:
             "title": self.title,
             "parent": self.parent,
             "needs": " ".join(self.needs),
+            "tracks": self.tracks,
+            "pr": self.pr,
             "labels": " ".join(self.labels),
             "owner": self.owner,
             "priority": str(self.priority),
@@ -101,9 +106,9 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
     priority = header.get("priority", str(DEFAULT_PRIORITY)) or str(DEFAULT_PRIORITY)
     if not priority.isdigit():
         raise QewError(f"{where}: priority must be a non-negative integer", 1)
-    for key in ("parent", "discovered_from"):
+    for key in ("parent", *LINK_KEYS, "discovered_from"):
         if header.get(key) and not valid_id(header[key]):
-            raise QewError(f"{where}: `{key}` must be an item id", 1)
+            raise QewError(f"{where}: `{key}` must be an item id (a ledger link, never a forge number or URL)", 1)
     needs = tuple(header.get("needs", "").split())
     labels = tuple(header.get("labels", "").split())
     for need in needs:
@@ -123,11 +128,13 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
         priority=int(priority),
         discovered_from=header.get("discovered_from", ""),
         body=body,
+        tracks=header.get("tracks", ""),
+        pr=header.get("pr", ""),
     )
 
 
 def render_item(item: Item) -> str:
-    lines = [f"{key}: {value}" for key, value in item.header().items()]
+    lines = [f"{key}: {value}" for key, value in item.header().items() if value or key not in LINK_KEYS]
     body = item.body if item.body.endswith("\n") or not item.body else item.body + "\n"
     return "\n".join(lines) + f"\n{RULE}\n" + body
 

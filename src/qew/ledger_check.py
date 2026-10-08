@@ -6,16 +6,19 @@ from pathlib import Path
 import tomllib
 from typing import Dict, List, Tuple
 
-from qew import board_config, ledger_graph, ledger_invariants, stale_claims, untrusted_text
+from qew import board_config, ledger_graph, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import State, fold, needs_after, parse_event
+from qew.ledger_ids import sort_key
 from qew.ledger_item import Item, Kind, check_header_values, parse_item
 from qew.ledger_store import Ledger, Snapshot
 
 SCHEMA_VERSION = 1
 _MIRROR_KEYS = ("forge", "url", "kind")
+MAX_PRIORITY = 9
+DRAFT_MARKERS = ("draft", "qew:draft")
 
 
 def check(ledger: Ledger) -> List[str]:
@@ -75,6 +78,7 @@ class Report:
     cycles: List[List[str]]
     contradictions: List[Dict[str, str]]
     text_findings: List[Dict[str, object]]
+    advisories: List[str]
 
     def as_json(self) -> dict:
         return {
@@ -84,9 +88,9 @@ class Report:
 
 
 def check_report(ledger: Ledger):
-    """(problems, notes): problems fail the check, notes are counts that are reported and not fatal."""
+    """(problems, notes): problems fail the check; notes (counts and advisories) are reported and never fatal."""
     report = analyse(ledger)
-    return report.problems, report.notes
+    return report.problems, [*report.notes, *report.advisories]
 
 
 def analyse(ledger: Ledger) -> Report:
@@ -99,21 +103,17 @@ def analyse(ledger: Ledger) -> Report:
     _check_claim_refs(snapshot, problems)
     problems.extend(board_config.problems(ledger))
     ledger_invariants.report(snapshot, problems)
-    findings = text_findings(snapshot)
-    problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in findings for kind in kinds)
     found = contradictions(snapshot)
-    problems.extend(f"contradiction: {c['item']} {c['kind']}" for c in found)
-    notes = []
-    if imported:
-        notes.append(f"imported without evidence: {imported}")
+    findings = text_findings(snapshot)
+    notes = [f"imported without evidence: {imported}"] if imported else []
     if without_code:
         notes.append(f"completed without code: {without_code}")
+    contested = sum(1 for fold_ in snapshot.folds.values() for e in fold_.divergences if e.type == "claimed")
+    if contested:
+        notes.append(f"contested claims: {contested} (see `qew status`; settle with `qew accept` or `qew reject`)")
     notes.extend(_lost_claim_notes(snapshot))
     notes.extend(_stale_claim_notes(snapshot))
-    return Report(
-        problems, notes, _cycles(snapshot), found,
-        [{"item": item_id, "findings": list(kinds)} for item_id, kinds in findings],
-    )
+    return Report(problems, notes, _cycles(snapshot), found, findings, _advisories(found, findings))
 
 
 def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
@@ -151,6 +151,10 @@ def _check_edges(snapshot: Snapshot, problems: List[str]) -> None:
         for need in item.needs:
             if need not in snapshot.items:
                 problems.append(f"{where}: dangling need {need}")
+        for key in ("tracks", "pr"):
+            link = getattr(item, key)
+            if link and link not in snapshot.items:
+                problems.append(f"{where}: dangling {key} {link}")
         if item.parent:
             parent = snapshot.items.get(item.parent)
             if parent is None:
@@ -231,13 +235,19 @@ def _check_mirrors(ledger: Ledger, items: Dict[str, Item], problems: List[str]) 
             problems.append(f"{where}: a mirror needs {', '.join(_MIRROR_KEYS)}")
 
 
-def text_findings(snapshot: Snapshot):
-    """(item id, finding names) for every approved or claimed item whose title hides characters."""
+def text_findings(snapshot: Snapshot) -> List[Dict[str, object]]:
+    """Advisory: hidden or confusable text per item and field, as `{item, source, kind: true}`."""
     return [
-        (item_id, untrusted_text.findings(item.title))
-        for item_id, item in snapshot.items.items()
-        if snapshot.folds[item_id].state in (State.APPROVED, State.CLAIMED) and untrusted_text.findings(item.title)
+        {"item": item_id, **finding}
+        for item_id in sorted(snapshot.items, key=sort_key)
+        for finding in text_findings_module.item_findings(snapshot, item_id)
     ]
+
+
+def _advisories(found: List[Dict[str, str]], findings: List[Dict[str, object]]) -> List[str]:
+    lines = [f"advisory: {c['item']} {c['kind']}" for c in found]
+    lines += [f"advisory: {f['item']} {text_findings_module.where(f)}: {text_findings_module.describe(f)}" for f in findings]
+    return lines
 
 
 def _cycles(snapshot: Snapshot) -> List[List[str]]:
@@ -254,12 +264,16 @@ def _cycles(snapshot: Snapshot) -> List[List[str]]:
 
 
 def contradictions(snapshot: Snapshot) -> List[Dict[str, str]]:
-    """States the ledger can hold but a board or a plan cannot show."""
+    """Advisory: states the ledger can hold but a board or a plan cannot show (they never fail the check)."""
     found = []
     for item_id, item in sorted(snapshot.items.items()):
         state = snapshot.folds[item_id].state
         if item.kind == Kind.EPIC and state == State.CLAIMED:
             found.append({"item": item_id, "kind": "claimed_epic"})
+        if state not in (None, State.DRAFT) and any(label.lower() in DRAFT_MARKERS for label in item.labels):
+            found.append({"item": item_id, "kind": "draft_marker_label"})
+        if item.priority > MAX_PRIORITY:
+            found.append({"item": item_id, "kind": "priority_out_of_range"})
         if state == State.COMPLETED:
             if any(n in snapshot.items and snapshot.folds[n].state not in (State.COMPLETED, State.CLOSED) for n in item.needs):
                 found.append({"item": item_id, "kind": "completed_with_open_needs"})

@@ -22,6 +22,7 @@ def list_drafts(config: Config, parent: Optional[str], as_json: bool) -> None:
     if parent:
         parent_id = ledger.resolve(parent, list(snapshot.items))
         ids = [i for i in ids if snapshot.items[i].parent == parent_id]
+    ids = read_view.parent_first(snapshot, ids)
     if as_json:
         cmd_read.print_rows(snapshot, ids, True)
         return

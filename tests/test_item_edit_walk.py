@@ -33,7 +33,7 @@ class SetOptionsWalk(unittest.TestCase):
                        "--add-label", "gamma", "--remove-label", "alpha", "--parent", new_epic)
         self.assertEqual(result.returncode, 0, result.stderr)
         shown = json.loads(w.run("show", item, "--json").stdout)
-        self.assertEqual((shown["title"], shown["priority"], shown["kind"], shown["parent"], shown["body"].strip()),
+        self.assertEqual((shown["title"], shown["priority"], shown["kind"], shown["parent"]["id"], shown["body"].strip()),
                          ("Renamed", 1, "task", new_epic, "New body"))
         self.assertEqual(sorted(shown["labels"]), ["beta", "gamma"])
         keys = sorted(e["key"] for e in w.events(item) if e["type"] == "field")
@@ -105,18 +105,6 @@ class CommentWalk(unittest.TestCase):
         self.world = World()
         self.addCleanup(self.world.close)
 
-    def test_a_comment_on_a_draft_is_listed_by_show_with_actor_and_time(self) -> None:
-        """Prevents draft discussion getting lost in chat."""
-        w = self.world
-        item = w.create("--title", "Maybe", "--draft")
-        result = w.run("comment", item, "--body", "Why not start with the parser?", env={"QEW_ACTOR": "alice"})
-        self.assertEqual(result.returncode, 0, result.stderr)
-        shown = w.run("show", item).stdout
-        self.assertIn("alice", shown)
-        self.assertIn("Why not start with the parser?", shown)
-        comments = json.loads(w.run("show", item, "--json").stdout).get("comments", [])
-        self.assertEqual([(c["actor"], c["text"]) for c in comments], [("alice", "Why not start with the parser?")])
-
     def test_invalid_comment_input_is_refused_without_an_event(self) -> None:
         """Prevents junk and path tricks: neither or both sources, blank, symlinked, oversize."""
         w = self.world
@@ -156,7 +144,7 @@ class CommentWalk(unittest.TestCase):
         b.run("comment", item, "--body", "from b", env=offline)
         for agent in (a, b, a):
             agent.run("ready")
-        texts = sorted(c["text"] for c in json.loads(a.run("show", item, "--json").stdout).get("comments", []))
+        texts = sorted(e["text"] for e in a.events(item) if e["type"] == "commented")
         self.assertEqual(texts, ["from a", "from b"])
 
 

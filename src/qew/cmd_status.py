@@ -1,9 +1,10 @@
 """`qew status`: replication state in a few fixed lines (see docs/specs/ledger.md, Replication)."""
 
 import json
+import time
 from typing import Optional
 
-from qew import ledger_config
+from qew import ledger_config, syncworker
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.ledger_config import Config
@@ -40,6 +41,11 @@ def last_sync(ledger, slug: str, item_ids) -> Optional[str]:
     return max(stamps, default="") or None
 
 
+def _contested(item_id: str, claim, holder: str) -> dict:
+    """A second effective claim in a merged ledger: the holder by event order against the contender."""
+    return {"id": claim.id, "item": item_id, "target": "ledger", "field": "owner", "forge": claim.get("owner"), "ledger": holder}
+
+
 def collect(config: Config) -> dict:
     ledger = ledger_for(config)
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
@@ -48,6 +54,7 @@ def collect(config: Config) -> dict:
     ids = ledger.item_ids()
     snapshot = ledger.snapshot()
     divergences = [
+        _contested(item_id, e, snapshot.folds[item_id].owner) if e.type == "claimed" else
         {"id": e.id, "item": item_id, "target": e.get("target"), "field": e.get("field"),
          "forge": e.get("forge"), "ledger": e.get("ledger")}
         for item_id in snapshot.items for e in snapshot.folds[item_id].divergences
@@ -65,6 +72,7 @@ def collect(config: Config) -> dict:
             for slug, rows in pending.items()
         ],
         "divergences": divergences,
+        "sync": {"retry_after": max(0, int(syncworker.retry_at(config) - time.time()))},
     }
 
 
@@ -74,6 +82,8 @@ def render(data: dict) -> str:
     lines += [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]
     for target in data["targets"]:
         lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}")
+    if data["sync"]["retry_after"]:
+        lines.append(f"sync retry_after={data['sync']['retry_after']}")
     lines.append(f"divergences={len(data['divergences'])}")
     shown = data["divergences"][:SHOWN_DIVERGENCES]
     for d in shown:

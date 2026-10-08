@@ -24,6 +24,7 @@ class Mirror:
     project: Optional[str]
     select: str
     options: Dict[str, object]
+    read_only: bool = False  # a one-way mirror (ledger to forge): pull never imports its edits
 
 
 @dataclass(frozen=True)
@@ -220,7 +221,10 @@ def _project_number(value: object) -> Optional[str]:
 def _mirror(entry: object) -> Mirror:
     if not isinstance(entry, dict) or not isinstance(entry.get("forge"), str) or not isinstance(entry.get("repo"), str):
         raise QewError("each [[mirror]] needs string `forge` and `repo`", 1)
-    known = {"forge", "repo", "project", "select"}
+    known = {"forge", "repo", "project", "select", "read_only"}
+    read_only = entry.get("read_only", False)
+    if not isinstance(read_only, bool):
+        raise QewError("[[mirror]] read_only must be true or false", 2)
     project = _project_number(entry.get("project"))
     title = entry.get("project_title")
     if title is not None and (not isinstance(title, str) or not title.strip()):
@@ -238,6 +242,7 @@ def _mirror(entry: object) -> Mirror:
         project=project,
         select=str(entry.get("select", "")),
         options={key: value for key, value in entry.items() if key not in known},
+        read_only=read_only,
     )
 
 
@@ -267,6 +272,19 @@ def _ledger_prefix(ledger: Path) -> str:
     if not isinstance(prefix, str):
         raise QewError(f"{ledger / LEDGER_FILE}: prefix must be a string", 1)
     return prefix
+
+
+def is_read_only(config: Config, mirror: Mirror) -> bool:
+    """One-way targets: marked `read_only`, or any target but the primary once a primary is set."""
+    slug = mirror_slug(mirror)
+    if slug == config.authority:
+        return False
+    return mirror.read_only or config.authority != "none"
+
+
+def validated_mirror(entry: Dict[str, object]) -> Mirror:
+    """The mirror a `[[mirror]]` table would define, refusing what the loader refuses."""
+    return _mirror(entry)
 
 
 def mirror_slug(mirror: Mirror) -> str:

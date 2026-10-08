@@ -31,6 +31,7 @@ class PullReport:
     comments: int = 0
     skipped: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
+    retry_after: float = 0.0  # seconds a rate-limited forge asked us to wait
 
 
 def clean_line(text: str) -> str:
@@ -56,6 +57,7 @@ def pull_target(ledger: Ledger, target) -> PullReport:
         return report
     except ForgeError as error:
         report.failures.append(error.detail)
+        report.retry_after = getattr(error, "retry_after", 0.0)
         return report
     snapshot = ledger.snapshot()
     by_number = {issue.number: issue for issue in remote}
@@ -67,13 +69,14 @@ def pull_target(ledger: Ledger, target) -> PullReport:
     try:
         for number, item_id in sorted(mirrored.items()):
             _pull_item(ledger, snapshot, target, report, item_id, by_number.get(number))
-        for issue in remote:
+        for issue in () if target.read_only else remote:
             if issue.number not in mirrored and not issue.body.lstrip().startswith("<!-- qew:"):
                 _import_issue(ledger, snapshot, target, report, issue)
     except Unsupported as error:
         report.skipped.append(error.capability)
     except ForgeError as error:
         report.failures.append(error.detail)
+        report.retry_after = getattr(error, "retry_after", 0.0)
     return report
 
 
@@ -118,8 +121,19 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
         _diverge(ledger, snapshot, target, report, item_id, record["number"], "exists", "missing", "present")
         return
     current = sync_plan.seen_of(issue, (seen or {}).get("comments", []))
-    if seen is None:  # a mirror from before pulling existed: adopt what the forge shows as the baseline
-        _save(ledger, item_id, target.slug, record, current)
+    if seen is None:
+        # No baseline on this machine (new checkout, or a mirror from before pulling existed): we cannot tell who changed
+        # what, so a difference is a divergence for a human to settle, never something a later push overwrites.
+        title = clean_line(issue.title)
+        if title != item.title:
+            _diverge(ledger, snapshot, target, report, item_id, issue.number, "title", title, item.title)
+        labels = clean_labels(current["labels"])
+        if labels != sorted(item.labels):
+            _diverge(ledger, snapshot, target, report, item_id, issue.number, "labels", " ".join(labels), " ".join(item.labels))
+        _save(ledger, item_id, target.slug, {**record, "baselined": True}, current)
+        return
+    if target.read_only:
+        _pull_state_only(ledger, snapshot, target, report, item_id, record, issue, seen, current)
         return
     changed = False
     title = clean_line(issue.title)
@@ -170,6 +184,16 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
     if changed:
         _save(ledger, item_id, target.slug, record, {**current, "title": title, "body": body, "labels": labels,
                                                       "comments": comment_ids})
+
+
+def _pull_state_only(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, item_id: str, record: dict,
+                     issue: RemoteIssue, seen: dict, current: dict) -> None:
+    """A one-way mirror: edits made there are not imported; only a close or reopen is flagged."""
+    if issue.open == seen["open"]:
+        return
+    _diverge(ledger, snapshot, target, report, item_id, issue.number, "state",
+             "open" if issue.open else "closed", "open" if seen["open"] else "closed")
+    _save(ledger, item_id, target.slug, record, {**seen, "open": issue.open})
 
 
 def _import_issue(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, issue: RemoteIssue) -> None:

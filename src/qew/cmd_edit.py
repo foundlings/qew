@@ -1,4 +1,4 @@
-"""File and edit items: `create`, `set`, `comment`, `block`, `unblock`."""
+"""File and edit items: `create`, `set`, `block`, `unblock`."""
 
 import json
 import os
@@ -9,7 +9,7 @@ from qew import code_text, editor, graph_rules, ledger_config, outcome
 from qew.cmd_items import apply_set, create_items, ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
-from qew.ledger_event import MAX_COMMENT_BYTES, State
+from qew.ledger_event import State
 from qew.ledger_store import Snapshot
 
 _SECTIONS = (("where", "Where"), ("problem", "Problem"), ("goal", "Goal"), ("fix", "Fix"),
@@ -48,6 +48,8 @@ def register(commands) -> None:
     set_.add_argument("--no-parent", action="store_true", help="remove the parent")
     set_.add_argument("--kind", choices=["epic", "issue", "task"], help="new kind")
     set_.add_argument("--needs", nargs="*", help="replace the needs list")
+    set_.add_argument("--tracks", help="ledger id of the tracking issue item (empty clears it)")
+    set_.add_argument("--pr", help="ledger id of the pull request item (empty clears it)")
     set_.add_argument("--labels", nargs="*", help="replace the labels")
     set_.add_argument("--add-label", action="append", default=[], help="add a label, repeatable")
     set_.add_argument("--remove-label", action="append", default=[], help="remove a label, repeatable")
@@ -57,12 +59,6 @@ def register(commands) -> None:
     set_.add_argument("--edit", action="store_true", help="rewrite the body in $VISUAL or $EDITOR")
     set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
     set_.add_argument("--json", action="store_true", help="machine-readable output")
-
-    comment = commands.add_parser("comment", help="add an append-only comment to an item")
-    comment.add_argument("item", help="item id or alias")
-    comment.add_argument("--body", help="the comment text")
-    comment.add_argument("--body-file", help="read the comment from a file")
-    comment.add_argument("--json", action="store_true", help="machine-readable output")
 
     block = commands.add_parser("block", help="make an item wait for another (adds one needs edge)")
     block.add_argument("item", help="item id or alias")
@@ -78,16 +74,13 @@ def register(commands) -> None:
 
 def run(arguments) -> bool:
     command = arguments.command
-    if command not in ("create", "set", "comment", "block", "unblock"):
+    if command not in ("create", "set", "block", "unblock"):
         return False
     config = ledger_config.load()
     if command == "create":
         _create(config, arguments)
     elif command == "set":
         _set(config, arguments)
-    elif command == "comment":
-        result = comment(config, arguments.item, arguments.body, arguments.body_file)
-        print(outcome.render(arguments, result.pop("line"), **result))
     else:
         if command == "block":
             result = edge(config, arguments.item, arguments.on, True, arguments.closed)
@@ -178,7 +171,7 @@ def _set(config: Config, arguments) -> None:
     if arguments.labels is not None and (arguments.add_label or arguments.remove_label):
         raise QewError("--labels replaces the set; --add-label and --remove-label edit it: use one way", 2)
     changes: Dict[str, str] = {}
-    for key in ("title", "parent", "priority", "kind"):
+    for key in ("title", "parent", "priority", "kind", "tracks", "pr"):
         value = getattr(arguments, key)
         if value is not None:
             changes[key] = str(value)
@@ -195,21 +188,6 @@ def _set(config: Config, arguments) -> None:
     if body is not None:
         _warn(body)
     print(outcome.render(arguments, "\n".join(lines), ids=list(dict.fromkeys(arguments.items)), changed=changed))
-
-
-def comment(config: Config, reference: str, body: Optional[str], body_file: Optional[str]) -> Dict[str, object]:
-    if (body is None) == (not body_file):
-        raise QewError("give the comment as exactly one of --body and --body-file", 2)
-    text = body if body is not None else editor.read_body_file(body_file)
-    if not text.strip():
-        raise QewError("a comment must say something", 2)
-    if len(text.encode("utf-8")) > MAX_COMMENT_BYTES:
-        raise QewError(f"a comment is at most {MAX_COMMENT_BYTES} bytes", 2)
-    ledger = ledger_for(config)
-    item_id = ledger.resolve(reference, ledger.item_ids())
-    ledger.append_event(item_id, "comment", text=text)
-    _warn(text)
-    return {"line": f"{item_id} commented", "id": item_id, "state": "commented"}
 
 
 def edge(config: Config, reference: str, other: str, add: bool, closed: bool) -> Dict[str, object]:

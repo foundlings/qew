@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 from typing import List, Optional, Sequence
 
+from qew import ledger_lineage
 from qew.errors import QewError
 
 # Directories and files whose changes are qew's own writes (never a human's notes).
@@ -124,6 +125,7 @@ class LedgerRepo:
         remote = f"origin/{self.branch}"
         if self.run(["git", "rev-parse", "--verify", "-q", remote], check=False).returncode != 0:
             return "ok"
+        self._refuse_foreign(self.run(["git", "show", f"{remote}:qew-ledger.toml"], check=False), remote)
         counts = self.run(["git", "rev-list", "--left-right", "--count", f"HEAD...{remote}"]).stdout.split()
         ahead, behind = int(counts[0]), int(counts[1])
         if behind == 0:
@@ -143,6 +145,13 @@ class LedgerRepo:
             raise QewError(conflict_message(remote, files, self.path), 1)
         return "ok"
 
+    def _refuse_foreign(self, remote_file: subprocess.CompletedProcess, remote: str) -> None:
+        """A remote ledger with another identity (a fork or its origin) is never merged."""
+        local = self.path / "qew-ledger.toml"
+        if remote_file.returncode != 0 or not local.is_file():
+            return
+        ledger_lineage.refuse_foreign_merge(local.read_text(encoding="utf-8"), remote_file.stdout, remote)
+
     def _jj_ids(self, revset: str) -> List[str]:
         out = self.run(["jj", "--no-pager", "log", "--no-graph", "-r", revset, "-T", 'commit_id ++ "\n"']).stdout
         return out.split()
@@ -156,6 +165,7 @@ class LedgerRepo:
         if not remote or not sides:
             return "ok"
         tip = remote[0]
+        self._refuse_foreign(self.run(["jj", "--no-pager", "file", "show", "-r", tip, "qew-ledger.toml"], check=False), f"{self.branch}@origin")
         local = [x for x in sides if x != tip]  # a conflicted bookmark lists the remote tip as one side
         if not local:
             if len(sides) == 1:

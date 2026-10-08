@@ -15,19 +15,22 @@ EPILOG = """Commands by workflow:
 Read
   qew show        one item with derived edges and evidence
   qew list        items, filtered
+  qew search      find approved work by words
   qew ready       approved, unclaimed, unblocked work
+  qew prime       bounded session context
   qew blocked     open work with unmet needs
   qew graph       dependency edges
   qew board       the offline kanban: seven status columns
+  qew triage      review drafts and items missing fields
   qew check       validate the ledger
   qew inbox       one person's waiting drafts and assigned work
   qew export      write items as Markdown files or JSON
 Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
-  qew comment     add an append-only comment
   qew block       make an item wait for another
   qew unblock     remove a wait
+  qew comment     add a comment to an item
   qew start       claim work
   qew release     give a claim up
   qew evidence    record the code changes that deliver an item
@@ -41,6 +44,8 @@ Pull requests
   qew land        complete the items of a merged pull request
 Mirrors
   qew sync        push the ledger to every mirror target
+  qew mirror      add | remove | list mirror targets
+  qew forge       migrate the primary forge to another target
   qew project     ensure the board on each target
   qew status      replication state: uncommitted, unpushed, pending per target, divergences
   qew import      read a forge project, or an exported Markdown tree, into the ledger
@@ -49,6 +54,7 @@ Mirrors
   qew reject      keep the ledger value; the next push restores the forge
 Setup
   qew init        create the config and the ledger
+  qew ledger      fork the ledger into a new identity
   qew hook        install | remove agent hooks; the events agents call
 
 Exit codes: 0 ok, 1 invalid ledger or forge failure, 2 refusal or usage, 3 ownership conflict or environment,
@@ -59,9 +65,11 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox", "cmd_claim", "cmd_finish", "cmd_edit")
+_MODULES = ("cmd_read", "cmd_comment", "cmd_triage", "cmd_search", "cmd_prime", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
 _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
+_MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
+_MODULES += ("cmd_claim", "cmd_finish", "cmd_edit")
 
 
 def _plugins() -> list:

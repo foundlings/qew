@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from typing import Any, List, Mapping, Optional, Tuple
@@ -88,6 +89,23 @@ def api_base(mirror: Mirror, default: str) -> str:
     return str(override).rstrip("/") if isinstance(override, str) else default
 
 
+DEFAULT_WAIT = 60.0  # a limit answer that names no wait
+MAX_WAIT = 3600.0
+
+
+def wait_from(headers: Mapping[str, str]) -> Optional[float]:
+    """Seconds the forge asked for through Retry-After or an exhausted X-RateLimit-Reset, else None."""
+    lowered = {name.lower(): value for name, value in headers.items()}
+    try:
+        if "retry-after" in lowered:
+            return min(max(float(lowered["retry-after"]), 1.0), MAX_WAIT)
+        if lowered.get("x-ratelimit-remaining") == "0" and "x-ratelimit-reset" in lowered:
+            return min(max(float(lowered["x-ratelimit-reset"]) - time.time(), 1.0), MAX_WAIT)
+    except ValueError:
+        return DEFAULT_WAIT
+    return None
+
+
 def call_json(
     transport: Transport,
     method: str,
@@ -110,8 +128,12 @@ def call_json(
         except (ValueError, UnicodeError):
             raise ForgeRejected(response.status, "response is not valid JSON") from None
     detail = response.body.decode("utf-8", "replace")[:300]
+    wait = wait_from(response.headers)
+    limited = response.status == 429 or (response.status == 403 and (wait is not None or "rate limit" in detail.lower()))
+    if limited:
+        raise ForgeUnavailable(f"HTTP {response.status}: {detail}", wait if wait is not None else DEFAULT_WAIT)
     if response.status in (401, 403):
         raise ForgeAuth(f"HTTP {response.status}: {detail}")
-    if response.status == 429 or response.status >= 500:
-        raise ForgeUnavailable(f"HTTP {response.status}: {detail}")
+    if response.status >= 500:
+        raise ForgeUnavailable(f"HTTP {response.status}: {detail}", wait or 0.0)
     raise ForgeRejected(response.status, detail)

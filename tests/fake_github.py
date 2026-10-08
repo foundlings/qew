@@ -35,6 +35,11 @@ class FakeGitHub:
         self.next_number = 1
         self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
         self.next_id = 1000
+        self.cards_page_size = 100  # cards per ProjectCards page
+        self.cards_overlap = False  # each later page repeats the previous page's last card (cards added meanwhile)
+        self.cards_endless = False  # every ProjectCards page says another follows
+        self.label_store: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
+        self.drop_label_creates = False  # accept a label create yet store nothing
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.server.fake = self  # type: ignore[attr-defined]
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
@@ -60,8 +65,45 @@ class FakeGitHub:
         self.server.server_close()
         self.thread.join()
 
-    def fail_next(self, status: int, path_part: str = "", count: int = 1, body: Optional[Any] = None) -> None:
-        self.failures.append({"status": status, "part": path_part, "left": count, "body": body})
+    def fail_next(self, status: int, path_part: str = "", count: int = 1, body: Optional[Any] = None,
+                  headers: Optional[Dict[str, str]] = None, skip: int = 0) -> None:
+        """Answer `status` (with `headers`) to the next `count` matching requests, after letting `skip` through."""
+        self.failures.append({"status": status, "part": path_part, "left": count, "body": body,
+                              "headers": headers or {}, "skip": skip})
+
+    def graphql_operations(self) -> List[str]:
+        """Operation names of every GraphQL request so far, in order."""
+        found = []
+        for _method, path, body in self.requests:
+            if path.endswith(GRAPHQL_PATH) and body:
+                match = re.search(r"\b(?:query|mutation)\s+(\w+)", body["query"])
+                found.append(match.group(1) if match else "")
+        return found
+
+    def gql_BoardItems(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        project = next((p for p in self.projects.values() if p["number"] == variables["number"]), None)
+        if project is None:
+            return {"data": {"repositoryOwner": {"projectV2": None}}}
+        by_node = {issue["node_id"]: issue for issue in self.issues.values()}
+        nodes = []
+        for node_id, item in project["items"].items():
+            issue = by_node.get(node_id)
+            if issue is None:
+                continue
+            values = []
+            for field in project["fields"]:
+                chosen = item.get("values", {}).get(field["id"])
+                for option in field["options"]:
+                    if option["id"] == chosen:
+                        values.append({"name": option["name"], "field": {"name": field["name"]}})
+            nodes.append({
+                "id": item["id"],
+                "content": {"number": issue["number"], "repository": {"nameWithOwner": f"{OWNER}/{REPO}"}},
+                "fieldValues": {"nodes": values},
+            })
+        return {"data": {"repositoryOwner": {"projectV2": {"items": {
+            "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes,
+        }}}}}
 
     def calls(self, method: str, path_part: str) -> List[Any]:
         return [body for m, path, body in self.requests if m == method and path_part in path]
@@ -162,7 +204,7 @@ class FakeGitHub:
             fields.append({
                 "id": field["id"], "name": field["name"],
                 "options": [
-                    {"id": o["id"], "name": o["name"], "color": o.get("color", "GRAY"), "description": o.get("description", "")}
+                    {"id": o.get("id"), "name": o["name"], "color": o.get("color", "GRAY"), "description": o.get("description", "")}
                     for o in field["options"]
                 ],
             })
@@ -266,6 +308,33 @@ class FakeGitHub:
             nodes = []
         return {"data": {"node": {"projectItems": {"nodes": nodes}}}}
 
+    def gql_ProjectCards(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """The project's cards: items on issues of any repository, with their single-select values."""
+        project = self.projects[variables["projectId"]]
+        cards = []
+        for content_id, item in project["items"].items():
+            issue = next((i for i in self.issues.values() if i["node_id"] == content_id), None)
+            number = item.get("number", issue["number"] if issue else 0)
+            values = []
+            for field in project["fields"]:
+                chosen = item.get("values", {}).get(field["id"])
+                for option in field["options"]:
+                    if option["id"] == chosen:
+                        values.append({"name": option["name"], "field": {"name": field["name"]}})
+            cards.append({
+                "id": item["id"],
+                "content": {"number": number, "repository": {"nameWithOwner": item.get("repo", f"{OWNER}/{REPO}")}},
+                "fieldValues": {"nodes": values},
+            })
+        start = int(variables["cursor"] or 0)
+        size = self.cards_page_size
+        window = cards[start:start + size]
+        more = self.cards_endless or start + size < len(cards)
+        next_start = start + size - (1 if self.cards_overlap and start + size < len(cards) else 0)
+        return {"data": {"node": {"items": {
+            "nodes": window, "pageInfo": {"hasNextPage": more, "endCursor": str(next_start)},
+        }}}}
+
     def gql_DeleteItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         project = self.projects[variables["projectId"]]
         for key, item in list(project["items"].items()):
@@ -365,7 +434,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(401, {"message": "Bad credentials"})
         injected = self._injected()
         if injected is not None:
-            return self._send(injected["status"], injected["body"] or {"message": "injected"})
+            return self._send(injected["status"], injected["body"] or {"message": "injected"},
+                              headers=injected.get("headers", {}))
         if url.path == GRAPHQL_PATH and method == "POST":
             return self._send(200, self.fake.graphql(body["query"], body.get("variables", {})))
         self._rest(method, url.path, parse_qs(url.query), body)
@@ -373,6 +443,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _injected(self) -> Optional[Dict[str, Any]]:
         for failure in self.fake.failures:
             if failure["left"] > 0 and failure["part"] in self.path:
+                if failure.get("skip", 0) > 0:
+                    failure["skip"] -= 1
+                    return None
                 failure["left"] -= 1
                 return failure
         return None
@@ -391,13 +464,15 @@ class _Handler(BaseHTTPRequestHandler):
                 return handler(*found.groups(), query=query, body=body)
         self._send(404, {"message": "Not Found"})
 
-    def _send(self, status: int, payload: Any, link: str = "") -> None:
+    def _send(self, status: int, payload: Any, link: str = "", headers: Optional[Dict[str, str]] = None) -> None:
         data = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         if link:
             self.send_header("Link", link)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 
@@ -421,6 +496,18 @@ class _Handler(BaseHTTPRequestHandler):
                   for i in ordered if state == "all" or i["state"] == state]
         window, link = self._page(issues, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/issues")
         self._send(200, window, link)
+
+    def _get_labels(self, query: Dict[str, List[str]], body: Any) -> None:
+        listed = [{"name": n, **v} for n, v in self.fake.label_store.items()]
+        window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/labels")
+        self._send(200, window, link)
+
+    def _post_labels(self, query: Dict[str, List[str]], body: Any) -> None:
+        if body["name"] in self.fake.label_store:
+            return self._send(422, {"message": "already_exists"})
+        if not self.fake.drop_label_creates:
+            self.fake.label_store[body["name"]] = {"color": body.get("color", ""), "description": body.get("description", "")}
+        self._send(201, {"name": body["name"]})
 
     def _post_issues(self, query: Dict[str, List[str]], body: Any) -> None:
         self._send(201, self.fake.issue_json(self.fake.new_issue(body)))
@@ -527,6 +614,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 _ROUTES = (
+    (r"/labels", "labels"),
     (r"/issues", "issues"),
     (r"/issues/(\d+)", "issue"),
     (r"/issues/(\d+)/comments", "comments"),

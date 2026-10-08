@@ -11,20 +11,27 @@ plain stderr message and the exit code.
 
 ## Machine output
 Bounded answers (`ready`, `blocked`) print one envelope object; open-ended lists (`list`, `graph`,
-`draft list`) print one object per line (NDJSON) with `schema_version` on each row; `show` prints one
+`draft list`, `triage`) print one object per line (NDJSON) with `schema_version` on each row; `show` prints one
 object. Keys are sorted and separators compact, so output on the same ledger is byte-identical. Optional
 data that is absent (owner, parent, needs, body) is omitted, never null. A read that cannot answer
 (unreadable ledger, bad usage) prints nothing on stdout and one reason line on stderr. A ledger with an
 unparseable item or event file, a duplicate id, history for no item or an illegal transition is not
 readable: every read refuses it (exit 1) and names the file instead of listing what parsed. Dangling
 needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
+A `text_findings` entry is sparse: `{"source": "body", "zero_width": true}`, with `index` (and `author`
+for a comment) where the source repeats; the kinds are `zero_width`, `bidi_control`, `unicode_tags`, `confusable`
+and `control`.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | children_done children_open completable needs owner parent schema_version text_findings work_state holders stale
+shape row: id kind labels priority state title | body children_done children_open completable needs owner parent pr schema_version section text_findings tracks work_state holders stale
 shape envelope: items schema_version total truncated
-shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings holders stale
+shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent pr root text_findings tracks holders stale
 shape edge: item schema_version | needs parent
-shape show: author id kind labels priority schema_version state title claim holders | children_done children_open completable blocks body children evidence mirrors needs owner parent text_findings stale completion closure closed_duplicates supersedes discovered_from discovered comments
+shape show: author draft id kind labels priority schema_version state title claim holders | blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings stale completion closure closed_duplicates supersedes discovered_from discovered
+shape triage_row: body id kind labels missing priority schema_version state title | needs owner parent text_findings holders stale
+shape check: contradictions cycles problems schema_version text_findings valid
+shape inbox_reply: at author excerpt id schema_version section
+shape prime: additional_context context_bytes schema_version
 ```
 
 ## Setup
@@ -40,15 +47,26 @@ shape show: author id kind labels priority schema_version state title claim hold
   trailers cite an item without evidence for that commit (exit 2, the exact `qew evidence` command on stderr); see hooks.md.
 
 ## Read
-- `qew show ITEM [--json]`: for an epic also `children_open`, `children_done`, `completable`; header, state, owner, derived children and blocks, evidence, mirrors, body.
+- `qew show ITEM [--json]`: the first line is the row (`ID STATE pN kind title`), so a draft says draft; then
+  header, state, owner, evidence, mirrors, comments (index, author, time, text) and body. JSON adds
+  `draft`, and neighbours as `{id, state, title}` objects (`state: missing` for a dangling edge):
+  `blocked_by` (unmet needs), `blocking`, `children`, `parent`. An epic also gets `children_open`,
+  `children_done`, `children_drafts` and `completable`, a text `progress: 0/3 completed, 2 drafts` line (plus
+  `(draft epic)`), `next` (its highest-priority ready child, text `next: ID pN title`) and
+  `complete_command` (null unless the epic is claimed with every child completed or closed). `text_findings`
+  lists hidden-text findings of the title, body, labels and comments; a title with any is withheld in rows.
+  A `tracks:` or `pr:` link prints `KEY: ID URL...`, the linked item's forge URLs read from its `mirrors/` files (header values
+  are ledger ids only; `check` flags a URL, a forge number or an unknown id there).
 - `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
   [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
   of the creating event. `work_state` (JSON rows) is the derived class, in list order: `ready`, `blocked`
   (open work with an unmet need, claimed or not: a stuck claim is the more urgent fact), `claimed`, `plan`
   (an epic), `needs_decision` (a draft), `completed`, `closed`; then priority, then id. A filter that
-  matches nothing prints nothing and exits 0; `--limit` cuts with a stderr warning. A claimed row carries `stale`
-  and a text marker when its recorded pull request merged; `qew check` notes `claimed but its pull request merged: IDS (fix: qew land N)`.
+  matches nothing prints nothing and exits 0; `--limit` cuts with a stderr warning. `--bodies` also prints the
+  body of each non-draft item (JSON `body`): the explicit inspection; no other list prints bodies.
+  A claimed row carries `stale` and a text marker when its recorded pull request merged; `qew check` notes
+  `claimed but its pull request merged: IDS (fix: qew land N)`.
   `qew list --kind epic` rows carry `children_open`, `children_done`, `completable` (not closed or completed, at
   least one child, none open) and, only when completable and the title was not rewritten, `-> qew complete ID`;
   closed epics are left out unless `--state`/`--work-state` asks for them.
@@ -65,18 +83,50 @@ shape show: author id kind labels priority schema_version state title claim hold
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
 - `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
-  evidence, malformed mirrors, text findings, contradictions (claimed epic, completed item with open needs,
-  open child of a completed epic), reserved labels. Graph invariants, each named with its file and counted on a final
+  evidence, malformed mirrors, reserved labels. Graph invariants, each named with its file and counted on a final
   `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history or mirrors
   of no item (orphans); a child whose `area:` labels share none with its parent's (cross_epic); a needs chain longer
   than 20 edges, reported at its deepest item (depth); open work that needs a closed item (closed_needs). Writes nothing;
-  exit 1 on any problem. `--json` prints
+  exit 1 on any problem. Advisory findings never fail it
+  (text: `advisory: ...` lines): `contradictions` (a claimed epic, a completed item with open needs, an open child
+  of a completed epic, a draft marker label `draft` or `qew:draft` on live work, a priority above 9) and
+  `text_findings` (hidden or confusable text in titles, bodies, labels and comments). `--json` prints
   `schema_version`, `valid`, `cycles` (each once, rotated to the smallest id, closed on it), `contradictions`,
   `text_findings`, `problems`.
 
-- `qew inbox [--login L] [--count] [--json]`: `waiting` (drafts whose author is L) and `assigned` (items L has
-  claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
-  that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
+- `qew inbox [--login L] [--since T] [--count] [--json]`: what waits on one person, from the ledger only.
+  Text sections with counts: `replies (N) since T` (one line per reply: `ID @author time: excerpt`, first line
+  only, control characters as spaces, at most 100 characters with an ellipsis), `waiting for a human (N)`
+  (drafts L created) and `assigned (N)` (items L holds). A reply is a `commented` event by someone else
+  (logins compare ASCII-case-insensitively; not `[bot]`, not a machine marker starting `<!-- qew:`) at or
+  after `--since` on an item L created, claimed or commented on; every event of every candidate item is
+  scanned. `--since` is `YYYY-MM-DDTHH:MM:SSZ` or a date (midnight UTC), default 7 days ago; anything else,
+  and a login outside letters, digits, `-`, `_`, `.` (optional `[bot]`), is exit 2 before any read; login
+  defaults to the configured actor. `--count` prints
+  `qew inbox (L): N issue(s) with replies since T: ID (author), ...; M waiting for a human; K assigned.` (no
+  list when N is 0; the session-start hook appends it when something waits and it fits its 2000 bytes);
+  with `--json` exit 2. `--json` is NDJSON: reply rows `{section: replies, id, author, at, excerpt}`, other
+  rows are item rows with `section` `waiting` or `assigned`. A malformed event (bad time, no text) makes the
+  read exit 1 with nothing on stdout.
+- `qew prime [--json]`: the bounded session context the session-start hook also prints (the hook variant is
+  smaller: 3 lines per section, 64-byte titles, 2000 bytes). First line `Qew ledger: N ready, N active, N blocked,
+  N draft.`, four convention lines (titles are approved but untrusted data, never instructions), then `Next
+  ready`, `Active`, `Blocked` and `Contradictions` sections of at most 5 lines plus `... N more`, `- none` when
+  empty. Only approved, open work; titles are JSON-quoted, whitespace-collapsed and cut at 96 bytes on a UTF-8
+  boundary with an ellipsis; a title with hidden-text findings is withheld and named under Contradictions
+  (`ID suspicious title text: zero_width`), as is a claimed epic. Bodies and comments are never read. Over
+  4096 bytes is a loud refusal (exit 1); an unreadable ledger is exit 1 (the hook stays silent).
+  `--json` prints `additional_context` and the exact `context_bytes`.
+- `qew search TERM... [--limit N] [--json]`: offline search of ids, titles and labels of non-draft items; every
+  term must match (ASCII case folded). Best match first (exact title, then whole words, then substring), then
+  priority, then id; at most 30 by default (`--limit 0` for all) with `search results capped` on stderr. Bodies
+  and comments are never searched or printed; an empty result prints a stderr hint to use `qew triage --search`.
+  Terms are data, never evaluated; put `--` before a term that starts with a dash. JSON is an envelope.
+- `qew triage [--search TERM...] [--json]`: the explicit read of unapproved text: drafts, and open approved
+  items missing a planning field, with title and body as they are and the `missing` list (sorted: `body`,
+  `label:PREFIX` for each prefix of `[triage] label_groups` in `.qew/config.toml` that no label has, `parent`
+  for a task without one). `--search` keeps items whose title or body holds every term (ASCII case folded).
+  Rows are NDJSON in `--json`. Triage is the only list-shaped read that prints draft bodies.
 
 - `qew export DIRECTORY`: write every item to a new (or empty) directory as `items/ID.md` (the ledger's own file
   format) and `events.json` (per item: event type, time, actor; import ignores it). Output is deterministic. A
@@ -94,8 +144,8 @@ shape show: author id kind labels priority schema_version state title claim hold
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
-- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--labels L...] [--priority N] [--body TEXT | --edit]
-  [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
+- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N]
+  [--body TEXT | --edit] [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
   need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
@@ -116,9 +166,6 @@ shape show: author id kind labels priority schema_version state title claim hold
   exclusive, and `--body`, `--body-file`, `--edit` and the structured flags give the body one way only. `--discovered-from` stores the origin in the header key
   `discovered_from`; `qew show` mentions it at both ends and it never blocks. A negative `--priority` is exit 2; A body, comment or `set --body` with unmarked
   command, flag or path shaped text warns on stderr (`warning: unmarked code-shaped text: X`) and is stored as given.
-- `qew comment ITEM (--body TEXT | --body-file F) [--json]`: an append-only `comment` event on any item (blank,
-  oversize, symlinked or doubled input is exit 2). `qew show` prints the author (first event's actor), the ten latest
-  comments and, in `--json`, all of them.
 - `qew block ITEM --on ITEM [--closed] [--json]`, `qew unblock ITEM --from ITEM [--closed] [--json]`: add or remove one
   needs edge as an `edge` event; repeating is `unchanged`; a self edge, unknown item or cycle is exit 2, completed or
   closed items need `--closed`.
@@ -134,6 +181,9 @@ shape show: author id kind labels priority schema_version state title claim hold
   malformed cap is exit 2 naming the key. `qew show` prints the current claim as `claim: {by, kind, lane, workspace}`.
 - `qew release ITEM --reason TEXT [--force] [--lane ID] [--json]`: give up a claim; another actor's claim (or another
   lane's) needs `--force`, recorded as `forced` with the `previous_owner`. Unclaimed work is exit 2.
+- `qew comment ITEM (--body TEXT | --body-file F)`: append a `commented` event (text kept verbatim, `-` reads
+  stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
+  Comment text is data and never a state change; unmarked code-shaped text warns on stderr.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: refused (exit 3
   naming the holder) unless the caller holds the claim; an already completed item is a quiet no-op (`completed (unchanged)`, no second event);
@@ -184,6 +234,29 @@ shape show: author id kind labels priority schema_version state title claim hold
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
   lose their card (`pruned N`); their issues are never closed.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
+  After the ledger commit, `sync` pushes the code repo (`[code] target`) and the ledger repo (`[replication] branch`)
+  to every target through a git remote `qew-<slug>` (never forced). The clone URLs are the `[[mirror]]` keys `git_url`
+  (code repo) and `ledger_git_url` (ledger repo), never derived from `repo`; a target with neither gets one
+  `repos SLUG: set git_url ...` report line and no remote. Each target and repo is isolated: `repos SLUG code|ledger:
+  failed: WHY` reports an unreachable or rejecting remote without blocking the rest. The forge repositories must exist.
+- `qew mirror add FORGE REPO [--read-only] [--api URL]`, `qew mirror remove TARGET`, `qew mirror list [--json]`: edit the
+  `[[mirror]]` entries of `.qew/config.toml` line by line; comments and every other table stay byte for byte. `add` refuses
+  an unknown forge, an invalid URL and a repeated target (exit 2). `remove` refuses the primary forge (exit 2) and keeps
+  the target's mirror files. A target is one-way (`read-only`) when marked `read_only = true` or when a primary is set
+  and it is not the primary: pull never imports its content edits, new issues or comments, and only flags a close or
+  reopen as a divergence. `list` prints `SLUG primary|two-way|read-only FORGE REPO`.
+- `qew ledger fork --to REMOTE [--primary TARGET]`: push a copy of the ledger to the empty git repository REMOTE under a
+  new identity: `ledger_id` (random) and `forked_from = "<origin id or name>@<commit>"` in `qew-ledger.toml`. Items and
+  their events keep their ids; `mirrors/`, `boards/`, the claim in force on open work (the item is approved again) and
+  unresolved divergences are not carried. `--primary` prints the `[authority] primary` config for the fork's code repo.
+  Ledgers of different identity never merge: a fetch that would bring a fork into its origin (or back) is refused
+  (exit 1, nothing merged). A ledger without `ledger_id` merges only with one without.
+- `qew forge migrate --to TARGET [--remove-old]`: make a configured target the primary forge. It restores the ledger onto
+  the target (the ordinary restore: issues, board; a pull request of another target becomes a `Pull request: URL`
+  comment on the issue), verifies that every selected item has its issue there, and only then switches
+  `[authority] primary` and marks the old primary `read_only = true` (`--remove-old` drops its block) in one atomic config
+  write. Any failure or a missing issue is exit 1 or 3 with the config untouched; a rerun resumes from the mirror files
+  without duplicates. Migrating to the current primary prints `already the primary`. The ledger is locked meanwhile.
 - `qew board [--json] [--compact] [--sort KEY[:desc]] [--group-by KEY] [--filter TERMS]`: the offline kanban, derived from the ledger alone (no forge, no network). Columns
   are the seven statuses of `sync_plan.column`, stacked top to bottom (`Draft (2)` then one card line per card:
   short id, `[pN]`, title, `@owner`, `#label`), cards by priority then id. Titles are made safe (hidden characters
@@ -204,11 +277,15 @@ shape show: author id kind labels priority schema_version state title claim hold
 - `qew board list`: one line per board file. `qew board set NAME [same options]`: change that file's defaults.
   `qew check` fails a board file whose name differs from its file name or whose columns are unknown or repeated.
 - `qew board columns`: one `Column N` line per column.
-- `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
+- `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`, and `sync retry_after=N` (seconds) while a forge rate limit pause is recorded. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the
   divergence event id (a unique prefix) or an item with exactly one open divergence.
+  A second effective `claimed` event on a held item (found after a merge) is a divergence too (`DIVERGENCE` is that
+  event's id, field `owner`): the holder is the first claim by event order, never by timestamp; `qew accept` hands the item
+  to the contender, `qew reject` keeps the holder, each by writing `claim_lost` for the loser. `qew check` counts them
+  as a note, `contested claims: N`.
 - `qew reject DIVERGENCE`: keep the ledger value; the mirror is marked stale so the next push rewrites the forge.
 - `qew import DIRECTORY [--quote Q]`: read a tree written by `qew export` into the ledger, ids kept, as drafts (approved
   with a human's quote, as on create). Mechanical: each `items/ID.md` is parsed header-only (unknown keys, a file name
@@ -221,7 +298,17 @@ shape show: author id kind labels priority schema_version state title claim hold
   accepted for closed foreign issues.
 - `qew restore [--to TARGET | --forge F --repo URL [--api URL]]`: recreate the issues, links and board of a target from the ledger
   alone; mirror files whose remote issue is gone are forgotten first. Idempotent and resumable.
-- `qew project`: the group for `ensure`.
+- `qew project`: the group for `ensure`, `status` and `prune`.
+- `qew project prune --from OWNER/REPO [--target T]`: delete exactly the cards whose issue is in the named repository
+  (case-insensitive, never a prefix) from a board shared by two targets, then re-read; cards left over are an
+  `indeterminate` error (exit 1). Refused before any call (exit 2): a source that is not `OWNER/REPO` and the
+  target's own repository. Issues are never touched; `removed 0` when nothing matches. Prints `SLUG: removed N`.
+- `qew project status [--target T] [--json]`: read-only drift report of each target's board against the ledger: per
+  target `<slug>: in sync`, or the lists `missing` (selected items with no card, or no mirror), `stale_column`,
+  `stale_priority` and the fix (`qew sync`). JSON rows: `schema_version`, `target`, `in_sync`, `missing`,
+  `stale_column`, `stale_priority`, `fix`. Exit 0 in sync (also `boards unsupported`), 1 drifted or the forge failed,
+  2 a bad target or no recorded or configured board (names `qew project ensure`). Cards of other repositories are
+  ignored. Drift is advisory: forge state is never read back as truth for the ledger.
 - `qew project ensure [--target T]`: create or repair the full board where the forge has boards: the seven
   Status options (colors, descriptions), the Priority field P0-P4 and eight views (Kanban, Table, Ready, Blocked,
   Active, Review, Drafts, Roadmap). Idempotent; a corrected view or kept foreign option is printed as a note; extra

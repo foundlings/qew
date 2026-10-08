@@ -1,50 +1,46 @@
-"""`qew inbox`: one person's waiting drafts and assigned work, read from the ledger only."""
+"""`qew inbox`: what waits on one person, read from the ledger only."""
 
-import json
-import re
-from typing import List, Tuple
+import argparse
+from typing import List
 
-from qew import cmd_read, ledger_author, ledger_config, ledger_graph, ledger_store, read_view
+from qew import cmd_read, inbox, instants, ledger_config, ledger_store, read_view, readfmt
 from qew.errors import QewError
-from qew.ledger_event import State
-
-SCHEMA_VERSION = 1
-_LOGIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,49}$")
 
 
 def register(commands) -> None:
-    inbox = commands.add_parser("inbox", help="drafts waiting for a human and work assigned to one person (offline)")
-    inbox.add_argument("--login", help="whose inbox (default: the configured actor)")
-    inbox.add_argument("--count", action="store_true", help="print one summary line")
-    inbox.add_argument("--json", action="store_true", help="machine-readable output")
+    command = commands.add_parser("inbox", help="replies, drafts waiting for a human and work assigned to one person (offline)")
+    command.add_argument("--login", help="whose inbox (default: the configured actor)")
+    command.add_argument("--since", help="reply window start: YYYY-MM-DDTHH:MM:SSZ or a date (midnight UTC); default 7 days ago")
+    command.add_argument("--count", action="store_true", help="print one summary line")
+    command.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "inbox":
         return False
     if arguments.count and arguments.json:
         raise QewError("--count and --json cannot be combined", 2)
-    login = arguments.login if arguments.login is not None else ledger_store.actor()
-    if not _LOGIN.match(login):
-        raise QewError(f"`{login}` is not a valid login", 2)
+    login = inbox.require_login(arguments.login if arguments.login is not None else ledger_store.actor())
+    since = instants.require_window_start(arguments.since) if arguments.since is not None else instants.days_ago(inbox.WINDOW_DAYS)
     snapshot = cmd_read.snapshot_for(ledger_config.load())
-    waiting, assigned = sections(snapshot, login)
     if arguments.count:
-        print(f"inbox: {len(waiting)} waiting, {len(assigned)} assigned")
+        print(inbox.count_line(snapshot, login, since))
         return True
-    listed = [("waiting", i) for i in waiting] + [("assigned", i) for i in assigned]
+    found = inbox.replies(snapshot, login, since)
+    waiting, assigned = inbox.waiting(snapshot, login), inbox.assigned(snapshot, login)
     if arguments.json:
-        print(json.dumps([{**read_view.row_data(snapshot, i), "section": name, "schema_version": SCHEMA_VERSION} for name, i in listed]))
-    else:
-        for name, item_id in listed:
-            print(f"{name} {read_view.text_row(snapshot, item_id)}")
+        rows = [{"section": "replies", "id": r.item, "author": r.author, "at": r.at, "excerpt": r.excerpt} for r in found]
+        rows += [{**read_view.row_data(snapshot, i), "section": name} for name, ids in (("waiting", waiting), ("assigned", assigned)) for i in ids]
+        for line in readfmt.ndjson(rows):
+            print(line)
+        return True
+    print(f"replies ({len(found)}) since {instants.format_instant(since)}")
+    for reply in found:
+        print(f"  {reply.item} @{read_view.plain(reply.author)} {reply.at}: {reply.excerpt}")
+    print(f"waiting for a human ({len(waiting)})")
+    for item_id in waiting:
+        print(f"  {read_view.text_row(snapshot, item_id)}")
+    print(f"assigned ({len(assigned)})")
+    for item_id in assigned:
+        print(f"  {read_view.text_row(snapshot, item_id)}")
     return True
-
-
-def sections(snapshot, login: str) -> Tuple[List[str], List[str]]:
-    """(waiting, assigned): drafts I authored, and items I hold the claim on."""
-    me = login.casefold()
-    ids = ledger_graph.ordered(snapshot, list(snapshot.items))
-    waiting = [i for i in ids if snapshot.folds[i].state == State.DRAFT and ledger_author.author(snapshot, i).casefold() == me]
-    assigned = [i for i in ids if snapshot.folds[i].state == State.CLAIMED and snapshot.folds[i].owner.casefold() == me]
-    return waiting, assigned

@@ -205,7 +205,7 @@ def apply_set(
             wanted["labels"] = " ".join(kept + [label for label in add_labels if label not in kept])
             ledger_labels.require_valid(wanted["labels"].split())
         for key, value in wanted.items():
-            if key in ("needs", "parent"):
+            if key in ("needs", "parent", "tracks", "pr"):
                 value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())
             if key == "priority":
                 graph_write_priority(value)

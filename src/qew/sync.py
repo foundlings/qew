@@ -12,7 +12,9 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from qew import sync_plan
-from qew.forge import COLUMNS, Board, Forge, ForgeError, ForgeRejected, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for
+from qew.forge import (
+    COLUMNS, Board, Forge, ForgeError, ForgeRejected, ForgeUnavailable, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for,
+)
 from qew.ledger_config import Config, Mirror
 from qew.ledger_store import Ledger, Snapshot, now
 
@@ -27,6 +29,7 @@ class Target:
     mirror: Mirror
     slug: str
     forge: Forge
+    read_only: bool = False  # a one-way mirror: pull never imports its edits
 
 
 @dataclass
@@ -41,6 +44,7 @@ class TargetReport:
     warnings: List[str] = field(default_factory=list)
     pruned: int = 0
     stopped: Optional[str] = None  # set when the forge went away and the rest of the target was not tried
+    retry_after: float = 0.0  # seconds the forge asked to wait (rate limit), 0 when it named none
 
 
 def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[str] = None,
@@ -56,6 +60,11 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
         if record:
             numbers[item_id] = record["number"]
     board = _board(target, report) if target.mirror.project is not None else None
+    if report.stopped:
+        return report
+    placements = _listing(target, report, board) if board is not None else None
+    if report.stopped:
+        return report
     for item_id in ids:
         if chosen and item_id != chosen:
             continue
@@ -63,7 +72,7 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
             report.stopped = "time budget used; the rest stays pending"
             break
         try:
-            _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board)
+            _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board, placements)
             if tick is not None:
                 tick()
         except sync_plan.InvalidAuthor as error:
@@ -72,11 +81,30 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
             report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
         except ForgeError as error:
             report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
-            report.stopped = f"{type(error).__name__}: {error.detail}"
+            _stop(report, error)
             break
     if board is not None and chosen is None and report.stopped is None:
         _prune(ledger, snapshot, target, report, set(ids), board)
     return report
+
+
+def _stop(report: TargetReport, error: ForgeError) -> None:
+    """The forge went away: the rest of the target is not tried, and a named wait is kept."""
+    report.stopped = f"{type(error).__name__}: {error.detail}"
+    if isinstance(error, ForgeUnavailable):
+        report.retry_after = max(report.retry_after, error.retry_after)
+
+
+def _listing(target: Target, report: TargetReport, board: Board) -> Optional[Dict[int, Placement]]:
+    """One listing of the whole board (None where the forge cannot list it, then cards are read one by one)."""
+    try:
+        return dict(target.forge.read_board_placements(board))
+    except Unsupported:
+        return None
+    except ForgeError as error:
+        report.failures.append(f"board: {error.detail}")
+        _stop(report, error)
+        return None
 
 
 def _prune(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, selected: set, board: Board) -> None:
@@ -109,7 +137,7 @@ def _board(target: Target, report: TargetReport) -> Optional[Board]:
         return None
     except ForgeError as error:
         report.failures.append(f"board: {error.detail}")
-        report.stopped = f"{type(error).__name__}: {error.detail}"
+        _stop(report, error)
         return None
 
 
@@ -122,6 +150,7 @@ def _sync_item(
     numbers: Dict[str, int],
     assignees: Dict[str, str],
     board: Optional[Board],
+    placements: Optional[Dict[int, Placement]] = None,
 ) -> None:
     item = snapshot.items[item_id]
     spec = sync_plan.issue_spec(snapshot, item, numbers, assignees)
@@ -139,6 +168,10 @@ def _sync_item(
             record = _push(ledger, target, record, item_id, spec, fingerprint)
         else:
             report.created += 1
+    elif record.get("baselined") and not record.get("synced_hash"):
+        # First contact from this machine: the pull took the forge's state as the baseline; do not push over it.
+        ledger.write_mirror(item_id, target.slug, {**{k: v for k, v in record.items() if k != "_target"}, "synced_hash": fingerprint, "baselined": False})
+        report.unchanged += 1
     elif record.get("synced_hash") != fingerprint:
         _push(ledger, target, record, item_id, spec, fingerprint)
         report.updated += 1
@@ -146,7 +179,7 @@ def _sync_item(
         report.unchanged += 1
     _link(ledger, snapshot, target, report, item_id, numbers, record)
     if board is not None:
-        _place(ledger, snapshot, target, report, item_id, board, column, record)
+        _place(ledger, snapshot, target, report, item_id, board, column, record, placements)
 
 
 def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec):
@@ -216,7 +249,7 @@ def _link(ledger, snapshot, target, report, item_id, numbers, record) -> None:
         ledger.write_mirror(item_id, target.slug, {**clean, "linked": sorted(linked)})
 
 
-def _place(ledger, snapshot, target, report, item_id, board, column, record) -> None:
+def _place(ledger, snapshot, target, report, item_id, board, column, record, placements=None) -> None:
     """Make the card show `column` and the item's priority, verified by reading the forge back."""
     current = _read_mirror(ledger, item_id, target.slug) or record
     priority, clamped = sync_plan.priority_option(snapshot.items[item_id].priority)
@@ -226,10 +259,13 @@ def _place(ledger, snapshot, target, report, item_id, board, column, record) -> 
     number = current["number"]
     try:
         verifiable = True
-        try:
-            seen = target.forge.read_placement(board, number)
-        except Unsupported:
-            verifiable, seen = False, None
+        if placements is not None:
+            seen = placements.get(number)
+        else:
+            try:
+                seen = target.forge.read_placement(board, number)
+            except Unsupported:
+                verifiable, seen = False, None
         if verifiable and seen == wanted:
             _record_placement(ledger, target, item_id, current, wanted)
             return

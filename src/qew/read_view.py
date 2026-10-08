@@ -1,8 +1,9 @@
 """How one item appears in a read: its text row and its machine row."""
 
+import re
 from typing import Dict, List
 
-from qew import ledger_graph, stale_claims, untrusted_text
+from qew import ledger_graph, stale_claims, text_findings, untrusted_text
 from qew.ledger_event import State
 from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
@@ -54,7 +55,7 @@ def row_data(snapshot: Snapshot, item_id: str, work_state: bool = False, progres
         "labels": sorted(item.labels),
     }
     if hidden:
-        row["text_findings"] = list(hidden)
+        row["text_findings"] = text_findings.title_findings(item.title)
     if progress and item.kind == Kind.EPIC:
         row.update(epic_progress(snapshot, item_id))
     if work_state:
@@ -69,6 +70,9 @@ def row_data(snapshot: Snapshot, item_id: str, work_state: bool = False, progres
         row["parent"] = item.parent
     if item.needs:
         row["needs"] = list(item.needs)
+    for key in ("tracks", "pr"):
+        if getattr(item, key):
+            row[key] = getattr(item, key)
     return row
 
 
@@ -89,5 +93,46 @@ def related(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
         "title": None if hidden else item.title,
     }
     if hidden:
-        entry["text_findings"] = list(hidden)
+        entry["text_findings"] = text_findings.title_findings(item.title)
     return entry
+
+
+def parent_first(snapshot: Snapshot, ids: List[str]) -> List[str]:
+    """`ids` with every item directly after its parent when that parent is listed too (depth first)."""
+    listed = set(ids)
+    children: Dict[str, List[str]] = {}
+    roots: List[str] = []
+    for item_id in ids:
+        parent = snapshot.items[item_id].parent
+        if parent in listed:
+            children.setdefault(parent, []).append(item_id)
+        else:
+            roots.append(item_id)
+    ordered: List[str] = []
+    stack = list(reversed(roots))
+    while stack:
+        item_id = stack.pop()
+        ordered.append(item_id)
+        stack.extend(reversed(children.get(item_id, [])))
+    return ordered
+
+
+def plain(text: str) -> str:
+    """`text` with control characters other than newline replaced by spaces, for a terminal."""
+    return "".join(" " if (ord(c) < 0x20 and c != "\n") or 0x7F <= ord(c) <= 0x9F else c for c in text)
+
+
+_URL = re.compile(r"https?://[^\s\x00-\x1f\x7f]+")
+
+
+def link_urls(snapshot: Snapshot, item_id: str) -> List[Dict[str, object]]:
+    """Each header link with the forge URLs of the linked item, read from mirrors/ (forge text: shown only if a plain URL)."""
+    item = snapshot.items[item_id]
+    links = []
+    for key in ("tracks", "pr"):
+        target = getattr(item, key)
+        if target and target in snapshot.items:
+            urls = [m["issue_url"] for m in snapshot.ledger.load_mirrors(target)
+                    if isinstance(m.get("issue_url"), str) and _URL.fullmatch(m["issue_url"])]
+            links.append({"key": key, "item": target, "urls": urls})
+    return links
