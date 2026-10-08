@@ -35,6 +35,8 @@ class FakeGitHub:
         self.next_number = 1
         self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
         self.next_id = 1000
+        self.label_store: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
+        self.drop_label_creates = False  # accept a label create yet store nothing
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.server.fake = self  # type: ignore[attr-defined]
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
@@ -422,6 +424,18 @@ class _Handler(BaseHTTPRequestHandler):
         window, link = self._page(issues, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/issues")
         self._send(200, window, link)
 
+    def _get_labels(self, query: Dict[str, List[str]], body: Any) -> None:
+        listed = [{"name": n, **v} for n, v in self.fake.label_store.items()]
+        window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/labels")
+        self._send(200, window, link)
+
+    def _post_labels(self, query: Dict[str, List[str]], body: Any) -> None:
+        if body["name"] in self.fake.label_store:
+            return self._send(422, {"message": "already_exists"})
+        if not self.fake.drop_label_creates:
+            self.fake.label_store[body["name"]] = {"color": body.get("color", ""), "description": body.get("description", "")}
+        self._send(201, {"name": body["name"]})
+
     def _post_issues(self, query: Dict[str, List[str]], body: Any) -> None:
         self._send(201, self.fake.issue_json(self.fake.new_issue(body)))
 
@@ -527,6 +541,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 _ROUTES = (
+    (r"/labels", "labels"),
     (r"/issues", "issues"),
     (r"/issues/(\d+)", "issue"),
     (r"/issues/(\d+)/comments", "comments"),
