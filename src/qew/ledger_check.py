@@ -18,6 +18,11 @@ _MIRROR_KEYS = ("forge", "url", "kind")
 
 
 def check(ledger: Ledger) -> List[str]:
+    return check_report(ledger)[0]
+
+
+def check_report(ledger: Ledger):
+    """(problems, notes): problems fail the check, notes are counts that are reported and not fatal."""
     problems: List[str] = []
     _check_metadata(ledger, problems)
     items: Dict[str, Item] = {}
@@ -48,9 +53,9 @@ def check(ledger: Ledger) -> List[str]:
     _check_orphans(ledger, items, problems)
     snapshot = Snapshot(ledger, items, folds, events)
     _check_edges(snapshot, problems)
-    _check_completed(snapshot, problems)
+    imported = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)
-    return problems
+    return problems, ([f"imported without evidence: {imported}"] if imported else [])
 
 
 def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
@@ -101,11 +106,16 @@ def _check_edges(snapshot: Snapshot, problems: List[str]) -> None:
             problems.append(f"{label} cycle: {' -> '.join(cycle)}")
 
 
-def _check_completed(snapshot: Snapshot, problems: List[str]) -> None:
+def _check_completed(snapshot: Snapshot, problems: List[str]) -> int:
+    imported = 0
     for item_id, item in snapshot.items.items():
         folded = snapshot.folds[item_id]
         if folded.state == State.COMPLETED and item.kind != Kind.EPIC and not folded.evidence:
-            problems.append(f"events/{item_id}: completed without an evidence event")
+            if folded.imported:
+                imported += 1
+            else:
+                problems.append(f"events/{item_id}: completed without an evidence event")
+    return imported
 
 
 def _check_mirrors(ledger: Ledger, items: Dict[str, Item], problems: List[str]) -> None:

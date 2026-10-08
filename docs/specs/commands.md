@@ -22,7 +22,11 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
   [--body-file F] [--quote Q] [--from-file F]`: a draft unless `--quote` carries a human's words
   (`"Name: 'their words'"`), which files it approved. `--from-file` takes a JSON object or array (or `-`
-  for stdin); items may carry `id` (imports keep it), `ref`, and `@ref` entries in `needs`/`parent`.
+  for stdin); items may carry `id` (imports keep it), `created`, `ref`, and `@ref` entries in `needs`/`parent`.
+  `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
+  a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
+  without evidence. `qew complete` never writes it. `qew check` reports such items as
+  `imported without evidence: N` (non-fatal).
 - `qew set ITEM [--title T] [--parent ID] [--needs ID...] [--labels L...] [--priority N] [--body TEXT]`:
   edits the header; each change appends a `field` audit event.
 - `qew start ITEM`: claim approved work whose needs are completed. `qew release ITEM` gives it up.

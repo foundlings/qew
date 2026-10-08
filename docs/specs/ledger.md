@@ -60,6 +60,9 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
 - `approved` (with quoted human words), `drafted`
 - `claimed` / `released` (owner)
 - `evidence` (`{"vcs": "jj", "change_ids": [...], "repo": "<code repo url>"}`)
+- `completed` with `"provenance": "import"` (+ `original_ids`) is written only by an import path
+  (`create --from-file --import`) for history without resolvable change ids; `qew check` counts these
+  (`imported without evidence: N`) and does not fail on them. Everything else:
 - `completed` (requires: all child tasks completed AND ≥1 evidence event whose change ids resolve
   as ancestors of the target branch in the code repo — checked by `qew complete`, refused otherwise)
 - `reopened`, `closed` (`reason`: `not_planned|duplicate|superseded`)

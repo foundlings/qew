@@ -185,7 +185,7 @@ def _run(arguments: argparse.Namespace) -> None:
         return
     config = ledger_config.load()
     if command == "create":
-        print("\n".join(cmd_items.create(config, _specs(arguments), arguments.quote)))
+        print("\n".join(cmd_items.create(config, _specs(arguments), arguments.quote, arguments.import_events)))
     elif command == "set":
         changes = {}
         for key in ("title", "parent", "priority"):
@@ -215,11 +215,11 @@ def _run(arguments: argparse.Namespace) -> None:
         print(cmd_flow.close(config, arguments.item, arguments.reason))
     elif command == "check":
         ledger = cmd_items.ledger_for(config)
-        problems = ledger_check.check(ledger)
+        problems, notes = ledger_check.check_report(ledger)
         if problems:
             print("\n".join(problems))
             raise QewError(f"{len(problems)} problem(s)", 1)
-        print(f"ok {len(ledger.item_ids())} items")
+        print("\n".join([f"ok {len(ledger.item_ids())} items", *notes]))
     elif command == "draft":
         if arguments.draft_command == "list":
             cmd_draft.list_drafts(config, arguments.json)

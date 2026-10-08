@@ -85,6 +85,12 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
             raise QewError(f"{where}: `{kind}` event is missing `{key}`", 1)
     if kind == "closed" and value["reason"] not in CLOSE_REASONS:
         raise QewError(f"{where}: close reason must be one of {', '.join(CLOSE_REASONS)}", 1)
+    if "provenance" in value:
+        if kind != "completed" or value["provenance"] != "import":
+            raise QewError(f"{where}: `provenance` is only valid as `import` on a `completed` event", 1)
+        ids = value.get("original_ids", [])
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            raise QewError(f"{where}: original_ids must be a list of strings", 1)
     if kind == "evidence":
         ids = value.get("change_ids")
         if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
@@ -101,6 +107,7 @@ class Folded:
     owner: str
     evidence: Tuple[Event, ...]
     errors: Tuple[str, ...]
+    imported: bool = False  # completed by an import path, without verifiable evidence
 
 
 def fold(events: List[Event]) -> Folded:
@@ -109,8 +116,13 @@ def fold(events: List[Event]) -> Folded:
     owner = ""
     evidence: List[Event] = []
     errors: List[str] = []
+    imported = False
     for event in sorted(events, key=lambda item: item.id):
         _, sources = _RULES[event.type]
+        if event.type == "completed" and event.get("provenance") == "import":
+            # Imported history was never claimed here; it may complete from any open state.
+            sources = (State.DRAFT, State.APPROVED, State.CLAIMED)
+            imported = True
         if sources is None:
             if state is not None:
                 errors.append(f"{event.id}: `drafted` is only valid as the first event")
@@ -134,7 +146,7 @@ def fold(events: List[Event]) -> Folded:
             evidence.append(event)
         if event.type in _NEXT:
             state = _NEXT[event.type]
-    return Folded(state, owner, tuple(evidence), tuple(errors))
+    return Folded(state, owner, tuple(evidence), tuple(errors), imported)
 
 
 def transition_error(state: Optional[State], event_type: str) -> Optional[str]:

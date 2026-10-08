@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, Optional
 from qew import ledger_config, ledger_graph
 from qew.errors import QewError
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
-from qew.ledger_event import State
+from qew.ledger_event import Event, State, fold, parse_event
 from qew.ledger_ids import valid_id
 from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
 from qew.ledger_store import Ledger, Snapshot, actor, now, open_ledger
@@ -69,7 +69,7 @@ def build_item(ledger: Ledger, spec: dict, resolved: Dict[str, str], known: List
         "labels": " ".join(spec.get("labels", [])),
         "owner": "",
         "priority": str(spec.get("priority", DEFAULT_PRIORITY)),
-        "created": now(),
+        "created": str(spec.get("created") or now()),
     }
     for label in spec.get("labels", []):
         if not label or any(c.isspace() or c == "," for c in label):
@@ -77,21 +77,47 @@ def build_item(ledger: Ledger, spec: dict, resolved: Dict[str, str], known: List
     return from_header(header, str(spec.get("body", "")), "new item")
 
 
-def create(config: Config, specs: List[dict], quote: Optional[str]) -> List[str]:
+def _import_events(item: Item, spec: dict) -> List[Event]:
+    """The item's own events from an import file, validated as a whole before anything is written."""
+    raw = spec.get("events")
+    if not isinstance(raw, list) or not raw:
+        raise QewError(f"{item.id}: --import needs a non-empty `events` list", 2)
+    events = []
+    for index, entry in enumerate(raw):
+        if not isinstance(entry, dict):
+            raise QewError(f"{item.id}: event {index} is not an object", 2)
+        events.append(parse_event(f"{index:06d}", json.dumps(entry), f"{item.id} event {index}"))
+    folded = fold(events)
+    if folded.errors:
+        raise QewError(f"{item.id}: {folded.errors[0]}", 2)
+    if folded.state == State.COMPLETED and item.kind != Kind.EPIC and not folded.evidence and not folded.imported:
+        raise QewError(f"{item.id}: completed without evidence or import provenance", 2)
+    return events
+
+
+def create(config: Config, specs: List[dict], quote: Optional[str], import_events: bool = False) -> List[str]:
     ledger = ledger_for(config)
     verified = require_quote(quote) if quote else None
     known = ledger.item_ids()
     resolved: Dict[str, str] = {}
     built = []
     for spec in specs:
+        if "events" in spec and not import_events:
+            raise QewError("`events` in a file are accepted only with --import", 2)
         item = build_item(ledger, spec, resolved, known)
         if spec.get("ref"):
             resolved[str(spec["ref"])] = item.id
-        built.append(item)
+        built.append((item, _import_events(item, spec) if import_events else None))
         known.append(item.id)
     lines = []
-    for item in built:
+    for item, events in built:
         ledger.write_item(item)
+        if events is not None:
+            for event in events:
+                ledger.append_event(item.id, event.type, at=event.at, by=event.actor, **event.data)
+            state = fold(events).state
+            lines.append(f"{item.id} {state.value if state else '?'} {item.title}")
+            continue
         if verified:
             ledger.append_event(item.id, "approved", quote=verified)
         else:

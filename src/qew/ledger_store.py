@@ -120,11 +120,11 @@ class Ledger:
         path = self.items_dir / f"{item.id}.md"
         _write(path, render_item(item), exclusive=not overwrite)
 
-    def append_event(self, item_id: str, event_type: str, **data: object) -> Event:
+    def append_event(self, item_id: str, event_type: str, at: str = "", by: str = "", **data: object) -> Event:
         directory = self.events_dir / item_id
         directory.mkdir(parents=True, exist_ok=True)
         existing = sorted(path.stem for path in directory.glob("*.json"))
-        event = Event(event_id(existing[-1] if existing else ""), event_type, now(), actor(), dict(data))
+        event = Event(event_id(existing[-1] if existing else ""), event_type, at or now(), by or actor(), dict(data))
         _write(directory / f"{event.id}.json", event.to_json(), exclusive=True)
         return event
 
