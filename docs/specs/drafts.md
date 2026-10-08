@@ -17,3 +17,10 @@ and never completable; `qew list` still shows it (the ledger is a database, not 
 - A move that fails midway exits 3 and lists what moved and what did not; the rerun skips what already moved.
 - The quote that released work is shown by `qew show`; discussion happens with `qew comment`, which never
   changes state.
+
+## Decisions
+- No `qew plan create`: `qew create --kind epic` then `qew set ITEM... --parent EPIC` (several items, all
+  validated before the first write) files a plan and attaches existing items without a second command. A failed
+  attach cannot duplicate the plan because the epic already exists and `set` is re-runnable.
+- No structured body composition (`where`, `fix`, `done-when`, `--edit`): no current requirement. Bodies are
+  `--body`, `--body-file` or a `body` field; `done-when` items are child tasks filed with the plan.
