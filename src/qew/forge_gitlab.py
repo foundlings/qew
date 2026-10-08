@@ -1,15 +1,330 @@
-"""GitLab backend stub: every capability is `Unsupported` until implemented."""
+"""GitLab backend: REST /api/v4, the project addressed by its URL-encoded full path.
 
-from typing import Mapping
+Issues, issue links, an issue board whose lists are the scoped labels `board::<Column>`,
+and merge requests as the pull-request methods. See docs/specs/forges.md ("GitLab notes").
+"""
 
-from qew.forge import Forge, Transport
+import re
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
+from urllib.parse import quote, urlencode
+
+from qew import forge_http
+from qew.forge import (
+    Board,
+    Forge,
+    ForgeRejected,
+    IssueSpec,
+    PullRequestSpec,
+    RemoteIssue,
+    RemotePullRequest,
+    Transport,
+)
 from qew.ledger_config import Mirror
+
+BOARD_PREFIX = "board::"
+DRAFT_TITLE = "Draft: "
+_DRAFT_MARKER = re.compile(r"^\s*(?:\[draft\]|\(draft\)|draft:)\s*", re.IGNORECASE)
+_LABEL_COLOR = "#6699cc"
+_PER_PAGE = 100
+
+_PIPELINE_CHECKS = {
+    "success": "passing",
+    "failed": "failing",
+    "canceled": "failing",
+    "canceling": "failing",
+    "created": "pending",
+    "waiting_for_resource": "pending",
+    "preparing": "pending",
+    "pending": "pending",
+    "running": "pending",
+    "scheduled": "pending",
+    "manual": "pending",
+    "skipped": "none",
+}
+# detailed_merge_status values that mean "the forge has not decided yet".
+_MERGE_UNDECIDED = frozenset({"checking", "unchecked", "preparing", "approvals_syncing", "ci_still_running"})
+_MR_STATES = {"opened": "open", "locked": "open", "closed": "closed", "merged": "merged"}
+
+
+# ----- parsing: malformed forge JSON is ForgeRejected, never a defaulted value -----
+
+
+def _malformed(what: str) -> ForgeRejected:
+    return ForgeRejected(200, f"malformed GitLab answer: {what}")
+
+
+def _object(value: Any, what: str) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        raise _malformed(f"{what} is not an object")
+    return value
+
+
+def _list(value: Any, what: str) -> List[Any]:
+    if not isinstance(value, list):
+        raise _malformed(f"{what} is not a list")
+    return value
+
+
+def _field(data: Mapping[str, Any], key: str, kind: type) -> Any:
+    value = data.get(key, None)
+    if type(value) is not kind:
+        raise _malformed(f"`{key}` is missing or not {kind.__name__}")
+    return value
+
+
+def _description(data: Mapping[str, Any]) -> str:
+    if "description" in data and data["description"] is None:
+        return ""  # GitLab answers null for an empty description
+    return _field(data, "description", str)
+
+
+def _parse_issue(raw: Any) -> RemoteIssue:
+    data = _object(raw, "issue")
+    state = _field(data, "state", str)
+    if state not in ("opened", "closed"):
+        raise _malformed(f"issue state `{state}`")
+    labels = tuple(_field({"label": item}, "label", str) for item in _list(data.get("labels"), "labels"))
+    assignees = _list(data.get("assignees"), "assignees")
+    assignee = _field(_object(assignees[0], "assignee"), "username", str) if assignees else ""
+    return RemoteIssue(
+        number=_field(data, "iid", int),
+        url=_field(data, "web_url", str),
+        node_id=str(_field(data, "id", int)),
+        open=state == "opened",
+        title=_field(data, "title", str),
+        body=_description(data),
+        labels=labels,
+        assignee=assignee,
+    )
+
+
+def _parse_checks(raw: Any) -> str:
+    if raw is None:
+        return "none"
+    status = _field(_object(raw, "head_pipeline"), "status", str)
+    if status not in _PIPELINE_CHECKS:
+        raise _malformed(f"pipeline status `{status}`")
+    return _PIPELINE_CHECKS[status]
+
+
+def _parse_mergeable(status: str) -> Optional[bool]:
+    if status == "mergeable":
+        return True
+    # Every other settled status is a blocker; an unknown future value fails closed.
+    return None if status in _MERGE_UNDECIDED else False
+
+
+def _parse_merge_request(raw: Any) -> RemotePullRequest:
+    data = _object(raw, "merge request")
+    state = _field(data, "state", str)
+    if state not in _MR_STATES:
+        raise _malformed(f"merge request state `{state}`")
+    return RemotePullRequest(
+        number=_field(data, "iid", int),
+        url=_field(data, "web_url", str),
+        state=_MR_STATES[state],
+        draft=_field(data, "draft", bool),
+        head_sha=_field(data, "sha", str),
+        head_branch=_field(data, "source_branch", str),
+        base_branch=_field(data, "target_branch", str),
+        mergeable=_parse_mergeable(_field(data, "detailed_merge_status", str)),
+        checks=_parse_checks(data.get("head_pipeline")),
+    )
+
+
+def _next_page(headers: Mapping[str, str]) -> bool:
+    for key, value in headers.items():
+        if key.lower() == "x-next-page":
+            return bool(value.strip())
+    return False
+
+
+def _csv(labels: Tuple[str, ...]) -> str:
+    for label in labels:
+        if "," in label:
+            raise ForgeRejected(400, f"label `{label}` contains a comma, which GitLab cannot carry")
+    return ",".join(labels)
+
+
+def _strip_draft(title: str) -> str:
+    while _DRAFT_MARKER.match(title):
+        title = _DRAFT_MARKER.sub("", title, count=1)
+    return title
 
 
 class GitLab(Forge):
     name = "gitlab"
 
     def __init__(self, mirror: Mirror, transport: Transport, env: Mapping[str, str]) -> None:
-        self.mirror = mirror
-        self.transport = transport
-        self.env = env
+        self._mirror = mirror
+        self._transport = transport
+        self._env = env
+        host, namespace, repo = forge_http.split_repo(mirror)
+        self._host = host
+        self._full_path = f"{namespace}/{repo}" if namespace else repo
+        self._repo = repo
+        self._project = f"/projects/{quote(self._full_path, safe='')}"
+        self._api = forge_http.api_base(mirror, f"{host}/api/v4")
+
+    # ----- requests -----
+
+    def _call(self, method: str, path: str, query: Optional[Mapping[str, Any]] = None,
+              payload: Optional[Any] = None) -> Tuple[Any, Mapping[str, str]]:
+        token = forge_http.resolve_token(self._mirror, self._env)
+        url = self._api + path + (f"?{urlencode(query)}" if query else "")
+        return forge_http.call_json(self._transport, method, url, {"PRIVATE-TOKEN": token}, payload)
+
+    def _pages(self, path: str, query: Mapping[str, Any]) -> Iterator[Any]:
+        """Items of every page, lazily; a walk longer than MAX_PAGES is an error, not a truncation."""
+        for page in range(1, forge_http.MAX_PAGES + 1):
+            data, headers = self._call("GET", path, {**query, "page": page, "per_page": _PER_PAGE})
+            yield from _list(data, "page")
+            if not _next_page(headers):
+                return
+        raise ForgeRejected(200, f"{path} has more than {forge_http.MAX_PAGES} pages")
+
+    # ----- issues -----
+
+    def find_issue(self, marker: str) -> Optional[RemoteIssue]:
+        query = {"search": marker, "in": "description", "state": "all"}
+        for raw in self._pages(f"{self._project}/issues", query):
+            issue = _parse_issue(raw)
+            if marker in issue.body:
+                return issue
+        return None
+
+    def read_issue(self, number: int) -> RemoteIssue:
+        data, _ = self._call("GET", f"{self._project}/issues/{number}")
+        return _parse_issue(data)
+
+    def create_issue(self, spec: IssueSpec) -> RemoteIssue:
+        payload: Dict[str, Any] = {
+            "title": spec.title, "description": spec.body, "labels": _csv(spec.labels),
+            "assignee_ids": self._assignee_ids(spec.assignee),
+        }
+        data, _ = self._call("POST", f"{self._project}/issues", payload=payload)
+        created = _parse_issue(data)
+        if spec.open:
+            return created
+        return self._write_issue(created.number, {"state_event": "close"})
+
+    def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
+        current = self.read_issue(number)
+        kept = tuple(label for label in current.labels if label.startswith(BOARD_PREFIX) and label not in spec.labels)
+        payload: Dict[str, Any] = {
+            "title": spec.title, "description": spec.body, "labels": _csv((*spec.labels, *kept)),
+            "assignee_ids": self._assignee_ids(spec.assignee),
+        }
+        if current.open != spec.open:
+            payload["state_event"] = "reopen" if spec.open else "close"
+        return self._write_issue(number, payload)
+
+    def _write_issue(self, number: int, payload: Mapping[str, Any]) -> RemoteIssue:
+        data, _ = self._call("PUT", f"{self._project}/issues/{number}", payload=payload)
+        return _parse_issue(data)
+
+    def _assignee_ids(self, username: str) -> List[int]:
+        if not username:
+            return []
+        data, _ = self._call("GET", "/users", {"username": username})
+        for raw in _list(data, "users"):
+            user = _object(raw, "user")
+            if _field(user, "username", str) == username:
+                return [_field(user, "id", int)]
+        raise ForgeRejected(404, f"no GitLab user `{username}`")
+
+    def link_dependency(self, number: int, blocked_by: int) -> None:
+        payload = {"target_project_id": self._full_path, "target_issue_iid": blocked_by, "link_type": "is_blocked_by"}
+        try:
+            self._call("POST", f"{self._project}/issues/{number}/links", payload=payload)
+        except ForgeRejected as error:
+            if error.status != 409:  # 409 is GitLab's documented "already linked"
+                raise
+
+    # ----- boards -----
+
+    def ensure_board(self, columns: Tuple[str, ...]) -> Board:
+        name = self._mirror.project or self._repo
+        board = self._find_board(name)  # `project` may be a board id this method returned earlier
+        if board is None:
+            data, _ = self._call("POST", f"{self._project}/boards", payload={"name": name})
+            board = _object(data, "board")
+        board_id = _field(board, "id", int)
+        present = {
+            _field(_object(_object(item, "board list").get("label"), "list label"), "name", str)
+            for item in _list(board.get("lists"), "board lists")
+        }
+        label_ids = {name: label_id for name, label_id in self._label_ids()}
+        for column in columns:
+            label = BOARD_PREFIX + column
+            if label in present:
+                continue
+            if label not in label_ids:
+                label_ids[label] = self._create_label(label)
+            self._call("POST", f"{self._project}/boards/{board_id}/lists", payload={"label_id": label_ids[label]})
+        return Board(str(board_id), f"{self._host}/{self._full_path}/-/boards/{board_id}", tuple(columns))
+
+    def _find_board(self, name: str) -> Optional[Dict[str, Any]]:
+        for raw in self._pages(f"{self._project}/boards", {}):
+            board = _object(raw, "board")
+            if str(_field(board, "id", int)) == name or _field(board, "name", str) == name:
+                return board
+        return None
+
+    def _label_ids(self) -> List[Tuple[str, int]]:
+        found = []
+        for raw in self._pages(f"{self._project}/labels", {}):
+            label = _object(raw, "label")
+            found.append((_field(label, "name", str), _field(label, "id", int)))
+        return found
+
+    def _create_label(self, name: str) -> int:
+        data, _ = self._call("POST", f"{self._project}/labels", payload={"name": name, "color": _LABEL_COLOR})
+        return _field(_object(data, "label"), "id", int)
+
+    def place_on_board(self, board: Board, number: int, column: str) -> None:
+        if column not in board.columns:
+            raise ForgeRejected(400, f"board has no column `{column}`")
+        target = BOARD_PREFIX + column
+        labels = self.read_issue(number).labels
+        stale = [label for label in labels if label.startswith(BOARD_PREFIX) and label != target]
+        payload: Dict[str, Any] = {}
+        if target not in labels:
+            payload["add_labels"] = target
+        if stale:
+            payload["remove_labels"] = _csv(tuple(stale))
+        if payload:
+            self._call("PUT", f"{self._project}/issues/{number}", payload=payload)
+
+    # ----- merge requests -----
+
+    def open_pull_request(self, spec: PullRequestSpec) -> RemotePullRequest:
+        title = _strip_draft(spec.title)
+        payload = {
+            "source_branch": spec.head, "target_branch": spec.base,
+            "title": DRAFT_TITLE + title if spec.draft else title,
+            "description": spec.body, "remove_source_branch": False,
+        }
+        data, _ = self._call("POST", f"{self._project}/merge_requests", payload=payload)
+        return _parse_merge_request(data)
+
+    def read_pull_request(self, number: int) -> RemotePullRequest:
+        data, _ = self._call("GET", f"{self._project}/merge_requests/{number}")
+        return _parse_merge_request(data)
+
+    def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
+        data, _ = self._call("GET", f"{self._project}/merge_requests/{number}")
+        current = _parse_merge_request(data)
+        if not current.draft:
+            return current
+        title = _strip_draft(_field(_object(data, "merge request"), "title", str))
+        data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"title": title})
+        return _parse_merge_request(data)
+
+    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
+        payload = {"sha": expected_head_sha, "should_remove_source_branch": False, "squash": False}
+        data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}/merge", payload=payload)
+        merged = _parse_merge_request(data)
+        if merged.state != "merged":
+            raise ForgeRejected(200, f"merge request {number} is {merged.state} after the merge call")
+        return merged

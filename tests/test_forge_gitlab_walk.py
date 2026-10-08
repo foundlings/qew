@@ -66,6 +66,7 @@ class GitLabWalk(unittest.TestCase):
 
     def test_find_pages_through_results_and_bounds_the_walk(self):
         self.fake.page_size = 2
+        self.fake.search_returns_all = True
         for index in range(5):
             self.forge.create_issue(spec(f"n{index}", marker_for(f"X{index}")))
         self.assertEqual(self.forge.find_issue(marker_for("X0")).number, 1)
@@ -154,6 +155,19 @@ class GitLabWalk(unittest.TestCase):
     def test_board_is_named_by_the_mirror_project_option(self):
         self.backend(project="Roadmap").ensure_board(COLUMNS)
         self.assertEqual([b["name"] for b in self.project().boards], ["Roadmap"])
+
+    def test_board_id_round_trips_as_the_project_option(self):
+        first = self.forge.ensure_board(COLUMNS)
+        self.assertEqual(first.id, str(self.project().boards[0]["id"]))
+        second = self.backend(project=first.id).ensure_board(COLUMNS)
+        self.assertEqual(second, first)
+        self.assertEqual(len(self.project().boards), 1)
+        self.assertEqual(len(self.project().boards[0]["lists"]), len(COLUMNS))
+
+    def test_existing_board_with_the_same_name_is_not_duplicated(self):
+        self.backend(project="Roadmap").ensure_board(COLUMNS)
+        self.backend(project="Roadmap").ensure_board(COLUMNS)
+        self.assertEqual(len(self.project().boards), 1)
 
     def test_placing_in_an_unknown_column_is_refused(self):
         board = self.forge.ensure_board(("Ready",))

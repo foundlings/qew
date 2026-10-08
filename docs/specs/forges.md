@@ -63,3 +63,14 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
 - Dependencies are listed first, so `link_dependency` is idempotent without relying on a 409.
 - Pagination ends on `X-Total-Count`, an empty page, or a short page with no `rel="next"` Link; more than `MAX_PAGES` raises `ForgeRejected`.
 - Merge sends `Do=merge` and `head_commit_id`; a moved head is the forge's 409, surfaced as `ForgeRejected(409)`.
+
+## GitLab notes
+- `RemoteIssue.number` is the project-scoped iid; `node_id` is the global issue id as a string.
+- Labels travel as a comma-joined `labels` parameter, so a label containing a comma is `ForgeRejected(400)` before any request. Labels starting with `board::` are carried over on `update_issue`.
+- `close_reason` is ignored: GitLab issues have no close reasons. A null `description` reads as "".
+- `link_dependency` posts `link_type=is_blocked_by`; only HTTP 409 (already linked) counts as success.
+- `Board.id` is the numeric board id as a string; `ensure_board` matches the mirror `project` option against a board id first, then a board name (default the repo name), and creates a board only when neither matches. It adds a list per `board::<Column>` label, creating labels as needed.
+- `place_on_board` rejects a column not in `Board.columns` with `ForgeRejected(400)`; it writes nothing when the issue already carries exactly the target `board::*` label.
+- Merge requests: `Draft:` title prefix (a leading `[Draft]`, `(Draft)` or `Draft:` is stripped on ready). `mergeable` is True for `detailed_merge_status` "mergeable", None while undecided (checking, unchecked, preparing, approvals_syncing, ci_still_running), False otherwise. Pipeline status maps to checks (success passing; failed, canceled failing; skipped none; others pending; an unknown status is `ForgeRejected`). A moved head yields GitLab's 409 as `ForgeRejected(409)`.
+- Pagination follows `X-Next-Page` and raises `ForgeRejected` beyond `forge_http.MAX_PAGES` rather than truncating.
+- The token is resolved per request, so constructing the backend never fails for a missing token.
