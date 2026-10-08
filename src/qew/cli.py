@@ -44,6 +44,7 @@ Mirrors
   qew reject      keep the ledger value; the next push restores the forge
 Setup
   qew init        create the config and the ledger
+  qew ledger      fork the ledger into a new identity
   qew hook        install | remove agent hooks; the events agents call
 
 Help for one command: qew COMMAND --help. Finishing work is `qew complete`, never a forge-side close."""
@@ -51,7 +52,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_mirror")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_mirror", "cmd_ledger")
 
 
 def _plugins() -> list:

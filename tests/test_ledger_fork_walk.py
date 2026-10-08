@@ -17,7 +17,7 @@ from tests.ledger_harness import PROJECT_ROOT, QUOTE, World, git
 
 class LedgerForkWalk(unittest.TestCase):
     def setUp(self) -> None:
-        self.world = World(ledger_vcs="git", remote=True)
+        self.world = World(ledger_vcs="git", remote=True, replication="\n[replication]\nauto_forge_sync = false\nfetch_interval_s = 0\n")
         self.addCleanup(self.world.close)
         self.held = self.world.create("--title", "Held work", "--quote", QUOTE)
         self.done = self.world.create("--title", "Dropped work", "--quote", QUOTE)
@@ -72,7 +72,7 @@ class LedgerForkWalk(unittest.TestCase):
         self.assertEqual(self.fork().returncode, 0)
         before = git(self.world.ledger, "rev-parse", "main")
         git(self.world.ledger, "remote", "set-url", "origin", str(self.fork_remote))
-        result = self.world.run("list", env={"QEW_FETCH_NOW": "1"})
+        result = self.world.run("list")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fork", result.stderr)
         self.assertEqual(git(self.world.ledger, "rev-parse", "main"), before)

@@ -22,7 +22,7 @@ def remote_name(slug: str) -> str:
     return "qew-" + re.sub(r"[^A-Za-z0-9.-]", "-", slug)
 
 
-def _url_problem(url: object) -> Optional[str]:
+def url_problem(url: object) -> Optional[str]:
     if not isinstance(url, str) or not url or re.search(r"[\s\x00-\x1f\x7f]", url):
         return "must be a clone URL or path without whitespace"
     if url.startswith("-") or "::" in url:
@@ -69,7 +69,7 @@ def push_target(config: Config, mirror: Mirror) -> List[str]:
     for label, path, branch, url in wanted:
         if url is None or (label == "code" and config.root == config.ledger_path):
             continue
-        problem = _url_problem(url)
+        problem = url_problem(url)
         outcome = f"failed: {'git_url' if label == 'code' else 'ledger_git_url'} {problem}" if problem else _push_one(path, branch, name, url)
         lines.append(f"repos {slug} {label}: {outcome}")
     return lines

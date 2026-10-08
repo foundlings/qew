@@ -120,6 +120,12 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   the target's mirror files. A target is one-way (`read-only`) when marked `read_only = true` or when a primary is set
   and it is not the primary: pull never imports its content edits, new issues or comments, and only flags a close or
   reopen as a divergence. `list` prints `SLUG primary|two-way|read-only FORGE REPO`.
+- `qew ledger fork --to REMOTE [--primary TARGET]`: push a copy of the ledger to the empty git repository REMOTE under a
+  new identity: `ledger_id` (random) and `forked_from = "<origin id or name>@<commit>"` in `qew-ledger.toml`. Items and
+  their events keep their ids; `mirrors/`, `boards/`, the claim in force on open work (the item is approved again) and
+  unresolved divergences are not carried. `--primary` prints the `[authority] primary` config for the fork's code repo.
+  Ledgers of different identity never merge: a fetch that would bring a fork into its origin (or back) is refused
+  (exit 1, nothing merged). A ledger without `ledger_id` merges only with one without.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
