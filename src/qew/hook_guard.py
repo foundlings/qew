@@ -473,3 +473,24 @@ def _push_revset(arguments: List[str]) -> Optional[str]:
                 return f"({value}) & mutable()"
         position += 1
     return "mutable() & ::(" + " | ".join(selectors or ["@"]) + ")"
+
+
+def qew_pr_merges(command: str) -> List[int]:
+    """Pull request numbers named by `qew pr merge N` simple commands (positive integers only)."""
+    numbers: List[int] = []
+    for words in _simple_commands(command, 0):
+        if _basename(words[0]) != "qew" or words[1:3] != ["pr", "merge"]:
+            continue
+        arguments = words[3:]
+        position = 0
+        while position < len(arguments):
+            argument = arguments[position]
+            if argument == "--target":
+                position += 2
+                continue
+            if not argument.startswith("-"):
+                if argument.isascii() and argument.isdigit() and int(argument) > 0:
+                    numbers.append(int(argument))
+                break
+            position += 1
+    return numbers

@@ -7,8 +7,8 @@ import sys
 from typing import List, Optional, Tuple
 
 from qew import (
-    claude_hook, cmd_items, codex_hook, read_view, cursor_hook, git_hook, hook_guard, ledger_config, ledger_graph,
-    opencode_hook, vcs_check,
+    claude_hook, cmd_items, codex_hook, read_view, cursor_hook, git_hook, hook_guard, hook_merge, ledger_config,
+    ledger_graph, opencode_hook, vcs_check,
 )
 from qew.errors import QewError
 from qew.ledger_event import State
@@ -150,7 +150,8 @@ def _answer(event: str, agent: str, raw: str) -> Tuple[str, int]:
         return _render_context(agent, "SessionStart", _prime(cwd)), 0
     if event == "pre-tool":
         return _pre_tool(agent, command, cwd)
-    return _render_context(agent, "PostToolUse", _push_reminder(command, cwd) if command else None), 0
+    notes = [_push_reminder(command, cwd), hook_merge.reminder(command, cwd)] if command else []
+    return _render_context(agent, "PostToolUse", "\n".join(note for note in notes if note) or None), 0
 
 
 def _payload(raw: str) -> Tuple[Optional[str], Optional[Path]]:

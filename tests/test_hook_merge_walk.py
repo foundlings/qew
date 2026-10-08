@@ -5,7 +5,9 @@ that is not merged or a forge that cannot be read, an automatic completion, and 
 claim without saying so.
 """
 
+import os
 import unittest
+from unittest import mock
 
 from tests.ledger_harness import QUOTE, World  # first: puts src on sys.path
 from qew import cmd_pr, hook_merge, ledger_config
@@ -19,6 +21,9 @@ MIRRORS = '\n[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/o/r"\n'
 
 class MergeHintWalk(unittest.TestCase):
     def setUp(self) -> None:
+        patcher = mock.patch.dict(os.environ, {"QEW_ACTOR": "tester"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.world = World(MIRRORS)
         self.addCleanup(self.world.close)
         self.forge = MemoryForge("git.example")

@@ -40,6 +40,12 @@ They run `qew hook session-start|pre-tool|post-tool --agent NAME`; the agent pay
   Known gaps: wrappers taking a value (`sudo -u x`), `eval`, scripts from files.
 - **post-tool** prints nothing except one line after `git push` or `jj git push` when the ledger
   holds claimed items owned by the current actor without evidence. Read-only.
+  After `qew pr merge N` run by the agent it also prints one line per claimed item recorded for that pull request
+  once the forge reports it merged: `qew complete ITEM` (or `qew evidence ITEM` first when none is recorded), or,
+  for another actor's claim, the `--take-over` form, never a takeover. Decision: a raw `gh pr merge` is refused
+  by pre-tool, so there is no automatic landing; merges that happen anyway (forge UI, auto-merge) are caught by
+  the next `qew` listing, and completion always stays an explicit `qew complete`. Command text that only mentions a
+  merge (quotes, PR 0, a branch name), an open pull request or an unreadable forge prints nothing.
 
 ## Exit codes and output
 
