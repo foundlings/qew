@@ -192,6 +192,12 @@ class PullRequestEditWalk(GitHubWalk):
         self.assertEqual(self.backend.read_pull_request(opened.number), edited)
         self.assertEqual(self.fake.calls("PATCH", f"/pulls/{opened.number}"), [{"body": "- [x] one\r\n- [ ] two\r\n"}])
 
+    def test_a_login_the_forge_will_not_assign_leaves_the_pull_request_open_and_unassigned(self) -> None:
+        """Prevents an orphaned pull request: it exists on the forge, so the caller must be able to record it."""
+        self.fake.fail_next(422, "/issues/")
+        opened = self.open_with(assignee="not-a-login")
+        self.assertEqual((opened.state, opened.assignee), ("open", ""))
+
     def test_a_null_pull_body_reads_empty_and_a_mistyped_one_is_rejected(self) -> None:
         """A fabricated empty body would hide an open checklist from the merge gate."""
         opened = self.open_with()
