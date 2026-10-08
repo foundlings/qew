@@ -32,7 +32,6 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
 
     init = commands.add_parser("init", help="create .qew/config.toml and the ledger")
-    init.add_argument("--prefix", help="item id prefix, upper-case letters or digits")
     init.add_argument("--ledger", help="path to the ledger checkout, relative to the repo root")
 
     create = commands.add_parser("create", help="file an item (a draft unless --quote releases it)")
@@ -146,7 +145,7 @@ def _run(arguments: argparse.Namespace) -> None:
         if plugin.run(arguments):
             return
     if command == "init":
-        print(cmd_items.init(arguments.prefix, arguments.ledger))
+        print(cmd_items.init(arguments.ledger))
         return
     config = ledger_config.load()
     if command == "create":

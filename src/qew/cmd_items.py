@@ -9,7 +9,8 @@ from qew import ledger_config, ledger_graph
 from qew.errors import QewError
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import State
-from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header, valid_id
+from qew.ledger_ids import valid_id
+from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
 from qew.ledger_store import Ledger, Snapshot, actor, now, open_ledger
 from qew.requester import require_quote
 
@@ -18,17 +19,14 @@ def ledger_for(config: Config) -> Ledger:
     return open_ledger(config.ledger_path, config.prefix)
 
 
-def init(prefix: Optional[str], ledger: Optional[str]) -> str:
+def init(ledger: Optional[str]) -> str:
     root = Path.cwd().resolve()
     config_path = root / CONFIG
     created = []
     if not config_path.exists():
-        chosen = (prefix or root.name[:3]).upper()
-        if not chosen.isalnum():
-            raise QewError("--prefix must be letters or digits", 2)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config_path.write_text(
-            f'[ledger]\npath = "{ledger or "../" + root.name + "-ledger"}"\nprefix = "{chosen}"\n',
+            f'[ledger]\npath = "{ledger or "../" + root.name + "-ledger"}"\n',
             encoding="utf-8",
         )
         created.append(str(CONFIG))
@@ -37,7 +35,7 @@ def init(prefix: Optional[str], ledger: Optional[str]) -> str:
     if not marker.exists():
         config.ledger_path.mkdir(parents=True, exist_ok=True)
         marker.write_text(
-            f'name = "{config.ledger_path.name}"\nprefix = "{config.prefix}"\nschema_version = 1\n',
+            f'name = "{config.ledger_path.name}"\nschema_version = 1\n# id_mode = "time"  # or "letters" / "counter", or a table: [id_mode] epic = "letters"\n',
             encoding="utf-8",
         )
         created.append(str(marker))
@@ -53,9 +51,18 @@ def build_item(ledger: Ledger, spec: dict, resolved: Dict[str, str], known: List
         return ledger.resolve(value, known)
 
     parent = spec.get("parent") or ""
+    kind = str(spec.get("kind", "issue"))
+    if kind not in ledger.id_modes:
+        raise QewError(f"kind must be epic, issue or task, not `{kind}`", 2)
+    imported = spec.get("id")
+    if imported is not None:
+        if not valid_id(str(imported)):
+            raise QewError(f"`{imported}` is not a valid id", 2)
+        if str(imported).lower() in {k.lower() for k in known}:
+            raise QewError(f"item {imported} already exists", 2)
     header = {
-        "id": ledger.new_id(),
-        "kind": str(spec.get("kind", "issue")),
+        "id": str(imported) if imported is not None else ledger.new_id(kind, known),
+        "kind": kind,
         "title": str(spec.get("title", "")),
         "parent": reference(parent) if parent else "",
         "needs": " ".join(reference(need) for need in spec.get("needs", [])),

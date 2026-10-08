@@ -9,7 +9,7 @@ from qew import ledger_graph
 from qew.errors import QewError
 from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import State, fold, parse_event
-from qew.ledger_item import Item, Kind, check_header_values, parse_item, prefix_of
+from qew.ledger_item import Item, Kind, check_header_values, parse_item
 from qew.ledger_store import Ledger, Snapshot
 
 SCHEMA_VERSION = 1
@@ -21,6 +21,7 @@ def check(ledger: Ledger) -> List[str]:
     problems: List[str] = []
     _check_metadata(ledger, problems)
     items: Dict[str, Item] = {}
+    claimed: Dict[str, str] = {}
     folds = {}
     events = {}
     for path in sorted(ledger.items_dir.glob("*.md")) if ledger.items_dir.is_dir() else []:
@@ -32,8 +33,10 @@ def check(ledger: Ledger) -> List[str]:
             continue
         if item.id != path.stem:
             problems.append(f"{where}: header id {item.id} does not match the file name")
-        if prefix_of(item.id) != ledger.prefix:
-            problems.append(f"{where}: id prefix {prefix_of(item.id)} is not the ledger prefix {ledger.prefix}")
+        if item.id.lower() in claimed:
+            problems.append(f"{where}: duplicate id {item.id} (also in {claimed[item.id.lower()]})")
+            continue
+        claimed[item.id.lower()] = where
         problems.extend(f"{where}: {problem}" for problem in check_header_values(item))
         items[item.id] = item
         events[item.id] = _load_events(ledger, item.id, problems)

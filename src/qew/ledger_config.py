@@ -88,13 +88,16 @@ def _ledger_from_environment(start: Optional[Path]) -> Optional[Path]:
 
 
 def _ledger_prefix(ledger: Path) -> str:
+    """The ledger's optional display prefix; item IDs do not carry it."""
     try:
         data = tomllib.loads((ledger / LEDGER_FILE).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return ""
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         raise QewError(f"{ledger / LEDGER_FILE}: {error}", 1) from None
-    prefix = data.get("prefix")
-    if not isinstance(prefix, str) or not prefix.isalnum() or not prefix.isupper():
-        raise QewError(f"{ledger / LEDGER_FILE}: prefix must be upper-case letters or digits", 1)
+    prefix = data.get("prefix", "")
+    if not isinstance(prefix, str):
+        raise QewError(f"{ledger / LEDGER_FILE}: prefix must be a string", 1)
     return prefix
 
 

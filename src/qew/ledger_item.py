@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Dict, List, Tuple
 
 from qew.errors import QewError
-from qew.ulid import is_ulid
+from qew.ledger_ids import valid_id
 
 MAX_HEADER_BYTES = 8192
 RULE = "---"
@@ -56,15 +56,6 @@ class Item:
         return from_header(header, self.body)
 
 
-def prefix_of(item_id: str) -> str:
-    return item_id.split("-", 1)[0]
-
-
-def valid_id(value: str) -> bool:
-    prefix, _, ulid = value.partition("-")
-    return bool(prefix) and prefix.isalnum() and prefix.isupper() and is_ulid(ulid)
-
-
 def parse_item(text: str, where: str = "item") -> Item:
     """Parse the header only, stopping at the first `---` line within bounded bytes."""
     header: Dict[str, str] = {}
@@ -101,7 +92,7 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
     except ValueError:
         raise QewError(f"{where}: kind must be epic, issue or task, not `{header['kind']}`", 1) from None
     if not valid_id(header["id"]):
-        raise QewError(f"{where}: `{header['id']}` is not a PREFIX-ULID id", 1)
+        raise QewError(f"{where}: `{header['id']}` is not a valid id", 1)
     priority = header.get("priority", str(DEFAULT_PRIORITY)) or str(DEFAULT_PRIORITY)
     if not priority.isdigit():
         raise QewError(f"{where}: priority must be a non-negative integer", 1)

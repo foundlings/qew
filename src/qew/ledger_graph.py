@@ -3,6 +3,7 @@
 from typing import Dict, List, Optional
 
 from qew.ledger_event import State
+from qew.ledger_ids import sort_key
 from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
 
@@ -37,7 +38,7 @@ def blocks(snapshot: Snapshot) -> Dict[str, List[str]]:
 
 
 def ordered(snapshot: Snapshot, ids: List[str]) -> List[str]:
-    return sorted(ids, key=lambda item_id: (snapshot.items[item_id].priority, item_id))
+    return sorted(ids, key=lambda item_id: (snapshot.items[item_id].priority, sort_key(item_id)))
 
 
 def ready(snapshot: Snapshot) -> List[str]:
