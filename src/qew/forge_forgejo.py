@@ -17,6 +17,7 @@ from qew.forge import (
     ForgeRejected,
     IssueSpec,
     PullRequestSpec,
+    RemoteComment,
     RemoteIssue,
     RemotePullRequest,
     Transport,
@@ -68,9 +69,20 @@ def _parse_issue(data: Any) -> RemoteIssue:
         node_id=str(_typed(issue, "id", int, "issue")),
         open=state == "open",
         title=_typed(issue, "title", str, "issue"),
-        body=_typed(issue, "body", str, "issue"),
+        body="" if issue.get("body") is None else _typed(issue, "body", str, "issue"),  # null is an empty body
         labels=names,
         assignee=_parse_assignee(issue),
+        comments=_typed(issue, "comments", int, "issue") if "comments" in issue else 0,
+    )
+
+
+def _parse_comment(data: Any) -> RemoteComment:
+    comment = _object(data, "comment")
+    return RemoteComment(
+        id=str(_typed(comment, "id", int, "comment")),
+        author=_typed(_object(comment.get("user"), "comment.user"), "login", str, "comment.user"),
+        body="" if comment.get("body") is None else _typed(comment, "body", str, "comment"),
+        created=_typed(comment, "created_at", str, "comment"),
     )
 
 
@@ -216,6 +228,18 @@ class Forgejo(Forge):
     def read_issue(self, number: int) -> RemoteIssue:
         data, _ = self._call("GET", f"/issues/{number}")
         return _parse_issue(data)
+
+    def list_issues(self) -> List[RemoteIssue]:
+        # `type=issues` keeps pull requests out; the key check guards a server that ignores it.
+        listed = self._list("/issues", {"type": "issues", "state": "all", "sort": "oldest"})
+        return [_parse_issue(entry) for entry in listed if "pull_request" not in _object(entry, "issue")]
+
+    def list_comments(self, number: int) -> List[RemoteComment]:
+        return [_parse_comment(entry) for entry in self._list(f"/issues/{number}/comments")]
+
+    def create_comment(self, number: int, body: str) -> RemoteComment:
+        data, _ = self._call("POST", f"/issues/{number}/comments", {"body": body})
+        return _parse_comment(data)
 
     def link_dependency(self, number: int, blocked_by: int) -> None:
         existing = self._list(f"/issues/{number}/dependencies")
