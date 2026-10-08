@@ -94,7 +94,8 @@ shape show: author id kind labels priority schema_version state title | blocks b
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete ITEM`: refused unless the item is claimed, every child is completed or closed, and (not for
   epics) an evidence event whose change IDs are all ancestors of the configured target branch exists.
-  An epic needs at least one child.
+  An epic needs at least one child ("no completed work") and is refused with a count of open children.
+  Completing completed work is a quiet no-op (`completed (unchanged)`, no second event).
 - `qew close ITEM --reason not_planned|duplicate|superseded`, `qew reopen ITEM`.
 - `qew release ITEM`: give up a claim (listed under start).
 

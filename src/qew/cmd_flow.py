@@ -71,6 +71,8 @@ def complete(config: Config, reference: str) -> str:
     ledger, snapshot, item_id = _load(config, reference)
     item = snapshot.items[item_id]
     folded = snapshot.folds[item_id]
+    if folded.state == State.COMPLETED:
+        return f"{snapshot.short(item_id)} completed (unchanged)"
     if folded.state != State.CLAIMED:
         raise _refuse(snapshot, item_id, "complete", "a claimed item")
     unmet = ledger_graph.blockers(snapshot, item_id)
@@ -81,10 +83,11 @@ def complete(config: Config, reference: str) -> str:
     open_kids = [k for k in kids if snapshot.folds[k].state not in (State.COMPLETED, State.CLOSED)]
     if open_kids:
         shown = " ".join(snapshot.short(k) for k in open_kids)
-        raise QewError(f"cannot complete {snapshot.short(item_id)}: unfinished children {shown}", 2)
+        count = f"{len(open_kids)} open child{'ren' if len(open_kids) != 1 else ''}"
+        raise QewError(f"cannot complete {snapshot.short(item_id)}: {count}, unfinished children {shown}", 2)
     if item.kind == Kind.EPIC:
         if not kids:
-            raise QewError(f"cannot complete {snapshot.short(item_id)}: an epic with no children has nothing to prove; close it", 2)
+            raise QewError(f"cannot complete {snapshot.short(item_id)}: an epic with no children has no completed work; close it", 2)
     else:
         _require_landed_evidence(config, snapshot, item_id)
     ledger.append_event(item_id, "completed")
