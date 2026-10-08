@@ -120,7 +120,7 @@ class MigrateWalk(unittest.TestCase):
         done = world.run("forge", "migrate", "--to", slug_of(new), "--remove-old", env=ENV)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertNotIn(old.repo_url, config.read_text())
-        self.assertEqual(world.run("mirror", "list").stdout.count("\n"), 0)
+        self.assertEqual(len(world.run("mirror", "list").stdout.strip().splitlines()), 1)
 
 
 if __name__ == "__main__":

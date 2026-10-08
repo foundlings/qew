@@ -212,7 +212,9 @@ def _ledger_prefix(ledger: Path) -> str:
 def is_read_only(config: Config, mirror: Mirror) -> bool:
     """One-way targets: marked `read_only`, or any target but the primary once a primary is set."""
     slug = mirror_slug(mirror)
-    return mirror.read_only or (config.authority != "none" and slug != config.authority)
+    if slug == config.authority:
+        return False
+    return mirror.read_only or config.authority != "none"
 
 
 def validated_mirror(entry: Dict[str, object]) -> Mirror:

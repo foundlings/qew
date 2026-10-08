@@ -126,6 +126,12 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   unresolved divergences are not carried. `--primary` prints the `[authority] primary` config for the fork's code repo.
   Ledgers of different identity never merge: a fetch that would bring a fork into its origin (or back) is refused
   (exit 1, nothing merged). A ledger without `ledger_id` merges only with one without.
+- `qew forge migrate --to TARGET [--remove-old]`: make a configured target the primary forge. It restores the ledger onto
+  the target (the ordinary restore: issues, board; a pull request of another target becomes a `Pull request: URL`
+  comment on the issue), verifies that every selected item has its issue there, and only then switches
+  `[authority] primary` and marks the old primary `read_only = true` (`--remove-old` drops its block) in one atomic config
+  write. Any failure or a missing issue is exit 1 or 3 with the config untouched; a rerun resumes from the mirror files
+  without duplicates. Migrating to the current primary prints `already the primary`. The ledger is locked meanwhile.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
