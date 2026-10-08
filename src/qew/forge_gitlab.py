@@ -5,7 +5,7 @@ and merge requests as the pull-request methods. See docs/specs/forges.md ("GitLa
 """
 
 import re
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
 from urllib.parse import quote, urlencode
 
 from qew import forge_http
@@ -386,6 +386,22 @@ class GitLab(Forge):
             label = _object(raw, "label")
             found.append((_field(label, "name", str), _field(label, "id", int)))
         return found
+
+    def list_repo_labels(self) -> List[str]:
+        return sorted(name for name, _ in self._label_ids())
+
+    def labels_in_use(self) -> Set[str]:
+        used: Set[str] = set()
+        for resource in ("issues", "merge_requests"):
+            for raw in self._pages(f"{self._project}/{resource}", {"state": "all"}):
+                used.update(_field({"label": item}, "label", str) for item in _list(_object(raw, resource).get("labels"), "labels"))
+        return used
+
+    def delete_label(self, name: str) -> None:
+        for label_name, label_id in self._label_ids():
+            if label_name == name:
+                self._call("DELETE", f"{self._project}/labels/{label_id}")
+                return
 
     def _create_label(self, name: str, color: str = _LABEL_COLOR) -> int:
         data, _ = self._call("POST", f"{self._project}/labels",

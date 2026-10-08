@@ -273,7 +273,7 @@ shape prime: additional_context context_bytes schema_version
   read back; a state other than the intended one is exit 3, never success. Written events stay (no rollback).
 
 ## Mirrors
-- `qew sync [--target T] [--item ID] [--full] [--dry-run]`: pull forge-side changes, then push to every `[[mirror]]` target independently. The pull asks only for what changed (conditional pages or `since`; see forges.md, Incremental pull); `--full` ignores the pull cursor and cached pages and re-reads every issue. On a target with a
+- `qew sync [--target T] [--item ID] [--full] [--dry-run] [--prune-labels]`: pull forge-side changes, then push to every `[[mirror]]` target independently. The pull asks only for what changed (conditional pages or `since`; see forges.md, Incremental pull); `--full` ignores the pull cursor and cached pages and re-reads every issue. On a target with a
   board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
   warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
@@ -290,6 +290,11 @@ shape prime: additional_context context_bytes schema_version
   (code repo) and `ledger_git_url` (ledger repo), never derived from `repo`; a target with neither gets one
   `repos SLUG: set git_url ...` report line and no remote. Each target and repo is isolated: `repos SLUG code|ledger:
   failed: WHY` reports an unreachable or rejecting remote without blocking the rest. The forge repositories must exist.
+  `qew sync --prune-labels [--target T] [--dry-run]` does not sync: it deletes, per target, the label definitions with a managed prefix
+  (`qew:` `kind:` `priority:` `status:` `author:`) that no issue or pull request (open or closed) carries and no item's label set wants
+  (`qew:managed` is unwanted in repository mode). It prints `TARGET: deleted label NAME` (`would delete` with `--dry-run`, which reads the
+  forge but deletes nothing) or `TARGET: no unused managed labels`. It refuses a read-only target (exit 2) before any call, and takes neither
+  `--item` nor `--full`.
 - `qew mirror add FORGE REPO [--read-only] [--api URL]`, `qew mirror remove TARGET`, `qew mirror list [--json]`: edit the
   `[[mirror]]` entries of `.qew/config.toml` line by line; comments and every other table stay byte for byte. `add` refuses
   an unknown forge, an invalid URL and a repeated target (exit 2). `remove` refuses the primary forge (exit 2) and keeps

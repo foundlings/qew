@@ -144,3 +144,9 @@ A pull never lists the whole forge when it can avoid it. The fakes bump `updated
 - **Local state**, never committed: `.qew/state/TARGET/cursor.json` (`pulled_at`, `full_at`, `mode`) and
   `.qew/state/TARGET/pages/N.json` (ETag and parsed issues). Both change only after a pull whose requests all succeeded; damaged
   files cost one unconditional full listing. `qew status` shows the last pull, the last complete set and the next pull's mode.
+
+## Label pruning
+`Forge` has three calls for `qew sync --prune-labels`: `list_repo_labels()` (every definition), `labels_in_use()` (names carried by any
+issue or pull request, open or closed; GitHub and Forgejo list pull requests among issues, GitLab reads issues and merge requests) and
+`delete_label(name)` (a missing label is fine). Deleting a label also removes it from whatever carried it, so the command only deletes
+names `labels_in_use()` did not return.

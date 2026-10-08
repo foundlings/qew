@@ -10,7 +10,7 @@ endpoint. Every forge answer is untrusted: a shape that is not what the API docu
 
 import re
 import urllib.parse
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 from qew.forge import (
     LABEL_DESCRIPTION,
@@ -256,6 +256,23 @@ class Forgejo(Forge):
             if absent:
                 raise LabelNotPersisted(absent)
         return ids
+
+    def list_repo_labels(self) -> List[str]:
+        return sorted(_typed(_object(label, "label"), "name", str, "label") for label in self._list("/labels"))
+
+    def labels_in_use(self) -> Set[str]:
+        used: Set[str] = set()
+        for entry in self._list("/issues", {"state": "all"}):  # pull requests are listed among issues
+            for label in _typed(_object(entry, "issue"), "labels", list, "issue"):
+                used.add(_typed(_object(label, "label"), "name", str, "label"))
+        return used
+
+    def delete_label(self, name: str) -> None:
+        for label in self._list("/labels"):
+            label = _object(label, "label")
+            if _typed(label, "name", str, "label") == name:
+                self._call("DELETE", f"/labels/{_typed(label, 'id', int, 'label')}")
+                return
 
     # -- issues --
 

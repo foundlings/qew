@@ -53,6 +53,7 @@ class MemoryForge(Forge):
         self.supports_boards = boards
         self.supports_links = links
         self.comments: Dict[int, List[RemoteComment]] = {}
+        self.defined_labels: set = set()  # label definitions nothing carries
         self.pulls: Dict[int, RemotePullRequest] = {}
         self.pull_specs: Dict[int, PullRequestSpec] = {}
         self.merged: List[Tuple[int, str]] = []
@@ -346,6 +347,18 @@ class MemoryForge(Forge):
     def list_comments(self, number: int):
         self._live("comments")
         return list(self.comments.get(number, []))
+
+    def list_repo_labels(self):
+        self._live("labels")
+        return sorted({*self.defined_labels, *self.labels_in_use()})
+
+    def labels_in_use(self):
+        self._live("labels")
+        return {label for issue in self.issues.values() for label in issue.labels}
+
+    def delete_label(self, name: str) -> None:
+        self._live("delete_label")
+        self.defined_labels.discard(name)
 
     def create_comment(self, number: int, body: str) -> RemoteComment:
         self._live("comment")

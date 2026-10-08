@@ -155,13 +155,13 @@ class FakeGitLab:
         if resource == "issues":
             return self._issues(method, project, path, tail, query, body)
         if resource == "labels":
-            return self._labels(method, project, query, body)
+            return self._labels(method, project, tail, query, body)
         if resource == "milestones":
             return self._milestones(method, project, tail, query, body)
         if resource == "boards":
             return self._boards(method, project, tail, query, body)
         if resource == "merge_requests":
-            return self._merge_requests(method, project, path, tail, body)
+            return self._merge_requests(method, project, path, tail, body, query)
         if resource == "protected_branches" and len(tail) == 1 and method == "GET":
             record = project.protected_branches.get(tail[0])
             return (200, record, {}) if record is not None else (404, {"message": "404 Not found"}, {})
@@ -331,7 +331,15 @@ class FakeGitLab:
 
     # ----- labels and boards -----
 
-    def _labels(self, method, project, query, body):
+    def _labels(self, method, project, tail, query, body):
+        if method == "DELETE":
+            found = next((x for x in project.labels if tail and str(x["id"]) == tail[0]), None)
+            if found is None:
+                return 404, {"message": "404 Label Not Found"}, {}
+            project.labels.remove(found)
+            for issue in project.issues:
+                issue["labels"] = [x for x in issue["labels"] if x != found["name"]]
+            return 204, b"", {}
         if method == "GET":
             return self._page(sorted(project.labels, key=lambda x: x["id"]), query)
         if any(x["name"] == body["name"] for x in project.labels):
@@ -379,7 +387,9 @@ class FakeGitLab:
             "merge_commit_sha": mr.get("merge_sha"),
         }
 
-    def _merge_requests(self, method, project, path, tail, body):
+    def _merge_requests(self, method, project, path, tail, body, query=None):
+        if not tail and method == "GET":
+            return self._page([{"iid": m["iid"], "labels": list(m.get("labels", []))} for m in project.merge_requests], query or {})
         if not tail and method == "POST":
             mr = {"id": self._next_id(), "iid": len(project.merge_requests) + 1, "state": "opened",
                   "title": body["title"], "source_branch": body["source_branch"],

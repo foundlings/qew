@@ -550,6 +550,13 @@ class _Handler(BaseHTTPRequestHandler):
         window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/labels")
         self._send(200, window, link)
 
+    def _delete_label(self, name: str, query: Dict[str, List[str]], body: Any) -> None:
+        if self.fake.label_store.pop(unquote(name), None) is None:
+            return self._send(404, {"message": "Not Found"})
+        for issue in self.fake.issues.values():
+            issue["labels"] = [x for x in issue["labels"] if x != unquote(name)]
+        self._send(204, b"")
+
     def _post_labels(self, query: Dict[str, List[str]], body: Any) -> None:
         if body["name"] in self.fake.label_store:
             return self._send(422, {"message": "already_exists"})
@@ -732,6 +739,7 @@ _ROUTES = (
     (r"/git/refs/heads/(.+)", "ref"),
     (r"/compare/(.+)", "compare"),
     (r"/labels", "labels"),
+    (r"/labels/(.+)", "label"),
     (r"/milestones", "milestones"),
     (r"/milestones/(\d+)", "milestone"),
     (r"/issues", "issues"),

@@ -6,7 +6,7 @@ missing or mistyped field raises `ForgeRejected` rather than becoming a default.
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
 from urllib.parse import quote
 
 from qew.forge import (
@@ -530,6 +530,25 @@ class GitHub(Forge):
         for page in self._wire.pages(f"{self._repo_path}/labels?per_page=100"):
             names.update(_str(_obj(entry, "label"), "name", "label") for entry in _array(page, "label list"))
         return names
+
+    def list_repo_labels(self) -> List[str]:
+        return sorted(self._repo_labels())
+
+    def labels_in_use(self) -> Set[str]:
+        used: Set[str] = set()
+        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):  # pull requests are listed too
+            for entry in _array(page, "issue list"):
+                for label in _array(_obj(entry, "issue list entry").get("labels", []), "labels"):
+                    used.add(_str(_obj(label, "label"), "name", "label"))
+        return used
+
+    def delete_label(self, name: str) -> None:
+        try:
+            self._wire.rest("DELETE", f"{self._repo_path}/labels/{quote(name, safe='')}")
+        except ForgeRejected as error:
+            if error.status != 404:
+                raise
+        self._known_labels.discard(name)
 
     def _ensure_labels(self, wanted: Tuple[str, ...]) -> None:
         """Create the labels the repository lacks (neutral, never touching an existing one) and confirm they exist."""

@@ -91,7 +91,7 @@ Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook
 
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--chains`, `--state`, `--change`, `--vcs`,
-`--reason`, `--where`, `--problem`, `--goal`, `--fix`, `--approach`, `--done-when`, `--edit`, `--draft`, `--discovered-from`, `--no-parent`, `--add-label`, `--remove-label`, `--on`, `--no-commit`, `--landed-on`, `--delivered-by`, `--of`, `--by`, `--note`, `--take-over`, `--lane`, `--workspace`, `--force`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--full` (`qew sync`: re-read the whole forge), `--head`, `--base`, `--ready`, `--claude`, `--codex`,
+`--reason`, `--where`, `--problem`, `--goal`, `--fix`, `--approach`, `--done-when`, `--edit`, `--draft`, `--discovered-from`, `--no-parent`, `--add-label`, `--remove-label`, `--on`, `--no-commit`, `--landed-on`, `--delivered-by`, `--of`, `--by`, `--note`, `--take-over`, `--lane`, `--workspace`, `--force`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--full` (`qew sync`: re-read the whole forge), `--prune-labels` (`qew sync`: delete unused managed labels), `--head`, `--base`, `--ready`, `--claude`, `--codex`,
 `--compact`, `--name`, `--columns`, `--sort`, `--group-by`, `--filter`, `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`, `--read-only`, `--tracks`, `--pr`, `--primary`, `--remove-old`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.

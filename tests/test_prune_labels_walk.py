@@ -99,8 +99,35 @@ class PruneLabelsWalk:
         self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
         wanted = {name for name in self.side.labels() if name.startswith("kind:")}
         self.assertTrue(wanted, item)
-        self.w.run("sync", "--prune-labels", env=self.env)
+        self.assertEqual(self.w.run("sync", "--prune-labels", env=self.env).returncode, 0)
         self.assertTrue(wanted <= self.side.labels())
+
+
+class GitLabBackends(unittest.TestCase):
+    """The same three calls on the backends the command walks do not reach (GitLab, and the pull-request side)."""
+
+    def test_gitlab_lists_uses_and_deletes_labels(self) -> None:
+        """Prevents a GitLab prune deleting a label a merge request or issue carries, or mis-deleting by name."""
+        from qew import forge_http
+        from qew.forge_gitlab import GitLab
+        from qew.ledger_config import Mirror
+        from tests.fake_gitlab import TOKEN, FakeGitLab
+
+        fake = FakeGitLab().start()
+        self.addCleanup(fake.stop)
+        project = fake.project("group/repo")
+        for number, name in enumerate(("author:old", "qew:used", "kind:mr"), start=900):
+            project.labels.append({"id": number, "name": name, "color": "#428BCA", "description": ""})
+        project.issues.append({"id": 1, "iid": 1, "state": "closed", "title": "t", "description": "", "labels": ["qew:used"],
+                               "assignees": [], "notes": []})
+        project.merge_requests.append({"id": 2, "iid": 1, "state": "merged", "labels": ["kind:mr"]})
+        forge = GitLab(Mirror("gitlab", f"{fake.host}/group/repo", None, "", {"api": fake.api}),
+                       forge_http.urllib_transport(timeout=5), {"GITLAB_TOKEN": TOKEN})
+        self.assertEqual(forge.list_repo_labels(), ["author:old", "kind:mr", "qew:used"])
+        self.assertEqual(forge.labels_in_use(), {"qew:used", "kind:mr"})
+        forge.delete_label("author:old")
+        forge.delete_label("author:old")  # already gone: not an error
+        self.assertEqual(forge.list_repo_labels(), ["kind:mr", "qew:used"])
 
 
 class GitHubPrune(PruneLabelsWalk, unittest.TestCase):

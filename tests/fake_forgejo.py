@@ -289,6 +289,16 @@ def _route(
     if method == "GET" and re.match(_BASE + r"/labels$", path):
         items = [{"id": i, "name": n, **{"color": "ededed", "description": "", **fake.label_meta.get(n, {})}} for i, n in fake.labels.items()]
         return _page(fake, items, params)
+    match = re.match(_BASE + r"/labels/(\d+)$", path)
+    if match and method == "DELETE":
+        label_id = int(match.group(1))
+        if label_id not in fake.labels:
+            raise _Reply(404, "label not found")
+        name = fake.labels.pop(label_id)
+        fake.label_meta.pop(name, None)
+        for issue in fake.issues.values():
+            issue["label_ids"] = [i for i in issue["label_ids"] if i != label_id]
+        return ok(None, 204)
     if method == "POST" and re.match(_BASE + r"/labels$", path):
         if any(name == payload["name"] for name in fake.labels.values()):
             raise _Reply(409, "label exists")

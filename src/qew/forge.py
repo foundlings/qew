@@ -7,7 +7,7 @@ ledgers. A capability a forge lacks raises `Unsupported`, never a faked result.
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Callable, List, Mapping, Optional, Tuple
+from typing import Callable, List, Mapping, Optional, Set, Tuple
 
 # (name, GitHub color, description): the seven Status values, in board order.
 STATUS_OPTIONS = (
@@ -299,6 +299,18 @@ class Forge(ABC):
 
     def create_comment(self, number: int, body: str) -> RemoteComment:
         raise Unsupported("create_comment")
+
+    def list_repo_labels(self) -> List[str]:
+        """Names of every label defined in the repository, used or not."""
+        raise Unsupported("list_repo_labels")
+
+    def labels_in_use(self) -> Set[str]:
+        """Label names carried by any issue or pull request of the repository, open or closed."""
+        raise Unsupported("labels_in_use")
+
+    def delete_label(self, name: str) -> None:
+        """Delete the label definition (it is removed from whatever still carries it); a missing label is fine."""
+        raise Unsupported("delete_label")
 
     def link_dependency(self, number: int, blocked_by: int) -> None:
         """Record on the forge that issue `number` is blocked by issue `blocked_by` (idempotent)."""
