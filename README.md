@@ -84,6 +84,8 @@ Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`,
 `--reason`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
 `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
 
+Board and admin flags: `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
+
 ## Hooks
 
 `qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex

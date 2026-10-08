@@ -105,6 +105,7 @@ def _parser() -> argparse.ArgumentParser:
     list_.add_argument("--kind", choices=["epic", "issue", "task"], help="only this kind")
     list_.add_argument("--state", choices=["draft", "approved", "claimed", "completed", "closed"], help="only this state")
     list_.add_argument("--label", help="only items carrying this label")
+    list_.add_argument("--author", help="only items whose first event was recorded by this login (case-insensitive)")
     list_.add_argument("--json", action="store_true", help="machine-readable output")
 
     ready = commands.add_parser("ready", help="approved, unclaimed work with every need completed")
@@ -210,7 +211,7 @@ def _run(arguments: argparse.Namespace) -> None:
     elif command == "show":
         cmd_items.show(config, arguments.item, arguments.json)
     elif command == "list":
-        cmd_items.list_items(config, arguments.kind, arguments.state, arguments.label, arguments.json)
+        cmd_items.list_items(config, arguments.kind, arguments.state, arguments.label, arguments.json, arguments.author)
     elif command == "ready":
         cmd_items.ready(config, arguments.json)
     elif command == "blocked":

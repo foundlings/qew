@@ -5,7 +5,7 @@ import hashlib
 import json
 from typing import Dict, List, Optional, Tuple
 
-from qew import ledger_graph
+from qew import ledger_author, ledger_graph
 from qew.errors import QewError
 from qew.forge import COLUMNS, MARKER_PREFIX, IssueSpec, marker_for
 from qew.ledger_event import State
@@ -101,9 +101,24 @@ def _has_open_pull_request(snapshot: Snapshot, item_id: str) -> bool:
     )
 
 
+class InvalidAuthor(QewError):
+    """The item's author cannot be a label; the item is reported and nothing is sent for it."""
+
+    def __init__(self, item_id: str, detail: str) -> None:
+        super().__init__(f"{item_id}: author label: {detail}", 1)
+        self.item_id = item_id
+        self.detail = detail
+
+
 def labels(snapshot: Snapshot, item: Item) -> Tuple[str, ...]:
     state = snapshot.folds[item.id].state
     managed = (f"qew:{state.value if state else 'unknown'}", f"kind:{item.kind.value}", f"priority:{item.priority}")
+    author = ledger_author.author(snapshot, item.id)
+    if author:
+        problem = ledger_author.label_problem(author)
+        if problem:
+            raise InvalidAuthor(item.id, problem)
+        managed += (f"author:{author}",)
     return tuple(dict.fromkeys((*item.labels, *managed)))
 
 

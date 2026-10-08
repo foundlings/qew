@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from typing import Callable, Dict, List, Optional
 
-from qew import graph_rules, ledger_config, ledger_graph, ledger_labels, untrusted_text
+from qew import graph_rules, ledger_author, ledger_config, ledger_graph, ledger_labels, untrusted_text
 from qew.errors import QewError
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import Event, State, fold, parse_event
@@ -206,7 +206,8 @@ def emit(snapshot: Snapshot, ids: List[str], as_json: bool) -> None:
 
 
 def list_items(
-    config: Config, kind: Optional[str], state: Optional[str], label: Optional[str], as_json: bool
+    config: Config, kind: Optional[str], state: Optional[str], label: Optional[str], as_json: bool,
+    author: Optional[str] = None,
 ) -> None:
     snapshot = ledger_for(config).snapshot()
     ids = ledger_graph.ordered(snapshot, list(snapshot.items))
@@ -216,6 +217,8 @@ def list_items(
         ids = [i for i in ids if (snapshot.folds[i].state or State.DRAFT).value == state]
     if label:
         ids = [i for i in ids if label in snapshot.items[i].labels]
+    if author:
+        ids = [i for i in ids if ledger_author.author(snapshot, i).casefold() == author.casefold()]
     emit(snapshot, ids, as_json)
 
 
@@ -263,6 +266,7 @@ def show(config: Config, reference: str, as_json: bool) -> None:
         "evidence": [event.data for event in folded.evidence],
         "mirrors": [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in mirrors],
         "body": item.body,
+        "author": ledger_author.author(snapshot, item_id) or "unknown",
     }
     if as_json:
         print(json.dumps(data))
@@ -274,6 +278,7 @@ def show(config: Config, reference: str, as_json: bool) -> None:
     if folded.owner:
         print(f"owner: {folded.owner}")
     print(f"priority: {item.priority}")
+    print(f"author: {data['author']}")
     for key, values in (("parent", [item.parent] if item.parent else []), ("needs", item.needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
         if values:
             print(f"{key}: {' '.join(values)}")

@@ -59,6 +59,8 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
             _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board)
             if tick is not None:
                 tick()
+        except sync_plan.InvalidAuthor as error:
+            report.failures.append(f"{snapshot.short(item_id)}: author label: {error.detail}")
         except ForgeRejected as error:
             report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
         except ForgeError as error:
