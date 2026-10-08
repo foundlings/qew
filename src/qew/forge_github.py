@@ -17,6 +17,7 @@ from qew.forge import (
     ForgeUnavailable,
     IssueSpec,
     PullRequestSpec,
+    RemoteComment,
     RemoteIssue,
     RemotePullRequest,
     Transport,
@@ -157,6 +158,17 @@ def parse_issue(data: Any) -> RemoteIssue:
         body=_nullable_str(issue, "body", "issue"),
         labels=labels,
         assignee=assignee,
+        comments=_int(issue, "comments", "issue") if "comments" in issue else 0,
+    )
+
+
+def parse_comment(data: Any) -> RemoteComment:
+    comment = _obj(data, "comment")
+    return RemoteComment(
+        id=str(_int(comment, "id", "comment")),
+        author=_str(_obj(comment.get("user"), "comment.user"), "login", "comment.user"),
+        body=_nullable_str(comment, "body", "comment"),
+        created=_str(comment, "created_at", "comment"),
     )
 
 
@@ -364,6 +376,23 @@ class GitHub(Forge):
 
     def read_issue(self, number: int) -> RemoteIssue:
         return parse_issue(self._wire.rest("GET", f"{self._repo_path}/issues/{number}"))
+
+    def list_issues(self) -> List[RemoteIssue]:
+        found: List[RemoteIssue] = []
+        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&sort=created&direction=asc&per_page=100"):
+            for entry in _array(page, "issue list"):
+                if "pull_request" not in _obj(entry, "issue list entry"):
+                    found.append(parse_issue(entry))
+        return found
+
+    def list_comments(self, number: int) -> List[RemoteComment]:
+        found: List[RemoteComment] = []
+        for page in self._wire.pages(f"{self._repo_path}/issues/{number}/comments?per_page=100"):
+            found.extend(parse_comment(entry) for entry in _array(page, "comment list"))
+        return found
+
+    def create_comment(self, number: int, body: str) -> RemoteComment:
+        return parse_comment(self._wire.rest("POST", f"{self._repo_path}/issues/{number}/comments", {"body": body}))
 
     def link_dependency(self, number: int, blocked_by: int) -> None:
         path = f"{self._repo_path}/issues/{number}/dependencies/blocked_by"
