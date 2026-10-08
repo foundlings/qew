@@ -164,6 +164,7 @@ class Board:
     id: str
     url: str
     columns: Tuple[str, ...]
+    title: str = ""  # the board's current title where the forge has one (a renamed board keeps its number)
     notes: Tuple[str, ...] = ()  # corrections and foreign leftovers `ensure_board` reports
 
 

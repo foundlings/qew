@@ -16,19 +16,21 @@ from qew.ledger_store import Ledger
 
 def register(commands) -> None:
     accept = commands.add_parser("accept", help="apply a forge-side change the ledger had not made")
-    accept.add_argument("divergence", help="divergence event id, or an item with exactly one open divergence")
+    accept.add_argument("divergence", nargs="+", help="divergence event ids, or items with exactly one open divergence")
     accept.add_argument("--reason", default="not_planned", help="close reason when a forge close is accepted")
     accept.add_argument("--completed", action="store_true", help="treat an accepted forge close as completion (runs the completion gate)")
     reject = commands.add_parser("reject", help="keep the ledger value; the next push restores the forge")
-    reject.add_argument("divergence", help="divergence event id, or an item with exactly one open divergence")
+    reject.add_argument("divergence", nargs="+", help="divergence event ids, or items with exactly one open divergence")
 
 
 def run(arguments) -> bool:
     if arguments.command == "accept":
-        print(accept(ledger_config.load(), arguments.divergence, arguments.reason, arguments.completed))
+        config = ledger_config.load()
+        print("\n".join(accept(config, ref, arguments.reason, arguments.completed) for ref in arguments.divergence))
         return True
     if arguments.command == "reject":
-        print(reject(ledger_config.load(), arguments.divergence))
+        config = ledger_config.load()
+        print("\n".join(reject(config, ref) for ref in arguments.divergence))
         return True
     return False
 
@@ -78,7 +80,9 @@ def accept(config: Config, reference: str, reason: str = "not_planned", complete
     return f"{item_id} accepted {field}={forge}"
 
 
-def reject(config: Config, reference: str) -> str:
+def reject(config: Config, reference) -> str:
+    if isinstance(reference, (list, tuple)):
+        return "\n".join(reject(config, ref) for ref in reference)
     ledger = ledger_for(config)
     item_id, divergence = _find(ledger, reference)
     if divergence.type == "claimed":

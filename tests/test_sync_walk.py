@@ -145,6 +145,24 @@ class SyncWalk(unittest.TestCase):
         self.assertEqual((report.created, len(self.a.issues)), (0, 1))
         self.assertEqual(report.adopted, 1)
 
+    def test_a_concurrent_creator_leaves_exactly_one_open_issue_and_the_lowest_number_wins(self) -> None:
+        """Prevents duplicate issues when two checkouts sync one new item at once (seen live): the later one closes itself."""
+        w = self.world
+        item = w.create("--kind", "epic", "--title", "Raced")
+        from qew.forge import IssueSpec, marker_for
+
+        self.a.create_issue(IssueSpec("Raced", marker_for(item) + "\n\nbody", (), True))  # the other checkout's issue, number 1
+        self.a.hide_next_find = True  # our first lookup misses it
+        report = self.sync("forgejo-git.example-o-r")[0]
+        self.assertEqual(report.failures, [])
+        open_with_marker = [i for i in self.a.issues.values() if i.open and marker_for(item) in i.body]
+        self.assertEqual([i.number for i in open_with_marker], [1])
+        duplicate = self.a.issues[2]
+        self.assertFalse(duplicate.open)
+        self.assertNotIn(marker_for(item), duplicate.body)
+        mirror = json.loads(next((w.ledger / "mirrors" / item).glob("*.json")).read_text())
+        self.assertEqual(mirror["number"], 1)
+
     def test_a_rejected_item_is_reported_and_the_rest_still_sync(self) -> None:
         w = self.world
         w.create("--kind", "epic", "--title", "bad one")
@@ -166,7 +184,7 @@ class SyncWalk(unittest.TestCase):
     def test_boards_get_the_column_for_the_state_and_unsupported_boards_are_skipped(self) -> None:
         w = self.world
         (w.code / ".qew" / "config.toml").write_text(
-            (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = "1"')
+            (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = 1')
         )
         item = w.create("--kind", "issue", "--title", "E", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
         self.sync("forgejo-git.example-o-r")

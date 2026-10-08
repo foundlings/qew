@@ -17,7 +17,7 @@ from qew import claim_authority, ledger_config, ledger_store
 from qew.errors import QewError
 from qew.ledger_repo import LedgerRepo
 
-LOCK_WAIT_SECONDS = 15.0
+LOCK_WAIT_SECONDS = 60.0
 CHECKPOINT_EVERY = 25
 # Commands that keep partial work when they fail midway (see module docstring).
 KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land"}
@@ -33,6 +33,8 @@ def verb_for(arguments) -> Optional[str]:
         return arguments.draft_command
     if command == "project" and arguments.project_command == "ensure":
         return "board"
+    if command == "board" and arguments.board_command in ("create", "set"):
+        return "view"
     if command == "forge":
         return "migrate"
     if command == "pr" and arguments.pr_command in ("open", "ready", "merge"):
@@ -137,8 +139,10 @@ def session(arguments) -> Iterator[None]:
             _commit(repo, config, verb, entries, rollback_on_failure=True)
         if replicating and pending:
             _settle_claim(config, repo, pending)
-        elif replicating:
-            _note(config, repo.push(rep.timeout_s))
+        push_after = replicating and not pending
+    if push_after:
+        # Outside the write lock: a slow remote must not queue every other writer behind this one.
+        _note(config, repo.push(rep.timeout_s))
     if entries and verb != "board":
         _after_write(config)
 

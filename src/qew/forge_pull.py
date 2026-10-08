@@ -111,6 +111,8 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
                issue: Optional[RemoteIssue]) -> None:
     record = _record(ledger, item_id, target.slug)
     seen = record.get("seen")
+    if seen is not None:  # baselines written before a prefix became managed may still hold such labels
+        seen = {**seen, "labels": sync_plan.user_labels(seen.get("labels", []))}
     item = snapshot.items[item_id]
     if issue is None:
         _diverge(ledger, snapshot, target, report, item_id, record["number"], "exists", "missing", "present")

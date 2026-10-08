@@ -21,12 +21,14 @@ shape row: id kind labels priority state title | needs owner parent pr schema_ve
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent pr root text_findings tracks
 shape edge: item schema_version | needs parent
-shape show: id kind labels priority schema_version state title | blocks body children evidence links mirrors needs owner parent pr text_findings tracks
+shape show: author id kind labels priority schema_version state title | blocks body children evidence links mirrors needs owner parent pr text_findings tracks
 ```
 
 ## Setup
 - `qew --version`: print `qew X.Y.Z` (the installed package version); needs no repository, ledger or network.
-- `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml`.
+- `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml` once, at the repository
+  root (nearest `.git` or `.jj`; outside one, exit 2), atomically and never through a symlink (exit 2). Prints
+  `created PATH` lines plus the trust guidance; a rerun prints `already initialized` and changes nothing.
 - `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: wire agents (none = all four; output order claude, codex, cursor, opencode, git). `--git` installs the tracked `.githooks/pre-push` and sets `core.hooksPath`; it is never part of the default.
 - `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: remove exactly Qew's entries.
 - `qew hook session-start --agent NAME`, `qew hook pre-tool --agent NAME`, `qew hook post-tool --agent NAME`:
@@ -57,25 +59,39 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 - `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
-- `qew check`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
-  evidence, malformed mirrors. Writes nothing; exit 1 on any problem.
+- `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
+  evidence, malformed mirrors, text findings, contradictions (claimed epic, completed item with open needs,
+  open child of a completed epic), reserved labels. Graph invariants, each named with its file and counted on a final
+  `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history or mirrors
+  of no item (orphans); a child whose `area:` labels share none with its parent's (cross_epic); a needs chain longer
+  than 20 edges, reported at its deepest item (depth); open work that needs a closed item (closed_needs). Writes nothing;
+  exit 1 on any problem. `--json` prints
+  `schema_version`, `valid`, `cycles` (each once, rotated to the smallest id, closed on it), `contradictions`,
+  `text_findings`, `problems`.
+
+- `qew inbox [--login L] [--count] [--json]`: `waiting` (drafts whose author is L) and `assigned` (items L has
+  claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
+  that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
 
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
-  [--body-file F] [--quote Q] [--from-file F]`: a draft unless `--quote` carries a human's words
+  [--body-file F | --edit] [--quote Q] [--from-file F]`: a draft unless `--quote` carries a human's words
   (`"Name: 'their words'"`), which files it approved. `--from-file` takes a JSON object or array (or `-`
   for stdin); items may carry `id` (imports keep it), `created`, `ref`, and `@ref` entries in `needs`/`parent`.
   `--from-file` and `--body-file` refuse a symlink (exit 2). `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
-- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...]
-  [--priority N] [--body TEXT] [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
+- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N]
+  [--body TEXT | --edit] [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
   need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
   `--closed`. Several items may share parent, needs, labels or priority; `--title` and `--body` take one item.
-  `qew create` applies the same edge rules before writing.
+  `qew create` applies the same edge rules before writing. No change prints `unchanged` and writes nothing.
+  `--edit` runs `$VISUAL`, else `$EDITOR` (split, never via a shell) on an empty temp file in a private
+  directory, removed on every path; unset, blank, unparseable, a non-zero exit or an empty result refuse with
+  exit 2. `--body-file` refuses a symlink and an empty file.
 - `qew start ITEM`: claim approved work whose needs are completed. `qew release ITEM` gives it up.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete ITEM`: refused unless the item is claimed, every child is completed or closed, and (not for
@@ -132,6 +148,26 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   `[authority] primary` and marks the old primary `read_only = true` (`--remove-old` drops its block) in one atomic config
   write. Any failure or a missing issue is exit 1 or 3 with the config untouched; a rerun resumes from the mirror files
   without duplicates. Migrating to the current primary prints `already the primary`. The ledger is locked meanwhile.
+- `qew board [--json] [--compact] [--sort KEY[:desc]] [--group-by KEY] [--filter TERMS]`: the offline kanban, derived from the ledger alone (no forge, no network). Columns
+  are the seven statuses of `sync_plan.column`, stacked top to bottom (`Draft (2)` then one card line per card:
+  short id, `[pN]`, title, `@owner`, `#label`), cards by priority then id. Titles are made safe (hidden characters
+  withhold the title); lines are cut to the terminal width (`COLUMNS`); color only on a TTY without `NO_COLOR`.
+  `--json` prints `{"version":1,"board":NAME,"groups":[{"name","count","cards":[...]}]}` (card fields: id, short,
+  title, status, state, kind, priority, owner, labels, epic, parent, created, updated). `--compact` prints a
+  `# Column N` line per column then `SHORTID pN OWNER|- TITLE` (title cut to 40 characters).
+  `--sort` is `priority` (default), `updated` (newest event), `created` or `title`, optionally `:desc`; ties by id.
+  `--group-by` is `column` (default), `owner`, `label`, `epic` or `parent`: sections replace the columns, each card
+  appears under every label it carries and under `(none)` when it has no value for the key. `--filter` takes
+  `label:X kind:X state:X priority:N owner:X epic:ID parent:ID status:X` (spaces and, commas or); an unknown key or a
+  malformed term exits 2 naming the valid ones.
+- `qew board --name NAME`: use the named board file; bare `qew board` uses the file named `default` when there is
+  one. A board file's columns, sort, group and filter are the defaults; a flag replaces the one it names for that run.
+- `qew board create NAME [--columns A,B] [--sort K] [--group-by K] [--filter T]`: write `views/NAME.json` in the
+  ledger (one file per board, so branches merge). NAME is lowercase letters, digits and dashes; an existing name,
+  an unknown or repeated column or an invalid sort/group/filter exits 2 and writes nothing.
+- `qew board list`: one line per board file. `qew board set NAME [same options]`: change that file's defaults.
+  `qew check` fails a board file whose name differs from its file name or whose columns are unknown or repeated.
+- `qew board columns`: one `Column N` line per column.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused

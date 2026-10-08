@@ -60,6 +60,18 @@ class StatusWalk(unittest.TestCase):
         self.assertIn("remote=offline", text)
         self.assertIn("unpushed=1", text)
 
+    def test_many_divergences_print_a_bounded_summary_and_json_stays_complete(self) -> None:
+        """Prevents 171 divergence lines costing an agent its context (seen live): text is capped, --json is complete."""
+        item = self.w.create("--kind", "issue", "--title", "Noisy")
+        for n in range(25):
+            (self.w.ledger / "events" / item / f"ZZZZZZ{n:03d}.json").write_text(json.dumps(
+                {"type": "forge_divergence", "at": "2026-01-01T00:00:00Z", "actor": "x", "target": "t", "field": "labels",
+                 "forge": f"v{n}", "ledger": "v"}))
+        text = self.status()
+        self.assertLessEqual(len(text.strip().splitlines()), 15)
+        self.assertIn("15 more", text)
+        self.assertEqual(len(json.loads(self.status("--json"))["divergences"]), 25)
+
     def test_the_default_output_is_short(self) -> None:
         """Prevents status costing agent tokens: three lines for one target."""
         self.assertLessEqual(len(self.status().strip().splitlines()), 4)

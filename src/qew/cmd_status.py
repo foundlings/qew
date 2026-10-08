@@ -9,6 +9,8 @@ from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.ledger_config import Config
 from qew.ledger_repo import LedgerRepo
 
+SHOWN_DIVERGENCES = 10
+
 
 def register(commands) -> None:
     status = commands.add_parser("status", help="replication state: uncommitted, unpushed, pending per target")
@@ -79,6 +81,10 @@ def render(data: dict) -> str:
     for target in data["targets"]:
         lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}")
     lines.append(f"divergences={len(data['divergences'])}")
-    for d in data["divergences"]:
+    shown = data["divergences"][:SHOWN_DIVERGENCES]
+    for d in shown:
         lines.append(f"divergence {d['id']} {d['item']} {d['field']} forge={d['forge']} ledger={d['ledger']}")
+    hidden = len(data["divergences"]) - len(shown)
+    if hidden > 0:
+        lines.append(f"... {hidden} more (qew status --json lists all)")
     return "\n".join(lines)

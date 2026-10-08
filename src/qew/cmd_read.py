@@ -4,7 +4,7 @@ import argparse
 import sys
 from typing import List, Optional
 
-from qew import blocked_chains, graph_render, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import blocked_chains, ledger_author, graph_render, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
@@ -166,6 +166,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     mirrors = [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in ledger.load_mirrors(item_id)]
     evidence = [event.data for event in folded.evidence]
     data = read_view.row_data(snapshot, item_id)
+    data["author"] = ledger_author.author(snapshot, item_id) or "unknown"
     links = read_view.link_urls(snapshot, item_id)
     for key, value in (("links", links), ("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body)):
         if value:
@@ -182,6 +183,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     print(f"priority: {item.priority}")
     for link in links:
         print(" ".join([f"{link['key']}: {link['item']}", *link["urls"]]))
+    print(f"author: {data['author']}")
     for key, values in (("parent", [item.parent] if item.parent else []), ("needs", item.needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
         if values:
             print(f"{key}: {' '.join(values)}")
