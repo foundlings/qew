@@ -39,7 +39,7 @@ They run `qew hook session-start|pre-tool|post-tool --agent NAME`; the agent pay
   paths through `curl`, `wget` or httpie (`http`, `https`, `xh`). Reads stay allowed.
   Known gaps: wrappers taking a value (`sudo -u x`), `eval`, scripts from files.
 - **post-tool** prints nothing except one line after `git push` or `jj git push` when the ledger
-  holds claimed items owned by the current actor without evidence. Read-only.
+  holds claimed items owned by the current actor without evidence (one bounded line; another actor's claims are ignored). Read-only.
   After `qew pr merge N` run by the agent it also prints one line per claimed item recorded for that pull request
   once the forge reports it merged: `qew complete ITEM` (or `qew evidence ITEM` first when none is recorded), or,
   for another actor's claim, the `--take-over` form, never a takeover. Decision: a raw `gh pr merge` is refused
@@ -186,3 +186,6 @@ every unrelated entry; `remove` deletes exactly Qew's entries.
   (`hook_command.guarded`). A missing qew skips with a one-line warning (fail open); `exec` passes qew's own
   status through, so a real refusal (exit 2 / deny JSON) still blocks (fail closed).
 - Install migrates the earlier exec-form and unguarded entries; remove deletes them too.
+- Decision: the exec-form entry (a `command` plus `args`, no shell) is rejected. Older agent versions mishandle it, and a
+  bare missing `qew` would exit 2 and block every shell call; the guarded single string fails open when qew is absent
+  and still passes a real refusal through.
