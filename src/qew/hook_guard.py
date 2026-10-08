@@ -12,6 +12,7 @@ and the obvious indirect forms; it is a guard rail, not a sandbox.
 """
 
 from dataclasses import dataclass
+import os
 import re
 import shlex
 from typing import Dict, FrozenSet, List, Mapping, Optional, Tuple
@@ -144,7 +145,24 @@ _HTTP_METHOD = re.compile(r"[A-Z]{3,}")
 _HTTPIE_HOST = re.compile(r"(https?://)?[\w.-]+(:\d+)?(/.*)?")
 
 
+OVERRIDE = "QEW_ALLOW_FORGE_BYPASS"
+_OVERRIDE_WORD = f"{OVERRIDE}=1"
+
+
+def _overridden(segment: List[str]) -> bool:
+    """The deliberate, greppable exception: the override as a leading assignment of this very command."""
+    for word in segment:
+        if word == _OVERRIDE_WORD:
+            return True
+        if not _ENVIRONMENT.match(word):
+            return False
+    return False
+
+
 def refusals(command: str) -> List[Refusal]:
+    """Refusals for a shell command; none when the hook environment sets the override to 1."""
+    if os.environ.get(OVERRIDE) == "1":
+        return []
     found: List[Refusal] = []
     for words in _simple_commands(command, 0):
         found.extend(_classify(words))
@@ -181,6 +199,8 @@ def _segments(command: str) -> List[List[str]]:
 def _simple_commands(command: str, depth: int) -> List[List[str]]:
     commands: List[List[str]] = []
     for segment in _segments(command):
+        if _overridden(segment):
+            continue
         words = _strip_prefix(segment)
         if not words:
             continue
