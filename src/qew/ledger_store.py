@@ -232,6 +232,41 @@ class Ledger:
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_local(path, json.dumps(value, sort_keys=True, indent=2) + "\n")
 
+    def intent_path(self, target: str) -> Path:
+        return self.path / ".qew" / "state" / target / "creating.json"
+
+    def creating_intents(self, target: str) -> dict:
+        """Items whose forge issue this machine started creating and has not yet recorded: {item id: ISO time}.
+
+        Local, never committed; a damaged file reads as empty (the cost is one cheap-path create).
+        """
+        path = self.intent_path(target)
+        if not path.is_file():
+            return {}
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def record_creating(self, target: str, item_id: str) -> None:
+        """Write the intent before the create is sent: a crash after the forge applied it leaves this behind."""
+        intents = self.creating_intents(target)
+        intents.setdefault(item_id, now())
+        path = self.intent_path(target)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_local(path, json.dumps(intents, sort_keys=True, indent=2) + "\n")
+
+    def clear_creating(self, target: str, item_id: str) -> None:
+        intents = self.creating_intents(target)
+        if intents.pop(item_id, None) is None:
+            return
+        path = self.intent_path(target)
+        if intents:
+            _write_local(path, json.dumps(intents, sort_keys=True, indent=2) + "\n")
+        else:
+            path.unlink(missing_ok=True)
+
     def layout_path(self, target: str) -> Path:
         return self.path / ".qew" / "state" / target / "board-layout.json"
 

@@ -250,6 +250,15 @@ New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence
   `QEW_TRACE=1` prints every phase and HTTP call with its wall time on stderr (a worker's stderr is `.qew/sync.log`).
   After a failed pass, or with an empty queue, the worker syncs the whole target (`qew sync`, `qew sync --full`);
   a human-filed issue is imported and gets its card (Draft: it is not approved) on that full pull.
+  **Crash orphans.** Before it creates a forge issue the sync records the item in `.qew/state/TARGET/creating.json`
+  (local, never committed) and clears it once the mirror is written. A create the forge applied but whose mirror was
+  never recorded leaves that intent behind, and the next sync of the item then looks through ALL issues for its marker
+  before it creates anything (so an orphan pushed out of the newest 100 is adopted, not duplicated). Pull then treats
+  the mirror as the authority: an open issue carrying an item's marker that is not the mirrored issue closes (marker
+  rewritten to `qew-duplicate`), at once when its number is higher or the item is finished, and when it is LOWER only
+  once the mirror's `synced_at` is more than 10 minutes old (two checkouts that created twins at the same moment would
+  otherwise each close the other's, before the ledger merge picks one mirror). An item with no mirror adopts its
+  lowest-numbered open marker issue on a complete listing and closes the rest.
 - Write verbs answer in ONE compact line and print nothing about syncing: `ID claimed by OWNER: TITLE`,
   `ID completed; ready: ID...` (the work the completion released), `ID approved`. The backlog is in `qew status`.
 - The worker takes a lock in the ledger checkout's `.qew/` cache dir (VCS-ignored), writes `.qew/sync.log`
