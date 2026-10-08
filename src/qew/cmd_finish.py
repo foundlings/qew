@@ -166,6 +166,8 @@ def complete(config: Config, reference: str, reason: Optional[str] = None, take_
         raise QewError("--take-over needs --reason TEXT: say why the claim is finished by you", 2)
     ledger, snapshot, item_id = _load(config, reference)
     item = snapshot.items[item_id]
+    if snapshot.folds[item_id].state == State.DRAFT and item.kind == Kind.EPIC:
+        raise QewError(f"cannot complete {item_id}: it is a draft plan; release it with qew draft approve {item_id} --tree --quote Q first", 2)
     previous = _holder_check(snapshot, item_id, take_over)
     if previous == "completed":  # a repeat is a quiet no-op: no second event
         return {"line": f"{item_id} completed (unchanged)", "id": item_id, "state": "unchanged"}

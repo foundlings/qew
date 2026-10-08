@@ -56,10 +56,10 @@ class TargetedSyncWalk(unittest.TestCase):
         child = w.create("--title", "child", "--parent", epic, "--quote", QUOTE)
         self.start_synced(epic, child)
         self.assertEqual(self.column_of(epic), "Backlog")
-        w.run("start", child)
+        w.run("start", child)  # an epic is never claimed here: claiming it would claim its children too
         self.sync(child)
         self.assertEqual((self.column_of(child), self.column_of(epic)), ("In progress", "In progress"))
-        w.run("release", child)
+        w.run("release", child, "--reason", "pause")
         self.sync(child)
         self.assertEqual(self.column_of(epic), "Backlog")
 

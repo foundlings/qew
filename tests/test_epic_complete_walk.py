@@ -21,7 +21,7 @@ class EpicCompleteWalk(unittest.TestCase):
 
     def finish(self, item: str) -> None:
         w = self.world
-        self.assertEqual(w.run("start", item).returncode, 0)
+        self.assertIn(w.run("start", item).returncode, (0, 5))  # 5: the epic claim already claimed it
         w.run("evidence", item, "--change", w.commit())
         self.assertEqual(w.run("complete", item).returncode, 0)
 
@@ -64,7 +64,7 @@ class EpicCompleteWalk(unittest.TestCase):
     def test_an_epic_that_was_closed_instead_of_completed_is_not_completable(self) -> None:
         """Closing and completing are different facts; the gate must not blur them."""
         self.assertEqual(self.world.run("close", self.child, "--reason", "not_planned").returncode, 0)
-        self.assertEqual(self.world.run("close", self.epic, "--reason", "superseded").returncode, 0)
+        self.assertEqual(self.world.run("close", self.epic, "--reason", "not_planned").returncode, 0)
         result = self.world.run("complete", self.epic)
         self.assertEqual(result.returncode, 2)
         self.assertIn("closed", result.stderr)
