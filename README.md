@@ -59,7 +59,7 @@ target = "main"                 # branch evidence must be an ancestor of
 forge = "github"                # github | forgejo (or gitea) | gitlab
 repo = "https://github.com/acme/widgets"
 project = 7                     # board where the forge has them
-select = "label:area:erp"       # optional: label:X kind:X state:X priority:N, space-separated = and
+select = "label:area:erp"       # optional: label:X kind:X state:X priority:N; spaces = and, commas = or
 ```
 
 Tokens come from `GITHUB_TOKEN`, `FORGEJO_TOKEN`/`GITEA_TOKEN`, `GITLAB_TOKEN` or the mirror's `token_env`.

@@ -33,7 +33,8 @@ def selected(snapshot: Snapshot, expression: str) -> List[str]:
             "state": lambda v: state is not None and state.value == v,
             "priority": lambda v: str(item.priority) == v,
         }
-        return all(checks[key](value) for key, value in terms)
+        # `kind:epic,issue` matches either; separate terms must all match.
+        return all(any(checks[key](option) for option in value.split(",")) for key, value in terms)
 
     return [item_id for item_id in snapshot.items if matches(item_id)]
 
