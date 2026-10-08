@@ -214,7 +214,10 @@ shape prime: additional_context context_bytes schema_version
   exit 3 unless the caller holds an epic above it; the holder of an epic completes its descendants the same way, offline
   too (completion needs evidence only).
 - `qew release ITEM --reason TEXT [--force] [--lane ID] [--json]`: give up a claim; another actor's claim (or another
-  lane's) needs `--force`, recorded as `forced` with the `previous_owner`. Unclaimed work is exit 2.
+  lane's) needs `--force`, recorded as `forced` with the `previous_owner`. A lane-scoped claim is released by naming
+  its lane (`--lane`); without it the release needs `--force` too. The event records `lane` (the releasing lane) and
+  `previous_lane`; the release is re-read and a claim still in force is exit 3. `--json` adds `by` and `lane`.
+  Unclaimed or closed work is exit 2.
 - `qew comment ITEM (--body TEXT | --body-file F)`: append a `commented` event (text kept verbatim, `-` reads
   stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
   Comment text is data and never a state change; unmarked code-shaped text warns on stderr.

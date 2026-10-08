@@ -200,10 +200,16 @@ def release(config: Config, reference: str, reason: str, force: bool = False, la
     if folded.state != State.CLAIMED:
         raise QewError(f"cannot release {item_id}: it is not claimed", 2)
     me = actor()
-    overrides = folded.owner != me or (lane is not None and lane != _lane_of(folded))
+    held_lane = _lane_of(folded)
+    overrides = folded.owner != me or lane != held_lane  # a lane-scoped claim is released by naming its lane
     if overrides and not force:
-        raise QewError(f"{item_id} is claimed by {holding(snapshot, item_id)}; to release it anyway use --force", 3)
+        hint = f"; name its lane with --lane {held_lane} or use --force" if held_lane and lane is None and folded.owner == me else "; to release it anyway use --force"
+        raise QewError(f"{item_id} is claimed by {holding(snapshot, item_id)}{hint}", 3)
     data: Dict[str, object] = {"reason": reason.strip(), "previous_owner": folded.owner}
+    if lane is not None:
+        data["lane"] = lane
+    if held_lane:
+        data["previous_lane"] = held_lane
     if overrides:
         data["forced"] = True
     released = [item_id]
@@ -213,5 +219,8 @@ def release(config: Config, reference: str, reason: str, force: bool = False, la
     for released_id in released:
         claim_authority.release(config, ledger, released_id)
         ledger.append_event(released_id, "released", **data)
+    after = ledger.snapshot().folds[item_id]
+    if after.state == State.CLAIMED and after.owner == folded.owner and _lane_of(after) == held_lane:
+        raise QewError(f"release of {item_id} did not take effect: it is still claimed by {holding(ledger.snapshot(), item_id)}", 3)
     return {"line": f"{item_id} released", "id": item_id, "state": "released", "previous_owner": folded.owner,
-            "released": released}
+            "released": released, "by": me, "lane": held_lane}
