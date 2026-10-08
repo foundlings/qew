@@ -20,7 +20,7 @@ Shapes (`required | optional`; a test fails when a command emits a key listed no
 shape row: id kind labels priority state title | needs owner parent schema_version text_findings
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | needs owner parent text_findings
-shape edge: item needs schema_version
+shape edge: item schema_version | needs parent
 shape show: id kind labels priority schema_version state title | blocks body children evidence mirrors needs owner parent text_findings
 ```
 
@@ -34,7 +34,9 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 ## Read
 - `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
 - `qew list [--kind K] [--state S] [--label L] [--json]`, `qew ready [--json]`, `qew blocked [--json]`,
-  `qew graph [--json]`: readiness is derived from files; no network. `ready` lists by priority, then the
+  `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
+  (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
+  characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network. `ready` lists by priority, then the
   longest chain it unblocks, then direct dependents, then id.
 - `qew check`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors. Writes nothing; exit 1 on any problem.

@@ -1,9 +1,10 @@
 """The read commands over items: show, list, ready, blocked, graph."""
 
 import argparse
-from typing import List
+from typing import List, Optional
 
-from qew import untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import graph_render, untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
 from qew.ledger_store import Snapshot
@@ -24,8 +25,9 @@ def register(commands) -> None:
     ready.add_argument("--json", action="store_true", help="machine-readable output")
     blocked = commands.add_parser("blocked", help="open work with unmet needs")
     blocked.add_argument("--json", action="store_true", help="machine-readable output")
-    graph = commands.add_parser("graph", help="print dependency edges")
+    graph = commands.add_parser("graph", help="print dependency and parent edges as text, dot or mermaid")
     graph.add_argument("--json", action="store_true", help="machine-readable output")
+    graph.add_argument("--format", choices=["text", "dot", "mermaid"], help="drawing syntax (default text); not with --json")
 
 
 def run(arguments: argparse.Namespace) -> bool:
@@ -43,7 +45,7 @@ def run(arguments: argparse.Namespace) -> bool:
     elif command == "blocked":
         blocked(snapshot, arguments.json)
     else:
-        graph(snapshot, arguments.json)
+        graph(snapshot, arguments.json, arguments.format)
     return True
 
 
@@ -89,14 +91,14 @@ def blocked(snapshot: Snapshot, as_json: bool) -> None:
         print(f"{read_view.text_row(snapshot, item_id)} <- {' '.join(ledger_graph.blockers(snapshot, item_id))}")
 
 
-def graph(snapshot: Snapshot, as_json: bool) -> None:
-    edges = sorted((item.id, need) for item in snapshot.items.values() for need in item.needs)
+def graph(snapshot: Snapshot, as_json: bool, form: Optional[str] = None) -> None:
+    if as_json and form:
+        raise QewError("ask for --json and --format separately, not both", 2)
     if as_json:
-        for line in readfmt.ndjson({"item": a, "needs": b} for a, b in edges):
+        for line in readfmt.ndjson({"item": a, kind: b} for a, kind, b in graph_render.edges(snapshot)):
             print(line)
         return
-    for item_id, need in edges:
-        print(f"{item_id} -> {need}")
+    print(graph_render.RENDERERS[form or "text"](snapshot), end="")
 
 
 def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> None:

@@ -1,6 +1,6 @@
 """Walks of `qew graph --format text|dot|mermaid`.
 
-Adversary: an item title that carries quotes, backslashes, markup or a carriage return breaking
+Adversary: an item title that carries quotes, backslashes or markup breaking
 out of the dot or Mermaid syntax (injecting nodes, edges or directives), an order that changes
 between runs, and a dangling need crashing the renderer.
 """
@@ -79,20 +79,18 @@ class GraphFormatWalk(unittest.TestCase):
         self.assertEqual(self.graph("--format", "dot"), DOT)
         self.assertEqual(self.graph("--format", "mermaid"), MERMAID)
         self.assertEqual(self.graph("--format", "dot"), DOT, "a second run is identical")
-        edges = json.loads(self.graph("--json"))
-        self.assertIn({"item": "D", "needs": "B"}, edges)
-        self.assertIn({"item": "B", "parent": "E"}, edges)
+        edges = [json.loads(line) for line in self.graph("--json").splitlines()]
+        self.assertIn({"item": "D", "needs": "B", "schema_version": 1}, edges)
+        self.assertIn({"item": "B", "parent": "E", "schema_version": 1}, edges)
 
     def test_hostile_titles_cannot_break_out_of_dot_or_mermaid(self) -> None:
-        """Quotes, backslashes, markup and a carriage return stay inside one quoted label."""
-        diamond(self.world, 'say "hi" \\ <b>x</b> ]; evil --> A\rrest')
+        """Quotes, backslashes and markup stay inside one quoted label."""
+        diamond(self.world, 'say "hi" \\ <b>x</b> ]; evil --> A')
         dot = self.graph("--format", "dot")
-        self.assertIn('"A" [label="A: say \\"hi\\" \\\\ <b>x</b> ]; evil --> A\\nrest"];', dot)
-        self.assertNotIn("\r", dot)
+        self.assertIn('"A" [label="A: say \\"hi\\" \\\\ <b>x</b> ]; evil --> A"];', dot)
         self.assertEqual(len(dot.splitlines()), len(DOT.splitlines()))
         mermaid = self.graph("--format", "mermaid")
-        self.assertIn('n0["A: say #quot;hi#quot; \\ #lt;b#gt;x#lt;/b#gt; ]; evil --#gt; A<br/>rest"]', mermaid)
-        self.assertNotIn("\r", mermaid)
+        self.assertIn('n0["A: say #quot;hi#quot; \\ #lt;b#gt;x#lt;/b#gt; ]; evil --#gt; A"]', mermaid)
         self.assertEqual(len(mermaid.splitlines()), len(MERMAID.splitlines()))
 
     def test_a_title_hiding_characters_is_withheld_from_the_picture(self) -> None:

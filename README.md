@@ -80,7 +80,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`).
 
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
-`--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--state`, `--change`, `--vcs`,
+`--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--state`, `--change`, `--vcs`,
 `--reason`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
 `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
 
