@@ -1,8 +1,9 @@
 """`qew land`: after a pull request merged, record its head as evidence and complete the items it delivered."""
 
+from dataclasses import dataclass, field
 from typing import List, Optional
 
-from qew import cmd_finish, ledger_config, pr_gate
+from qew import cmd_finish, code_vcs, ledger_config, outcome, pr_gate
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
 from qew.ledger_event import State
@@ -15,16 +16,34 @@ def register(commands) -> None:
     land = commands.add_parser("land", help="after a pull request merged, record its head as evidence and complete its claimed items")
     land.add_argument("number", type=int, help="pull request number")
     land.add_argument("--target", help="mirror target (slug or unique part)")
+    land.add_argument("--json", action="store_true", help="machine-readable output")
 
 
 def run(arguments) -> bool:
     if arguments.command != "land":
         return False
-    lines, failures = land(ledger_config.load(), arguments.number, arguments.target)
-    print("\n".join(lines))
-    if failures:
-        raise QewError(f"{failures} item(s) were not completed; the lines above say why", 2)
+    result = land(ledger_config.load(), arguments.number, arguments.target)
+    if arguments.json:
+        print(outcome.render(arguments, "", state=result.state, landed=result.landed, held=result.held,
+                             clean=result.clean, open=result.open))
+    else:
+        print("\n".join(result.lines))
+    if result.failures:
+        raise QewError(f"{result.failures} item(s) were not completed; the lines above say why", 2)
     return True
+
+
+@dataclass
+class Landing:
+    """What one `qew land` did: the report lines and the same facts as lists for a caller to parse."""
+
+    state: str = "merged"
+    lines: List[str] = field(default_factory=list)
+    failures: int = 0
+    landed: List[str] = field(default_factory=list)
+    held: List[dict] = field(default_factory=list)
+    clean: List[str] = field(default_factory=list)
+    open: List[str] = field(default_factory=list)
 
 
 def _order(loaded: Loaded) -> List[str]:
@@ -33,40 +52,51 @@ def _order(loaded: Loaded) -> List[str]:
     return sorted(loaded.record.items, key=lambda item_id: kinds[item_id].kind == Kind.EPIC)
 
 
-def land(config, number: int, target: Optional[str], build: Optional[Build] = None):
-    """Evidence and completion for every claimed item the merged pull request covered; (lines, failures)."""
+def land(config, number: int, target: Optional[str], build: Optional[Build] = None) -> Landing:
+    """Evidence and completion for every claimed item the merged pull request covered."""
     positive_number(number)
     loaded = load(config, number, target, build)
     with forge_errors(loaded.record.target):
         pull = loaded.forge.read_pull_request(number)
     if pull.state != "merged":
         raise QewError(f"pr #{number} is {pull.state}, not merged; merge it first with `qew pr merge {number}`", 2)
-    lines: List[str] = []
-    failures = 0
+    result = Landing()
+    if not code_vcs.valid_change(code_vcs.detect(config.root), pull.head_sha):
+        raise QewError(f"indeterminate: pr #{number} merged at `{pull.head_sha}`, which is not a commit id; nothing was written", 4)
     for item_id in _order(loaded):
         state = loaded.states[item_id]
         owner = loaded.snapshot.folds[item_id].owner
         if state in (State.COMPLETED, State.CLOSED):
-            lines.append(f"{item_id}: already {state.value}")
+            result.lines.append(f"{item_id}: already {state.value}")
+            result.clean.append(item_id)
         elif state != State.CLAIMED:
-            lines.append(f"{item_id}: {state.value}, unclaimed; not landed")
+            result.lines.append(f"{item_id}: {state.value}, unclaimed; not landed")
+            result.open.append(item_id)
         elif owner != actor():
-            lines.append(f"{item_id}: claimed by {owner}; not landed")
+            result.lines.append(f"{item_id}: claimed by {owner}; not landed (to finish it anyway: qew complete {item_id} --take-over --reason TEXT)")
+            result.held.append({"id": item_id, "holder": owner})
+        elif pull.base_branch != config.target:
+            result.lines.append(f"{item_id}: still open: merged into {pull.base_branch}, not the target {config.target}")
+            result.open.append(item_id)
         else:
-            failures += _land_one(config, loaded, item_id, pull.head_sha, lines)
-    return lines, failures
+            result.failures += _land_one(config, loaded, item_id, pull.head_sha, result)
+    if not result.landed and not result.failures:
+        result.lines.append("nothing to land")
+    return result
 
 
-def _land_one(config, loaded: Loaded, item_id: str, head_sha: str, lines: List[str]) -> int:
+def _land_one(config, loaded: Loaded, item_id: str, head_sha: str, result: Landing) -> int:
     snapshot = loaded.snapshot.ledger.snapshot()
     if snapshot.folds[item_id].state == State.COMPLETED:  # an epic finishes by itself with its last child
-        lines.append(f"{item_id}: completed with its children")
+        result.lines.append(f"{item_id}: completed with its children")
+        result.landed.append(item_id)
         return 0
     if snapshot.items[item_id].kind != Kind.EPIC and not pr_gate.evidence_covers(config, snapshot.folds[item_id].evidence, head_sha):
         cmd_finish.evidence(config, item_id, [head_sha], None)
     try:
-        lines.append(cmd_finish.complete(config, item_id)["line"])
+        result.lines.append(cmd_finish.complete(config, item_id)["line"])
+        result.landed.append(item_id)
     except QewError as error:
-        lines.append(f"{item_id}: not completed: {error}")
+        result.lines.append(f"{item_id}: not completed: {error}")
         return 1
     return 0

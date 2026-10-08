@@ -32,7 +32,6 @@ class LandReportWalk(unittest.TestCase):
         finished = w.item("Finished")
         w.qew("evidence", finished, "--change", self.sha)
         w.qew("complete", finished)
-        w.world.ledger  # records are read from the ledger's own pull request files
         for item in (theirs, finished):
             self.extend_record(item)
         run = w.qew("land", "1", "--json")
@@ -46,11 +45,9 @@ class LandReportWalk(unittest.TestCase):
 
     def extend_record(self, item: str) -> None:
         """Make the pull request cover `item` too, the way an epic pull request records its covered items."""
-        directory = self.w.world.ledger / "mirrors" / self.item
-        record = next(directory.glob("*-pr-1.json"))
-        data = json.loads(record.read_text())
-        data["items"] = sorted({*data.get("items", [self.item]), item})
-        record.write_text(json.dumps(data))
+        stem = next((self.w.world.ledger / "mirrors" / self.item).glob("*-pr-1.json")).stem
+        covered = self.w.ledger.read_state(self.item, stem).get("items", [self.item])
+        self.w.ledger.write_mirror(self.item, stem, {"items": sorted({*covered, item})})
 
     def test_a_held_item_is_reported_with_the_take_over_command(self) -> None:
         """Prevents automation silently taking over a teammate's claim."""

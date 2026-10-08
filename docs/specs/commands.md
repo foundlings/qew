@@ -245,6 +245,10 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   caller holds every claim on; otherwise exit 3 naming the opener and the ways forward (`qew start ITEM --take-over
   --reason TEXT`; for merge also `--other-author --reason TEXT`). A merge also refuses an item another actor holds,
   even for the opener. A covered item with unreadable history is exit 4.
-- `qew land NUMBER [--target T]`: after the merge, per covered item the caller holds: record the pull request head
+- `qew land NUMBER [--target T] [--json]`: after the merge, per covered item the caller holds: record the pull request head
   as evidence when none covers it, then complete it (children before epics). Items held by others or not started
-  are listed and skipped; a failed gate is reported per item and exits 2.
+  are listed and skipped (an item another actor holds is reported with the exact `qew complete ITEM --take-over`
+  command, never touched); a failed gate is reported per item and exits 2. A pull request merged into a branch other
+  than the configured target leaves its items `still open`; a merge head that is not a commit id is exit 4 and writes
+  nothing; a run that landed nothing prints `nothing to land`. `--json`: `{state, landed, held: [{id, holder}], clean,
+  open, schema_version}`.
