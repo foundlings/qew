@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "qew hook pre-shell --agent cursor",
+        "timeout": 10
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "qew hook post-shell --agent cursor",
+        "timeout": 60
+      }
+    ]
+  }
+}

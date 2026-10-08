@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "pre-shell",
+              "--agent",
+              "claude"
+            ],
+            "command": "qew",
+            "timeout": 10,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "args": [
+              "hook",
+              "post-shell",
+              "--agent",
+              "claude"
+            ],
+            "command": "qew",
+            "timeout": 60,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
