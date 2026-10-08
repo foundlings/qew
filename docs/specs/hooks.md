@@ -67,6 +67,24 @@ Verified against each tool's documentation (October 2026):
 Decisions: Cursor also gets a `sessionStart` entry; refusals are not applied to `gh pr create`
 (no requirement); a prior hook version's opencode plugin keeps its marker so install replaces it.
 
+## VCS evidence hook
+
+A commit cites ledger work with a trailer in the last paragraph of its message: `Refs: ID[, ID...]`
+(`vcs_refs.py`; body prose, other casings, indented lines and tokens that are not ids are ignored).
+`qew hook vcs-check` refuses (exit 2) a push when a cited id is unknown, a draft, or an open item with no
+evidence for that commit, naming `qew evidence ID --change CHANGE`; completed and closed items are skipped (they
+can no longer take evidence). Evidence matches the commit id or the jj change id by prefix.
+
+- git: `qew hook install --git` writes the tracked, marker-owned `.githooks/pre-push` (which runs
+  `qew hook vcs-check --pre-push`, and skips with a warning when qew is not on PATH) and sets the local
+  `core.hooksPath`. It refuses a different existing `core.hooksPath` or an unowned script. The hook is bypassable
+  only by deleting that tracked file (or unsetting the config), which shows in the diff. Remove deletes the script
+  and unsets `core.hooksPath` when `.githooks` holds nothing else. A jj-only checkout has no git hooks (exit 2).
+- jj: there is no pre-push hook, so `--revisions REVSET` serves scripts, and the agent pre-tool guard checks
+  `jj git push` (the mutable ancestors of what `--bookmark`, `-r`, `--change`, `--all` or the working copy name) and
+  denies with the same message. If jj cannot answer, the guard stays silent.
+- `--message-file FILE` prints `known ID` or `unknown ID` per cited id and exits 2 when any is unknown.
+
 # Superseded design (v0)
 
 Everything below describes the old `qew hooks install` and warn-only `pre-shell` / `post-shell`

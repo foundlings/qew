@@ -77,16 +77,17 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 - Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
 - Setup: `qew init`, `qew hook install`, `qew hook remove`
 
-Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`).
+Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`), `qew hook vcs-check`.
 
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--state`, `--change`, `--vcs`,
 `--reason`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
 `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
+Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 
 ## Hooks
 
-`qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
+`qew hook install --git` adds a tracked pre-push hook and `qew hook vcs-check` refuses pushes of commits whose `Refs: ID` trailers cite items without evidence (jj pushes are checked by the agent guard). `qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
 (`.codex/hooks.json`), Cursor and opencode. Session start prints a bounded list of ready work; before a shell
 tool call, forge-side issue/label/board edits and pull request merges that bypass qew are refused. See
 `docs/specs/hooks.md`.

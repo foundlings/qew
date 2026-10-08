@@ -26,10 +26,12 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 
 ## Setup
 - `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml`.
-- `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--json]`: wire agents (none = all; output order claude, codex, cursor, opencode).
-- `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--json]`: remove exactly Qew's entries.
+- `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: wire agents (none = all four; output order claude, codex, cursor, opencode, git). `--git` installs the tracked `.githooks/pre-push` and sets `core.hooksPath`; it is never part of the default.
+- `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: remove exactly Qew's entries.
 - `qew hook session-start --agent NAME`, `qew hook pre-tool --agent NAME`, `qew hook post-tool --agent NAME`:
   the events agents call; see hooks.md.
+- `qew hook vcs-check (--pre-push | --revisions REVSET | --message-file FILE)`: refuse pushed commits whose `Refs: ID`
+  trailers cite an item without evidence for that commit (exit 2, the exact `qew evidence` command on stderr); see hooks.md.
 
 ## Read
 - `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.

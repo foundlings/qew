@@ -430,3 +430,46 @@ def _without_git_options(arguments: List[str]) -> List[str]:
     while rest and rest[0].startswith("-"):
         rest = rest[2:] if rest[0] in ("-C", "-c", "--git-dir", "--work-tree") else rest[1:]
     return rest
+
+
+def jj_push_revsets(command: str) -> List[str]:
+    """The revset each `jj git push` in the command would send (mutable ancestors of what it names)."""
+    found: List[str] = []
+    for words in _simple_commands(command, 0):
+        if _basename(words[0]) != "jj":
+            continue
+        rest = words[1:]
+        if [word for word in rest if not word.startswith("-")][:2] != ["git", "push"]:
+            continue
+        revset = _push_revset(rest[rest.index("push") + 1:])
+        if revset is not None:
+            found.append(revset)
+    return found
+
+
+_REVSET_UNSAFE = re.compile(r'["\\\n]')
+
+
+def _push_revset(arguments: List[str]) -> Optional[str]:
+    """None when an argument cannot be put in a revset safely: the guard then stays silent."""
+    selectors: List[str] = []
+    position = 0
+    while position < len(arguments):
+        argument = arguments[position]
+        flag, equals, value = argument.partition("=")
+        if flag in ("--all", "--tracked"):
+            selectors.append("bookmarks()")
+        elif flag in ("--bookmark", "-b", "--revisions", "-r", "--change", "-c"):
+            if not equals:
+                position += 1
+                value = arguments[position] if position < len(arguments) else ""
+            if not value or _REVSET_UNSAFE.search(value):
+                return None
+            if flag in ("--bookmark", "-b"):
+                selectors.append(f'bookmarks(exact:"{value}")')
+            elif flag in ("--revisions", "-r"):
+                selectors.append(f"({value})")
+            else:
+                return f"({value}) & mutable()"
+        position += 1
+    return "mutable() & ::(" + " | ".join(selectors or ["@"]) + ")"

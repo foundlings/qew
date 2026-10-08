@@ -135,7 +135,7 @@ class InstalledGitHookWalk(VcsHookCase):
         self.assertFalse(script.exists())
         self.assertNotEqual(subprocess.run(["git", "config", "core.hooksPath"], cwd=self.world.code,
                                            capture_output=True).returncode, 0)
-        self.assertIn(" D .githooks/pre-push", git(self.world.code, "status", "--porcelain"))
+        self.assertIn("D .githooks/pre-push", git(self.world.code, "status", "--porcelain"))
 
     def test_install_refuses_a_foreign_hooks_path_or_an_unowned_script(self) -> None:
         """Never take over a hook setup that is not Qew's."""
@@ -180,7 +180,7 @@ class JjWalk(VcsHookCase):
     def test_the_agent_guard_blocks_jj_git_push_of_an_unevidenced_citation(self) -> None:
         """jj has no pre-push hook, so the PreToolUse guard stands in for it."""
         change = self.commit(f"work\n\nRefs: {self.item}")
-        jj(self.world.code, "bookmark", "create", "main", "-r", "@-")
+        jj(self.world.code, "bookmark", "set", "main", "-r", "@-")
         for command in ("jj git push --bookmark main", "jj git push", "cd . && jj git push -b main"):
             with self.subTest(command=command):
                 result = feed(self.world, "pre-tool", "claude", command, cwd=str(self.world.code))
