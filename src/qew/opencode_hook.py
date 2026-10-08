@@ -75,11 +75,11 @@ export const QewHooksPlugin = async ({{ directory }}) => {{
 
 def install(root: Path) -> bool:
     installed = install_managed_file(root, _PLUGIN_PATH, _PLUGIN, _MARKER)
-    dropped = remove_managed_file(root, _LEGACY_PATH, _LEGACY_MARKER, owned_only=True)
+    dropped = remove_managed_file(root, _LEGACY_PATH, _LEGACY_MARKER)
     return installed or dropped
 
 
 def remove(root: Path) -> bool:
     removed = remove_managed_file(root, _PLUGIN_PATH, _MARKER)
-    dropped = remove_managed_file(root, _LEGACY_PATH, _LEGACY_MARKER, owned_only=True)
+    dropped = remove_managed_file(root, _LEGACY_PATH, _LEGACY_MARKER)
     return removed or dropped

@@ -15,7 +15,7 @@ trust line `review and trust it with /hooks before it will run` on install. Inst
 | Claude | `.claude/settings.json` | `SessionStart`; `PreToolUse` and `PostToolUse` matched `Bash` |
 | Codex | `.codex/hooks.json` | the same three (trust each with `/hooks`) |
 | Cursor | `.cursor/hooks.json` (version 1) | `sessionStart`, `beforeShellExecution`, `afterShellExecution` |
-| opencode | `.opencode/plugins/qew-hooks.js` (marker-owned) | `bash` before/after; a refusal throws |
+| opencode | `.opencode/plugins/qew-hooks.js` (marker-owned: a file without Qew's marker is never overwritten, install exits 2, nor deleted, remove says `unchanged`) | `bash` before/after; a refusal throws |
 
 They run `qew hook session-start|pre-tool|post-tool --agent NAME`; the agent payload arrives on stdin.
 

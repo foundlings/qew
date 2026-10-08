@@ -89,9 +89,8 @@ def remove_managed_file(
     root: Path,
     relative: Sequence[str],
     marker: str,
-    *,
-    owned_only: bool = False,
 ) -> bool:
+    """Delete the file only when it carries the marker; a file that is not Qew's is left alone."""
     if not marker:
         raise QewError("managed-file marker must not be empty", 2)
     try:
@@ -101,9 +100,8 @@ def remove_managed_file(
             if existing is None:
                 return False
             raw, _ = existing
-            if owned_only and marker.encode("utf-8") not in raw:
+            if marker.encode("utf-8") not in raw:
                 return False
-            _require_owned(raw, marker, name)
             try:
                 os.unlink(name, dir_fd=directory)
                 os.fsync(directory)
