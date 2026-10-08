@@ -143,3 +143,50 @@ select = "kind:epic"
 - Sync is push-only; forge numbers are recorded, forge state is never read back as truth.
 - `qew index` (local cache) is not built: reads are fast enough from files.
 - Pull requests never carry a closing keyword.
+
+## Replication (self-updating ledger, bidirectional forge sync)
+
+The ledger records and replicates itself; the person or agent never remembers to commit, push or sync.
+Everything below is best-effort and offline-first: no network failure ever fails or blocks a write.
+
+1. **Every write commits itself.** A write command (`create set start release evidence complete close reopen
+   draft approve|revert accept reject import restore` and any other that changes ledger files) writes its files
+   and commits exactly those paths to the ledger repo (jj or git, detected like the code repo) with the message
+   `qew: <verb> <ID> [by <actor>]` (`qew: <verb> <N> items` for a batch). Atomic: files are written to temp
+   names, linked into place, committed, and if the commit fails the files written by this command are removed or
+   restored, so there is no uncommitted-write state. A crash between write and commit leaves files that the next
+   qew command notices (`qew status` shows them as `uncommitted`) and commits as `qew: recover <paths>`.
+2. **Ledger remote.** Before a write: best-effort fetch and merge of the ledger remote (timeout
+   `[replication] timeout_s`). After a write: best-effort push. Unreachable remote: local commits stay and the next
+   command or `qew sync` retries. Merges cannot conflict by construction (one file per item and event, unique
+   ids). A real text conflict is a ledger bug: reported loudly, never auto-resolved, writes refuse until fixed.
+3. **Forge push, all targets.** After a write qew opportunistically syncs the affected items to every mirror
+   target within a time budget, each target isolated (one forge down never blocks another or the write).
+   Pending work is derived, never queued: an item is pending for a target when it is selected by that target and
+   has no mirror file, or its newest event id is greater than the mirror's `synced_event`. No outbox files.
+4. **Forge pull and import.** `qew import --from TARGET` (a configured target, or ad hoc `--forge F --repo URL`)
+   reads issues, pull requests, boards, labels and comments and creates or updates ledger items, writing mirror
+   files and events with provenance `forge-import`. `qew sync` also pulls incrementally: forge-side edits made
+   outside qew become events with provenance `forge`.
+   - Content (title, body, labels) merges as `field` events; comments become `commented` events; new forge
+     issues become items (drafts unless the forge item is closed, which imports as `closed` or, with `--history`,
+     completed with provenance `import`).
+   - A forge-side STATE change (closed, reopened, assignee taken, moved on the board) never overrides ledger
+     state: it is recorded as a `forge_divergence` event (`target`, `field`, `forge`, `ledger`, `remote_ref`).
+     `qew status` lists unresolved divergences; `qew accept DIVERGENCE` applies the forge value through the normal
+     gates (a completion needs evidence, a release needs a human quote) and writes `divergence_accepted`;
+     `qew reject DIVERGENCE` keeps the ledger value, writes `divergence_rejected`, and the next push restores the
+     forge. Divergence ids are the event ids.
+   - After a pull, the change is pushed to the other targets. Forge text is untrusted data.
+5. **Restore both ways.** `qew restore --to TARGET` recreates issues and the board from the ledger alone;
+   `qew import` rebuilds a ledger from forges alone. Both are idempotent and record mirrors.
+6. **Visibility.** `qew status [--json]`: uncommitted files, unpushed ledger commits, pending items per target,
+   unresolved divergences, last successful sync per target (from mirror `synced_at`), online or offline.
+7. **Config.** `.qew/config.toml`: `[replication] auto_commit = true, auto_push = true, auto_forge_sync = true,
+   timeout_s = 5`. `QEW_OFFLINE=1` forces offline: no fetch, push or forge calls (writes still commit locally).
+   Agent hooks never block qew's own replication.
+8. **Concurrency.** A lock file in the ledger checkout (`.qew.lock`, ignored by the VCS, advisory flock) serializes
+   writers on one machine; several machines write concurrently through the VCS merge.
+
+New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence`, `divergence_accepted`,
+`divergence_rejected`; `provenance` may be `import`, `forge-import` or `forge` where the event came from a forge.
