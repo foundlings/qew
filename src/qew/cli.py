@@ -88,6 +88,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--quote", help="a human's words, \"Name: 'their words'\"; releases the item")
     create.add_argument("--from-file", help="a plan: JSON Lines, one object or an array of items, or - for stdin")
     create.add_argument("--draft", action="store_true", help="with --from-file: file every item as a draft (refuses --quote and approved lines)")
+    create.add_argument("--json", action="store_true", help="machine-readable output")
     create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")
 
     set_ = commands.add_parser("set", help="change an item's header fields")
@@ -176,7 +177,10 @@ def _run(arguments: argparse.Namespace) -> None:
     config = ledger_config.load()
     if command == "create":
         plan = _plan(arguments)
-        lines = plan_apply.apply(config, plan, arguments.quote, arguments.draft, arguments.import_events)
+        lines = plan_apply.apply(
+            config, plan, arguments.quote, arguments.draft, arguments.import_events,
+            mark=bool(arguments.from_file), as_json=arguments.json,
+        )
         print("\n".join(lines))
     elif command == "set":
         changes = {}

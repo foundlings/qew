@@ -46,7 +46,7 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
-  [--body-file F] [--quote Q] [--from-file F [--draft]]`: a draft unless `--quote` carries a human's words
+  [--body-file F] [--quote Q] [--from-file F [--draft]] [--json]`: a draft unless `--quote` carries a human's words
   (`"Name: 'their words'"`), which files it approved. `--from-file` takes a plan: JSON Lines, one JSON object or an array (or `-`
   for stdin). The whole plan is validated before the first write (exit 2, naming the line): regular UTF-8
   file, not a symlink; no unknown fields; unique `ref`s; `@ref` entries in `needs`/`parent` resolve in any
@@ -54,6 +54,11 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   `quote` is filed approved with its own words; `--quote` is the default for entries without one; an entry with
   no quote is a draft; `approved: true` needs a quote. `--draft` files every entry as a draft and refuses
   `approved: true` lines and `--quote`.
+  Re-running the same plan file adopts the items an earlier (killed) run already wrote instead of creating them
+  again: each created item's first event carries `plan` (sha256 of the bytes), `key` (`ref` or `line-N`) and
+  `source` (file name). Two items with one marker are `ambiguous`; an edited file over items of its earlier
+  revision is `plan revision mismatch` (both exit 2, nothing written). `--json` is `{"created": {key: id},
+  "adopted": [key]}`.
   `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as

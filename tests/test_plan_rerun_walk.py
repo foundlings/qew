@@ -9,10 +9,10 @@ import json
 import unittest
 from unittest import mock
 
+from tests.ledger_harness import World  # first: it puts src/ on the path
+from tests.plan_support import jsonl, listing, snapshot
 from qew import ledger_config, plan_apply, plan_file
 from qew.ledger_store import Ledger
-from tests.ledger_harness import World
-from tests.plan_support import jsonl, listing, snapshot
 
 PLAN = jsonl(
     {"ref": "e", "kind": "epic", "title": "Epic"},
