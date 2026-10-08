@@ -19,7 +19,7 @@ Shapes (`required | optional`; a test fails when a command emits a key listed no
 ```
 shape row: id kind labels priority state title | needs owner parent schema_version text_findings
 shape envelope: items schema_version total truncated
-shape blocked_row: blocked_by id kind labels priority state title | needs owner parent text_findings
+shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
 shape edge: item schema_version | needs parent
 shape show: id kind labels priority schema_version state title | blocks body children evidence mirrors needs owner parent text_findings
 ```
@@ -36,11 +36,14 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 
 ## Read
 - `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
-- `qew list [--kind K] [--state S] [--label L] [--json]`, `qew ready [--json]`, `qew blocked [--json]`,
+- `qew list [--kind K] [--state S] [--label L] [--json]`, `qew ready [--json]`, `qew blocked [--chains] [--json]`,
   `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network. `ready` lists by priority, then the
-  longest chain it unblocks, then direct dependents, then id.
+  longest chain it unblocks, then direct dependents, then id. `blocked --chains` adds, under each row,
+  `  chain: ITEM -> NEED -> ... [root STATE]`: the longest chain of unmet needs (ties: lowest id) to a root blocker
+  that has no unmet needs, is closed, or is `dangling` (no such item); `--json` rows gain `chain` and `root`.
+  A needs cycle is refused (exit 1).
 - `qew check`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors. Writes nothing; exit 1 on any problem.
 

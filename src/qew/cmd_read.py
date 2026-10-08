@@ -3,7 +3,7 @@
 import argparse
 from typing import List, Optional
 
-from qew import graph_render, untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import blocked_chains, graph_render, untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
@@ -25,6 +25,7 @@ def register(commands) -> None:
     ready.add_argument("--json", action="store_true", help="machine-readable output")
     blocked = commands.add_parser("blocked", help="open work with unmet needs")
     blocked.add_argument("--json", action="store_true", help="machine-readable output")
+    blocked.add_argument("--chains", action="store_true", help="show each item's longest unmet chain down to its root blocker")
     graph = commands.add_parser("graph", help="print dependency and parent edges as text, dot or mermaid")
     graph.add_argument("--json", action="store_true", help="machine-readable output")
     graph.add_argument("--format", choices=["text", "dot", "mermaid"], help="drawing syntax (default text); not with --json")
@@ -43,7 +44,7 @@ def run(arguments: argparse.Namespace) -> bool:
     elif command == "ready":
         ready(snapshot, arguments.json)
     elif command == "blocked":
-        blocked(snapshot, arguments.json)
+        blocked(snapshot, arguments.json, arguments.chains)
     else:
         graph(snapshot, arguments.json, arguments.format)
     return True
@@ -81,14 +82,23 @@ def ready(snapshot: Snapshot, as_json: bool) -> None:
         print_rows(snapshot, ids, False)
 
 
-def blocked(snapshot: Snapshot, as_json: bool) -> None:
+def blocked(snapshot: Snapshot, as_json: bool, with_chains: bool = False) -> None:
     ids = ledger_graph.blocked(snapshot)
+    found = blocked_chains.chains(snapshot, ids) if with_chains else {}
     if as_json:
         rows = [{**read_view.row_data(snapshot, i), "blocked_by": ledger_graph.blockers(snapshot, i)} for i in ids]
+        for row in rows:
+            if row["id"] in found:
+                chain = found[row["id"]]
+                row["chain"] = chain
+                row["root"] = {"id": chain[-1], "state": blocked_chains.root_state(snapshot, chain[-1])}
         print(readfmt.envelope(rows, len(rows), False))
         return
     for item_id in ids:
         print(f"{read_view.text_row(snapshot, item_id)} <- {' '.join(ledger_graph.blockers(snapshot, item_id))}")
+        if item_id in found:
+            chain = found[item_id]
+            print(f"  chain: {' -> '.join(chain)} [root {blocked_chains.root_state(snapshot, chain[-1])}]")
 
 
 def graph(snapshot: Snapshot, as_json: bool, form: Optional[str] = None) -> None:

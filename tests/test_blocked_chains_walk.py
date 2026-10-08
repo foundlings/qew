@@ -45,7 +45,7 @@ class BlockedChainsWalk(unittest.TestCase):
         )
         rows = [line for line in result.stdout.splitlines() if not line.startswith("  ")]
         self.assertEqual(rows, plain.stdout.splitlines(), "the plain rows are unchanged")
-        data = {row["id"]: row for row in json.loads(w.run("blocked", "--chains", "--json").stdout)}
+        data = {row["id"]: row for row in json.loads(w.run("blocked", "--chains", "--json").stdout)["items"]}
         self.assertEqual(data["D"]["chain"], ["D", "C", "B", "A"])
         self.assertEqual(data["D"]["root"], {"id": "A", "state": "claimed"})
 
