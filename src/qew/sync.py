@@ -138,7 +138,7 @@ def _read_mirror(ledger: Ledger, item_id: str, slug: str) -> Optional[dict]:
 
 def _board(target: Target, report: TargetReport) -> Optional[Board]:
     try:
-        return target.forge.ensure_board(COLUMNS, sync_plan.managed_filter(target.mirror.select))
+        return target.forge.ensure_board(COLUMNS, sync_plan.managed_filter(target.mirror.mode))
     except Unsupported as error:
         report.skipped.append(error.capability)
         return None
@@ -160,7 +160,7 @@ def _sync_item(
     placements: Optional[Dict[int, Placement]] = None,
 ) -> None:
     item = snapshot.items[item_id]
-    spec = sync_plan.issue_spec(snapshot, item, numbers, assignees)
+    spec = sync_plan.issue_spec(snapshot, item, numbers, assignees, target.mirror.mode == "overlay")
     column = sync_plan.column(snapshot, item_id)
     record = _read_mirror(ledger, item_id, target.slug)
     fingerprint = sync_plan.fingerprint(spec, column if board else None)

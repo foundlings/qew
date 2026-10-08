@@ -280,3 +280,10 @@ offline work never produces two owners. GitHub and Forgejo/Gitea are first-class
   mirrors, boards, claims and open divergences are NOT carried over. Re-merging a fork into its origin is refused.
 
 New event types: `claim_confirmed` (`ref`), `claim_lost` (`ref`, `winner`).
+
+### Mirror mode (repository or overlay)
+
+`[[mirror]] mode = "repository"` (default): qew owns the whole tracker; synced issues carry no `qew:managed` label and board
+views are unfiltered. `mode = "overlay"`: the tracker is shared with humans; synced issues carry `qew:managed` and every board
+view filters on it. A `select` expression only narrows which items mirror; it no longer implies overlay. Switching a target to
+repository mode removes the stale `qew:managed` labels on the next sync (the label set is replaced).

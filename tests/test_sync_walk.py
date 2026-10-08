@@ -131,7 +131,7 @@ class SyncWalk(unittest.TestCase):
         path = w.code / ".qew" / "config.toml"
         path.write_text(path.read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nmode = "shared"'))
         result = w.run("status")
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 2)
         self.assertIn("mode", result.stderr)
 
     def test_forges_without_boards_carry_the_status_as_a_label(self) -> None:

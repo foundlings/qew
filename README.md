@@ -61,6 +61,7 @@ target = "main"                 # branch evidence must be an ancestor of
 forge = "github"                # github | forgejo (or gitea) | gitlab
 repo = "https://github.com/acme/widgets"
 project = 7                     # board where the forge has them
+mode = "repository"             # default: qew owns the tracker. "overlay" = shared tracker: issues get qew:managed, views filter on it
 select = "label:area:erp"       # optional: label:X kind:X state:X priority:N; spaces = and, commas = or
 ```
 

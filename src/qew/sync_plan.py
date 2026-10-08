@@ -128,14 +128,14 @@ def priority_option(priority: int) -> Tuple[str, bool]:
     return PRIORITY_OPTIONS[min(priority, last)][0], priority > last
 
 
-def managed_filter(select: str) -> str:
-    """Overlay mirrors (select narrows the items) keep human issues off the board; repository mode is bare."""
-    return MANAGED_FILTER if select.strip() else ""
+def managed_filter(mode: str) -> str:
+    """Overlay mirrors keep human issues off the board; repository mode (qew owns the tracker) is bare."""
+    return MANAGED_FILTER if mode == "overlay" else ""
 
 
-def labels(snapshot: Snapshot, item: Item) -> Tuple[str, ...]:
+def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> Tuple[str, ...]:
     state = snapshot.folds[item.id].state
-    managed = ("qew:managed", f"qew:{state.value if state else 'unknown'}", f"status:{column(snapshot, item.id)}", f"kind:{item.kind.value}", f"priority:{item.priority}")
+    managed = (*(("qew:managed",) if overlay else ()), f"qew:{state.value if state else 'unknown'}", f"status:{column(snapshot, item.id)}", f"kind:{item.kind.value}", f"priority:{item.priority}")
     author = ledger_author.author(snapshot, item.id)
     if author:
         problem = ledger_author.label_problem(author)
@@ -146,7 +146,7 @@ def labels(snapshot: Snapshot, item: Item) -> Tuple[str, ...]:
 
 
 def issue_spec(
-    snapshot: Snapshot, item: Item, numbers: Dict[str, int], assignees: Dict[str, str]
+    snapshot: Snapshot, item: Item, numbers: Dict[str, int], assignees: Dict[str, str], overlay: bool = False
 ) -> IssueSpec:
     """The desired remote issue; `numbers` maps already-mirrored item ids to this target's issue numbers."""
     folded = snapshot.folds[item.id]
@@ -160,7 +160,7 @@ def issue_spec(
     return IssueSpec(
         title=item.title,
         body=_body(item, state, numbers),
-        labels=labels(snapshot, item),
+        labels=labels(snapshot, item, overlay),
         open=state not in (State.COMPLETED, State.CLOSED),
         close_reason=closed_reason,
         assignee=assignees.get(folded.owner, ""),

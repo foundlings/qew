@@ -46,7 +46,7 @@ def ensure(config: Config, wanted, build: Callable[[Mirror], Forge] = forge_regi
     for mirror in choose(mirrors_with_boards(ledger, config), wanted):
         slug = ledger_config.mirror_slug(mirror)
         try:
-            board = build(mirror).ensure_board(COLUMNS, sync_plan.managed_filter(mirror.select))
+            board = build(mirror).ensure_board(COLUMNS, sync_plan.managed_filter(mirror.mode))
         except Unsupported:
             lines.append(f"{slug}: boards unsupported")
             continue

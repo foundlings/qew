@@ -25,6 +25,7 @@ class Mirror:
     select: str
     options: Dict[str, object]
     read_only: bool = False  # a one-way mirror (ledger to forge): pull never imports its edits
+    mode: str = "repository"  # "repository": qew owns the whole tracker; "overlay": a shared tracker, qew marks its issues
 
 
 @dataclass(frozen=True)
@@ -221,7 +222,10 @@ def _project_number(value: object) -> Optional[str]:
 def _mirror(entry: object) -> Mirror:
     if not isinstance(entry, dict) or not isinstance(entry.get("forge"), str) or not isinstance(entry.get("repo"), str):
         raise QewError("each [[mirror]] needs string `forge` and `repo`", 1)
-    known = {"forge", "repo", "project", "select", "read_only"}
+    known = {"forge", "repo", "project", "select", "read_only", "mode"}
+    mode = entry.get("mode", "repository")
+    if mode not in ("repository", "overlay"):
+        raise QewError("[[mirror]] mode must be \"repository\" or \"overlay\"", 2)
     read_only = entry.get("read_only", False)
     if not isinstance(read_only, bool):
         raise QewError("[[mirror]] read_only must be true or false", 2)
@@ -243,6 +247,7 @@ def _mirror(entry: object) -> Mirror:
         select=str(entry.get("select", "")),
         options={key: value for key, value in entry.items() if key not in known},
         read_only=read_only,
+        mode=mode,
     )
 
 
