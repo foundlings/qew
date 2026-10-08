@@ -130,7 +130,7 @@ class LedgerRemoteArbitrationWalk(unittest.TestCase):
         self.addCleanup(w.close)
         item = w.create("--title", "Solo", "--quote", QUOTE)
         self.assertEqual(w.run("start", item).returncode, 0)
-        self.assertEqual(types(w, item)[-2:], ["claimed", "claim_confirmed"])
+        self.assertEqual(types(w, item)[-1], "claimed")
 
     def test_a_configured_but_unreachable_remote_refuses_the_claim(self) -> None:
         """Prevents offline claims: with the arbiter away nothing is written."""

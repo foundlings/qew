@@ -63,7 +63,7 @@ def claim(config: Config, ledger: Ledger, item_id: str, owner: str) -> None:
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
     rep = config.replication
     if repo.vcs is None or not repo.has_remote() or not rep.auto_push:
-        _confirmed(ledger, item_id, owner)
+        ledger.append_event(item_id, "claimed", owner=owner)  # single writer: nothing to arbitrate, nothing to confirm
         return
     marker = config.ledger_path / ".qew" / "remote-state"
     if rep.offline or (marker.exists() and marker.read_text(encoding="utf-8").strip() == "offline"):
