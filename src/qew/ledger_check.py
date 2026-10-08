@@ -56,6 +56,7 @@ def check_report(ledger: Ledger):
     imported = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
+    _check_claim_refs(snapshot, problems)
     problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in text_findings(snapshot) for kind in kinds)
     return problems, ([f"imported without evidence: {imported}"] if imported else [])
 
@@ -118,6 +119,16 @@ def _check_completed(snapshot: Snapshot, problems: List[str]) -> int:
             else:
                 problems.append(f"events/{item_id}: completed without an evidence event")
     return imported
+
+
+def _check_claim_refs(snapshot: Snapshot, problems: List[str]) -> None:
+    for item_id in snapshot.items:
+        by_id = {e.id: e for e in snapshot.events[item_id]}
+        for event in snapshot.events[item_id]:
+            if event.type in ("claim_lost", "claim_confirmed"):
+                target = by_id.get(event.get("ref"))
+                if target is None or target.type != "claimed":
+                    problems.append(f"events/{item_id}/{event.id}: {event.type} names no `claimed` event of this item")
 
 
 def _check_mirror_progress(snapshot: Snapshot, problems: List[str]) -> None:

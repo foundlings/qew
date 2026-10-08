@@ -61,6 +61,27 @@ def _replication(section: object) -> Replication:
     return Replication(**section)
 
 
+def _authority(section: object, mirrors: Tuple["Mirror", ...]) -> str:
+    """The primary forge target's slug, or `none`; a unique fragment of a slug is accepted."""
+    if section is None:
+        return "none"
+    if not isinstance(section, dict):
+        raise QewError("[authority] must be a table", 1)
+    for key in section:
+        if key != "primary":
+            raise QewError(f"[authority] has an unknown key `{key}`", 1)
+    primary = section.get("primary", "none")
+    if not isinstance(primary, str) or not primary:
+        raise QewError("[authority] primary must be a target name or \"none\"", 1)
+    if primary == "none":
+        return "none"
+    slugs = [mirror_slug(m) for m in mirrors]
+    found = [s for s in slugs if s == primary] or [s for s in slugs if primary in s]
+    if len(found) != 1:
+        raise QewError(f"[authority] primary `{primary}` matches {len(found)} mirror targets (have: {', '.join(slugs) or 'none'})", 1)
+    return found[0]
+
+
 @dataclass(frozen=True)
 class Config:
     root: Path
@@ -69,6 +90,7 @@ class Config:
     target: str
     mirrors: Tuple[Mirror, ...]
     replication: Replication = Replication()
+    authority: str = "none"  # slug of the primary forge target, or "none": the ledger remote arbitrates
 
 
 def find_root(start: Optional[Path] = None) -> Optional[Path]:
@@ -100,7 +122,7 @@ def load(start: Optional[Path] = None) -> Config:
     code = data.get("code", {})
     mirrors = tuple(_mirror(entry) for entry in data.get("mirror", []))
     return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors,
-                  _replication(data.get("replication")))
+                  _replication(data.get("replication")), _authority(data.get("authority"), mirrors))
 
 
 def _mirror(entry: object) -> Mirror:
