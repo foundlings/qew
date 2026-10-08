@@ -59,7 +59,11 @@ shape show: author id kind labels priority schema_version state title | blocks b
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
 - `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors, text findings, contradictions (claimed epic, completed item with open needs,
-  open child of a completed epic), reserved labels. Writes nothing; exit 1 on any problem. `--json` prints
+  open child of a completed epic), reserved labels. Graph invariants, each named with its file and counted on a final
+  `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history or mirrors
+  of no item (orphans); a child whose `area:` labels share none with its parent's (cross_epic); a needs chain longer
+  than 20 edges, reported at its deepest item (depth); open work that needs a closed item (closed_needs). Writes nothing;
+  exit 1 on any problem. `--json` prints
   `schema_version`, `valid`, `cycles` (each once, rotated to the smallest id, closed on it), `contradictions`,
   `text_findings`, `problems`.
 
