@@ -764,9 +764,7 @@ class GitHub(Forge):
         urgent = {o.name: o.id for o in urgency.options} if urgency else {}
         if priority and priority not in urgent:
             raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field; run `qew project ensure`")
-        added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": node_id})
-        item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
-        item_id = _str(item, "id", "item")
+        item_id = self._item_on_board(board, project, number, node_id)
         self._wire.graphql(_SET_STATUS, {
             "projectId": project.id, "itemId": item_id, "fieldId": status.id, "optionId": options[column],
         })
@@ -774,6 +772,20 @@ class GitHub(Forge):
             self._wire.graphql(_SET_STATUS, {
                 "projectId": project.id, "itemId": item_id, "fieldId": urgency.id, "optionId": urgent[priority],
             })
+
+    def _item_on_board(self, board: Board, project: _Project, number: int, node_id: str) -> str:
+        """The card's item id, adding the issue unless it is already there (GitHub refuses a second add)."""
+        try:
+            added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": node_id})
+        except ForgeRejected as error:
+            if "already exists" not in error.detail:
+                raise
+            found = self._placement(board, number)
+            if found is None:
+                raise
+            return found[0]
+        item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
+        return _str(item, "id", "item")
 
     def read_board_placements(self, board: Board) -> Dict[int, Placement]:
         """One paged listing of the board: this repository's issues and the Status and Priority each shows."""
