@@ -8,6 +8,7 @@ import sys
 from typing import Dict, List, Sequence, Tuple
 
 from qew import sync_plan, untrusted_text
+from qew.errors import QewError
 from qew.forge import COLUMNS
 from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
@@ -44,6 +45,12 @@ class Card:
 class Group:
     name: str
     cards: Tuple[Card, ...]
+    title: str = ""  # a readable name for groups keyed by an item id
+    by_column: bool = True
+
+    @property
+    def heading(self) -> str:
+        return f"{self.name} {self.title}".strip() if self.title else self.name
 
 
 def cards(snapshot: Snapshot) -> List[Card]:
@@ -80,14 +87,73 @@ def by_column(all_cards: Sequence[Card], columns: Sequence[str] = COLUMNS) -> Li
     return [Group(name, tuple(c for c in all_cards if c.status == name)) for name in columns]
 
 
-def ordered(all_cards: Sequence[Card]) -> List[Card]:
-    return sorted(all_cards, key=lambda c: (c.priority, c.id))
+SORT_KEYS = ("priority", "updated", "created", "title")
+GROUP_KEYS = ("column", "owner", "label", "epic", "parent")
+NONE_GROUP = "(none)"
+
+
+def sort_cards(all_cards: Sequence[Card], spec: str = "priority") -> List[Card]:
+    """`KEY` or `KEY:desc` with KEY one of SORT_KEYS; ties fall back to the item id."""
+    key, _, direction = spec.partition(":")
+    if key not in SORT_KEYS or direction not in ("", "asc", "desc"):
+        raise QewError(f"unknown sort `{spec}`; use one of {', '.join(SORT_KEYS)} optionally followed by :desc", 2)
+    ranked = sorted(all_cards, key=lambda c: c.id)
+    return sorted(ranked, key=lambda c: getattr(c, key), reverse=direction == "desc")
+
+
+def group_cards(snapshot: Snapshot, all_cards: Sequence[Card], key: str) -> List[Group]:
+    """Sections for `key`. Every card lands in at least one section; a card with several labels lands in each."""
+    if key == "column":
+        return by_column(all_cards)
+    if key not in GROUP_KEYS:
+        raise QewError(f"unknown group `{key}`; use one of {', '.join(GROUP_KEYS)}", 2)
+    sections: Dict[str, List[Card]] = {}
+    for card in all_cards:
+        names = list(card.labels) if key == "label" else [getattr(card, key)]
+        for name in names or [""]:
+            sections.setdefault(name or NONE_GROUP, []).append(card)
+    named = sorted(n for n in sections if n != NONE_GROUP)
+    result = []
+    for name in [*named, *([NONE_GROUP] if NONE_GROUP in sections else [])]:
+        title = ""
+        if key in ("epic", "parent") and name in snapshot.items:
+            title = f"{snapshot.short(name)} {snapshot.items[name].title}"
+        result.append(Group(name, tuple(sections[name]), title, by_column=False))
+    return result
+
+
+_FILTER_KEYS = ("label", "kind", "state", "priority", "owner", "epic", "parent", "status")
+
+
+def parse_filter(snapshot: Snapshot, expression: str):
+    """A predicate for space-separated `key:value` terms (all must match; commas in a value are alternatives)."""
+    terms = []
+    for term in expression.split():
+        key, colon, value = term.partition(":")
+        if not colon or key not in _FILTER_KEYS or not value:
+            raise QewError(f"filter term `{term}` must be one of {', '.join(k + ':X' for k in _FILTER_KEYS)}", 2)
+        options = value.split(",")
+        if key in ("epic", "parent"):
+            options = [snapshot.ledger.resolve(option) for option in options]
+        terms.append((key, options))
+
+    def matches(card: Card) -> bool:
+        values = {
+            "label": card.labels, "kind": (card.kind,), "state": (card.state,), "priority": (str(card.priority),),
+            "owner": (card.owner,), "epic": (card.epic,), "parent": (card.parent,), "status": (card.status,),
+        }
+        return all(any(option in values[key] for option in options) for key, options in terms)
+
+    return matches
 
 
 def render_json(name: str, groups: Sequence[Group]) -> str:
     return json.dumps({
         "version": JSON_VERSION, "board": name,
-        "groups": [{"name": g.name, "count": len(g.cards), "cards": [c.as_json() for c in g.cards]} for g in groups],
+        "groups": [
+            {"name": g.name, "title": g.title, "count": len(g.cards), "cards": [c.as_json() for c in g.cards]}
+            for g in groups
+        ],
     })
 
 
@@ -98,7 +164,7 @@ def render_columns(groups: Sequence[Group]) -> str:
 def render_compact(groups: Sequence[Group]) -> str:
     lines: List[str] = []
     for group in groups:
-        lines.append(f"# {group.name} {len(group.cards)}")
+        lines.append(f"# {_one_line(group.name, COMPACT_TITLE)} {len(group.cards)}")
         lines.extend(f"{c.short} p{c.priority} {c.owner or '-'} {_one_line(c.title, COMPACT_TITLE)}" for c in group.cards)
     return "\n".join(lines)
 
@@ -107,11 +173,11 @@ def render_text(groups: Sequence[Group], width: int = 0, color: bool = False) ->
     width = width or terminal_width()
     lines: List[str] = []
     for group in groups:
-        head = f"{group.name} ({len(group.cards)})"
+        head = f"{_one_line(group.heading, width)} ({len(group.cards)})"
         lines.append(f"\x1b[1m{head}\x1b[0m" if color else head)
         for card in group.cards:
             tail = "".join([f" @{card.owner}" if card.owner else "", *[f" #{label}" for label in card.labels]])
-            prefix = f"  {card.short} [p{card.priority}] "
+            prefix = f"  {card.short} [p{card.priority}] " + ("" if group.by_column else f"{card.status}: ")
             room = max(10, width - len(prefix) - len(tail))
             lines.append(prefix + _one_line(card.title, room) + tail)
         lines.append("")
