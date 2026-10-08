@@ -30,7 +30,7 @@ def spec(title: str = "Title", labels=("qew:ready",), open: bool = True, **extra
     return IssueSpec(title, f"body\n{MARKER}", tuple(labels), open, **extra)
 
 
-class ForgejoWalk(unittest.TestCase):
+class ForgejoBase(unittest.TestCase):
     def setUp(self) -> None:
         self.fake = FakeForgejo().start()
         self.addCleanup(self.fake.stop)
@@ -40,6 +40,9 @@ class ForgejoWalk(unittest.TestCase):
         mirror = Mirror("forgejo", self.fake.repo_url, None, "", {"api": self.fake.api, **options})
         return Forgejo(mirror, urllib_transport(timeout=5), {"FORGEJO_TOKEN": TOKEN} if env is None else env)
 
+
+
+class ForgejoWalk(ForgejoBase):
     def test_create_find_update_read_round_trip(self) -> None:
         self.assertIsNone(self.backend.find_issue(MARKER))
         created = self.backend.create_issue(spec(assignee="alice"))
@@ -199,6 +202,91 @@ class ForgejoWalk(unittest.TestCase):
             self.backend.create_issue(spec(labels=("another",)))
         label_pages = [path for _, path, _ in self.fake.requests if "/labels?" in path]
         self.assertLessEqual(len(label_pages), MAX_PAGES)
+
+
+class ForgejoReadSideWalk(ForgejoBase):
+    def test_listing_pages_oldest_first_with_closed_issues_and_without_pull_requests(self) -> None:
+        """An import must see every issue, closed ones included, and never mistake a pull request for one."""
+        self.fake.max_limit = 2
+        first = self.backend.create_issue(spec("one", labels=("a",), assignee="alice"))
+        self.fake.branches["topic"] = "a" * 40
+        self.backend.open_pull_request(PullRequestSpec("topic", "main", "T", "b", False))
+        self.backend.create_issue(spec("two", open=False))
+        for n in range(3, 6):
+            self.backend.create_issue(spec(f"n{n}"))
+        listed = self.backend.list_issues()
+        self.assertEqual([i.title for i in listed], ["one", "two", "n3", "n4", "n5"])
+        self.assertEqual([i.open for i in listed], [True, False, True, True, True])
+        self.assertEqual((listed[0].labels, listed[0].assignee), (("a",), "alice"))
+        self.assertEqual(listed[0], self.backend.read_issue(first.number))
+        self.assertGreaterEqual(len([p for _, p, _ in self.fake.requests if "state=all" in p and "type=issues" in p]), 3)
+
+    def test_comments_come_back_in_creation_order_and_create_round_trips(self) -> None:
+        """Pull must replay a thread in order, and a posted comment must read back as the same comment."""
+        self.fake.max_limit = 2
+        issue = self.backend.create_issue(spec())
+        self.fake.add_comment(issue.number, "alice", "first")
+        posted = self.backend.create_comment(issue.number, "second")
+        self.fake.add_comment(issue.number, "bob", "third")
+        comments = self.backend.list_comments(issue.number)
+        self.assertEqual([c.body for c in comments], ["first", "second", "third"])
+        self.assertEqual([c.author for c in comments], ["alice", "qew-bot", "bob"])
+        self.assertEqual(comments[1], posted)
+        self.assertTrue(all(c.id and c.created for c in comments))
+
+    def test_comment_count_follows_create_comment_on_every_read_path(self) -> None:
+        """Incremental pull relies on the count moving whenever a comment is posted."""
+        issue = self.backend.create_issue(spec())
+        self.assertEqual(issue.comments, 0)
+        self.backend.create_comment(issue.number, "hello")
+        self.assertEqual(self.backend.read_issue(issue.number).comments, 1)
+        self.assertEqual(self.backend.list_issues()[0].comments, 1)
+        self.assertEqual(self.backend.update_issue(issue.number, spec()).comments, 1)
+
+    def test_null_bodies_read_as_empty(self) -> None:
+        """A forge sends null for an empty body; that is empty text, not a rejected listing."""
+        issue = self.backend.create_issue(spec())
+        self.fake.issues[issue.number]["body"] = None
+        self.fake.add_comment(issue.number, "alice", None)
+        self.assertEqual(self.backend.list_issues()[0].body, "")
+        self.assertEqual(self.backend.list_comments(issue.number)[0].body, "")
+
+    def test_listing_longer_than_the_page_bound_is_rejected_not_truncated(self) -> None:
+        """A silently truncated import would drop issues without anyone noticing."""
+        issue = self.backend.create_issue(spec())
+        self.fake.add_comment(issue.number, "alice", "x")
+        self.fake.endless = True
+        with self.assertRaises(ForgeRejected):
+            self.backend.list_issues()
+        with self.assertRaises(ForgeRejected):
+            self.backend.list_comments(issue.number)
+
+    def test_malformed_json_is_rejected(self) -> None:
+        """Garbage from the forge must stop the import, never become an empty listing."""
+        issue = self.backend.create_issue(spec())
+        for call in (
+            lambda: self.backend.list_issues(),
+            lambda: self.backend.list_comments(issue.number),
+            lambda: self.backend.create_comment(issue.number, "hi"),
+        ):
+            self.fake.fail.append((200, "<html>not json"))
+            with self.assertRaises(ForgeRejected):
+                call()
+        self.fake.fail.append((200, '{"id": "x"}'))
+        with self.assertRaises(ForgeRejected):
+            self.backend.create_comment(issue.number, "hi")
+
+    def test_server_errors_are_unavailable(self) -> None:
+        """An outage must read as retry-later, not as an empty forge."""
+        issue = self.backend.create_issue(spec())
+        self.fake.down = True
+        for call in (
+            lambda: self.backend.list_issues(),
+            lambda: self.backend.list_comments(issue.number),
+            lambda: self.backend.create_comment(issue.number, "x"),
+        ):
+            with self.assertRaises(ForgeUnavailable):
+                call()
 
 
 if __name__ == "__main__":

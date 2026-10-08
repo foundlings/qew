@@ -89,11 +89,35 @@ class FakeForgejo:
             "title": issue["title"],
             "body": issue["body"],
             "labels": [{"id": i, "name": self.labels[i]} for i in issue["label_ids"]],
+            "comments": len(issue["discussion"]),
         }
         if assignee:  # Gitea omits the key when nobody is assigned
             shaped["assignee"] = {"id": 7, "login": assignee}
             shaped["assignees"] = [{"id": 7, "login": assignee}]
         return shaped
+
+    def add_comment(self, number: int, login: str, body: Optional[str]) -> Dict[str, Any]:
+        """A comment made on the forge by someone else; created_at rises with each comment."""
+        comment = {"id": 5000 + sum(len(i["discussion"]) for i in self.issues.values()) + 1, "login": login, "body": body}
+        discussion = self.issues[number]["discussion"]
+        comment["created_at"] = f"2026-01-01T00:{len(discussion):02d}:00Z"
+        discussion.append(comment)
+        return comment
+
+    def _comment_json(self, comment: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": comment["id"], "user": {"id": 7, "login": comment["login"]}, "body": comment["body"],
+            "created_at": comment["created_at"],
+        }
+
+    def _pull_as_issue_json(self, number: int) -> Dict[str, Any]:
+        """Gitea lists pull requests among issues unless `type=issues` is asked for."""
+        pull = self.pulls[number]
+        return {
+            "id": 2000 + number, "number": number, "html_url": f"{self.repo_url}/pulls/{number}",
+            "state": pull["state"], "title": pull["title"], "body": "", "labels": [], "comments": 0,
+            "pull_request": {"merged": pull["merged"]},
+        }
 
     def _pull_json(self, number: int) -> Dict[str, Any]:
         pull = self.pulls[number]
@@ -205,8 +229,15 @@ def _route(
         return ok({"id": label_id, "name": payload["name"]}, 201)
     if method == "GET" and re.match(_BASE + r"/issues$", path):
         query = params.get("q", "")
-        found = [n for n, i in sorted(fake.issues.items()) if query in i["body"] or query in i["title"]]
-        return _page(fake, [fake._issue_json(n) for n in found], params)
+        state = params.get("state", "open")
+        found = [n for n, i in fake.issues.items()
+                 if (query in (i["body"] or "") or query in i["title"]) and state in ("all", i["state"])]
+        shaped = {n: fake._issue_json(n) for n in found}
+        if params.get("type") != "issues":
+            shaped.update({n: fake._pull_as_issue_json(n) for n, p in fake.pulls.items() if state in ("all", p["state"])})
+        # Like the real API: newest first unless sort=oldest.
+        ordered = sorted(shaped, reverse=params.get("sort") != "oldest")
+        return _page(fake, [shaped[n] for n in ordered], params)
     if method == "POST" and re.match(_BASE + r"/issues$", path):
         number = fake._index()
         assignees = payload.get("assignees") or []
@@ -216,6 +247,7 @@ def _route(
             "state": "open",
             "label_ids": list(payload.get("labels") or []),
             "assignee": assignees[0] if assignees else "",
+            "discussion": [],
         }
         return ok(fake._issue_json(number), 201)
     match = re.match(_BASE + r"/issues/(\d+)$", path)
@@ -235,6 +267,15 @@ def _route(
             if "assignees" in payload:
                 issue["assignee"] = payload["assignees"][0] if payload["assignees"] else ""
             return ok(fake._issue_json(number))
+    match = re.match(_BASE + r"/issues/(\d+)/comments$", path)
+    if match:
+        number = int(match.group(1))
+        if number not in fake.issues:
+            raise _Reply(404, "issue not found")
+        if method == "GET":
+            return _page(fake, [fake._comment_json(c) for c in fake.issues[number]["discussion"]], params)
+        if method == "POST":
+            return ok(fake._comment_json(fake.add_comment(number, "qew-bot", payload["body"])), 201)
     match = re.match(_BASE + r"/issues/(\d+)/labels$", path)
     if match and method == "PUT":
         number = int(match.group(1))
