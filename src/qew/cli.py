@@ -96,6 +96,8 @@ def _parser() -> argparse.ArgumentParser:
     set_.add_argument("--title", help="new title")
     set_.add_argument("--parent", help="new parent")
     set_.add_argument("--needs", nargs="*", help="replace the needs list")
+    set_.add_argument("--tracks", help="ledger id of the tracking issue item (empty clears it)")
+    set_.add_argument("--pr", help="ledger id of the pull request item (empty clears it)")
     set_.add_argument("--labels", nargs="*", help="replace the labels")
     set_.add_argument("--priority", type=int, help="new priority")
     set_.add_argument("--body", help="replace the body")
@@ -187,7 +189,7 @@ def _run(arguments: argparse.Namespace) -> None:
         print("\n".join(cmd_items.create(config, _specs(arguments), arguments.quote, arguments.import_events)))
     elif command == "set":
         changes = {}
-        for key in ("title", "parent", "priority"):
+        for key in ("title", "parent", "priority", "tracks", "pr"):
             value = getattr(arguments, key)
             if value is not None:
                 changes[key] = str(value)

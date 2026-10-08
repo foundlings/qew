@@ -17,11 +17,11 @@ readable: every read refuses it (exit 1) and names the file instead of listing w
 needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | needs owner parent schema_version text_findings work_state
+shape row: id kind labels priority state title | needs owner parent pr schema_version text_findings tracks work_state
 shape envelope: items schema_version total truncated
-shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
+shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent pr root text_findings tracks
 shape edge: item schema_version | needs parent
-shape show: id kind labels priority schema_version state title | blocks body children evidence mirrors needs owner parent text_findings
+shape show: id kind labels priority schema_version state title | blocks body children evidence links mirrors needs owner parent pr text_findings tracks
 ```
 
 ## Setup
@@ -35,7 +35,9 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   trailers cite an item without evidence for that commit (exit 2, the exact `qew evidence` command on stderr); see hooks.md.
 
 ## Read
-- `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
+- `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body. A `tracks:` or `pr:` link prints `KEY: ID URL...`, the
+  linked item's forge URLs read from its `mirrors/` files (header values are ledger ids only; `check` flags a URL, a
+  forge number or an unknown id there).
 - `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
   [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
@@ -67,8 +69,8 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
-- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--labels L...] [--priority N] [--body TEXT]
-  [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
+- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...]
+  [--priority N] [--body TEXT] [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
   need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with

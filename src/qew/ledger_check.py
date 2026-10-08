@@ -115,6 +115,10 @@ def _check_edges(snapshot: Snapshot, problems: List[str]) -> None:
         for need in item.needs:
             if need not in snapshot.items:
                 problems.append(f"{where}: dangling need {need}")
+        for key in ("tracks", "pr"):
+            link = getattr(item, key)
+            if link and link not in snapshot.items:
+                problems.append(f"{where}: dangling {key} {link}")
         if item.parent:
             parent = snapshot.items.get(item.parent)
             if parent is None:

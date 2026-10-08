@@ -1,5 +1,6 @@
 """How one item appears in a read: its text row and its machine row."""
 
+import re
 from typing import Dict, List
 
 from qew import ledger_graph, untrusted_text
@@ -38,6 +39,9 @@ def row_data(snapshot: Snapshot, item_id: str, work_state: bool = False) -> Dict
         row["parent"] = item.parent
     if item.needs:
         row["needs"] = list(item.needs)
+    for key in ("tracks", "pr"):
+        if getattr(item, key):
+            row[key] = getattr(item, key)
     return row
 
 
@@ -60,3 +64,19 @@ def related(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
     if hidden:
         entry["text_findings"] = list(hidden)
     return entry
+
+
+_URL = re.compile(r"https?://[^\s\x00-\x1f\x7f]+")
+
+
+def link_urls(snapshot: Snapshot, item_id: str) -> List[Dict[str, object]]:
+    """Each header link with the forge URLs of the linked item, read from mirrors/ (forge text: shown only if a plain URL)."""
+    item = snapshot.items[item_id]
+    links = []
+    for key in ("tracks", "pr"):
+        target = getattr(item, key)
+        if target and target in snapshot.items:
+            urls = [m["issue_url"] for m in snapshot.ledger.load_mirrors(target)
+                    if isinstance(m.get("issue_url"), str) and _URL.fullmatch(m["issue_url"])]
+            links.append({"key": key, "item": target, "urls": urls})
+    return links

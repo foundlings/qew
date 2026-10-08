@@ -144,7 +144,7 @@ def set_fields(
     for item_id in ids:
         item = proposed[item_id]
         for key, value in changes.items():
-            if key in ("needs", "parent"):
+            if key in ("needs", "parent", "tracks", "pr"):
                 value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())
             old = item.header()[key]
             if old == value:

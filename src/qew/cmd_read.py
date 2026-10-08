@@ -166,7 +166,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     mirrors = [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in ledger.load_mirrors(item_id)]
     evidence = [event.data for event in folded.evidence]
     data = read_view.row_data(snapshot, item_id)
-    for key, value in (("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body)):
+    links = read_view.link_urls(snapshot, item_id)
+    for key, value in (("links", links), ("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body)):
         if value:
             data[key] = value
     if as_json:
@@ -179,6 +180,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     if folded.owner:
         print(f"owner: {folded.owner}")
     print(f"priority: {item.priority}")
+    for link in links:
+        print(" ".join([f"{link['key']}: {link['item']}", *link["urls"]]))
     for key, values in (("parent", [item.parent] if item.parent else []), ("needs", item.needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
         if values:
             print(f"{key}: {' '.join(values)}")

@@ -40,7 +40,8 @@ mirrors/<ID>/<target>.json      one file per (item, mirror target)
 boards/<target>.json            board recorded by `qew project ensure`
 ```
 
-Header keys: `id kind title parent needs labels owner priority created`. Kinds: epic, issue, task. States:
+Header keys: `id kind title parent needs tracks pr labels owner priority created` (`tracks` and `pr` are optional
+ledger ids of the tracking issue or pull request item, never forge numbers or URLs). Kinds: epic, issue, task. States:
 draft, approved, claimed, completed, closed. IDs come from `id_mode` per kind: `time` (default, 9 chars),
 `letters` (A, B .. AA) or `counter`; imports keep their IDs. Details: `docs/specs/ledger.md`.
 
@@ -84,7 +85,7 @@ Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--chains`, `--state`, `--change`, `--vcs`,
 `--reason`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
-`--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`, `--read-only`.
+`--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`, `--read-only`, `--tracks`, `--pr`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 
