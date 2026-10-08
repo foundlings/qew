@@ -33,6 +33,7 @@ class FakeGitHub:
         self.protection: Dict[str, Dict[str, Any]] = {}  # branch -> classic protection record
         self.failures: List[Dict[str, Any]] = []
         self.next_number = 1
+        self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
         self.next_id = 1000
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.server.fake = self  # type: ignore[attr-defined]
@@ -160,12 +161,16 @@ class FakeGitHub:
         for field in project["fields"]:
             fields.append({
                 "id": field["id"], "name": field["name"],
-                "options": [{"id": o["id"], "name": o["name"]} for o in field["options"]],
+                "options": [
+                    {"id": o["id"], "name": o["name"], "color": o.get("color", "GRAY"), "description": o.get("description", "")}
+                    for o in field["options"]
+                ],
             })
         return {
             "id": project["id"], "number": project["number"], "title": project["title"],
             "url": f"{self.base}/orgs/{OWNER}/projects/{project['number']}",
             "fields": {"nodes": fields},
+            "views": {"nodes": [dict(v) for v in project.get("views", [])]},
         }
 
     def gql_OwnerProjects(self, variables: Dict[str, Any]) -> Dict[str, Any]:
@@ -180,6 +185,7 @@ class FakeGitHub:
         number = len(self.projects) + 1
         project = {
             "id": f"PVT_{number}", "number": number, "title": variables["title"], "items": {},
+            "views": [{"id": f"PVTV_{number}_1", "name": "View 1", "layout": "TABLE_LAYOUT", "filter": None}],
             "fields": [{
                 "id": f"PVTSSF_{number}", "name": "Status",
                 "options": [{"id": f"default-{n}", "name": n} for n in ("Todo", "In Progress", "Done")],
@@ -200,12 +206,72 @@ class FakeGitHub:
             for field in project["fields"]:
                 if field["id"] == variables["fieldId"]:
                     self._set_options(field, variables["options"])
-                    project["items"] = {}  # real GitHub drops values of replaced options
+                    kept = {o["id"] for o in field["options"]}
+                    for item in project["items"].values():  # real GitHub drops values of removed options only
+                        if item.get("option") not in kept and item.get("field") == field["id"]:
+                            item.pop("option", None)
+                        item["values"] = {f: o for f, o in item.get("values", {}).items() if f != field["id"] or o in kept}
                     return {"data": {"updateProjectV2Field": {"projectV2Field": {"id": field["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "field not found"}]}
 
     def _set_options(self, field: Dict[str, Any], options: List[Dict[str, Any]]) -> None:
-        field["options"] = [{"id": f"opt-{field['id']}-{n}", "name": o["name"]} for n, o in enumerate(options)]
+        """An option input that carries an existing `id` keeps that id; others get fresh ids."""
+        self.option_serial = getattr(self, "option_serial", 0)
+        stored = []
+        for o in options:
+            self.option_serial += 1
+            stored.append({
+                "id": o.get("id") or f"opt-{field['id']}-{self.option_serial}",
+                "name": o["name"], "color": o.get("color", "GRAY"), "description": o.get("description", ""),
+            })
+        field["options"] = stored
+
+    def gql_CreateView(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        project = self.projects[variables["projectId"]]
+        view = {
+            "id": f"PVTV_{project['number']}_{len(project['views']) + 1}", "name": variables["name"],
+            "layout": variables["layout"], "filter": None,
+        }
+        project["views"].append(view)
+        return {"data": {"createProjectV2View": {"projectV2View": {"id": view["id"]}}}}
+
+    def gql_UpdateView(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        for project in self.projects.values():
+            for view in project["views"]:
+                if view["id"] == variables["viewId"]:
+                    for key in ("name", "layout", "filter"):
+                        if variables.get(key) is not None:
+                            view[key] = variables[key]
+                    return {"data": {"updateProjectV2View": {"projectV2View": {"id": view["id"]}}}}
+        return {"errors": [{"type": "NOT_FOUND", "message": "view not found"}]}
+
+    def gql_ItemPlacement(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """The issue's project items with the single-select values they hold (post-lag view)."""
+        nodes = []
+        for project in self.projects.values():
+            item = project["items"].get(variables["contentId"])
+            if item is None:
+                continue
+            values = []
+            for field in project["fields"]:
+                chosen = item.get("values", {}).get(field["id"])
+                for option in field["options"]:
+                    if option["id"] == chosen:
+                        values.append({"name": option["name"], "field": {"name": field["name"]}})
+            nodes.append({
+                "id": item["id"], "project": {"number": project["number"]}, "fieldValues": {"nodes": values},
+            })
+        if self.lag > 0:
+            self.lag -= 1
+            nodes = []
+        return {"data": {"node": {"projectItems": {"nodes": nodes}}}}
+
+    def gql_DeleteItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        project = self.projects[variables["projectId"]]
+        for key, item in list(project["items"].items()):
+            if item["id"] == variables["itemId"]:
+                del project["items"][key]
+        return {"data": {"deleteProjectV2Item": {"deletedItemId": variables["itemId"]}}}
 
     def gql_AddItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         project = self.projects[variables["projectId"]]
@@ -218,6 +284,7 @@ class FakeGitHub:
             if item["id"] == variables["itemId"]:
                 item["field"] = variables["fieldId"]
                 item["option"] = variables["optionId"]
+                item.setdefault("values", {})[variables["fieldId"]] = variables["optionId"]
                 return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": item["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "item not found"}]}
 
