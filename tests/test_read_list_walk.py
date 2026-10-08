@@ -80,7 +80,7 @@ class ListWalk(unittest.TestCase):
         self.assertEqual(ids(self.world.run("list", "--owner", "ALICE")), [mine])
         self.assertEqual(ids(self.world.run("list", "--author", "alice")), [mine])
         self.assertEqual(ids(self.world.run("list", "--author", "bob")), [theirs])
-        self.world.run("release", mine, env={"QEW_ACTOR": "alice"})
+        self.world.run("release", mine, "--reason", "done for now", env={"QEW_ACTOR": "alice"})
         self.assertEqual(self.world.run("list", "--owner", "alice").stdout, "")
 
     def test_parent_filter_limit_and_sorted_labels(self) -> None:
@@ -155,7 +155,7 @@ class BlockedWalk(unittest.TestCase):
         """A need closed as duplicate is `closed`; a need that does not exist is `missing`."""
         w = self.world
         closed = self.make("closed need")
-        w.run("close", closed, "--reason", "duplicate")
+        w.run("close", closed, "--reason", "not_planned")
         waiting = self.make("waiting", "--needs", closed)
         path = w.ledger / "items" / f"{waiting}.md"
         path.write_text(path.read_text().replace(f"needs: {closed}\n", f"needs: {closed} zzzzzzzzz\n", 1))
