@@ -7,4 +7,7 @@
   `scripts/release_metadata.py` (SPDX 2.3 SBOM and `SHA256SUMS`; it refuses outputs inside the
   distribution directory and non-regular files), then publish with `scripts/upload_release.py`.
 - Qew has no Python runtime dependencies; build tools are release inputs only.
-- A single local release script that runs these steps is tracked as ledger work.
+- `scripts/release.py check|build --tag vVERSION --source-sha SHA` is the local release script. Before anything is
+  built it refuses (exit 2) unless the source is a full commit id (a tag or branch name is never a source), the package
+  version equals the tag, `HEAD` is that commit and the working tree is clean (messages contain `differs`). `build`
+  then runs the pinned build and `scripts/release_metadata.py` into `--out`. `tests/test_release_check_walk.py` pins it.
