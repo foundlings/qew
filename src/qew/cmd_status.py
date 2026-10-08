@@ -1,9 +1,10 @@
 """`qew status`: replication state in a few fixed lines (see docs/specs/ledger.md, Replication)."""
 
 import json
+import time
 from typing import Optional
 
-from qew import ledger_config
+from qew import ledger_config, syncworker
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.ledger_config import Config
@@ -65,6 +66,7 @@ def collect(config: Config) -> dict:
             for slug, rows in pending.items()
         ],
         "divergences": divergences,
+        "sync": {"retry_after": max(0, int(syncworker.retry_at(config) - time.time()))},
     }
 
 
@@ -74,6 +76,8 @@ def render(data: dict) -> str:
     lines += [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]
     for target in data["targets"]:
         lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}")
+    if data["sync"]["retry_after"]:
+        lines.append(f"sync retry_after={data['sync']['retry_after']}")
     lines.append(f"divergences={len(data['divergences'])}")
     shown = data["divergences"][:SHOWN_DIVERGENCES]
     for d in shown:
