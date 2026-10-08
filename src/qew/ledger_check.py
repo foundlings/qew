@@ -6,7 +6,7 @@ from pathlib import Path
 import tomllib
 from typing import Dict, List, Tuple
 
-from qew import ledger_graph, untrusted_text
+from qew import ledger_graph, stale_claims, untrusted_text
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
@@ -84,6 +84,7 @@ def check_report(ledger: Ledger):
     if without_code:
         notes.append(f"completed without code: {without_code}")
     notes.extend(_lost_claim_notes(snapshot))
+    notes.extend(_stale_claim_notes(snapshot))
     return problems, notes
 
 
@@ -148,6 +149,16 @@ def _check_completed(snapshot: Snapshot, problems: List[str]):
             else:
                 problems.append(f"events/{item_id}: completed without an evidence event")
     return imported, without_code
+
+
+def _stale_claim_notes(snapshot: Snapshot) -> List[str]:
+    """Claimed items whose recorded pull request merged: the fix is `qew land`, nothing is written."""
+    stale = {item_id: stale_claims.merged_pull_requests(snapshot, item_id) for item_id in snapshot.items}
+    stale = {item_id: numbers for item_id, numbers in stale.items() if numbers}
+    if not stale:
+        return []
+    fixes = sorted({n for numbers in stale.values() for n in numbers})
+    return [f"claimed but its pull request merged: {' '.join(sorted(stale))} (fix: {'; '.join(f'qew land {n}' for n in fixes)})"]
 
 
 def _lost_claim_notes(snapshot: Snapshot) -> List[str]:

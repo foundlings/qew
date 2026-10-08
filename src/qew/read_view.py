@@ -2,7 +2,8 @@
 
 from typing import Dict, List
 
-from qew import untrusted_text
+from qew import stale_claims, untrusted_text
+from qew.ledger_event import State
 from qew.ledger_store import Snapshot
 
 
@@ -12,6 +13,9 @@ def text_row(snapshot: Snapshot, item_id: str) -> str:
     derived, holders = snapshot.derived[item_id]  # an epic is in progress while a direct child is claimed
     state = derived.value if derived else "?"
     suffix = "".join(f" @{holder}" for holder in holders)
+    merged = stale_claims.merged_pull_requests(snapshot, item_id)
+    if merged:
+        suffix += f" [stale: pull request #{merged[0]} merged; qew land {merged[0]}]"
     return f"{item_id} {state} p{item.priority} {item.kind.value} {untrusted_text.show(item.title).text}{suffix}"
 
 
@@ -30,6 +34,8 @@ def row_data(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
     }
     if hidden:
         row["text_findings"] = list(hidden)
+    if folded.state == State.CLAIMED:
+        row["stale"] = bool(stale_claims.merged_pull_requests(snapshot, item_id))
     if folded.owner:
         row["owner"] = folded.owner
     if item.kind.value == "epic" and snapshot.derived[item_id][1]:

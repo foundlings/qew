@@ -23,6 +23,13 @@ def actor() -> str:
     return os.environ.get("QEW_ACTOR") or os.environ.get("USER") or "unknown"
 
 
+def require_usable_actor(name: str) -> str:
+    """An actor ends up in event files and mirror labels: no whitespace, no commas, not empty (exit 2)."""
+    if not name or any(c.isspace() or c == "," for c in name):
+        raise QewError(f"actor `{name}` cannot be used in a label (no spaces or commas); set QEW_ACTOR", 2)
+    return name
+
+
 @dataclass(frozen=True)
 class Ledger:
     path: Path
@@ -141,7 +148,8 @@ class Ledger:
         directory = self.events_dir / item_id
         directory.mkdir(parents=True, exist_ok=True)
         existing = sorted(path.stem for path in directory.glob("*.json"))
-        event = Event(event_id(existing[-1] if existing else ""), event_type, at or now(), by or actor(), dict(data))
+        who = by or require_usable_actor(actor())
+        event = Event(event_id(existing[-1] if existing else ""), event_type, at or now(), who, dict(data))
         _write(directory / f"{event.id}.json", event.to_json(), exclusive=True)
         return event
 

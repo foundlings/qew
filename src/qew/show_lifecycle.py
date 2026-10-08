@@ -7,6 +7,9 @@ from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
 
 
+SHOWN_COMMENTS = 10
+
+
 def _safe(text: str) -> str:
     """Agent-written free text on one line, withheld when it hides characters a reader cannot see."""
     hidden = untrusted_text.findings(text)
@@ -54,6 +57,18 @@ def extras(snapshot: Snapshot, item_id: str) -> Tuple[dict, List[str]]:
     links = closed_links(snapshot, item_id)
     data: dict = {"claim": folded.claim, "holders": list(holders)}
     lines: List[str] = []
+    events = sorted(snapshot.events[item_id], key=lambda event: event.id)
+    if events:
+        data["author"] = events[0].actor
+        lines.append(f"author: {events[0].actor}")
+    origin = snapshot.items[item_id].discovered_from
+    if origin:
+        data["discovered_from"] = origin
+        lines.append(f"discovered-from: {origin}")
+    found = sorted(other.id for other in snapshot.items.values() if other.discovered_from == item_id)
+    if found:
+        data["discovered"] = found
+        lines.append(f"discovered: {' '.join(found)}")
     if snapshot.items[item_id].kind == Kind.EPIC and holders:
         lines.append(f"holders: {' '.join(holders)}")
     if folded.claim and folded.claim.get("lane"):
@@ -70,4 +85,11 @@ def extras(snapshot: Snapshot, item_id: str) -> Tuple[dict, List[str]]:
         if links[key]:
             data[label.replace("-", "_")] = links[key]
             lines.append(f"{label}: {' '.join(links[key])}")
+    comments = [event for event in events if event.type == "comment"]
+    if comments:
+        data["comments"] = [{"actor": c.actor, "at": c.at, "text": c.get("text")} for c in comments]
+        if len(comments) > SHOWN_COMMENTS:
+            lines.append(f"comments: {len(comments) - SHOWN_COMMENTS} earlier not shown (qew show --json lists all)")
+        for c in comments[-SHOWN_COMMENTS:]:
+            lines.append(f"comment {c.actor} {c.at}: {_safe(c.get('text'))}")
     return data, lines

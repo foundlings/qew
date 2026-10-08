@@ -20,11 +20,11 @@ readable: every read refuses it (exit 1) and names the file instead of listing w
 needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | needs owner parent schema_version text_findings
+shape row: id kind labels priority state title | needs owner parent schema_version text_findings holders stale
 shape envelope: items schema_version total truncated
-shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
+shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings holders stale
 shape edge: item schema_version | needs parent
-shape show: id kind labels priority schema_version state title | blocks body children evidence mirrors needs owner parent text_findings
+shape show: id kind labels priority schema_version state title claim holders | blocks body children evidence mirrors needs owner parent text_findings stale author completion closure closed_duplicates supersedes discovered_from discovered comments
 ```
 
 ## Setup
@@ -39,7 +39,7 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 
 ## Read
 - `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
-- `qew list [--kind K] [--state S] [--label L] [--json]`, `qew ready [--json]`, `qew blocked [--chains] [--json]`,
+- `qew list [--kind K] [--state S] [--label L] [--json]` (a claimed row carries `stale` and a text marker when its pull request merged; `qew check` notes `claimed but its pull request merged: IDS (fix: qew land N)`), `qew ready [--json]`, `qew blocked [--chains] [--json]`,
   `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network. `ready` lists by priority, then the
@@ -66,6 +66,26 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
   `--closed`. Several items may share parent, needs, labels or priority; `--title` and `--body` take one item.
   `qew create` applies the same edge rules before writing.
+  Also `[--no-parent] [--kind K] [--add-label L] [--remove-label L] [--body-file F] [--json]`: `--no-parent` removes
+  the parent, `--add-label`/`--remove-label` edit the label set (`--labels` replaces it), `--body-file` reads the
+  body (a symlink, an empty file, a blank or multi-line title are exit 2). A `needs` change is written as one
+  `edge` event per added or removed need, not as a header rewrite, so two branches changing different edges
+  merge; other keys rewrite the header with one `field` event each. The files are read back after the write.
+  Repeating an edit prints `unchanged`.
+- `qew create ... [--draft] [--discovered-from ITEM] [--where T] [--problem T | --goal T] [--fix T | --approach T]
+  [--done-when T] [--edit] [--json]`: `--draft` files a draft explicitly (with `--quote` it is exit 2). The structured
+  flags render headed sections (`## Where`, `## Problem`, ...); `--problem`/`--goal` and `--fix`/`--approach` are
+  exclusive, and `--body`, `--body-file`, `--edit` and the structured flags give the body one way only. `--edit` runs
+  `$EDITOR` tokenized as argv, never through a shell. `--discovered-from` stores the origin in the header key
+  `discovered_from`; `qew show` mentions it at both ends and it never blocks. A negative `--priority` is exit 2; an actor
+  name with whitespace or a comma is refused at the first write. A body, comment or `set --body` with unmarked
+  command, flag or path shaped text warns on stderr (`warning: unmarked code-shaped text: X`) and is stored as given.
+- `qew comment ITEM (--body TEXT | --body-file F) [--json]`: an append-only `comment` event on any item (blank,
+  oversize, symlinked or doubled input is exit 2). `qew show` prints the author (first event's actor), the ten latest
+  comments and, in `--json`, all of them.
+- `qew block ITEM --on ITEM [--closed] [--json]`, `qew unblock ITEM --from ITEM [--closed] [--json]`: add or remove one
+  needs edge as an `edge` event; repeating is `unchanged`; a self edge, unknown item or cycle is exit 2, completed or
+  closed items need `--closed`.
 - `qew start ITEM [--take-over --reason TEXT] [--lane ID [--workspace PATH] [--kind compute|token]] [--json]`:
   claim approved work whose needs are completed. Another actor's claim is exit 3 naming the holder and
   `--take-over`; your own claim is exit 5 (no event) when the lane matches, exit 3 naming the lane when it does

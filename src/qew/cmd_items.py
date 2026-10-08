@@ -3,7 +3,8 @@
 import json
 from pathlib import Path
 import sys
-from typing import Callable, Dict, List, Optional
+from dataclasses import replace
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from qew import graph_rules, ledger_config, ledger_labels
 from qew.errors import QewError
@@ -11,7 +12,7 @@ from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import Event, State, fold, parse_event
 from qew.ledger_ids import valid_id
 from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
-from qew.ledger_store import Ledger, actor, now, open_ledger
+from qew.ledger_store import Ledger, actor, now, open_ledger, require_usable_actor
 from qew.requester import require_quote
 
 
@@ -71,6 +72,9 @@ def build_item(ledger: Ledger, spec: dict, resolved: Dict[str, str], known: List
         "priority": str(spec.get("priority", DEFAULT_PRIORITY)),
         "created": str(spec.get("created") or now()),
     }
+    graph_write_priority(header["priority"])
+    if spec.get("discovered_from"):
+        header["discovered_from"] = reference(str(spec["discovered_from"]))
     ledger_labels.require_valid(spec.get("labels", []))
     return from_header(header, str(spec.get("body", "")), "new item")
 
@@ -94,6 +98,12 @@ def _import_events(item: Item, spec: dict) -> List[Event]:
 
 
 def create(config: Config, specs: List[dict], quote: Optional[str], import_events: bool = False) -> List[str]:
+    return [f"{item_id} {state} {title}" for item_id, state, title in create_items(config, specs, quote, import_events)]
+
+
+def create_items(config: Config, specs: List[dict], quote: Optional[str], import_events: bool = False) -> List[Tuple[str, str, str]]:
+    """File the items; returns (id, state, title) in input order. Nothing is written unless every spec is valid."""
+    require_usable_actor(actor())
     ledger = ledger_for(config)
     verified = require_quote(quote) if quote is not None else None
     known = ledger.item_ids()
@@ -115,23 +125,42 @@ def create(config: Config, specs: List[dict], quote: Optional[str], import_event
             for event in events:
                 ledger.append_event(item.id, event.type, at=event.at, by=event.actor, **event.data)
             state = fold(events).state
-            lines.append(f"{item.id} {state.value if state else '?'} {item.title}")
+            lines.append((item.id, state.value if state else "?", item.title))
             continue
         if verified:
             ledger.append_event(item.id, "approved", quote=verified)
         else:
             ledger.append_event(item.id, "drafted")
-        lines.append(f"{item.id} {'approved' if verified else 'draft'} {item.title}")
+        lines.append((item.id, "approved" if verified else "draft", item.title))
     return lines
 
 
 def set_fields(
-    config: Config, references: List[str], changes: Dict[str, str], body: Optional[str], allow_closed: bool = False
+    config: Config, references: List[str], changes: Dict[str, str], body: Optional[str], allow_closed: bool = False,
+    add_labels: Sequence[str] = (), remove_labels: Sequence[str] = (),
 ) -> List[str]:
+    return apply_set(config, references, changes, body, allow_closed, add_labels, remove_labels)[0]
+
+
+def apply_set(
+    config: Config, references: List[str], changes: Dict[str, str], body: Optional[str], allow_closed: bool = False,
+    add_labels: Sequence[str] = (), remove_labels: Sequence[str] = (),
+) -> Tuple[List[str], List[str]]:
+    """Edit items; returns (report lines, the field keys that changed).
+
+    Everything is checked before the first write. `needs` changes are written as `edge` events (one per
+    edge, so branches that change different edges merge); every other key rewrites the header and leaves
+    a `field` audit event. The item files are read back afterwards: a header that differs is a partial write.
+    """
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
     if "labels" in changes:
         ledger_labels.require_valid(changes["labels"].split())
+    ledger_labels.require_valid(list(add_labels))
+    if "title" in changes and (not changes["title"].strip() or "\n" in changes["title"]):
+        raise QewError("a title is one non-blank line", 2)
+    if body is not None and not body.strip():
+        raise QewError("a replacement body must not be empty", 2)
     ids = list(dict.fromkeys(ledger.resolve(reference, list(snapshot.items)) for reference in references))
     if len(ids) > 1 and (body is not None or "title" in changes):
         raise QewError("--title and --body name one item; several items may share parent, needs, labels or priority", 2)
@@ -143,9 +172,16 @@ def set_fields(
     audit = []  # (id, key, old, new) in write order
     for item_id in ids:
         item = proposed[item_id]
-        for key, value in changes.items():
+        wanted = dict(changes)
+        if add_labels or remove_labels:
+            kept = [label for label in item.labels if label not in remove_labels]
+            wanted["labels"] = " ".join(kept + [label for label in add_labels if label not in kept])
+            ledger_labels.require_valid(wanted["labels"].split())
+        for key, value in wanted.items():
             if key in ("needs", "parent"):
                 value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())
+            if key == "priority":
+                graph_write_priority(value)
             old = item.header()[key]
             if old == value:
                 continue
@@ -156,16 +192,48 @@ def set_fields(
             audit.append((item_id, key, old, value))
         proposed[item_id] = item
     graph_rules.validate_edges(proposed, ids)
-    lines = []
+    lines: List[str] = []
+    changed: List[str] = []
+    expected = {}
     for item_id in ids:
-        original = snapshot.items[item_id]
-        if proposed[item_id] != original:
-            ledger.write_item(proposed[item_id], overwrite=True)
-        for _, key, old, new in (entry for entry in audit if entry[0] == item_id):
-            ledger.append_event(item_id, "field", key=key, old=old, new=new)
-            lines.append(f"{item_id} {key}: {old} -> {new}")
+        original, raw = snapshot.items[item_id], ledger.load_item(item_id)
+        wanted_item = replace(proposed[item_id], needs=raw.needs)  # the header keeps its own list; edges are events
         if body is not None and body != original.body:
-            ledger.write_item(Item(**{**proposed[item_id].__dict__, "body": body}), overwrite=True)
+            wanted_item = replace(wanted_item, body=body)
+        if wanted_item != raw or wanted_item.body != raw.body:
+            ledger.write_item(wanted_item, overwrite=True)
+        expected[item_id] = wanted_item
+        for _, key, old, new in (entry for entry in audit if entry[0] == item_id):
+            if key == "needs":
+                _write_edges(ledger, item_id, original.needs, proposed[item_id].needs)
+            else:
+                ledger.append_event(item_id, "field", key=key, old=old, new=new)
+            lines.append(f"{item_id} {key}: {old} -> {new}")
+            changed.append(key)
+        if body is not None and body != original.body:
             ledger.append_event(item_id, "field", key="body", old="", new="(changed)")
             lines.append(f"{item_id} body changed")
-    return lines or [f"{' '.join(ids)} unchanged"]
+            changed.append("body")
+    for item_id, wanted_item in expected.items():
+        reread = ledger.load_item(item_id)
+        if reread.header() != wanted_item.header() or reread.body.rstrip("\n") != wanted_item.body.rstrip("\n"):
+            raise QewError(f"{item_id} reads back differently from what was written; the write is rolled back", 1)
+    return lines or [f"{' '.join(ids)} unchanged"], list(dict.fromkeys(changed))
+
+
+def graph_write_priority(value: str) -> None:
+    if not value.lstrip("-").isdigit() or int(value) < 0:
+        raise QewError("priority must be a non-negative integer", 2)
+
+
+def _write_edges(ledger: Ledger, item_id: str, before: Sequence[str], after: Sequence[str]) -> None:
+    """One `edge` event per added or removed need, each carrying the whole list before and after for audit."""
+    current = list(before)
+    for need in [n for n in before if n not in after]:
+        updated = [n for n in current if n != need]
+        ledger.append_event(item_id, "edge", op="remove", need=need, old=" ".join(current), new=" ".join(updated))
+        current = updated
+    for need in [n for n in after if n not in before]:
+        updated = current + [need]
+        ledger.append_event(item_id, "edge", op="add", need=need, old=" ".join(current), new=" ".join(updated))
+        current = updated

@@ -37,7 +37,8 @@ class StaleClaimWalk(unittest.TestCase):
         self.assertIn(f"claimed but its pull request merged: {stale}", checked.stdout)
         self.assertNotIn(open_pr, checked.stdout)
         self.assertNotIn(done, checked.stdout)
-        flagged = {row["id"]: row.get("stale") for row in json.loads(w.run("list", "--state", "claimed", "--json").stdout)}
+        rows = [json.loads(line) for line in w.run("list", "--state", "claimed", "--json").stdout.splitlines()]
+        flagged = {row["id"]: row.get("stale") for row in rows}
         self.assertEqual(flagged, {stale: True, open_pr: False})
         self.assertIn("qew land 3", w.run("list", "--state", "claimed").stdout)
         self.assertEqual(tree(w), before)

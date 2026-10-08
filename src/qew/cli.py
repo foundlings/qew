@@ -22,6 +22,9 @@ Read
 Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
+  qew comment     add an append-only comment
+  qew block       make an item wait for another
+  qew unblock     remove a wait
   qew start       claim work
   qew release     give a claim up
   qew evidence    record the code changes that deliver an item
@@ -53,7 +56,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_claim", "cmd_finish")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_claim", "cmd_finish", "cmd_edit")
 
 
 def _plugins() -> list:
@@ -81,29 +84,6 @@ def _parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init", help="create .qew/config.toml and the ledger")
     init.add_argument("--ledger", help="path to the ledger checkout, relative to the repo root")
 
-    create = commands.add_parser("create", help="file an item (a draft unless --quote releases it)")
-    create.add_argument("--kind", choices=["epic", "issue", "task"], default="issue", help="item kind")
-    create.add_argument("--title", help="short imperative title")
-    create.add_argument("--parent", help="parent item")
-    create.add_argument("--needs", nargs="*", default=[], help="items this one is blocked by")
-    create.add_argument("--label", action="append", default=[], help="label, repeatable")
-    create.add_argument("--priority", type=int, default=2, help="lower is sooner")
-    create.add_argument("--body", help="Markdown body")
-    create.add_argument("--body-file", help="read the body from a file, or - for stdin")
-    create.add_argument("--quote", help="a human's words, \"Name: 'their words'\"; releases the item")
-    create.add_argument("--from-file", help="JSON object or array of items, or - for stdin")
-    create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")
-
-    set_ = commands.add_parser("set", help="change an item's header fields")
-    set_.add_argument("items", nargs="+", help="item ids or aliases")
-    set_.add_argument("--title", help="new title")
-    set_.add_argument("--parent", help="new parent")
-    set_.add_argument("--needs", nargs="*", help="replace the needs list")
-    set_.add_argument("--labels", nargs="*", help="replace the labels")
-    set_.add_argument("--priority", type=int, help="new priority")
-    set_.add_argument("--body", help="replace the body")
-    set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
-
     commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
 
     draft = commands.add_parser("draft", help="drafts and their release by a human")
@@ -127,45 +107,6 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _specs(arguments: argparse.Namespace) -> List[dict]:
-    if arguments.from_file:
-        text = sys.stdin.read() if arguments.from_file == "-" else _read(arguments.from_file)
-        try:
-            value = json.loads(text)
-        except ValueError as error:
-            raise QewError(f"--from-file is not valid JSON: {error}", 2) from None
-        specs = value if isinstance(value, list) else [value]
-        if not all(isinstance(spec, dict) for spec in specs):
-            raise QewError("--from-file holds an object or an array of objects", 2)
-        return specs
-    if not arguments.title:
-        raise QewError("--title is required", 2)
-    body = arguments.body
-    if arguments.body_file:
-        body = sys.stdin.read() if arguments.body_file == "-" else _read(arguments.body_file)
-    return [
-        {
-            "kind": arguments.kind,
-            "title": arguments.title,
-            "parent": arguments.parent,
-            "needs": arguments.needs,
-            "labels": arguments.label,
-            "priority": arguments.priority,
-            "body": body or "",
-        }
-    ]
-
-
-def _read(path: str) -> str:
-    if os.path.islink(path):
-        raise QewError(f"{path} is a symlink; name the real file", 2)
-    try:
-        with open(path, encoding="utf-8") as handle:
-            return handle.read()
-    except (OSError, UnicodeError) as error:
-        raise QewError(f"cannot read {path}: {error}", 2) from None
-
-
 def _run(arguments: argparse.Namespace) -> None:
     command = arguments.command
     for plugin in _plugins():
@@ -175,20 +116,7 @@ def _run(arguments: argparse.Namespace) -> None:
         print(cmd_items.init(arguments.ledger))
         return
     config = ledger_config.load()
-    if command == "create":
-        print("\n".join(cmd_items.create(config, _specs(arguments), arguments.quote, arguments.import_events)))
-    elif command == "set":
-        changes = {}
-        for key in ("title", "parent", "priority"):
-            value = getattr(arguments, key)
-            if value is not None:
-                changes[key] = str(value)
-        for key in ("needs", "labels"):
-            value = getattr(arguments, key)
-            if value is not None:
-                changes[key] = " ".join(value)
-        print("\n".join(cmd_items.set_fields(config, arguments.items, changes, arguments.body, arguments.closed)))
-    elif command == "check":
+    if command == "check":
         ledger = cmd_items.ledger_for(config)
         problems, notes = ledger_check.check_report(ledger)
         if problems:

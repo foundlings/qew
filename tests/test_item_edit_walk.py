@@ -47,7 +47,7 @@ class SetOptionsWalk(unittest.TestCase):
         epic = w.create("--kind", "epic", "--title", "E")
         item = w.create("--kind", "issue", "--title", "I", "--parent", epic)
         self.assertEqual(w.run("set", item, "--no-parent").returncode, 0)
-        self.assertEqual(json.loads(w.run("show", item, "--json").stdout)["parent"], "")
+        self.assertEqual(json.loads(w.run("show", item, "--json").stdout).get("parent", ""), "")
 
     def test_values_that_would_corrupt_the_header_are_refused_and_nothing_changes(self) -> None:
         """Prevents corrupting the fixed header format: blank or multi-line titles, an empty or symlinked body file."""

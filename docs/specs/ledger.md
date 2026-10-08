@@ -47,6 +47,7 @@ labels: area:erp phase:ADA
 owner:                         # empty = unclaimed
 priority: 2                    # lower = sooner
 created: 2026-10-08T16:00:00Z
+discovered_from: FND-01JA7P00  # optional: where this was found; never a dependency
 ---
 Body…
 ```
@@ -76,6 +77,8 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
   as ancestors of the target branch in the code repo — checked by `qew complete`, refused otherwise)
 - `reopened`, `closed` (`reason`: `not_planned|duplicate|superseded`)
 - `field` (header change audit: key, old, new)
+- `edge` (`op` add|remove, `need`, `old`, `new`): one needs edge changed; the effective needs are the header list with
+  every `edge` event applied in ID order, so branches changing different edges merge. `comment` (`text`): append-only.
 An epic's claim is DERIVED at read time, never stored: it is in progress (`qew show`, `list`) while an open direct
 non-epic child is claimed, held by exactly those children's actors; a completed or closed epic shows nothing.
 State machine: draft → approved → claimed → completed (closed from any). Illegal transitions refused.

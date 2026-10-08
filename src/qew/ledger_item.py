@@ -19,7 +19,7 @@ class Kind(str, Enum):
 
 
 # The schema: header keys in file order. Unknown keys are refused, never ignored.
-KEYS = ("id", "kind", "title", "parent", "needs", "labels", "owner", "priority", "created")
+KEYS = ("id", "kind", "title", "parent", "needs", "labels", "owner", "priority", "created", "discovered_from")
 REQUIRED = ("id", "kind", "title", "created")
 LIST_KEYS = ("needs", "labels")
 DEFAULT_PRIORITY = 2
@@ -36,10 +36,11 @@ class Item:
     labels: Tuple[str, ...] = ()
     owner: str = ""
     priority: int = DEFAULT_PRIORITY
+    discovered_from: str = ""  # the item this one was found while working on; never a dependency
     body: str = field(default="", compare=False)
 
     def header(self) -> Dict[str, str]:
-        return {
+        header = {
             "id": self.id,
             "kind": self.kind.value,
             "title": self.title,
@@ -50,6 +51,9 @@ class Item:
             "priority": str(self.priority),
             "created": self.created,
         }
+        if self.discovered_from:
+            header["discovered_from"] = self.discovered_from
+        return header
 
     def with_value(self, key: str, value: str) -> "Item":
         header = self.header()
@@ -97,7 +101,7 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
     priority = header.get("priority", str(DEFAULT_PRIORITY)) or str(DEFAULT_PRIORITY)
     if not priority.isdigit():
         raise QewError(f"{where}: priority must be a non-negative integer", 1)
-    for key in ("parent",):
+    for key in ("parent", "discovered_from"):
         if header.get(key) and not valid_id(header[key]):
             raise QewError(f"{where}: `{key}` must be an item id", 1)
     needs = tuple(header.get("needs", "").split())
@@ -117,6 +121,7 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
         labels=labels,
         owner=header.get("owner", ""),
         priority=int(priority),
+        discovered_from=header.get("discovered_from", ""),
         body=body,
     )
 
