@@ -117,7 +117,7 @@ tool call, forge-side issue/label/board edits and pull request merges that bypas
 
 ## Tests
 
-`python3 -m unittest discover -s tests`: command-level walks, offline; forge backends are tested over real HTTP
+`python3 scripts/gate.py` (parallel; `python3 -m unittest discover -s tests` is the serial equivalent): command-level walks, offline; forge backends are tested over real HTTP
 against local fakes. This is the gate; qew has no GitHub workflows.
 
 Licensed under Apache-2.0.

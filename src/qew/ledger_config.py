@@ -128,6 +128,7 @@ def load(start: Optional[Path] = None) -> Config:
         raise QewError(f"{root / CONFIG}: [ledger] path is required", 1)
     override = os.environ.get("QEW_LEDGER")
     ledger_path = Path(override) if override else (root / section["path"])
+    _refuse_real_ledger_under_test(ledger_path)
     ledger_prefix = _ledger_prefix(ledger_path.resolve())
     prefix = section.get("prefix") or ledger_prefix
     code = data.get("code", {})
@@ -135,6 +136,18 @@ def load(start: Optional[Path] = None) -> Config:
     return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors,
                   _replication(data.get("replication")), _authority(data.get("authority"), mirrors),
                   _claim_cap(data.get("claims")))
+
+
+def _refuse_real_ledger_under_test(ledger_path: Path) -> None:
+    """With QEW_UNDER_TEST set (the harness, scripts/gate.py) only a ledger inside the temp directory may be used."""
+    if not os.environ.get("QEW_UNDER_TEST"):
+        return
+    import tempfile
+
+    temporary = Path(os.path.realpath(tempfile.gettempdir()))
+    resolved = Path(os.path.realpath(ledger_path))
+    if temporary != resolved and temporary not in resolved.parents:
+        raise QewError(f"under test qew only uses ledgers inside the temporary directory, not {ledger_path}", 2)
 
 
 def _claim_cap(section: object) -> Optional[int]:

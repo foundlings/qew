@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def run_module(name: str, timeout: float):
     started = time.monotonic()
-    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src"), "QEW_UNDER_TEST": "1"}
     try:
         done = subprocess.run(
             [sys.executable, "-m", "unittest", f"tests.{name}"],
