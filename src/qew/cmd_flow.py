@@ -71,13 +71,18 @@ def complete(config: Config, reference: str) -> str:
     ledger, snapshot, item_id = _load(config, reference)
     item = snapshot.items[item_id]
     folded = snapshot.folds[item_id]
+    if folded.state == State.DRAFT and item.kind == Kind.EPIC:
+        raise QewError(
+            f"cannot complete {snapshot.short(item_id)}: it is a draft plan; release it with "
+            f"qew draft approve {snapshot.short(item_id)} --tree --quote Q first", 2)
     if folded.state != State.CLAIMED:
         raise _refuse(snapshot, item_id, "complete", "a claimed item")
     kids = ledger_graph.children(snapshot).get(item_id, [])
     open_kids = [k for k in kids if snapshot.folds[k].state not in (State.COMPLETED, State.CLOSED)]
     if open_kids:
         shown = " ".join(snapshot.short(k) for k in open_kids)
-        raise QewError(f"cannot complete {snapshot.short(item_id)}: unfinished children {shown}", 2)
+        count = f"{len(open_kids)} child remains open" if len(open_kids) == 1 else f"{len(open_kids)} children remain open"
+        raise QewError(f"cannot complete {snapshot.short(item_id)}: {count}: {shown}", 2)
     if item.kind == Kind.EPIC:
         if not kids:
             raise QewError(f"cannot complete {snapshot.short(item_id)}: an epic with no children has nothing to prove; close it", 2)
