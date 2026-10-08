@@ -153,5 +153,4 @@ def check_header_values(item: Item) -> List[str]:
         problems.append("an item cannot be its own parent")
     if item.id in item.needs:
         problems.append("an item cannot need itself")
-    problems.extend(found for found in map(ledger_labels.problem, item.labels) if found)
     return problems

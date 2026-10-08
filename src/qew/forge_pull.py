@@ -221,7 +221,7 @@ def _import_issue(ledger: Ledger, snapshot: Snapshot, target, report: PullReport
 
     known = list(snapshot.items)
     item_id = ledger.new_id("issue", known)
-    labels = clean_labels(issue.labels)
+    labels = clean_labels(sync_plan.user_labels(issue.labels))
     item = from_header({
         "id": item_id, "kind": "issue", "title": clean_line(issue.title) or f"Imported issue {issue.number}",
         "parent": "", "needs": "", "labels": " ".join(labels), "owner": "", "priority": "2", "created": now(),

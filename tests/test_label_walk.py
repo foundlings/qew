@@ -70,6 +70,9 @@ class LabelWalk(unittest.TestCase):
         result = self.world.run("check")
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("reserved", result.stdout + result.stderr)
+        self.assertEqual(self.world.run("list").returncode, 0, "reads stay available so the label can be repaired")
+        self.assertEqual(self.world.run("set", item, "--labels", "ok").returncode, 0)
+        self.assertEqual(self.world.run("check").returncode, 0)
 
 
 if __name__ == "__main__":
