@@ -64,6 +64,29 @@ class HelpWalk(unittest.TestCase):
                         if flag.startswith("--") and flag != "--help":
                             self.assertIn(flag, text, f"{name} lacks {flag} (qew {' '.join(path)})")
 
+    def test_rendered_group_help_lists_every_subcommand_with_its_help_line(self) -> None:
+        """A subcommand that is only in the parser, not in the rendered text, is invisible to users."""
+        world = World()
+        self.addCleanup(world.close)
+        groups = [(path, sub) for path, sub, _ in self.commands
+                  if any(isinstance(a, argparse._SubParsersAction) for a in sub._actions)]
+        self.assertTrue({("draft",), ("pr",), ("hook",), ("project",)} <= {path for path, _ in groups})
+        for path, sub in groups:
+            rendered = " ".join(world.run(*path, "--help").stdout.split())
+            for child_path, _, help_text in self.commands:
+                if child_path[:-1] == path:
+                    with self.subTest(command=" ".join(child_path)):
+                        self.assertIn(f"{child_path[-1]} {' '.join(help_text.split())}", rendered)
+
+    def test_top_level_help_points_at_command_help_and_the_drafts_flow(self) -> None:
+        """A newcomer must find per-command help and how work is released."""
+        world = World()
+        self.addCleanup(world.close)
+        text = " ".join(world.run("--help").stdout.split())
+        self.assertIn("qew COMMAND --help", text)
+        self.assertIn("qew draft list | approve | revert", text)
+        self.assertIn("only a human's quoted words release work", text)
+
     def test_no_section_sign_appears_in_the_documents(self) -> None:
         for name in ("README.md", "CLAUDE.md", *(str(p.relative_to(ROOT)) for p in (ROOT / "docs").rglob("*.md"))):
             self.assertNotIn("§", (ROOT / name).read_text(encoding="utf-8"), name)

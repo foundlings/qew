@@ -39,6 +39,9 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     "forge_divergence": (("target", "field"), tuple(State)),
     "divergence_accepted": (("ref",), tuple(State)),
     "divergence_rejected": (("ref",), tuple(State)),
+    # Claim arbitration (docs/specs/ledger.md, Authority and topology).
+    "claim_confirmed": (("ref",), tuple(State)),
+    "claim_lost": (("ref",), tuple(State)),
 }
 PROVENANCE = ("import", "forge", "forge-import")
 _INITIAL = {"drafted": State.DRAFT, "approved": State.APPROVED}
@@ -125,7 +128,10 @@ def fold(events: List[Event]) -> Folded:
     evidence: List[Event] = []
     errors: List[str] = []
     imported = False
+    lost = {e.get("ref") for e in events if e.type == "claim_lost"}
     for event in sorted(events, key=lambda item: item.id):
+        if event.type == "claimed" and event.id in lost:
+            continue  # this claim lost arbitration: it never owned the item
         _, sources = _RULES[event.type]
         if event.type == "completed" and event.get("provenance") in ("import", "forge-import"):
             # Imported history was never claimed here; it may complete from any open state.

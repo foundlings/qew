@@ -68,6 +68,8 @@ def install_managed_file(
     relative: Sequence[str],
     content: str,
     marker: str,
+    *,
+    new_file_mode: int = 0o600,
 ) -> bool:
     _require_marker(content, marker)
     encoded = content.encode("utf-8")
@@ -75,7 +77,7 @@ def install_managed_file(
         directory, name = target
         existing = _read_regular_file(directory, name)
         if existing is None:
-            mode = 0o600
+            mode = new_file_mode
         else:
             raw, mode = existing
             if raw == encoded:

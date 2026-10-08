@@ -65,14 +65,14 @@ class AuthorWalk(unittest.TestCase):
         self.assertIn("author", report.failures[0])
 
     def test_item_without_events_has_unknown_author_and_no_label(self) -> None:
-        """No recorded first event means no guess: shown as unknown, never mirrored as a label."""
+        """No recorded first event means no guess: never mirrored as a label."""
         w = self.world
         item = w.create("--title", "T")
         shutil.rmtree(w.ledger / "events" / item)
         forge = MemoryForge("git.example")
         self.sync(forge)
         self.assertFalse([label for label in forge.issues[1].labels if label.startswith("author:")])
-        self.assertIn("author: unknown", w.run("show", item).stdout)
+        self.assertNotEqual(w.run("show", item).returncode, 0, "reads refuse a ledger whose item has no events")
 
 
 if __name__ == "__main__":

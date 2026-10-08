@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from qew import code_vcs, ledger_graph
+from qew import claim_authority, code_vcs, ledger_graph
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
@@ -39,7 +39,7 @@ def start(config: Config, reference: str) -> str:
     if unmet:
         shown = " ".join(snapshot.short(n) if n in snapshot.items else n for n in unmet)
         raise QewError(f"cannot start {snapshot.short(item_id)}: it needs {shown} completed first", 2)
-    ledger.append_event(item_id, "claimed", owner=actor())
+    claim_authority.claim(config, ledger, item_id, actor())
     return f"{snapshot.short(item_id)} claimed by {actor()}"
 
 
@@ -47,6 +47,7 @@ def release(config: Config, reference: str) -> str:
     ledger, snapshot, item_id = _load(config, reference)
     if snapshot.folds[item_id].state != State.CLAIMED:
         raise _refuse(snapshot, item_id, "release", "a claimed item")
+    claim_authority.release(config, ledger, item_id)
     ledger.append_event(item_id, "released")
     return f"{snapshot.short(item_id)} released"
 

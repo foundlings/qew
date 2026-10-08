@@ -31,9 +31,15 @@ priority, so the "not triaged" Draft case cannot arise. `qew ready` never offers
 the board is exactly what it lists. Colors and descriptions: `forge.STATUS_OPTIONS`; Priority P0-P4: `forge.PRIORITY_OPTIONS`.
 - GitHub: Projects v2 (GraphQL). `ensure_board` finds the project by the mirror's `project` number, or
   creates one (titled by the mirror option `project_title`, default the repo name) with a `Status`
-  single-select field holding exactly these options; `place_on_board` adds the issue (by `node_id`) and sets Status.
-- GitLab: issue board (REST) whose lists are the scoped labels `board::<Column>`; placing sets that label.
-- Forgejo/Gitea: no stable board API: `ensure_board` raises `Unsupported`; the state labels sync adds are the view.
+  single-select field holding these options (with colors and descriptions), a `Priority` field (P0-P4) and the views in `forge.BOARD_VIEWS`; `place_on_board` adds the issue (by `node_id`) and sets Status.
+- GitLab: issue board (REST) whose lists are the scoped labels `board::<Column>`; placing sets that label and the scoped `priority::P0`-`P4` label, and `update_issue` leaves both scopes alone.
+- Forgejo/Gitea: no stable board API: `ensure_board` raises `Unsupported`; the labels sync adds are the view (`qew:<state>`, `status:<Status>` carrying the seven-status model, `priority:N`, `kind:K`, `qew:managed`).
+
+## Board projection
+`place_on_board(board, number, column, priority)` sets Status and (where the board has one) Priority; `read_placement`
+reads them back (None = not on the board); `remove_from_board` drops only the card. Sync reads before writing (drift is
+repaired), reads back `sync.READBACK_ATTEMPTS` times after a write, and records `column`/`priority` in the mirror file only
+once the forge shows them. A forge without `read_placement` falls back to the recorded column.
 
 ## Tests (offline, no network)
 Each backend ships a stdlib `http.server` fake of the forge's real wire format on 127.0.0.1 in
@@ -47,8 +53,12 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
 - `Board.id` is the Projects v2 number as a string (`"7"`); it is accepted back as the mirror's `project`. Without
   `project`, an existing project with the mirror's title (`project_title`, default the repo name) is reused, never duplicated.
   Projects are looked up through the repository owner (user or organization).
-- A `Status` field whose options differ from the requested columns is rewritten with `updateProjectV2Field`; GitHub
-  then drops the values of replaced options, so items are re-placed by the next sync. A matching field is left alone.
+- Options are reconciled by name through `updateProjectV2Field` sending existing option ids, so cards stay. A legacy
+  name (`To triage`) is renamed in place to `Draft`, or dropped when `Draft` exists; an option outside the model is kept
+  after ours and reported. A project created in the same call has only stock options, which are replaced. A matching
+  field is left alone.
+- Views are matched by name; the untouched default `View 1` becomes `Kanban`. A view whose layout or filter differs is
+  updated (`updateProjectV2View`) and reported in `Board.notes`; views outside the model are never touched.
 - `find_issue` scans the repository issue list (all states, pull requests skipped) for the marker; a listing longer
   than `MAX_PAGES` pages, or a `Link` that leaves the API root, raises `ForgeRejected` rather than truncating or following.
 - `link_dependency` uses the issue dependencies REST endpoints (`blocked_by`), listing first so repeats are no-ops.

@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 
 import unittest
+from dataclasses import replace
 from typing import Dict, Optional
 
 from qew.forge import (
@@ -132,6 +133,37 @@ class ForgejoWalk(ForgejoBase):
         merged = self.backend.merge_pull_request(pull.number, "a" * 40)
         self.assertEqual(merged.state, "merged")
         self.assertTrue(self.fake.pulls[pull.number]["merged"])
+
+    def test_body_author_and_assignee_round_trip_and_an_edit_changes_only_the_body(self) -> None:
+        """A backend that truncates, escapes or drops the opener would let a checklist or ownership drift."""
+        self.fake.set_head("feature", "a" * 40)
+        opened = self.backend.open_pull_request(PullRequestSpec("feature", "main", "T", "- [ ] one\r\n", False, "alice"))
+        self.assertEqual((opened.body, opened.author, opened.assignee), ("- [ ] one\r\n", "opener", "alice"))
+        edited = self.backend.update_pull_request_body(opened.number, "- [x] one\r\n")
+        self.assertEqual(edited, replace(opened, body="- [x] one\r\n"))
+        self.fake.pulls[opened.number]["body"] = 4
+        with self.assertRaises(ForgeRejected):
+            self.backend.read_pull_request(opened.number)
+
+    def test_status_check_rule_comes_from_branch_protection_and_an_unreadable_one_is_an_error(self) -> None:
+        """An unreadable rule set must not be read as 'no checks required'."""
+        self.assertFalse(self.backend.requires_status_checks("main"))
+        self.fake.protections["main"] = {"enable_status_check": False}
+        self.assertFalse(self.backend.requires_status_checks("main"))
+        self.fake.protections["main"] = {"enable_status_check": True}
+        self.assertTrue(self.backend.requires_status_checks("main"))
+        self.fake.fail.append((403, "no"))
+        with self.assertRaises(ForgeAuth):
+            self.backend.requires_status_checks("main")
+
+    def test_auto_merge_is_unsupported_and_a_bypass_merge_forces_the_merge(self) -> None:
+        pull = self.open_pull(draft=False)
+        with self.assertRaises(Unsupported):
+            self.backend.enable_auto_merge(pull.number)
+        merged = self.backend.merge_pull_request(pull.number, "a" * 40, bypass_checks=True)
+        self.assertEqual(merged.merge_sha, "e" * 40)
+        sent = [body for method, path, body in self.fake.requests if path.endswith("/merge")]
+        self.assertEqual(sent, [{"Do": "merge", "head_commit_id": "a" * 40, "force_merge": True}])
 
     def test_pull_request_not_draft_keeps_its_title(self) -> None:
         self.fake.set_head("feature", "b" * 40)

@@ -27,8 +27,13 @@ class FakeGitHub:
         self.check_runs: Dict[str, List[Dict[str, Any]]] = {}
         self.projects: Dict[str, Dict[str, Any]] = {}
         self.requests: List[Tuple[str, str, Any]] = []
+        self.endless_check_runs = False  # check-run pages never end
+        self.auto_merge_ignored = False  # accept the enable call yet change nothing
+        self.rules: Dict[str, List[Dict[str, Any]]] = {}  # branch -> active ruleset rules
+        self.protection: Dict[str, Dict[str, Any]] = {}  # branch -> classic protection record
         self.failures: List[Dict[str, Any]] = []
         self.next_number = 1
+        self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
         self.next_id = 1000
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.server.fake = self  # type: ignore[attr-defined]
@@ -118,6 +123,10 @@ class FakeGitHub:
             "state": pull["state"], "merged": pull["merged"], "draft": pull["draft"],
             "mergeable": pull["mergeable"], "title": pull["title"], "body": pull["body"],
             "head": dict(pull["head"]), "base": {"ref": pull["base"]},
+            "user": {"login": pull.get("author", "opener")},
+            "assignee": None if not self.issues[pull["number"]]["assignee"] else {"login": self.issues[pull["number"]]["assignee"]},
+            "auto_merge": {"merge_method": "merge"} if pull.get("auto_merge") else None,
+            "merge_commit_sha": pull.get("merge_sha"),
         }
 
     def new_pull(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -152,12 +161,16 @@ class FakeGitHub:
         for field in project["fields"]:
             fields.append({
                 "id": field["id"], "name": field["name"],
-                "options": [{"id": o["id"], "name": o["name"]} for o in field["options"]],
+                "options": [
+                    {"id": o["id"], "name": o["name"], "color": o.get("color", "GRAY"), "description": o.get("description", "")}
+                    for o in field["options"]
+                ],
             })
         return {
             "id": project["id"], "number": project["number"], "title": project["title"],
             "url": f"{self.base}/orgs/{OWNER}/projects/{project['number']}",
             "fields": {"nodes": fields},
+            "views": {"nodes": [dict(v) for v in project.get("views", [])]},
         }
 
     def gql_OwnerProjects(self, variables: Dict[str, Any]) -> Dict[str, Any]:
@@ -172,6 +185,7 @@ class FakeGitHub:
         number = len(self.projects) + 1
         project = {
             "id": f"PVT_{number}", "number": number, "title": variables["title"], "items": {},
+            "views": [{"id": f"PVTV_{number}_1", "name": "View 1", "layout": "TABLE_LAYOUT", "filter": None}],
             "fields": [{
                 "id": f"PVTSSF_{number}", "name": "Status",
                 "options": [{"id": f"default-{n}", "name": n} for n in ("Todo", "In Progress", "Done")],
@@ -192,12 +206,72 @@ class FakeGitHub:
             for field in project["fields"]:
                 if field["id"] == variables["fieldId"]:
                     self._set_options(field, variables["options"])
-                    project["items"] = {}  # real GitHub drops values of replaced options
+                    kept = {o["id"] for o in field["options"]}
+                    for item in project["items"].values():  # real GitHub drops values of removed options only
+                        if item.get("option") not in kept and item.get("field") == field["id"]:
+                            item.pop("option", None)
+                        item["values"] = {f: o for f, o in item.get("values", {}).items() if f != field["id"] or o in kept}
                     return {"data": {"updateProjectV2Field": {"projectV2Field": {"id": field["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "field not found"}]}
 
     def _set_options(self, field: Dict[str, Any], options: List[Dict[str, Any]]) -> None:
-        field["options"] = [{"id": f"opt-{field['id']}-{n}", "name": o["name"]} for n, o in enumerate(options)]
+        """An option input that carries an existing `id` keeps that id; others get fresh ids."""
+        self.option_serial = getattr(self, "option_serial", 0)
+        stored = []
+        for o in options:
+            self.option_serial += 1
+            stored.append({
+                "id": o.get("id") or f"opt-{field['id']}-{self.option_serial}",
+                "name": o["name"], "color": o.get("color", "GRAY"), "description": o.get("description", ""),
+            })
+        field["options"] = stored
+
+    def gql_CreateView(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        project = self.projects[variables["projectId"]]
+        view = {
+            "id": f"PVTV_{project['number']}_{len(project['views']) + 1}", "name": variables["name"],
+            "layout": variables["layout"], "filter": None,
+        }
+        project["views"].append(view)
+        return {"data": {"createProjectV2View": {"projectV2View": {"id": view["id"]}}}}
+
+    def gql_UpdateView(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        for project in self.projects.values():
+            for view in project["views"]:
+                if view["id"] == variables["viewId"]:
+                    for key in ("name", "layout", "filter"):
+                        if variables.get(key) is not None:
+                            view[key] = variables[key]
+                    return {"data": {"updateProjectV2View": {"projectV2View": {"id": view["id"]}}}}
+        return {"errors": [{"type": "NOT_FOUND", "message": "view not found"}]}
+
+    def gql_ItemPlacement(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """The issue's project items with the single-select values they hold (post-lag view)."""
+        nodes = []
+        for project in self.projects.values():
+            item = project["items"].get(variables["contentId"])
+            if item is None:
+                continue
+            values = []
+            for field in project["fields"]:
+                chosen = item.get("values", {}).get(field["id"])
+                for option in field["options"]:
+                    if option["id"] == chosen:
+                        values.append({"name": option["name"], "field": {"name": field["name"]}})
+            nodes.append({
+                "id": item["id"], "project": {"number": project["number"]}, "fieldValues": {"nodes": values},
+            })
+        if self.lag > 0:
+            self.lag -= 1
+            nodes = []
+        return {"data": {"node": {"projectItems": {"nodes": nodes}}}}
+
+    def gql_DeleteItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        project = self.projects[variables["projectId"]]
+        for key, item in list(project["items"].items()):
+            if item["id"] == variables["itemId"]:
+                del project["items"][key]
+        return {"data": {"deleteProjectV2Item": {"deletedItemId": variables["itemId"]}}}
 
     def gql_AddItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         project = self.projects[variables["projectId"]]
@@ -210,8 +284,18 @@ class FakeGitHub:
             if item["id"] == variables["itemId"]:
                 item["field"] = variables["fieldId"]
                 item["option"] = variables["optionId"]
+                item.setdefault("values", {})[variables["fieldId"]] = variables["optionId"]
                 return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": item["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "item not found"}]}
+
+    def gql_EnableAutoMerge(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        for pull in self.pulls.values():
+            if pull["node_id"] == variables["id"]:
+                if self.auto_merge_ignored:
+                    return {"data": {"enablePullRequestAutoMerge": {"pullRequest": {"id": pull["node_id"]}}}}
+                pull["auto_merge"] = True
+                return {"data": {"enablePullRequestAutoMerge": {"pullRequest": {"id": pull["node_id"]}}}}
+        return {"errors": [{"type": "NOT_FOUND", "message": "pull request not found"}]}
 
     def gql_MarkReady(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         for pull in self.pulls.values():
@@ -222,6 +306,19 @@ class FakeGitHub:
 
     def project(self, number: str) -> Dict[str, Any]:
         return next(p for p in self.projects.values() if str(p["number"]) == number)
+
+    def item_value(self, number: str, issue_node_id: str, field_name: str) -> Optional[str]:
+        """The option name the issue holds in the named single-select field, or None."""
+        project = self.project(number)
+        item = project["items"].get(issue_node_id)
+        if item is None:
+            return None
+        for field in project["fields"]:
+            if field["name"] != field_name:
+                continue
+            chosen = item.get("values", {}).get(field["id"])
+            return next((o["name"] for o in field["options"] if o["id"] == chosen), None)
+        return None
 
     def item_status(self, number: str, issue_node_id: str) -> Optional[str]:
         """The option name the issue holds in the project's Status field, or None."""
@@ -393,7 +490,27 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(409, {"message": "Head branch was modified. Review and try the merge again."})
         pull["merged"] = True
         pull["state"] = "closed"
+        pull["merge_sha"] = "f" * 40
         self._send(200, {"sha": "f" * 40, "merged": True, "message": "Pull Request successfully merged"})
+
+    def _patch_pull(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        pull = self.fake.pulls.get(int(number))
+        if pull is None:
+            return self._send(404, {"message": "Not Found"})
+        for key in ("title", "body"):
+            if key in body:
+                pull[key] = body[key]
+                self.fake.issues[pull["number"]][key] = body[key]
+        self._send(200, self.fake.pull_json(pull))
+
+    def _get_rules(self, branch: str, query: Dict[str, List[str]], body: Any) -> None:
+        self._send(200, self.fake.rules.get(branch, []))
+
+    def _get_protection(self, branch: str, query: Dict[str, List[str]], body: Any) -> None:
+        record = self.fake.protection.get(branch)
+        if record is None:
+            return self._send(404, {"message": "Branch not protected"})
+        self._send(200, record)
 
     def _get_status(self, sha: str, query: Dict[str, List[str]], body: Any) -> None:
         status = self.fake.statuses.get(sha, {"state": "pending", "total_count": 0})
@@ -401,6 +518,10 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _get_check_runs(self, sha: str, query: Dict[str, List[str]], body: Any) -> None:
         runs = self.fake.check_runs.get(sha, [])
+        if self.fake.endless_check_runs:
+            page = int(query.get("page", ["1"])[0])
+            link = f'<{self.fake.base}{API_PREFIX}/repos/{OWNER}/{REPO}/commits/{sha}/check-runs?per_page=100&page={page + 1}>; rel="next"'
+            return self._send(200, {"total_count": 1, "check_runs": [{"status": "completed", "conclusion": "success"}]}, link)
         window, link = self._page(runs, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/commits/{sha}/check-runs")
         self._send(200, {"total_count": len(runs), "check_runs": window}, link)
 
@@ -413,6 +534,8 @@ _ROUTES = (
     (r"/pulls", "pulls"),
     (r"/pulls/(\d+)", "pull"),
     (r"/pulls/(\d+)/merge", "merge"),
+    (r"/rules/branches/([\w.-]+)", "rules"),
+    (r"/branches/([\w.-]+)/protection", "protection"),
     (r"/commits/([0-9a-f]+)/status", "status"),
     (r"/commits/([0-9a-f]+)/check-runs", "check_runs"),
 )

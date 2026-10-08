@@ -7,13 +7,13 @@ import sys
 import tempfile
 from typing import Callable, Dict, List, Optional
 
-from qew import graph_rules, ledger_author, ledger_config, ledger_graph, ledger_labels, untrusted_text
+from qew import graph_rules, ledger_config, ledger_labels
 from qew.errors import QewError
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import Event, State, fold, parse_event
 from qew.ledger_ids import valid_id
 from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
-from qew.ledger_store import Ledger, Snapshot, actor, now, open_ledger
+from qew.ledger_store import Ledger, actor, now, open_ledger
 from qew.requester import require_quote
 
 
@@ -197,123 +197,3 @@ def set_fields(
             ledger.append_event(item_id, "field", key="body", old="", new="(changed)")
             lines.append(f"{item_id} body changed")
     return lines or [f"{' '.join(ids)} unchanged"]
-
-
-def row(snapshot: Snapshot, item_id: str) -> str:
-    item = snapshot.items[item_id]
-    state = snapshot.folds[item_id].state
-    owner = snapshot.folds[item_id].owner
-    suffix = f" @{owner}" if owner else ""
-    return f"{snapshot.short(item_id)} {state.value if state else '?'} p{item.priority} {item.kind.value} {untrusted_text.show(item.title).text}{suffix}"
-
-
-def row_data(snapshot: Snapshot, item_id: str) -> dict:
-    item = snapshot.items[item_id]
-    folded = snapshot.folds[item_id]
-    hidden = untrusted_text.findings(item.title)
-    return {
-        "id": item_id,
-        "kind": item.kind.value,
-        "title": None if hidden else item.title,
-        **({"text_findings": list(hidden)} if hidden else {}),
-        "state": folded.state.value if folded.state else None,
-        "owner": folded.owner,
-        "priority": item.priority,
-        "parent": item.parent,
-        "needs": list(item.needs),
-        "labels": list(item.labels),
-    }
-
-
-def emit(snapshot: Snapshot, ids: List[str], as_json: bool) -> None:
-    if as_json:
-        print(json.dumps([row_data(snapshot, item_id) for item_id in ids]))
-    else:
-        for item_id in ids:
-            print(row(snapshot, item_id))
-
-
-def list_items(
-    config: Config, kind: Optional[str], state: Optional[str], label: Optional[str], as_json: bool,
-    author: Optional[str] = None,
-) -> None:
-    snapshot = ledger_for(config).snapshot()
-    ids = ledger_graph.ordered(snapshot, list(snapshot.items))
-    if kind:
-        ids = [i for i in ids if snapshot.items[i].kind.value == kind]
-    if state:
-        ids = [i for i in ids if (snapshot.folds[i].state or State.DRAFT).value == state]
-    if label:
-        ids = [i for i in ids if label in snapshot.items[i].labels]
-    if author:
-        ids = [i for i in ids if ledger_author.author(snapshot, i).casefold() == author.casefold()]
-    emit(snapshot, ids, as_json)
-
-
-def ready(config: Config, as_json: bool) -> None:
-    snapshot = ledger_for(config).snapshot()
-    emit(snapshot, ledger_graph.ready(snapshot), as_json)
-
-
-def blocked(config: Config, as_json: bool) -> None:
-    snapshot = ledger_for(config).snapshot()
-    ids = ledger_graph.blocked(snapshot)
-    if as_json:
-        print(json.dumps([{**row_data(snapshot, i), "blocked_by": ledger_graph.blockers(snapshot, i)} for i in ids]))
-        return
-    for item_id in ids:
-        unmet = " ".join(snapshot.short(b) if b in snapshot.items else b for b in ledger_graph.blockers(snapshot, item_id))
-        print(f"{row(snapshot, item_id)} <- {unmet}")
-
-
-def graph(config: Config, as_json: bool) -> None:
-    snapshot = ledger_for(config).snapshot()
-    edges = [(item.id, need) for item in snapshot.items.values() for need in item.needs]
-    edges.sort()
-    if as_json:
-        print(json.dumps([{"item": a, "needs": b} for a, b in edges]))
-        return
-    for item_id, need in edges:
-        short = snapshot.short(need) if need in snapshot.items else need
-        print(f"{snapshot.short(item_id)} -> {short}")
-
-
-def show(config: Config, reference: str, as_json: bool) -> None:
-    ledger = ledger_for(config)
-    snapshot = ledger.snapshot()
-    item_id = ledger.resolve(reference, list(snapshot.items))
-    item = snapshot.items[item_id]
-    folded = snapshot.folds[item_id]
-    kids = ledger_graph.children(snapshot).get(item_id, [])
-    blocks = ledger_graph.blocks(snapshot).get(item_id, [])
-    mirrors = ledger.load_mirrors(item_id)
-    data = {
-        **row_data(snapshot, item_id),
-        "children": kids,
-        "blocks": blocks,
-        "evidence": [event.data for event in folded.evidence],
-        "mirrors": [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in mirrors],
-        "body": item.body,
-        "author": ledger_author.author(snapshot, item_id) or "unknown",
-    }
-    if as_json:
-        print(json.dumps(data))
-        return
-    print(f"id: {item_id}")
-    print(f"kind: {item.kind.value}")
-    print(f"title: {untrusted_text.show(item.title).text}")
-    print(f"state: {data['state']}")
-    if folded.owner:
-        print(f"owner: {folded.owner}")
-    print(f"priority: {item.priority}")
-    print(f"author: {data['author']}")
-    for key, values in (("parent", [item.parent] if item.parent else []), ("needs", item.needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
-        if values:
-            print(f"{key}: {' '.join(values)}")
-    for event in folded.evidence:
-        print(f"evidence: {event.get('vcs')} {' '.join(event.get('change_ids'))}")
-    for mirror in data["mirrors"]:
-        print(f"mirror: {mirror['target']} #{mirror['number']}")
-    if item.body.strip():
-        print("---")
-        print(item.body.rstrip())

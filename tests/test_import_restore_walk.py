@@ -48,8 +48,8 @@ class ImportRestoreWalk(unittest.TestCase):
         return (world, *build(world, self.forge))
 
     def describe(self, world: World) -> dict:
-        rows = json.loads(world.run("list", "--json").stdout)
-        return {r["id"]: (r["kind"], r["title"], r["state"], tuple(r["needs"]), r["parent"], r["priority"]) for r in rows}
+        rows = [json.loads(line) for line in world.run("list", "--json").stdout.splitlines()]
+        return {r["id"]: (r["kind"], r["title"], r["state"], tuple(r.get("needs", ())), r.get("parent", ""), r["priority"]) for r in rows}
 
     def test_importing_the_forge_alone_rebuilds_the_same_ledger(self) -> None:
         """Prevents a forge being a dead end: ids, kinds, states, parents, needs and priorities come back from the issues alone."""

@@ -10,8 +10,13 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Tuple
 from urllib.parse import quote
 
 from qew.forge import (
+    BOARD_VIEWS,
+    LEGACY_STATUS,
+    PRIORITY_OPTIONS,
+    STATUS_OPTIONS,
     Board,
     Forge,
+    Placement,
     ForgeAuth,
     ForgeRejected,
     ForgeUnavailable,
@@ -28,6 +33,8 @@ from qew.ledger_config import Mirror
 API_VERSION = "2022-11-28"
 DOTCOM_API = "https://api.github.com"
 STATUS_FIELD = "Status"
+PRIORITY_FIELD = "Priority"
+DEFAULT_VIEW = "View 1"
 CLOSE_REASONS = ("", "completed", "not_planned")
 _NEXT_LINK = re.compile(r'<([^>]+)>([^,<]*)')
 
@@ -37,16 +44,20 @@ query OwnerProjects($owner: String!, $cursor: String) {
     id
     ... on ProjectV2Owner {
       projectsV2(first: 100, after: $cursor) {
-        nodes { id number title url fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } }
+        nodes { id number title url fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name color description } } } } views(first: 50) { nodes { id name layout filter } } }
         pageInfo { hasNextPage endCursor }
       }
     }
   }
 }"""
+_ENABLE_AUTO_MERGE = """
+mutation EnableAutoMerge($id: ID!) {
+  enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { pullRequest { id } }
+}"""
 _CREATE_PROJECT = """
 mutation CreateProject($ownerId: ID!, $title: String!) {
   createProjectV2(input: {ownerId: $ownerId, title: $title}) {
-    projectV2 { id number title url fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } }
+    projectV2 { id number title url fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name color description } } } } views(first: 50) { nodes { id name layout filter } } }
   }
 }"""
 _CREATE_STATUS_FIELD = """
@@ -60,6 +71,32 @@ mutation UpdateStatusField($fieldId: ID!, $options: [ProjectV2SingleSelectFieldO
   updateProjectV2Field(input: {fieldId: $fieldId, singleSelectOptions: $options}) {
     projectV2Field { ... on ProjectV2SingleSelectField { id } }
   }
+}"""
+_CREATE_VIEW = """
+mutation CreateView($projectId: ID!, $name: String!, $layout: ProjectV2ViewLayout!) {
+  createProjectV2View(input: {projectId: $projectId, name: $name, layout: $layout}) { projectV2View { id } }
+}"""
+_UPDATE_VIEW = """
+mutation UpdateView($viewId: ID!, $name: String, $layout: ProjectV2ViewLayout, $filter: String) {
+  updateProjectV2View(input: {viewId: $viewId, name: $name, layout: $layout, filter: $filter}) { projectV2View { id } }
+}"""
+_ITEM_PLACEMENT = """
+query ItemPlacement($contentId: ID!) {
+  node(id: $contentId) {
+    ... on Issue {
+      projectItems(first: 50) {
+        nodes {
+          id
+          project { number }
+          fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+        }
+      }
+    }
+  }
+}"""
+_DELETE_ITEM = """
+mutation DeleteItem($projectId: ID!, $itemId: ID!) {
+  deleteProjectV2Item(input: {projectId: $projectId, itemId: $itemId}) { deletedItemId }
 }"""
 _ADD_ITEM = """
 mutation AddItem($projectId: ID!, $contentId: ID!) {
@@ -185,6 +222,18 @@ class _PullFacts:
     head_branch: str
     base_branch: str
     mergeable: Optional[bool]
+    body: str
+    author: str
+    assignee: str
+    auto_merge: bool
+    merge_sha: str
+
+
+def _login(data: Dict[str, Any], key: str, what: str, nullable: bool) -> str:
+    """The `login` of a user object; a null user reads as "" only where GitHub may send one."""
+    if key not in data or (data[key] is None and not nullable):
+        raise _malformed(f"{what}.{key}")
+    return "" if data[key] is None else _str(_obj(data[key], f"{what}.{key}"), "login", f"{what}.{key}")
 
 
 def parse_pull(data: Any) -> _PullFacts:
@@ -206,7 +255,18 @@ def parse_pull(data: Any) -> _PullFacts:
         head_branch=_str(head, "ref", "pull.head"),
         base_branch=_str(base, "ref", "pull.base"),
         mergeable=pull["mergeable"],
+        body=_nullable_str(pull, "body", "pull"),
+        author=_login(pull, "user", "pull", nullable=False),
+        assignee=_login(pull, "assignee", "pull", nullable=True),
+        auto_merge=_auto_merge(pull),
+        merge_sha=_nullable_str(pull, "merge_commit_sha", "pull") if _bool(pull, "merged", "pull") else "",
     )
+
+
+def _auto_merge(pull: Dict[str, Any]) -> bool:
+    if "auto_merge" not in pull or not (pull["auto_merge"] is None or isinstance(pull["auto_merge"], dict)):
+        raise _malformed("pull.auto_merge")
+    return pull["auto_merge"] is not None
 
 
 def combine_checks(status_state: Optional[str], run_outcomes: List[str]) -> str:
@@ -230,33 +290,73 @@ def _run_outcome(run: Any) -> str:
 
 
 @dataclass(frozen=True)
+class _Option:
+    id: str
+    name: str
+    color: str
+    description: str
+
+
+@dataclass(frozen=True)
+class _Field:
+    id: str
+    options: Tuple[_Option, ...]
+
+
+@dataclass(frozen=True)
+class _View:
+    id: str
+    name: str
+    layout: str
+    filter: str
+
+
+@dataclass(frozen=True)
 class _Project:
     id: str
     number: int
     title: str
     url: str
-    status_field_id: Optional[str]
-    status_options: Tuple[Tuple[str, str], ...]  # (option id, name)
+    fields: Mapping[str, _Field]
+    views: Tuple[_View, ...]
+
+    @property
+    def status_field_id(self) -> Optional[str]:
+        field = self.fields.get(STATUS_FIELD)
+        return field.id if field else None
+
+    @property
+    def status_options(self) -> Tuple[Tuple[str, str], ...]:  # (option id, name)
+        field = self.fields.get(STATUS_FIELD)
+        return tuple((o.id, o.name) for o in field.options) if field else ()
 
 
 def parse_project(data: Any) -> _Project:
     node = _obj(data, "project")
-    field_id: Optional[str] = None
-    options: Tuple[Tuple[str, str], ...] = ()
+    fields: Dict[str, _Field] = {}
     for field in _array(_obj(node.get("fields"), "project.fields").get("nodes"), "project.fields.nodes"):
         field = _obj(field, "project field")
         if not field:  # a field that is not single-select matches no fragment and arrives as {}
             continue
-        if _str(field, "name", "field") == STATUS_FIELD:
-            field_id = _str(field, "id", "field")
-            options = tuple(
-                (_str(_obj(o, "option"), "id", "option"), _str(o, "name", "option"))
-                for o in _array(field.get("options"), "field.options")
+        options = tuple(
+            _Option(
+                _str(_obj(o, "option"), "id", "option"), _str(o, "name", "option"),
+                _nullable_str(o, "color", "option") or "GRAY", _nullable_str(o, "description", "option"),
             )
+            for o in _array(field.get("options"), "field.options")
+        )
+        fields[_str(field, "name", "field")] = _Field(_str(field, "id", "field"), options)
+    views = tuple(
+        _View(
+            _str(_obj(v, "view"), "id", "view"), _str(v, "name", "view"), _str(v, "layout", "view"),
+            _nullable_str(v, "filter", "view"),
+        )
+        for v in _array(_obj(node.get("views"), "project.views").get("nodes"), "project.views.nodes")
+    )
     return _Project(
         id=_str(node, "id", "project"), number=_int(node, "number", "project"),
         title=_str(node, "title", "project"), url=_str(node, "url", "project"),
-        status_field_id=field_id, status_options=options,
+        fields=fields, views=views,
     )
 
 
@@ -406,7 +506,35 @@ class GitHub(Forge):
 
     def open_pull_request(self, spec: PullRequestSpec) -> RemotePullRequest:
         payload = {"title": spec.title, "head": spec.head, "base": spec.base, "body": spec.body, "draft": spec.draft}
-        return self._with_checks(parse_pull(self._wire.rest("POST", f"{self._repo_path}/pulls", payload)))
+        created = parse_pull(self._wire.rest("POST", f"{self._repo_path}/pulls", payload))
+        if spec.assignee:
+            # A pull request is assigned through its issue; the create call has no such field.
+            self._wire.rest("PATCH", f"{self._repo_path}/issues/{created.number}", {"assignees": [spec.assignee]})
+            return self.read_pull_request(created.number)
+        return self._with_checks(created)
+
+    def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
+        self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"body": body})
+        return self.read_pull_request(number)
+
+    def requires_status_checks(self, branch: str) -> bool:
+        name = quote(branch, safe="")
+        rules = _array(self._wire.rest("GET", f"{self._repo_path}/rules/branches/{name}"), "branch rules")
+        if any(_str(_obj(rule, "branch rule"), "type", "branch rule") == "required_status_checks" for rule in rules):
+            return True
+        try:
+            protection = _obj(self._wire.rest("GET", f"{self._repo_path}/branches/{name}/protection"), "branch protection")
+        except ForgeRejected as error:
+            if error.status == 404:  # the forge's "Branch not protected"
+                return False
+            raise
+        return protection.get("required_status_checks") is not None
+
+    def enable_auto_merge(self, number: int) -> RemotePullRequest:
+        facts = self._read_pull(number)
+        if not facts.auto_merge:
+            self._wire.graphql(_ENABLE_AUTO_MERGE, {"id": facts.node_id})
+        return self.read_pull_request(number)
 
     def read_pull_request(self, number: int) -> RemotePullRequest:
         return self._with_checks(self._read_pull(number))
@@ -418,7 +546,8 @@ class GitHub(Forge):
             facts = self._read_pull(number)
         return self._with_checks(facts)
 
-    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
+    def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
+        # GitHub has no bypass flag: an administrator's token merges past protection with this same call.
         facts = self._read_pull(number)
         if facts.head_sha != expected_head_sha:
             raise ForgeRejected(409, f"head moved: expected {expected_head_sha}, found {facts.head_sha}")
@@ -433,7 +562,8 @@ class GitHub(Forge):
         return RemotePullRequest(
             number=facts.number, url=facts.url, state=facts.state, draft=facts.draft,
             head_sha=facts.head_sha, head_branch=facts.head_branch, base_branch=facts.base_branch,
-            mergeable=facts.mergeable, checks=self._checks(facts.head_sha),
+            mergeable=facts.mergeable, checks=self._checks(facts.head_sha), body=facts.body,
+            author=facts.author, assignee=facts.assignee, auto_merge=facts.auto_merge, merge_sha=facts.merge_sha,
         )
 
     def _checks(self, sha: str) -> str:
@@ -447,32 +577,105 @@ class GitHub(Forge):
 
     # boards
 
-    def ensure_board(self, columns: Tuple[str, ...]) -> Board:
-        project = self._find_or_create_project()
-        if project.status_field_id is None:
-            self._wire.graphql(_CREATE_STATUS_FIELD, {"projectId": project.id, "name": STATUS_FIELD, "options": _option_inputs(columns)})
-        elif tuple(name for _, name in project.status_options) != tuple(columns):
-            self._wire.graphql(_UPDATE_STATUS_FIELD, {"fieldId": project.status_field_id, "options": _option_inputs(columns)})
-        return Board(id=str(project.number), url=project.url, columns=tuple(columns), title=project.title)
+    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
+        project, fresh = self._find_or_create_project()
+        notes: List[str] = []
+        status = _status_options(columns)
+        self._ensure_select(project, STATUS_FIELD, status, LEGACY_STATUS, notes, fresh)
+        self._ensure_select(project, PRIORITY_FIELD, PRIORITY_OPTIONS, {}, notes, fresh)
+        self._ensure_views(project, managed_filter, notes)
+        return Board(id=str(project.number), url=project.url, columns=tuple(columns), title=project.title, notes=tuple(notes))
 
-    def place_on_board(self, board: Board, number: int, column: str) -> None:
-        issue = self.read_issue(number)
-        number_wanted = _project_number(board.id)
+    def _ensure_select(self, project: _Project, name: str, desired, legacy: Mapping[str, str], notes: List[str], fresh: bool) -> None:
+        field = project.fields.get(name)
+        if field is None:
+            options = [{"name": n, "color": c, "description": d} for n, c, d in desired]
+            self._wire.graphql(_CREATE_STATUS_FIELD, {"projectId": project.id, "name": name, "options": options})
+            return
+        # a project created a moment ago holds only GitHub's stock options and no cards: replace them
+        inputs, changed = reconcile_options(name, () if fresh else field.options, desired, legacy, notes)
+        if changed:
+            self._wire.graphql(_UPDATE_STATUS_FIELD, {"fieldId": field.id, "options": inputs})
+
+    def _ensure_views(self, project: _Project, managed_filter: str, notes: List[str]) -> None:
+        existing = {v.name: v for v in project.views}
+        claimed = {name for name, _layout, _filter in BOARD_VIEWS}
+        spare = [v for v in project.views if v.name not in claimed]
+        for name, layout, text in BOARD_VIEWS:
+            wanted = f"{managed_filter} {text}".strip()
+            view = existing.get(name)
+            if view is None and name == BOARD_VIEWS[0][0] and spare and spare[0].name == DEFAULT_VIEW:
+                view = spare[0]  # the project's untouched default view becomes Kanban
+                self._wire.graphql(_UPDATE_VIEW, {"viewId": view.id, "name": name, "layout": layout, "filter": wanted})
+                continue
+            if view is None:
+                made = self._wire.graphql(_CREATE_VIEW, {"projectId": project.id, "name": name, "layout": layout})
+                created = _obj(_obj(made.get("createProjectV2View"), "createProjectV2View").get("projectV2View"), "view")
+                if wanted:
+                    self._wire.graphql(_UPDATE_VIEW, {"viewId": _str(created, "id", "view"), "name": name, "layout": layout, "filter": wanted})
+                continue
+            if view.layout != layout or view.filter != wanted:
+                self._wire.graphql(_UPDATE_VIEW, {"viewId": view.id, "name": name, "layout": layout, "filter": wanted})
+                notes.append(f"view {name} corrected: was {view.layout} `{view.filter}`, now {layout} `{wanted}`")
+
+    def _board_project(self, board: Board) -> _Project:
+        wanted = _project_number(board.id)
         _, projects = self._owner_projects()
-        project = next((p for p in projects if p.number == number_wanted), None)
+        project = next((p for p in projects if p.number == wanted), None)
         if project is None:
-            raise ForgeRejected(404, f"project number {number_wanted} not found for {self._owner}")
-        options = {name: option_id for option_id, name in project.status_options}
-        if project.status_field_id is None or column not in options:
+            raise ForgeRejected(404, f"project number {wanted} not found for {self._owner}")
+        return project
+
+    def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
+        issue = self.read_issue(number)
+        project = self._board_project(board)
+        status = project.fields.get(STATUS_FIELD)
+        options = {o.name: o.id for o in status.options} if status else {}
+        if status is None or column not in options:
             raise ForgeRejected(400, f"board has no `{column}` column in its {STATUS_FIELD} field")
+        urgency = project.fields.get(PRIORITY_FIELD)
+        urgent = {o.name: o.id for o in urgency.options} if urgency else {}
+        if priority and priority not in urgent:
+            raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field")
         added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": issue.node_id})
         item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
+        item_id = _str(item, "id", "item")
         self._wire.graphql(_SET_STATUS, {
-            "projectId": project.id, "itemId": _str(item, "id", "item"),
-            "fieldId": project.status_field_id, "optionId": options[column],
+            "projectId": project.id, "itemId": item_id, "fieldId": status.id, "optionId": options[column],
         })
+        if priority and urgency is not None:
+            self._wire.graphql(_SET_STATUS, {
+                "projectId": project.id, "itemId": item_id, "fieldId": urgency.id, "optionId": urgent[priority],
+            })
 
-    def _find_or_create_project(self) -> _Project:
+    def _placement(self, board: Board, number: int) -> Optional[Tuple[str, Placement]]:
+        issue = self.read_issue(number)
+        data = self._wire.graphql(_ITEM_PLACEMENT, {"contentId": issue.node_id})
+        node = _obj(data.get("node"), "node")
+        wanted = _project_number(board.id)
+        for entry in _array(_obj(node.get("projectItems"), "projectItems").get("nodes"), "projectItems.nodes"):
+            entry = _obj(entry, "project item")
+            if _int(_obj(entry.get("project"), "item.project"), "number", "item.project") != wanted:
+                continue
+            values: Dict[str, str] = {}
+            for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
+                value = _obj(value, "field value")
+                if value:  # other field kinds match no fragment and arrive as {}
+                    values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name", "value")
+            return _str(entry, "id", "item"), Placement(values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""))
+        return None
+
+    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+        found = self._placement(board, number)
+        return found[1] if found else None
+
+    def remove_from_board(self, board: Board, number: int) -> None:
+        found = self._placement(board, number)
+        if found is not None:
+            self._wire.graphql(_DELETE_ITEM, {"projectId": self._board_project(board).id, "itemId": found[0]})
+
+    def _find_or_create_project(self) -> Tuple[_Project, bool]:
+        """The project and whether this call created it."""
         owner_id, projects = self._owner_projects()
         if self.mirror.project is not None:
             number = _project_number(self.mirror.project)
@@ -482,14 +685,14 @@ class GitHub(Forge):
                     if isinstance(wanted, str) and wanted and wanted != project.title:
                         raise ForgeRejected(409, f"project number {number} is titled {project.title!r}, not project_title {wanted!r}; "
                                                  "remove one of them (a different board is never reconciled)")
-                    return project
+                    return project, False
             raise ForgeRejected(404, f"project number {number} not found for {self._owner}")
         title = self._project_title()
         for project in projects:
             if project.title == title:
-                return project
+                return project, False
         created = self._wire.graphql(_CREATE_PROJECT, {"ownerId": owner_id, "title": title})
-        return parse_project(_obj(_obj(created.get("createProjectV2"), "createProjectV2").get("projectV2"), "projectV2"))
+        return parse_project(_obj(_obj(created.get("createProjectV2"), "createProjectV2").get("projectV2"), "projectV2")), True
 
     def _owner_projects(self) -> Tuple[str, List[_Project]]:
         projects: List[_Project] = []
@@ -517,8 +720,45 @@ def _check_reason(spec: IssueSpec) -> None:
         raise ForgeRejected(422, f"close_reason must be one of {CLOSE_REASONS}, got {spec.close_reason!r}")
 
 
-def _option_inputs(columns: Tuple[str, ...]) -> List[Dict[str, str]]:
-    return [{"name": name, "color": "GRAY", "description": ""} for name in columns]
+def _status_options(columns: Tuple[str, ...]) -> Tuple[Tuple[str, str, str], ...]:
+    known = {name: (name, color, description) for name, color, description in STATUS_OPTIONS}
+    return tuple(known.get(name, (name, "GRAY", "")) for name in columns)
+
+
+def reconcile_options(field: str, existing: Tuple[_Option, ...], desired, legacy: Mapping[str, str], notes: List[str]):
+    """The option list to send and whether it differs from `existing`.
+
+    A wanted option keeps its id (so cards stay) and takes the wanted color and description. A legacy name is
+    renamed in place to the option it became, or dropped when that option already exists. Anything else is a
+    foreign option: kept after ours, untouched, and reported.
+    """
+    by_name = {o.name: o for o in existing}
+    wanted_names = {name for name, _c, _d in desired}
+    inputs: List[Dict[str, str]] = []
+    used = set()
+    for name, color, description in desired:
+        found = by_name.get(name)
+        if found is None:
+            old = next((o for o, target in legacy.items() if target == name and o in by_name and o not in wanted_names), None)
+            found = by_name.get(old) if old else None
+            if found is not None:
+                notes.append(f"{field} option {found.name} renamed to {name}")
+        entry = {"name": name, "color": color, "description": description}
+        if found is not None:
+            used.add(found.name)
+            entry["id"] = found.id
+        inputs.append(entry)
+    for option in existing:
+        if option.name in used:
+            continue
+        if legacy.get(option.name) in wanted_names:
+            notes.append(f"{field} option {option.name} dropped: {legacy[option.name]} already exists")
+            continue
+        notes.append(f"{field} option {option.name} ({option.color}) is not part of the model; kept")
+        inputs.append({"id": option.id, "name": option.name, "color": option.color, "description": option.description})
+    current = [(o.id, o.name, o.color, o.description) for o in existing]
+    proposed = [(i.get("id"), i["name"], i["color"], i["description"]) for i in inputs]
+    return inputs, current != proposed
 
 
 def _project_number(value: str) -> int:

@@ -1,22 +1,47 @@
 # Commands
 
-Output is terse and fixed-format: `ID STATE pN kind title [@owner]`. `--json` gives machine output.
+Output is terse and fixed-format: `ID STATE pN kind title [@owner]`, ordered by priority then sortable id
+(counter ids numerically) the same way in `ready`, `list` and `blocked`. Titles are flattened, bounded and
+quoted or withheld (see security.md). `--json` gives machine output (see Machine output).
 An item reference is a full ID, the same ignoring case, or a unique prefix. Exit codes: 0 ok, 1 invalid
 ledger or forge failure, 2 refusal or usage, 3 environment.
 
+## Machine output
+Bounded answers (`ready`, `blocked`) print one envelope object; open-ended lists (`list`, `graph`,
+`draft list`) print one object per line (NDJSON) with `schema_version` on each row; `show` prints one
+object. Keys are sorted and separators compact, so output on the same ledger is byte-identical. Optional
+data that is absent (owner, parent, needs, body) is omitted, never null. A read that cannot answer
+(unreadable ledger, bad usage) prints nothing on stdout and one reason line on stderr. A ledger with an
+unparseable item or event file, a duplicate id, history for no item or an illegal transition is not
+readable: every read refuses it (exit 1) and names the file instead of listing what parsed. Dangling
+needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
+Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
+```
+shape row: id kind labels priority state title | needs owner parent schema_version text_findings
+shape envelope: items schema_version total truncated
+shape blocked_row: blocked_by id kind labels priority state title | needs owner parent text_findings
+shape edge: item schema_version | needs parent
+shape show: author id kind labels priority schema_version state title | blocks body children evidence mirrors needs owner parent text_findings
+```
+
 ## Setup
+- `qew --version`: print `qew X.Y.Z` (the installed package version); needs no repository, ledger or network.
 - `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml` once, at the repository
   root (nearest `.git` or `.jj`; outside one, exit 2), atomically and never through a symlink (exit 2). Prints
   `created PATH` lines plus the trust guidance; a rerun prints `already initialized` and changes nothing.
-- `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--json]`: wire agents (none = all; output order claude, codex, cursor, opencode).
-- `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--json]`: remove exactly Qew's entries.
+- `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: wire agents (none = all four; output order claude, codex, cursor, opencode, git). `--git` installs the tracked `.githooks/pre-push` and sets `core.hooksPath`; it is never part of the default.
+- `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: remove exactly Qew's entries.
 - `qew hook session-start --agent NAME`, `qew hook pre-tool --agent NAME`, `qew hook post-tool --agent NAME`:
   the events agents call; see hooks.md.
+- `qew hook vcs-check (--pre-push | --revisions REVSET | --message-file FILE)`: refuse pushed commits whose `Refs: ID`
+  trailers cite an item without evidence for that commit (exit 2, the exact `qew evidence` command on stderr); see hooks.md.
 
 ## Read
 - `qew show ITEM [--json]`: header, state, owner, derived children and blocks, evidence, mirrors, body.
 - `qew list [--kind K] [--state S] [--label L] [--author LOGIN] [--json]`, `qew ready [--json]`, `qew blocked [--json]`,
-  `qew graph [--json]`: readiness is derived from files; no network. `ready` lists by priority, then the
+  `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
+  (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
+  characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network. `ready` lists by priority, then the
   longest chain it unblocks, then direct dependents, then id.
 - `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors, text findings, contradictions (claimed epic, completed item with open needs,
@@ -33,7 +58,7 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
   [--body-file F | --edit] [--quote Q] [--from-file F]`: a draft unless `--quote` carries a human's words
   (`"Name: 'their words'"`), which files it approved. `--from-file` takes a JSON object or array (or `-`
   for stdin); items may carry `id` (imports keep it), `created`, `ref`, and `@ref` entries in `needs`/`parent`.
-  `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
+  `--from-file` and `--body-file` refuse a symlink (exit 2). `--import` (with `--from-file`) keeps each item's own `events` list, validated as a whole before any write;
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
@@ -74,7 +99,11 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
   read back; a state other than the intended one is exit 3, never success. Written events stay (no rollback).
 
 ## Mirrors
-- `qew sync [--target T] [--item ID] [--dry-run]`: push to every `[[mirror]]` target independently.
+- `qew sync [--target T] [--item ID] [--dry-run]`: push to every `[[mirror]]` target independently. On a target with a
+  board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
+  warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
+  is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
+  lose their card (`pruned N`); their issues are never closed.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
@@ -89,8 +118,12 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 - `qew restore [--to TARGET | --forge F --repo URL [--api URL]]`: recreate the issues, links and board of a target from the ledger
   alone; mirror files whose remote issue is gone are forgotten first. Idempotent and resumable.
 - `qew project`: the group for `ensure`.
-- `qew project ensure [--target T]`: create the seven-status board where
-  the forge has boards; the board id is recorded in `boards/` in the ledger.
+- `qew project ensure [--target T]`: create or repair the full board where the forge has boards: the seven
+  Status options (colors, descriptions), the Priority field P0-P4 and eight views (Kanban, Table, Ready, Blocked,
+  Active, Review, Drafts, Roadmap). Idempotent; a corrected view or kept foreign option is printed as a note; extra
+  human views are left alone. An overlay mirror (non-empty `select`) prefixes every view filter with
+  `label:qew:managed`; repository mode leaves them bare. The board id is recorded in `boards/` in the ledger and
+  found by that id even if a human renamed the project. A forge without boards prints `boards unsupported`, exit 0.
 
 ## Pull requests
 - `qew pr`: the group for the three commands below.

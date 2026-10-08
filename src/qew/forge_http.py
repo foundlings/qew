@@ -18,6 +18,7 @@ from qew.forge import (
 from qew.ledger_config import Mirror
 
 TIMEOUT_SECONDS = 30
+TOKEN_HELPER_SECONDS = 10  # how long `gh auth token` may take before it counts as absent
 MAX_PAGES = 50
 _TOKEN_VARIABLES = {
     "github": ("GITHUB_TOKEN", "GH_TOKEN"),
@@ -63,7 +64,7 @@ def resolve_token(mirror: Mirror, env: Mapping[str, str]) -> str:
     if mirror.forge == "github" and "QEW_NO_GH_TOKEN" not in env:
         try:
             result = subprocess.run(
-                ["gh", "auth", "token"], capture_output=True, text=True, check=False, timeout=10,
+                ["gh", "auth", "token"], capture_output=True, text=True, check=False, timeout=TOKEN_HELPER_SECONDS,
                 stdin=subprocess.DEVNULL,
             )
         except (OSError, subprocess.TimeoutExpired):

@@ -105,6 +105,10 @@ def _parse_pull_request(data: Any, checks: str) -> RemotePullRequest:
     if "mergeable" not in pull or not isinstance(pull["mergeable"], (bool, type(None))):
         raise _malformed("pull request.mergeable is not a boolean")
     return RemotePullRequest(
+        body=_pull_body(pull),
+        author=_typed(_object(pull.get("user"), "pull request.user"), "login", str, "pull request.user"),
+        assignee=_pull_assignee(pull),
+        merge_sha=_optional_str(pull, "merge_commit_sha", "pull request") if merged else "",
         number=_typed(pull, "number", int, "pull request"),
         url=_typed(pull, "html_url", str, "pull request"),
         state="merged" if merged else state,
@@ -115,6 +119,33 @@ def _parse_pull_request(data: Any, checks: str) -> RemotePullRequest:
         mergeable=pull["mergeable"],
         checks=checks,
     )
+
+
+def _optional_str(data: Mapping[str, Any], key: str, what: str) -> str:
+    """A string the forge may send as null; null reads as empty, any other type is malformed."""
+    value = data.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise _malformed(f"{what}.{key} is not str")
+    return value
+
+
+def _pull_body(pull: Mapping[str, Any]) -> str:
+    if "body" not in pull:
+        raise _malformed("pull request.body is missing")
+    return _optional_str(pull, "body", "pull request")
+
+
+def _pull_assignee(pull: Mapping[str, Any]) -> str:
+    assignees = pull.get("assignees")
+    if assignees is None:
+        return ""
+    if not isinstance(assignees, list):
+        raise _malformed("pull request.assignees is not list")
+    if not assignees:
+        return ""
+    return _typed(_object(assignees[0], "assignee"), "login", str, "assignee")
 
 
 def _parse_checks(data: Any) -> str:
@@ -252,7 +283,9 @@ class Forgejo(Forge):
 
     def open_pull_request(self, spec: PullRequestSpec) -> RemotePullRequest:
         title = f"{DRAFT_PREFIX} {spec.title}" if spec.draft else spec.title
-        payload = {"head": spec.head, "base": spec.base, "title": title, "body": spec.body}
+        payload: Dict[str, Any] = {"head": spec.head, "base": spec.base, "title": title, "body": spec.body}
+        if spec.assignee:
+            payload["assignees"] = [spec.assignee]
         data, _ = self._call("POST", "/pulls", payload)
         return self._with_checks(data)
 
@@ -269,9 +302,25 @@ class Forgejo(Forge):
         updated, _ = self._call("PATCH", f"/pulls/{number}", {"title": title})
         return self._with_checks(updated)
 
-    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
-        self._call("POST", f"/pulls/{number}/merge", {"Do": "merge", "head_commit_id": expected_head_sha})
+    def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
+        payload: Dict[str, Any] = {"Do": "merge", "head_commit_id": expected_head_sha}
+        if bypass_checks:
+            payload["force_merge"] = True
+        self._call("POST", f"/pulls/{number}/merge", payload)
         return self.read_pull_request(number)
+
+    def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
+        self._call("PATCH", f"/pulls/{number}", {"body": body})
+        return self.read_pull_request(number)
+
+    def requires_status_checks(self, branch: str) -> bool:
+        try:
+            data, _ = self._call("GET", f"/branch_protections/{urllib.parse.quote(branch, safe='')}")
+        except ForgeRejected as error:
+            if error.status == 404:  # no protection record for the branch
+                return False
+            raise
+        return _typed(_object(data, "branch protection"), "enable_status_check", bool, "branch protection")
 
     def _with_checks(self, data: Any) -> RemotePullRequest:
         sha = _typed(_object(_object(data, "pull request").get("head"), "pull request.head"), "sha", str, "head")

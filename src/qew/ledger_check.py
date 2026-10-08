@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import tomllib
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from qew import ledger_graph, untrusted_text
 from qew.errors import QewError
@@ -22,28 +22,12 @@ def check(ledger: Ledger) -> List[str]:
     return check_report(ledger)[0]
 
 
-@dataclass(frozen=True)
-class Report:
-    problems: List[str]
-    notes: List[str]
-    cycles: List[List[str]]
-    contradictions: List[Dict[str, str]]
-    text_findings: List[Dict[str, object]]
+def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
+    """Parse every file of the ledger: the snapshot of what parsed and the structural problems.
 
-    def as_json(self) -> dict:
-        return {
-            "schema_version": SCHEMA_VERSION, "valid": not self.problems, "cycles": self.cycles,
-            "contradictions": self.contradictions, "text_findings": self.text_findings, "problems": self.problems,
-        }
-
-
-def check_report(ledger: Ledger):
-    """(problems, notes): problems fail the check, notes are counts that are reported and not fatal."""
-    report = analyse(ledger)
-    return report.problems, report.notes
-
-
-def analyse(ledger: Ledger) -> Report:
+    Structural problems (unreadable or malformed files, duplicate ids, orphaned history, illegal
+    transitions, bad metadata) make a ledger unreadable; edge and mirror problems are `check`'s own.
+    """
     problems: List[str] = []
     _check_metadata(ledger, problems)
     items: Dict[str, Item] = {}
@@ -72,11 +56,47 @@ def analyse(ledger: Ledger) -> Report:
             problems.append(f"{where}: no events (an item starts with `drafted` or `approved`)")
         problems.extend(f"events/{item.id}: {error}" for error in result.errors)
     _check_orphans(ledger, items, problems)
-    snapshot = Snapshot(ledger, items, folds, events)
+    return Snapshot(ledger, items, folds, events), problems
+
+
+def read_snapshot(ledger: Ledger) -> Snapshot:
+    """The snapshot every read command answers from; an unreadable ledger is refused, never listed in part."""
+    snapshot, problems = load(ledger)
+    if problems:
+        more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
+        raise QewError(f"the ledger is not readable: {problems[0]}{more}; run `qew check`", 1)
+    return snapshot
+
+
+@dataclass(frozen=True)
+class Report:
+    problems: List[str]
+    notes: List[str]
+    cycles: List[List[str]]
+    contradictions: List[Dict[str, str]]
+    text_findings: List[Dict[str, object]]
+
+    def as_json(self) -> dict:
+        return {
+            "schema_version": SCHEMA_VERSION, "valid": not self.problems, "cycles": self.cycles,
+            "contradictions": self.contradictions, "text_findings": self.text_findings, "problems": self.problems,
+        }
+
+
+def check_report(ledger: Ledger):
+    """(problems, notes): problems fail the check, notes are counts that are reported and not fatal."""
+    report = analyse(ledger)
+    return report.problems, report.notes
+
+
+def analyse(ledger: Ledger) -> Report:
+    snapshot, problems = load(ledger)
+    items = snapshot.items
     _check_edges(snapshot, problems)
     imported = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
+    _check_claim_refs(snapshot, problems)
     findings = text_findings(snapshot)
     problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in findings for kind in kinds)
     found = contradictions(snapshot)
@@ -145,6 +165,16 @@ def _check_completed(snapshot: Snapshot, problems: List[str]) -> int:
             else:
                 problems.append(f"events/{item_id}: completed without an evidence event")
     return imported
+
+
+def _check_claim_refs(snapshot: Snapshot, problems: List[str]) -> None:
+    for item_id in snapshot.items:
+        by_id = {e.id: e for e in snapshot.events[item_id]}
+        for event in snapshot.events[item_id]:
+            if event.type in ("claim_lost", "claim_confirmed"):
+                target = by_id.get(event.get("ref"))
+                if target is None or target.type != "claimed":
+                    problems.append(f"events/{item_id}/{event.id}: {event.type} names no `claimed` event of this item")
 
 
 def _check_mirror_progress(snapshot: Snapshot, problems: List[str]) -> None:

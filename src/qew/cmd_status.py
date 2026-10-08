@@ -51,6 +51,7 @@ def collect(config: Config) -> dict:
         for item_id in snapshot.items for e in snapshot.folds[item_id].divergences
     ]
     return {
+        "authority": {"primary": config.authority},
         "ledger": {
             "uncommitted": len(repo.dirty_owned()),
             "unpushed": repo.unpushed(),
@@ -67,7 +68,8 @@ def collect(config: Config) -> dict:
 
 def render(data: dict) -> str:
     ledger = data["ledger"]
-    lines = [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]
+    lines = [f"authority primary={data['authority']['primary']}"]
+    lines += [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]
     for target in data["targets"]:
         lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}")
     lines.append(f"divergences={len(data['divergences'])}")

@@ -42,7 +42,7 @@ class UntrustedTextWalk(unittest.TestCase):
         text = self.world.run("ready")
         self.assertIn("[title withheld: zero_width]", text.stdout)
         self.assertNotIn("​", text.stdout)
-        data = json.loads(self.world.run("ready", "--json").stdout)
+        data = json.loads(self.world.run("ready", "--json").stdout)["items"]
         self.assertIsNone(data[0]["title"])
         self.assertEqual(data[0]["text_findings"], ["zero_width"])
         shown = self.world.run("show", self.item)

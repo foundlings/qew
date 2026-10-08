@@ -121,6 +121,7 @@ class PullRequestSpec:
     title: str
     body: str
     draft: bool
+    assignee: str = ""  # forge login the pull request is assigned to; "" assigns nobody
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,28 @@ class RemotePullRequest:
     base_branch: str
     mergeable: Optional[bool]  # None while the forge is still computing it
     checks: str  # "passing", "failing", "pending" or "none"
+    body: str = ""  # a null body reads as ""
+    author: str = ""  # forge login of the opener
+    assignee: str = ""  # forge login it is assigned to, "" when nobody
+    auto_merge: bool = False  # the forge will merge it once its checks pass
+    merge_sha: str = ""  # the merge commit once state is "merged", else ""
+
+
+# (name, layout, filter): the views `project ensure` keeps, in order. Layouts are GitHub's names.
+BOARD_VIEWS = (
+    ("Kanban", "BOARD_LAYOUT", ""),
+    ("Table", "TABLE_LAYOUT", ""),
+    ("Ready", "TABLE_LAYOUT", "status:Ready"),
+    ("Blocked", "TABLE_LAYOUT", "is:blocked"),
+    ("Active", "TABLE_LAYOUT", 'status:"In progress"'),
+    ("Review", "TABLE_LAYOUT", 'status:"In review"'),
+    ("Drafts", "TABLE_LAYOUT", "status:Draft"),
+    ("Roadmap", "ROADMAP_LAYOUT", ""),
+)
+# Prefixed to every view filter when the mirror only selects part of the repository.
+MANAGED_FILTER = "label:qew:managed"
+# Old Status option names and the current option each one becomes.
+LEGACY_STATUS = {"To triage": "Draft"}
 
 
 @dataclass(frozen=True)
@@ -142,6 +165,15 @@ class Board:
     url: str
     columns: Tuple[str, ...]
     title: str = ""  # the board's current title where the forge has one (a renamed board keeps its number)
+    notes: Tuple[str, ...] = ()  # corrections and foreign leftovers `ensure_board` reports
+
+
+@dataclass(frozen=True)
+class Placement:
+    """Where an issue sits on a board: its Status column and Priority option name ("" when unset)."""
+
+    column: str
+    priority: str
 
 
 class Forge(ABC):
@@ -186,13 +218,24 @@ class Forge(ABC):
         """Record on the forge that issue `number` is blocked by issue `blocked_by` (idempotent)."""
         raise Unsupported("link_dependency")
 
-    def ensure_board(self, columns: Tuple[str, ...]) -> Board:
-        """Find or create the board named by the mirror's `project` with these columns."""
+    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
+        """Find or create the board named by the mirror's `project` with these columns.
+
+        `managed_filter` (when non-empty) is prefixed to every view filter on forges with views.
+        """
         raise Unsupported("ensure_board")
 
-    def place_on_board(self, board: Board, number: int, column: str) -> None:
-        """Put the issue on the board in `column`, moving it if already there (idempotent)."""
+    def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
+        """Put the issue on the board in `column` (and `priority` where the board has one), idempotent."""
         raise Unsupported("place_on_board")
+
+    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+        """What the forge shows now for the issue on the board, or None when it is not on it."""
+        raise Unsupported("read_placement")
+
+    def remove_from_board(self, board: Board, number: int) -> None:
+        """Take the issue's card off the board; the issue itself is never touched."""
+        raise Unsupported("remove_from_board")
 
     def open_pull_request(self, spec: PullRequestSpec) -> RemotePullRequest:
         raise Unsupported("open_pull_request")
@@ -203,9 +246,27 @@ class Forge(ABC):
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
         raise Unsupported("mark_pull_request_ready")
 
-    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
-        """Merge exactly `expected_head_sha` (no squash); refuse if the head moved."""
+    def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
+        """Merge exactly `expected_head_sha` (no squash); refuse if the head moved.
+
+        `bypass_checks` merges past branch protection only; a forge with no bypass raises `Unsupported`.
+        """
         raise Unsupported("merge_pull_request")
+
+    def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
+        """Replace the description and return the re-read pull request (idempotent)."""
+        raise Unsupported("update_pull_request_body")
+
+    def requires_status_checks(self, branch: str) -> bool:
+        """True when `branch` is protected by a rule that requires status checks.
+
+        An unreadable rule set raises a typed forge error; it is never read as False.
+        """
+        raise Unsupported("requires_status_checks")
+
+    def enable_auto_merge(self, number: int) -> RemotePullRequest:
+        """Merge the pull request once its checks pass; returns the re-read pull request."""
+        raise Unsupported("enable_auto_merge")
 
 
 def marker_for(item_id: str) -> str:

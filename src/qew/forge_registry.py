@@ -6,7 +6,7 @@ from typing import Mapping, Optional
 
 from qew.errors import QewError
 from qew.forge import Forge, Transport
-from qew.forge_http import urllib_transport
+from qew.forge_http import TIMEOUT_SECONDS, urllib_transport
 from qew.ledger_config import Mirror
 
 _BACKENDS = {
@@ -30,4 +30,5 @@ def build(mirror: Mirror, transport: Optional[Transport] = None, env: Optional[M
         backend = getattr(importlib.import_module(module), name)
     except (ImportError, AttributeError):
         raise QewError(f"the {forge} backend is not available in this build", 1) from None
-    return backend(mirror, transport or urllib_transport(), dict(os.environ if env is None else env))
+    timeout = mirror.options.get("timeout", TIMEOUT_SECONDS)
+    return backend(mirror, transport or urllib_transport(float(timeout)), dict(os.environ if env is None else env))

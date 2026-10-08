@@ -22,6 +22,8 @@ class _Project:
         self.labels: List[Dict[str, Any]] = []
         self.boards: List[Dict[str, Any]] = []
         self.merge_requests: List[Dict[str, Any]] = []
+        self.only_allow_merge_if_pipeline_succeeds = False
+        self.protected_branches: Dict[str, Dict[str, Any]] = {}
 
 
 class FakeGitLab:
@@ -29,6 +31,8 @@ class FakeGitLab:
         self.token = token
         self.page_size = page_size
         self.endless_pages = False
+        self.link_base = ""  # when set, list responses also carry a Link header pointing here
+        self.auto_merge_ignored = False  # accept the request yet change nothing
         self.search_returns_all = False
         self.malformed_issue_reads = False
         self.users = {"alice": 11, "bob": 12}
@@ -126,6 +130,10 @@ class FakeGitLab:
         rest = parts[2:]
         if rest[:1] == ["users"] and method == "GET":
             return self._users(query)
+        if rest[:1] == ["projects"] and len(rest) == 2 and method == "GET":
+            project = self.project(rest[1])
+            return 200, {"id": 1, "path_with_namespace": rest[1],
+                         "only_allow_merge_if_pipeline_succeeds": project.only_allow_merge_if_pipeline_succeeds}, {}
         if rest[:1] == ["projects"] and len(rest) >= 3:
             return self._project(method, self.project(rest[1]), rest[1], rest[2:], query, body)
         return 404, {"message": "404 Not Found"}, {}
@@ -140,6 +148,9 @@ class FakeGitLab:
             return self._boards(method, project, tail, query, body)
         if resource == "merge_requests":
             return self._merge_requests(method, project, path, tail, body)
+        if resource == "protected_branches" and len(tail) == 1 and method == "GET":
+            record = project.protected_branches.get(tail[0])
+            return (200, record, {}) if record is not None else (404, {"message": "404 Not found"}, {})
         return 404, {"message": "404 Not Found"}, {}
 
     def _users(self, query):
@@ -153,7 +164,10 @@ class FakeGitLab:
         page = int(query.get("page", "1"))
         chunk = items[(page - 1) * size : page * size]
         more = page * size < len(items) or self.endless_pages
-        return 200, chunk, {"X-Next-Page": str(page + 1) if more else ""}
+        headers = {"X-Next-Page": str(page + 1) if more else ""}
+        if more and self.link_base:
+            headers["Link"] = f'<{self.link_base}?page={page + 1}>; rel="next"'
+        return 200, chunk, headers
 
     # ----- issues -----
 
@@ -299,6 +313,11 @@ class FakeGitLab:
             "source_branch": mr["source_branch"], "target_branch": mr["target_branch"],
             "detailed_merge_status": mr["detailed_merge_status"], "head_pipeline": mr["head_pipeline"],
             "web_url": f"{self.host}/{path}/-/merge_requests/{mr['iid']}",
+            "description": mr.get("description") or None,
+            "author": {"username": "opener"},
+            "assignees": [{"username": n} for n, i in self.users.items() if i in mr.get("assignee_ids", [])],
+            "merge_when_pipeline_succeeds": bool(mr.get("auto")),
+            "merge_commit_sha": mr.get("merge_sha"),
         }
 
     def _merge_requests(self, method, project, path, tail, body):
@@ -306,7 +325,8 @@ class FakeGitLab:
             mr = {"id": self._next_id(), "iid": len(project.merge_requests) + 1, "state": "opened",
                   "title": body["title"], "source_branch": body["source_branch"],
                   "target_branch": body["target_branch"], "sha": self._sha(),
-                  "detailed_merge_status": "mergeable", "head_pipeline": None}
+                  "detailed_merge_status": "mergeable", "head_pipeline": None,
+                  "description": body.get("description", ""), "assignee_ids": list(body.get("assignee_ids") or [])}
             project.merge_requests.append(mr)
             return 201, self._mr_json(path, mr), {}
         mr = next((m for m in project.merge_requests if tail and str(m["iid"]) == tail[0]), None)
@@ -316,6 +336,7 @@ class FakeGitLab:
             return 200, self._mr_json(path, mr), {}
         if len(tail) == 1 and method == "PUT":
             mr["title"] = body.get("title", mr["title"])
+            mr["description"] = body.get("description", mr.get("description", ""))
             return 200, self._mr_json(path, mr), {}
         if tail[1:] == ["merge"] and method == "PUT":
             return self._merge(path, mr, body)
@@ -326,9 +347,13 @@ class FakeGitLab:
             return 406, {"message": "Branch cannot be merged"}, {}
         if mr["title"].lower().startswith("draft:") or mr["detailed_merge_status"] != "mergeable":
             return 405, {"message": "405 Method Not Allowed"}, {}
-        if body.get("sha") != mr["sha"]:
+        if "sha" in body and body["sha"] != mr["sha"]:
             return 409, {"message": f"SHA does not match HEAD of source branch: {mr['sha']}"}, {}
+        if body.get("merge_when_pipeline_succeeds"):
+            mr["auto"] = not self.auto_merge_ignored
+            return 200, self._mr_json(path, mr), {}
         mr["state"] = "merged"
+        mr["merge_sha"] = "d" * 40
         return 200, self._mr_json(path, mr), {}
 
 

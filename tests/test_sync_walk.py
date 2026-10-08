@@ -107,6 +107,23 @@ class SyncWalk(unittest.TestCase):
         self.assertFalse(self.a.issues[1].open)
         self.assertIn("qew:completed", self.a.issues[1].labels)
 
+    def test_every_synced_issue_carries_the_managed_label(self) -> None:
+        """Prevents the managed-label view filter from hiding qew's own issues."""
+        self.world.create("--kind", "epic", "--title", "E")
+        self.sync("forgejo-git.example-o-r")
+        self.assertIn("qew:managed", self.a.issues[1].labels)
+
+    def test_forges_without_boards_carry_the_status_as_a_label(self) -> None:
+        """Prevents a Forgejo repository from showing no sign of the seven-status model."""
+        w = self.world
+        item = w.create("--kind", "issue", "--title", "I", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        self.sync("forgejo-git.example-o-r")
+        self.assertIn("status:Ready", self.a.issues[1].labels)
+        w.run("start", item)
+        self.sync("forgejo-git.example-o-r")
+        self.assertIn("status:In progress", self.a.issues[1].labels)
+        self.assertNotIn("status:Ready", self.a.issues[1].labels)
+
     def test_a_dead_forge_does_not_block_another_and_leaves_no_mirror_file(self) -> None:
         w = self.world
         item = w.create("--kind", "epic", "--title", "E")

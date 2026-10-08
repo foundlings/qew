@@ -48,7 +48,7 @@ class ReadyOrderWalk(unittest.TestCase):
         self.assertEqual(ids(first.stdout), ["Z1", "B2", "E2", "H2", "A2", "J2"])
         self.assertEqual(w.run("ready").stdout, first.stdout, "the order is deterministic")
         as_json = json.loads(w.run("ready", "--json").stdout)
-        self.assertEqual([row["id"] for row in as_json], ids(first.stdout))
+        self.assertEqual([row["id"] for row in as_json["items"]], ids(first.stdout))
 
     def test_a_dependency_cycle_downstream_of_ready_work_is_refused_not_ignored(self) -> None:
         """Walking dependents of R must not loop forever or guess an order when P and Q need each other."""

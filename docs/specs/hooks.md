@@ -40,6 +40,12 @@ They run `qew hook session-start|pre-tool|post-tool --agent NAME`; the agent pay
   Known gaps: wrappers taking a value (`sudo -u x`), `eval`, scripts from files.
 - **post-tool** prints nothing except one line after `git push` or `jj git push` when the ledger
   holds claimed items owned by the current actor without evidence. Read-only.
+  After `qew pr merge N` run by the agent it also prints one line per claimed item recorded for that pull request
+  once the forge reports it merged: `qew complete ITEM` (or `qew evidence ITEM` first when none is recorded), or,
+  for another actor's claim, the `--take-over` form, never a takeover. Decision: a raw `gh pr merge` is refused
+  by pre-tool, so there is no automatic landing; merges that happen anyway (forge UI, auto-merge) are caught by
+  the next `qew` listing, and completion always stays an explicit `qew complete`. Command text that only mentions a
+  merge (quotes, PR 0, a branch name), an open pull request or an unreadable forge prints nothing.
 
 ## Exit codes and output
 
@@ -66,6 +72,24 @@ Verified against each tool's documentation (October 2026):
 
 Decisions: Cursor also gets a `sessionStart` entry; refusals are not applied to `gh pr create`
 (no requirement); a prior hook version's opencode plugin keeps its marker so install replaces it.
+
+## VCS evidence hook
+
+A commit cites ledger work with a trailer in the last paragraph of its message: `Refs: ID[, ID...]`
+(`vcs_refs.py`; body prose, other casings, indented lines and tokens that are not ids are ignored).
+`qew hook vcs-check` refuses (exit 2) a push when a cited id is unknown, a draft, or an open item with no
+evidence for that commit, naming `qew evidence ID --change CHANGE`; completed and closed items are skipped (they
+can no longer take evidence). Evidence matches the commit id or the jj change id by prefix.
+
+- git: `qew hook install --git` writes the tracked, marker-owned `.githooks/pre-push` (which runs
+  `qew hook vcs-check --pre-push`, and skips with a warning when qew is not on PATH) and sets the local
+  `core.hooksPath`. It refuses a different existing `core.hooksPath` or an unowned script. The hook is bypassable
+  only by deleting that tracked file (or unsetting the config), which shows in the diff. Remove deletes the script
+  and unsets `core.hooksPath` when `.githooks` holds nothing else. A jj-only checkout has no git hooks (exit 2).
+- jj: there is no pre-push hook, so `--revisions REVSET` serves scripts, and the agent pre-tool guard checks
+  `jj git push` (the mutable ancestors of what `--bookmark`, `-r`, `--change`, `--all` or the working copy name) and
+  denies with the same message. If jj cannot answer, the guard stays silent.
+- `--message-file FILE` prints `known ID` or `unknown ID` per cited id and exits 2 when any is unknown.
 
 # Superseded design (v0)
 

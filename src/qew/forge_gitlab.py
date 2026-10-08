@@ -12,6 +12,7 @@ from qew import forge_http
 from qew.forge import (
     Board,
     Forge,
+    Placement,
     ForgeRejected,
     IssueSpec,
     PullRequestSpec,
@@ -19,9 +20,11 @@ from qew.forge import (
     RemoteIssue,
     RemotePullRequest,
     Transport,
+    Unsupported,
 )
 from qew.ledger_config import Mirror
 
+PRIORITY_PREFIX = "priority::"
 BOARD_PREFIX = "board::"
 DRAFT_TITLE = "Draft: "
 _DRAFT_MARKER = re.compile(r"^\s*(?:\[draft\]|\(draft\)|draft:)\s*", re.IGNORECASE)
@@ -127,12 +130,31 @@ def _parse_mergeable(status: str) -> Optional[bool]:
     return None if status in _MERGE_UNDECIDED else False
 
 
+def _assignee_name(data: Mapping[str, Any]) -> str:
+    assignees = _list(data.get("assignees"), "assignees")
+    return _field(_object(assignees[0], "assignee"), "username", str) if assignees else ""
+
+
+def _merge_sha(data: Mapping[str, Any], state: str) -> str:
+    value = data.get("merge_commit_sha")
+    if value is None or state != "merged":
+        return ""
+    if not isinstance(value, str):
+        raise _malformed("merge request.merge_commit_sha")
+    return value
+
+
 def _parse_merge_request(raw: Any) -> RemotePullRequest:
     data = _object(raw, "merge request")
     state = _field(data, "state", str)
     if state not in _MR_STATES:
         raise _malformed(f"merge request state `{state}`")
     return RemotePullRequest(
+        body=_description(data),
+        author=_field(_object(data.get("author"), "author"), "username", str),
+        assignee=_assignee_name(data),
+        auto_merge=_field(data, "merge_when_pipeline_succeeds", bool),
+        merge_sha=_merge_sha(data, state),
         number=_field(data, "iid", int),
         url=_field(data, "web_url", str),
         state=_MR_STATES[state],
@@ -237,7 +259,7 @@ class GitLab(Forge):
 
     def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
         current = self.read_issue(number)
-        kept = tuple(label for label in current.labels if label.startswith(BOARD_PREFIX) and label not in spec.labels)
+        kept = tuple(label for label in current.labels if label.startswith((BOARD_PREFIX, PRIORITY_PREFIX)) and label not in spec.labels)
         payload: Dict[str, Any] = {
             "title": spec.title, "description": spec.body, "labels": _csv((*spec.labels, *kept)),
             "assignee_ids": self._assignee_ids(spec.assignee),
@@ -270,7 +292,7 @@ class GitLab(Forge):
 
     # ----- boards -----
 
-    def ensure_board(self, columns: Tuple[str, ...]) -> Board:
+    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
         name = self._mirror.project or self._repo
         board = self._find_board(name)  # `project` may be a board id this method returned earlier
         if board is None:
@@ -309,19 +331,34 @@ class GitLab(Forge):
         data, _ = self._call("POST", f"{self._project}/labels", payload={"name": name, "color": _LABEL_COLOR})
         return _field(_object(data, "label"), "id", int)
 
-    def place_on_board(self, board: Board, number: int, column: str) -> None:
+    def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         if column not in board.columns:
             raise ForgeRejected(400, f"board has no column `{column}`")
-        target = BOARD_PREFIX + column
+        wanted = [BOARD_PREFIX + column] + ([PRIORITY_PREFIX + priority] if priority else [])
         labels = self.read_issue(number).labels
-        stale = [label for label in labels if label.startswith(BOARD_PREFIX) and label != target]
+        owned = (BOARD_PREFIX, PRIORITY_PREFIX) if priority else (BOARD_PREFIX,)
+        stale = [label for label in labels if label.startswith(owned) and label not in wanted]
         payload: Dict[str, Any] = {}
-        if target not in labels:
-            payload["add_labels"] = target
+        missing = [label for label in wanted if label not in labels]
+        if missing:
+            payload["add_labels"] = _csv(tuple(missing))
         if stale:
             payload["remove_labels"] = _csv(tuple(stale))
         if payload:
             self._call("PUT", f"{self._project}/issues/{number}", payload=payload)
+
+    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+        labels = self.read_issue(number).labels
+        columns = [label[len(BOARD_PREFIX):] for label in labels if label.startswith(BOARD_PREFIX)]
+        if not columns:
+            return None
+        priorities = [label[len(PRIORITY_PREFIX):] for label in labels if label.startswith(PRIORITY_PREFIX)]
+        return Placement(columns[0], priorities[0] if priorities else "")
+
+    def remove_from_board(self, board: Board, number: int) -> None:
+        stale = [label for label in self.read_issue(number).labels if label.startswith((BOARD_PREFIX, PRIORITY_PREFIX))]
+        if stale:
+            self._call("PUT", f"{self._project}/issues/{number}", payload={"remove_labels": _csv(tuple(stale))})
 
     # ----- merge requests -----
 
@@ -332,6 +369,8 @@ class GitLab(Forge):
             "title": DRAFT_TITLE + title if spec.draft else title,
             "description": spec.body, "remove_source_branch": False,
         }
+        if spec.assignee:
+            payload["assignee_ids"] = self._assignee_ids(spec.assignee)
         data, _ = self._call("POST", f"{self._project}/merge_requests", payload=payload)
         return _parse_merge_request(data)
 
@@ -348,7 +387,30 @@ class GitLab(Forge):
         data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"title": title})
         return _parse_merge_request(data)
 
-    def merge_pull_request(self, number: int, expected_head_sha: str) -> RemotePullRequest:
+    def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
+        data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"description": body})
+        return _parse_merge_request(data)
+
+    def requires_status_checks(self, branch: str) -> bool:
+        project, _ = self._call("GET", self._project)
+        if not _field(_object(project, "project"), "only_allow_merge_if_pipeline_succeeds", bool):
+            return False
+        try:
+            self._call("GET", f"{self._project}/protected_branches/{quote(branch, safe='')}")
+        except ForgeRejected as error:
+            if error.status == 404:  # the branch is not protected
+                return False
+            raise
+        return True
+
+    def enable_auto_merge(self, number: int) -> RemotePullRequest:
+        payload = {"merge_when_pipeline_succeeds": True, "should_remove_source_branch": False, "squash": False}
+        self._call("PUT", f"{self._project}/merge_requests/{number}/merge", payload=payload)
+        return self.read_pull_request(number)
+
+    def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
+        if bypass_checks:
+            raise Unsupported("merge_pull_request with bypass_checks")
         payload = {"sha": expected_head_sha, "should_remove_source_branch": False, "squash": False}
         data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}/merge", payload=payload)
         merged = _parse_merge_request(data)

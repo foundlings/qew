@@ -3,10 +3,11 @@
 import argparse
 import importlib
 import json
+import os
 import sys
 from typing import List, Optional, Sequence
 
-from qew import editor, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
+from qew import __version__, editor, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
 from qew.errors import QewError
 
 
@@ -49,7 +50,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
 
 
 def _plugins() -> list:
@@ -70,6 +71,7 @@ def _parser() -> argparse.ArgumentParser:
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    parser.add_argument("--version", action="version", version=f"qew {__version__}", help="print the installed version and exit")
     commands = parser.add_subparsers(dest="command", required=True)
 
     init = commands.add_parser("init", help="create .qew/config.toml and the ledger")
@@ -99,24 +101,6 @@ def _parser() -> argparse.ArgumentParser:
     set_.add_argument("--body", help="replace the body")
     set_.add_argument("--edit", action="store_true", help="rewrite the body in $VISUAL or $EDITOR")
     set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
-
-    show = commands.add_parser("show", help="show one item with derived edges and evidence")
-    show.add_argument("item", help="item id or alias")
-    show.add_argument("--json", action="store_true", help="machine-readable output")
-
-    list_ = commands.add_parser("list", help="list items")
-    list_.add_argument("--kind", choices=["epic", "issue", "task"], help="only this kind")
-    list_.add_argument("--state", choices=["draft", "approved", "claimed", "completed", "closed"], help="only this state")
-    list_.add_argument("--label", help="only items carrying this label")
-    list_.add_argument("--author", help="only items whose first event was recorded by this login (case-insensitive)")
-    list_.add_argument("--json", action="store_true", help="machine-readable output")
-
-    ready = commands.add_parser("ready", help="approved, unclaimed work with every need completed")
-    ready.add_argument("--json", action="store_true", help="machine-readable output")
-    blocked = commands.add_parser("blocked", help="open work with unmet needs")
-    blocked.add_argument("--json", action="store_true", help="machine-readable output")
-    graph = commands.add_parser("graph", help="print dependency edges")
-    graph.add_argument("--json", action="store_true", help="machine-readable output")
 
     for name, text in (("start", "claim approved, unblocked work"), ("release", "give up a claim"),
                        ("complete", "finish claimed work once the gate passes"), ("reopen", "reopen completed or closed work")):
@@ -188,6 +172,8 @@ def _specs(arguments: argparse.Namespace) -> List[dict]:
 
 
 def _read(path: str) -> str:
+    if os.path.islink(path):
+        raise QewError(f"{path} is a symlink; name the real file", 2)
     try:
         with open(path, encoding="utf-8") as handle:
             return handle.read()
@@ -220,16 +206,6 @@ def _run(arguments: argparse.Namespace) -> None:
             raise QewError("use only one of --body and --edit", 2)
         body = editor.edit_body() if arguments.edit else arguments.body
         print("\n".join(cmd_items.set_fields(config, arguments.items, changes, body, arguments.closed)))
-    elif command == "show":
-        cmd_items.show(config, arguments.item, arguments.json)
-    elif command == "list":
-        cmd_items.list_items(config, arguments.kind, arguments.state, arguments.label, arguments.json, arguments.author)
-    elif command == "ready":
-        cmd_items.ready(config, arguments.json)
-    elif command == "blocked":
-        cmd_items.blocked(config, arguments.json)
-    elif command == "graph":
-        cmd_items.graph(config, arguments.json)
     elif command in ("start", "release", "complete", "reopen"):
         print(getattr(cmd_flow, command)(config, arguments.item))
     elif command == "evidence":

@@ -4,8 +4,7 @@ import json
 import re
 from typing import List, Tuple
 
-from qew import ledger_author, ledger_config, ledger_graph, ledger_store
-from qew.cmd_items import ledger_for, row, row_data
+from qew import cmd_read, ledger_author, ledger_config, ledger_graph, ledger_store, read_view
 from qew.errors import QewError
 from qew.ledger_event import State
 
@@ -28,17 +27,17 @@ def run(arguments) -> bool:
     login = arguments.login if arguments.login is not None else ledger_store.actor()
     if not _LOGIN.match(login):
         raise QewError(f"`{login}` is not a valid login", 2)
-    snapshot = ledger_for(ledger_config.load()).snapshot()
+    snapshot = cmd_read.snapshot_for(ledger_config.load())
     waiting, assigned = sections(snapshot, login)
     if arguments.count:
         print(f"inbox: {len(waiting)} waiting, {len(assigned)} assigned")
         return True
     listed = [("waiting", i) for i in waiting] + [("assigned", i) for i in assigned]
     if arguments.json:
-        print(json.dumps([{**row_data(snapshot, i), "section": name, "schema_version": SCHEMA_VERSION} for name, i in listed]))
+        print(json.dumps([{**read_view.row_data(snapshot, i), "section": name, "schema_version": SCHEMA_VERSION} for name, i in listed]))
     else:
         for name, item_id in listed:
-            print(f"{name} {row(snapshot, item_id)}")
+            print(f"{name} {read_view.text_row(snapshot, item_id)}")
     return True
 
 

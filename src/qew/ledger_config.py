@@ -4,8 +4,10 @@ from dataclasses import dataclass
 import os
 import re
 from pathlib import Path
+import re
 import tomllib
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from qew import __version__
 from qew.errors import QewError
@@ -63,6 +65,27 @@ def _replication(section: object) -> Replication:
     return Replication(**section)
 
 
+def _authority(section: object, mirrors: Tuple["Mirror", ...]) -> str:
+    """The primary forge target's slug, or `none`; a unique fragment of a slug is accepted."""
+    if section is None:
+        return "none"
+    if not isinstance(section, dict):
+        raise QewError("[authority] must be a table", 1)
+    for key in section:
+        if key != "primary":
+            raise QewError(f"[authority] has an unknown key `{key}`", 1)
+    primary = section.get("primary", "none")
+    if not isinstance(primary, str) or not primary:
+        raise QewError("[authority] primary must be a target name or \"none\"", 1)
+    if primary == "none":
+        return "none"
+    slugs = [mirror_slug(m) for m in mirrors]
+    found = [s for s in slugs if s == primary] or [s for s in slugs if primary in s]
+    if len(found) != 1:
+        raise QewError(f"[authority] primary `{primary}` matches {len(found)} mirror targets (have: {', '.join(slugs) or 'none'})", 1)
+    return found[0]
+
+
 @dataclass(frozen=True)
 class Config:
     root: Path
@@ -71,6 +94,7 @@ class Config:
     target: str
     mirrors: Tuple[Mirror, ...]
     replication: Replication = Replication()
+    authority: str = "none"  # slug of the primary forge target, or "none": the ledger remote arbitrates
 
 
 def find_root(start: Optional[Path] = None) -> Optional[Path]:
@@ -106,7 +130,38 @@ def load(start: Optional[Path] = None) -> Config:
     code = data.get("code", {})
     mirrors = _distinct(_mirror(entry) for entry in data.get("mirror", []))
     return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors,
-                  _replication(data.get("replication")))
+                  _replication(data.get("replication")), _authority(data.get("authority"), mirrors))
+
+
+_SEGMENT = re.compile(r"[A-Za-z0-9_.-]+")
+_URL_OPTIONS = ("api", "graphql")
+
+
+def _checked_url(value: object, name: str, forge: str, repository: bool) -> str:
+    """A mirror URL that is safe to send a token to: http(s), no credentials, query or fragment.
+
+    A repository URL also names `owner/repo` (GitLab may nest groups) in the forge character set.
+    """
+    where = f"[[mirror]] {name}"
+    if not isinstance(value, str) or re.search(r"[\s\x00-\x1f\x7f]", value):
+        raise QewError(f"{where} must be a URL without whitespace", 2)
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - a malformed port raises here
+    except ValueError:
+        raise QewError(f"{where} `{value}` is not a valid URL", 2) from None
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise QewError(f"{where} `{value}` must be an http or https URL with a host", 2)
+    if "@" in parts.netloc or parts.query or parts.fragment or "?" in value or "#" in value:
+        raise QewError(f"{where} `{value}` must not carry credentials, a query or a fragment", 2)
+    if repository:
+        segments = parts.path.strip("/").split("/")
+        shallow = len(segments) == 2
+        if not (shallow or (forge == "gitlab" and len(segments) > 2)) or not all(
+            _SEGMENT.fullmatch(segment) and segment not in (".", "..") for segment in segments
+        ):
+            raise QewError(f"{where} `{value}` must name `owner/repo` with letters, digits, `_`, `.` and `-`", 2)
+    return value
 
 
 _VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
@@ -154,9 +209,16 @@ def _mirror(entry: object) -> Mirror:
     title = entry.get("project_title")
     if title is not None and (not isinstance(title, str) or not title.strip()):
         raise QewError("mirror `project_title` must not be empty", 2)
+    forge = ALIASES.get(entry["forge"], entry["forge"])
+    for name in _URL_OPTIONS:
+        if name in entry:
+            _checked_url(entry[name], name, forge, repository=False)
+    timeout = entry.get("timeout")
+    if "timeout" in entry and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
+        raise QewError("[[mirror]] timeout must be a positive number of seconds", 2)
     return Mirror(
-        forge=ALIASES.get(entry["forge"], entry["forge"]),
-        repo=entry["repo"].rstrip("/"),
+        forge=forge,
+        repo=_checked_url(entry["repo"], "repo", forge, repository=True).rstrip("/"),
         project=project,
         select=str(entry.get("select", "")),
         options={key: value for key, value in entry.items() if key not in known},

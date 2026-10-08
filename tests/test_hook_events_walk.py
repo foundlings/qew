@@ -14,9 +14,9 @@ import sys
 import unittest
 from unittest import mock
 
+from tests.ledger_harness import QUOTE, World  # first: puts src on sys.path
 from qew import cmd_hook
 from qew.errors import QewError
-from tests.ledger_harness import QUOTE, World
 from tests.test_hook_v1_walk import feed, outside
 
 AGENTS = ("claude", "codex", "cursor", "opencode")
@@ -154,7 +154,7 @@ class HostileInputWalk(unittest.TestCase):
             self.assertTrue(cmd_hook.run(event))
         self.assertEqual(out.getvalue(), "")
         install = argparse.Namespace(command="hook", hook_command="install", json=False,
-                                     claude=True, codex=False, cursor=False, opencode=False)
+                                     claude=True, codex=False, cursor=False, opencode=False, git=False)
         with mock.patch.object(cmd_hook, "_checkout_root", side_effect=QewError("not inside a Git or jj repository", 2)):
             with self.assertRaises(QewError):
                 cmd_hook.run(install)

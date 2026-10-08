@@ -63,7 +63,7 @@ class LedgerWalk(unittest.TestCase):
         w = self.world
         w.create("--kind", "epic", "--title", "Big")
         issue = w.create("--kind", "issue", "--title", "Small")
-        rows = json.loads(w.run("list", "--kind", "issue", "--json").stdout)
+        rows = [json.loads(line) for line in w.run("list", "--kind", "issue", "--json").stdout.splitlines()]
         self.assertEqual([row["id"] for row in rows], [issue])
         self.assertEqual(rows[0]["state"], "draft")
 

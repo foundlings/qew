@@ -339,7 +339,7 @@ class DraftListWalk(ReleaseBase):
     def test_list_shows_kind_and_parent_and_leaves_out_closed_and_live_items(self) -> None:
         """A review queue must hold only open drafts, with the plan structure readable."""
         w, p = self.world, self.plan()
-        data = json.loads(w.run("draft", "list", "--json").stdout)
+        data = [json.loads(line) for line in w.run("draft", "list", "--json").stdout.splitlines()]
         self.assertEqual(sorted(row["id"] for row in data), sorted([p["epic"], p["issue"], p["task"]]))
         by_id = {row["id"]: row for row in data}
         self.assertEqual((by_id[p["task"]]["kind"], by_id[p["task"]]["parent"]), ("task", p["issue"]))
@@ -352,7 +352,7 @@ class DraftListWalk(ReleaseBase):
         w, p = self.world, self.plan()
         other = self.draft("Other", "epic")
         self.draft("Elsewhere", parent=other)
-        listed = json.loads(w.run("draft", "list", "--parent", p["epic"].upper(), "--json").stdout)
+        listed = [json.loads(line) for line in w.run("draft", "list", "--parent", p["epic"].upper(), "--json").stdout.splitlines()]
         self.assertEqual([row["id"] for row in listed], [p["issue"]])
         unknown = w.run("draft", "list", "--parent", "nothere")
         self.assertEqual(unknown.returncode, 2)
