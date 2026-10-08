@@ -195,10 +195,7 @@ class Ledger:
 
     def remove_mirror(self, item_id: str, target: str) -> None:
         """Forget one mirror file (journaled like every write, so the session commits the deletion)."""
-        path = self.mirrors_dir / item_id / f"{target}.json"
-        if JOURNAL is not None:
-            JOURNAL.append((path, path.read_text(encoding="utf-8") if path.exists() else None))
-        path.unlink(missing_ok=True)
+        discard(self.mirrors_dir / item_id / f"{target}.json")
         self.state_path(item_id, target).unlink(missing_ok=True)
 
     def read_board(self, target: str) -> Optional[dict]:
@@ -281,6 +278,13 @@ def journal_rollback(entries: List[Tuple[Path, Optional[str]]]) -> None:
             path.unlink(missing_ok=True)
         else:
             path.write_text(previous, encoding="utf-8")
+
+
+def discard(path: Path) -> None:
+    """Delete a ledger file, journaled like every write so the session commits (or rolls back) the deletion."""
+    if JOURNAL is not None:
+        JOURNAL.append((path, path.read_text(encoding="utf-8") if path.exists() else None))
+    path.unlink(missing_ok=True)
 
 
 def _write_local(path: Path, text: str) -> None:
