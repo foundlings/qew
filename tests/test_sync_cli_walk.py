@@ -59,6 +59,17 @@ class SyncCliWalk(unittest.TestCase):
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertIn("qew check", result.stderr)
 
+    def test_an_event_with_an_unsafe_actor_is_reported_but_never_blocks_a_sync(self) -> None:
+        """Prevents one polluted event (a test artifact in a shared ledger) stopping all mirroring until someone repairs history."""
+        import json
+
+        w = self.world
+        item = w.create("--kind", "issue", "--title", "Polluted")
+        (w.ledger / "events" / item / "ZZZZZZZZA.json").write_text(
+            json.dumps({"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "bad login,x"}))
+        self.assertEqual(w.run("check").returncode, 1)
+        self.assertEqual(w.run("sync", "--dry-run").returncode, 0)
+
     def test_sync_without_mirror_targets_says_so(self) -> None:
         w = self.world
         (w.code / ".qew" / "config.toml").write_text('[ledger]\npath = "../ledger"\nprefix = "TST"\n')
