@@ -85,6 +85,7 @@ class RemoteIssue:
     body: str
     labels: Tuple[str, ...]
     assignee: str
+    comments: int = 0  # user comment count when the listing reports one (cheap change signal for pull)
 
 
 @dataclass(frozen=True)
