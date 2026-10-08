@@ -7,8 +7,8 @@ import sys
 from typing import List, Optional, Tuple
 
 from qew import (
-    claude_hook, cmd_items, codex_hook, read_view, cursor_hook, git_hook, hook_guard, hook_merge, ledger_config,
-    ledger_graph, opencode_hook, vcs_check,
+    claude_hook, cmd_items, codex_hook, ledger_check, prime, cursor_hook, git_hook, hook_guard, hook_merge, ledger_config,
+    opencode_hook, vcs_check,
 )
 from qew.errors import QewError
 from qew.ledger_event import State
@@ -26,13 +26,6 @@ _ADAPTERS = {
     "git": git_hook,
 }
 _PAYLOAD_LIMIT = 1_000_000
-_PRIME_LIMIT = 2000
-_PRIME_READY = 10
-_ROW_LIMIT = 110
-_PRIME_COMMANDS = (
-    "Commands: qew ready | qew start ID | qew evidence ID | qew complete ID | qew show ID | qew draft list. "
-    "Claim before coding; never change forge issues or merge pull requests around qew."
-)
 _REFUSAL_EXIT = 2
 _SCHEMA_VERSION = 1
 _TRUST_LINE = "review and trust it with /hooks before it will run"
@@ -212,27 +205,7 @@ def _render_context(agent: str, event: str, text: Optional[str]) -> str:
 def _prime(cwd: Optional[Path]) -> Optional[str]:
     if ledger_config.find_root(cwd) is None:
         return None
-    snapshot = cmd_items.ledger_for(ledger_config.load(cwd)).snapshot()
-    ready = ledger_graph.ready(snapshot)
-    drafts = [i for i in snapshot.items if (snapshot.folds[i].state or State.DRAFT) == State.DRAFT]
-    header = f"Qew ledger: {len(ready)} ready, {len(ledger_graph.blocked(snapshot))} blocked, {len(drafts)} draft."
-    budget = _PRIME_LIMIT - len((header + "\n" + _PRIME_COMMANDS + "\nReady, by priority:\n").encode("utf-8")) - 40
-    rows: List[str] = []
-    for item_id in ready[:_PRIME_READY]:
-        row = read_view.text_row(snapshot, item_id)
-        row = row if len(row) <= _ROW_LIMIT else row[: _ROW_LIMIT - 3] + "..."
-        budget -= len(row.encode("utf-8")) + 1
-        if budget < 0:
-            break
-        rows.append(row)
-    lines = [header]
-    if rows:
-        lines.append("Ready, by priority:")
-        lines.extend(rows)
-    if len(ready) > len(rows):
-        lines.append(f"(+{len(ready) - len(rows)} more: qew ready)")
-    lines.append(_PRIME_COMMANDS)
-    return "\n".join(lines)
+    return prime.build(ledger_check.read_snapshot(cmd_items.ledger_for(ledger_config.load(cwd))), prime.HOOK)
 
 
 def _push_reminder(command: str, cwd: Optional[Path]) -> Optional[str]:

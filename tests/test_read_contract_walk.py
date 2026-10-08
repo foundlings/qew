@@ -104,6 +104,7 @@ class ContractWalk(unittest.TestCase):
             "show": [json.loads(self.world.run("show", blocked, "--json").stdout)],
             "triage_row": lines(self.world.run("triage", "--json")),
             "check": [json.loads(self.world.run("check", "--json").stdout)],
+            "prime": [json.loads(self.world.run("prime", "--json").stdout)],
         }
         for name, objects in probes.items():
             self.assertIn(name, shapes, f"commands.md lacks `shape {name}:`")

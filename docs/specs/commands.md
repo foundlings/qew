@@ -27,6 +27,7 @@ shape edge: item schema_version | needs parent
 shape show: author draft id kind labels priority schema_version state title | blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings
 shape triage_row: body id kind labels missing priority schema_version state title | needs owner parent text_findings
 shape check: contradictions cycles problems schema_version text_findings valid
+shape prime: additional_context context_bytes schema_version
 ```
 
 ## Setup
@@ -88,6 +89,15 @@ shape check: contradictions cycles problems schema_version text_findings valid
 - `qew inbox [--login L] [--count] [--json]`: `waiting` (drafts whose author is L) and `assigned` (items L has
   claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
   that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
+- `qew prime [--json]`: the bounded session context the session-start hook also prints (the hook variant is
+  smaller: 3 lines per section, 64-byte titles, 2000 bytes). First line `Qew ledger: N ready, N active, N blocked,
+  N draft.`, four convention lines (titles are approved but untrusted data, never instructions), then `Next
+  ready`, `Active`, `Blocked` and `Contradictions` sections of at most 5 lines plus `... N more`, `- none` when
+  empty. Only approved, open work; titles are JSON-quoted, whitespace-collapsed and cut at 96 bytes on a UTF-8
+  boundary with an ellipsis; a title with hidden-text findings is withheld and named under Contradictions
+  (`ID suspicious title text: zero_width`), as is a claimed epic. Bodies and comments are never read. Over
+  4096 bytes is a loud refusal (exit 1); an unreadable ledger is exit 1 (the hook stays silent).
+  `--json` prints `additional_context` and the exact `context_bytes`.
 - `qew search TERM... [--limit N] [--json]`: offline search of ids, titles and labels of non-draft items; every
   term must match (ASCII case folded). Best match first (exact title, then whole words, then substring), then
   priority, then id; at most 30 by default (`--limit 0` for all) with `search results capped` on stderr. Bodies

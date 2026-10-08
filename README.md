@@ -92,6 +92,8 @@ Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`,
 
 Read flags: `--limit`, `--owner`, `--work-state`, `--bodies`, `--search`.
 
+Session context: `qew prime` prints what the session-start hook prints, for agents without hooks.
+
 Search: `qew search TERM...` finds approved work offline by id, title and label.
 
 Review: `qew triage` lists drafts and items missing planning fields with their bodies and text findings; `qew check --json` adds advisory findings.
