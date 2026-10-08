@@ -21,9 +21,10 @@ class LedgerRemoteWalk(unittest.TestCase):
     vcs = "git"
 
     def setUp(self) -> None:
-        self.a = World(ledger_vcs=self.vcs, remote=True)
+        every_time = "\n[replication]\nfetch_interval_s = 0\n"
+        self.a = World(ledger_vcs=self.vcs, remote=True, replication=every_time)
         self.addCleanup(self.a.close)
-        self.b = self.a.clone("b")
+        self.b = self.a.clone("b", replication=every_time)
 
     def test_a_write_is_pushed_to_the_remote(self) -> None:
         """Prevents work staying on one machine: the commit reaches the remote with the write."""
@@ -41,8 +42,8 @@ class LedgerRemoteWalk(unittest.TestCase):
         first = self.a.run("create", "--title", "A offline", env=offline).stdout.split()[0]
         second = self.b.run("create", "--title", "B offline", env=offline).stdout.split()[0]
         self.assertEqual(remote_subjects(self.a)[0], "init ledger")
-        self.assertEqual(self.b.run("ready").returncode, 0)
-        self.a.run("check")
+        for agent in (self.a, self.b, self.a):  # reconnect: A pushes, B merges and pushes, A merges
+            self.assertEqual(agent.run("ready").returncode, 0)
         listed_b = self.b.run("list").stdout
         listed_a = self.a.run("list").stdout
         self.assertIn(first, listed_b)

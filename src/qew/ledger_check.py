@@ -55,6 +55,7 @@ def check_report(ledger: Ledger):
     _check_edges(snapshot, problems)
     imported = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)
+    _check_mirror_progress(snapshot, problems)
     return problems, ([f"imported without evidence: {imported}"] if imported else [])
 
 
@@ -116,6 +117,16 @@ def _check_completed(snapshot: Snapshot, problems: List[str]) -> int:
             else:
                 problems.append(f"events/{item_id}: completed without an evidence event")
     return imported
+
+
+def _check_mirror_progress(snapshot: Snapshot, problems: List[str]) -> None:
+    """A mirror cannot have synced an event the item does not have: that would hide pending work."""
+    for item_id in snapshot.items:
+        newest = max((e.id for e in snapshot.events[item_id]), default="")
+        for mirror in snapshot.ledger.load_mirrors(item_id):
+            claimed = mirror.get("synced_event", "")
+            if isinstance(claimed, str) and claimed > newest:
+                problems.append(f"mirrors/{item_id}/{mirror['_target']}.json: synced_event {claimed} is newer than the item's newest event")
 
 
 def _check_mirrors(ledger: Ledger, items: Dict[str, Item], problems: List[str]) -> None:

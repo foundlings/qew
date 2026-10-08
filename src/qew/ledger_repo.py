@@ -75,3 +75,91 @@ class LedgerRepo:
         elif self.vcs == "jj":
             self.run(["jj", "--no-pager", "commit", "-m", message, *[f'root-file:"{p}"' for p in paths]])
             self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@-"])
+
+    # -- replication (best effort; the caller decides what a failure means)
+    def fetch_merge(self, timeout: float) -> str:
+        """Bring remote commits in. Returns `ok`, `no-remote` or `offline`; a real conflict raises."""
+        if not self.has_remote():
+            return "no-remote"
+        if self.vcs == "git":
+            return self._git_fetch_merge(timeout)
+        return self._jj_fetch_merge(timeout)
+
+    def _git_fetch_merge(self, timeout: float) -> str:
+        try:
+            fetched = self.run(["git", "fetch", "-q", "origin"], timeout=timeout, check=False)
+        except QewError:
+            return "offline"
+        if fetched.returncode != 0:
+            return "offline"
+        remote = f"origin/{self.branch}"
+        if self.run(["git", "rev-parse", "--verify", "-q", remote], check=False).returncode != 0:
+            return "ok"
+        counts = self.run(["git", "rev-list", "--left-right", "--count", f"HEAD...{remote}"]).stdout.split()
+        ahead, behind = int(counts[0]), int(counts[1])
+        if behind == 0:
+            return "ok"
+        if ahead == 0:
+            self.run(["git", "merge", "-q", "--ff-only", remote])
+            return "ok"
+        merged = self.run(["git", "merge", "-q", "--no-edit", "-m", "qew: merge", remote], check=False)
+        if merged.returncode != 0:
+            files = self.run(["git", "diff", "--name-only", "--diff-filter=U"], check=False).stdout.split()
+            self.run(["git", "merge", "--abort"], check=False)
+            raise QewError(f"ledger conflict while merging {remote}: {', '.join(files) or 'unknown files'}; "
+                           f"resolve it in {self.path} (a conflict is a ledger bug; qew never resolves it)", 1)
+        return "ok"
+
+    def _jj_ids(self, revset: str) -> List[str]:
+        out = self.run(["jj", "--no-pager", "log", "--no-graph", "-r", revset, "-T", 'commit_id ++ "\n"']).stdout
+        return out.split()
+
+    def _jj_fetch_merge(self, timeout: float) -> str:
+        fetched = self.run(["jj", "--no-pager", "git", "fetch"], timeout=timeout, check=False)
+        if fetched.returncode != 0:
+            return "offline"
+        remote = self._jj_ids(f'remote_bookmarks(exact:"{self.branch}", exact:"origin")')
+        sides = self._jj_ids(f'bookmarks(exact:"{self.branch}")')
+        if not remote or not sides:
+            return "ok"
+        tip = remote[0]
+        local = [x for x in sides if x != tip]  # a conflicted bookmark lists the remote tip as one side
+        if not local:
+            if len(sides) == 1:
+                self._move_working_copy()
+            return "ok"
+        containing = [x for x in local if self._jj_ids(f"{tip} & ::{x}")]
+        if containing:  # local already has everything the remote has
+            if len(sides) > 1:
+                self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", containing[0]])
+            return "ok"
+        if all(self._jj_ids(f"{x} & ::{tip}") for x in local):  # remote is ahead: fast-forward
+            self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", tip])
+            self._move_working_copy()
+            return "ok"
+        sides = local
+        parents = list(dict.fromkeys([*sides, tip]))
+        self.run(["jj", "--no-pager", "new", *parents, "-m", "qew: merge"])
+        if self._jj_ids("conflicts()"):
+            files = self.run(["jj", "--no-pager", "resolve", "--list"], check=False).stdout.split()[::2]
+            self.run(["jj", "--no-pager", "undo"], check=False)
+            raise QewError(f"ledger conflict while merging {self.branch}@origin: {', '.join(files) or 'unknown files'}; "
+                           f"resolve it in {self.path} (a conflict is a ledger bug; qew never resolves it)", 1)
+        self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@"])
+        self.run(["jj", "--no-pager", "new"])
+        return "ok"
+
+    def _move_working_copy(self) -> None:
+        """After the branch moved, re-seat an empty working copy on its tip (qew's own commits leave it empty)."""
+        if self._jj_ids("@ & empty()") and self._jj_ids(f'bookmarks(exact:"{self.branch}") ~ ::@'):
+            self.run(["jj", "--no-pager", "new", self.branch])
+
+    def push(self, timeout: float) -> str:
+        """Push the branch. Returns `ok`, `no-remote` or `offline`."""
+        if not self.has_remote():
+            return "no-remote"
+        if self.vcs == "git":
+            pushed = self.run(["git", "push", "-q", "origin", f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
+        else:
+            pushed = self.run(["jj", "--no-pager", "git", "push", "--bookmark", self.branch], timeout=timeout, check=False)
+        return "ok" if pushed.returncode == 0 else "offline"

@@ -84,6 +84,7 @@ def _lock(ledger_path: Path) -> Iterator[None]:
 def session(arguments) -> Iterator[None]:
     verb = verb_for(arguments)
     if verb is None:
+        _pull_for_read(arguments)
         yield
         return
     try:
@@ -98,8 +99,12 @@ def session(arguments) -> Iterator[None]:
     with _lock(config.ledger_path):
         repo.exclude_cache()
         committing = repo.vcs is not None and config.replication.auto_commit
+        replicating = committing and not config.replication.offline and config.replication.auto_push
         if committing:
             _recover(repo)
+        if replicating:
+            repo.fetch_merge(config.replication.timeout_s)
+            (config.ledger_path / ".qew" / "last-fetch").touch()
         ledger_store.journal_start()
         try:
             yield
@@ -107,12 +112,39 @@ def session(arguments) -> Iterator[None]:
             entries = ledger_store.journal_take()
             if verb in KEEP_PARTIAL and committing and entries:
                 _commit(repo, config, verb, entries, rollback_on_failure=False)
+                if replicating:
+                    repo.push(config.replication.timeout_s)
             else:
                 ledger_store.journal_rollback(entries)
             raise
         entries = ledger_store.journal_take()
         if committing and entries:
             _commit(repo, config, verb, entries, rollback_on_failure=True)
+        if replicating:
+            repo.push(config.replication.timeout_s)
+
+
+def _pull_for_read(arguments) -> None:
+    """Reads see other agents' work: fetch and merge the ledger remote, at most every fetch_interval_s."""
+    if arguments.command in ("init", "hook"):
+        return
+    try:
+        config = ledger_config.load()
+    except QewError:
+        return
+    rep = config.replication
+    repo = LedgerRepo(config.ledger_path, rep.branch)
+    if repo.vcs is None or rep.offline or not rep.auto_push or not (config.ledger_path / ledger_config.LEDGER_FILE).is_file():
+        return
+    stamp = config.ledger_path / ".qew" / "last-fetch"
+    if stamp.exists() and time.time() - stamp.stat().st_mtime < rep.fetch_interval_s:
+        return
+    with _lock(config.ledger_path):
+        repo.exclude_cache()
+        _recover(repo) if rep.auto_commit else None
+        if repo.fetch_merge(rep.timeout_s) == "ok":
+            repo.push(rep.timeout_s)  # catch up commits made while the remote was unreachable
+        stamp.touch()
 
 
 def _relative(config, entries) -> List[str]:
