@@ -3,7 +3,7 @@
 import argparse
 from typing import List, Optional
 
-from qew import graph_render, untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import graph_render, show_history, untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
@@ -111,7 +111,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     mirrors = [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in ledger.load_mirrors(item_id)]
     evidence = [event.data for event in folded.evidence]
     data = read_view.row_data(snapshot, item_id)
-    for key, value in (("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body)):
+    for key, value in (("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body),
+                       ("comments", show_history.comments(snapshot.events[item_id]))):
         if value:
             data[key] = value
     if as_json:
@@ -131,6 +132,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         print(f"evidence: {event.get('vcs')} {' '.join(event.get('change_ids'))}")
     for mirror in mirrors:
         print(f"mirror: {mirror['target']} #{mirror['number']}")
+    for line in show_history.comment_lines(snapshot.events[item_id]):
+        print(line)
     if item.body.strip():
         print("---")
         print(item.body.rstrip())

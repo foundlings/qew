@@ -67,6 +67,7 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
   as ancestors of the target branch in the code repo — checked by `qew complete`, refused otherwise)
 - `reopened`, `closed` (`reason`: `not_planned|duplicate|superseded`)
 - `field` (header change audit: key, old, new)
+- `comment` (`body`; legal in every state, never changes it)
 State machine: draft → approved → claimed → completed (closed from any). Illegal transitions refused.
 
 ## Mirrors (`mirrors/<ID>/<target>.json`)

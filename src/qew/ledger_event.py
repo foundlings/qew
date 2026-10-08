@@ -34,6 +34,7 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     "reopened": ((), (State.COMPLETED, State.CLOSED)),
     "closed": (("reason",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED)),
     "field": (("key",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED, State.CLOSED)),
+    "comment": (("body",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED, State.CLOSED)),
     # Forge replication (docs/specs/ledger.md, Replication): never change state by themselves.
     "commented": (("text",), tuple(State)),
     "forge_divergence": (("target", "field"), tuple(State)),

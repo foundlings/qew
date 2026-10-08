@@ -71,7 +71,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 `docs/specs/commands.md`.
 
 - Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`
-- Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`
+- Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew comment`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr ready`, `qew pr merge`
 - Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
