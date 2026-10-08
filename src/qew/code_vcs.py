@@ -1,10 +1,11 @@
 """Ask the code repo's VCS (jj or git) whether a change is an ancestor of the target branch."""
 
+from enum import Enum
 import os
 from pathlib import Path
 import re
 import subprocess
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from qew.errors import QewError
 
@@ -73,3 +74,45 @@ def is_ancestor(root: Path, vcs: str, change: str, target: str) -> bool:
         raise QewError(f"target `{target}` does not exist in this repo", 3)
     result = _run(root, ["jj", "log", "--no-graph", "-r", f"::({target}) & ({change})", "-T", 'commit_id ++ "\\n"'])
     return result.returncode == 0 and bool(result.stdout.strip())
+
+
+_BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+-]*")
+
+
+def valid_branch(name: str) -> bool:
+    """A branch name safe to hand to git or jj: no leading `-`, no revision operators (`..`), no spaces."""
+    return bool(_BRANCH.fullmatch(name)) and ".." not in name
+
+
+class Landing(Enum):
+    LANDED = "landed"  # the change is the target or one of its ancestors
+    NOT_ANCESTOR = "not an ancestor"  # the checkout knows the change and it is not in the target
+    UNKNOWN = "unknown to this checkout"  # the checkout cannot resolve the change (typo, or never fetched)
+
+
+def landing(root: Path, vcs: str, change: str, target: str) -> Tuple[Landing, str]:
+    """Where `change` stands against `target`, with the full commit id when it resolves.
+
+    A missing target branch is an environment failure (exit 3), never a statement about the change.
+    """
+    if not valid_change(vcs, change) or not valid_branch(target):
+        raise QewError(f"refusing to query the VCS with `{change}` / `{target}`", 2)
+    if vcs == "git":
+        if _run(root, ["git", "rev-parse", "--verify", "--quiet", f"{target}^{{commit}}"]).returncode != 0:
+            raise QewError(f"target branch `{target}` does not exist in this repo", 3)
+        found = _run(root, ["git", "rev-parse", "--verify", "--quiet", f"{change}^{{commit}}"])
+        full = found.stdout.strip()
+        if found.returncode != 0 or not full:
+            return Landing.UNKNOWN, ""
+        merged = _run(root, ["git", "merge-base", "--is-ancestor", full, target]).returncode == 0
+        return (Landing.LANDED if merged else Landing.NOT_ANCESTOR), full
+    probe = _run(root, ["jj", "log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
+    if probe.returncode != 0 or not probe.stdout.strip():
+        raise QewError(f"target `{target}` does not exist in this repo", 3)
+    found = _run(root, ["jj", "log", "--no-graph", "-r", f"present({change})", "-T", 'commit_id ++ "\\n"'])
+    ids = found.stdout.split() if found.returncode == 0 else []
+    if not ids:
+        return Landing.UNKNOWN, ""
+    inside = _run(root, ["jj", "log", "--no-graph", "-r", f"::({target}) & ({change})", "-T", 'commit_id ++ "\\n"'])
+    merged = inside.returncode == 0 and bool(inside.stdout.strip())
+    return (Landing.LANDED if merged else Landing.NOT_ANCESTOR), ids[0]

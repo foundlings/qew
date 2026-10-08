@@ -30,7 +30,7 @@ class CloseWalk(unittest.TestCase):
         self.assertEqual(w.run("close", copy, "--reason", "duplicate", "--of", original, "--note", "same request").returncode, 0)
         self.assertEqual(w.run("close", old, "--reason", "superseded", "--by", new).returncode, 0)
         duplicate, superseded = w.events(copy)[-1], w.events(old)[-1]
-        self.assertEqual((duplicate["of"], duplicate["note"], superseded["by"]), (original, "same request", new))
+        self.assertEqual((duplicate["duplicate_of"], duplicate["note"], superseded["superseded_by"]), (original, "same request", new))
         self.assertIn(original, w.run("show", copy).stdout)
         self.assertIn(copy, w.run("show", original).stdout)
         self.assertIn(old, w.run("show", new).stdout)

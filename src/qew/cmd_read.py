@@ -68,7 +68,7 @@ def list_items(snapshot: Snapshot, kind, state, label, as_json: bool) -> None:
     if kind:
         ids = [i for i in ids if snapshot.items[i].kind.value == kind]
     if state:
-        ids = [i for i in ids if (snapshot.folds[i].state or State.DRAFT).value == state]
+        ids = [i for i in ids if (snapshot.derived[i][0] or State.DRAFT).value == state]
     if label:
         ids = [i for i in ids if label in snapshot.items[i].labels]
     print_rows(snapshot, ids, as_json)

@@ -59,6 +59,9 @@ def land(config, number: int, target: Optional[str], build: Optional[Build] = No
 
 def _land_one(config, loaded: Loaded, item_id: str, head_sha: str, lines: List[str]) -> int:
     snapshot = loaded.snapshot.ledger.snapshot()
+    if snapshot.folds[item_id].state == State.COMPLETED:  # an epic finishes by itself with its last child
+        lines.append(f"{item_id}: completed with its children")
+        return 0
     if snapshot.items[item_id].kind != Kind.EPIC and not pr_gate.evidence_covers(config, snapshot.folds[item_id].evidence, head_sha):
         cmd_finish.evidence(config, item_id, [head_sha], None)
     try:

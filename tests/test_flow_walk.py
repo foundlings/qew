@@ -80,7 +80,8 @@ class FlowWalk(unittest.TestCase):
         w.run("start", child)
         w.run("evidence", child, "--change", w.commit())
         w.run("complete", child)
-        self.assertEqual(w.run("complete", epic).returncode, 0)
+        self.assertEqual(w.events(epic)[-1]["type"], "completed", "the last finished child completes its epic")
+        self.assertEqual(w.run("complete", epic).returncode, 2, "and an explicit retry adds no second event")
 
     def test_start_refuses_drafts_and_blocked_work(self) -> None:
         w = self.world
@@ -102,7 +103,7 @@ class FlowWalk(unittest.TestCase):
         self.assertNotEqual(bad.returncode, 0)
         self.assertEqual(w.run("close", item, "--reason", "not_planned").returncode, 0)
         self.assertEqual(w.run("ready").stdout, "")
-        self.assertEqual(w.run("reopen", item).returncode, 0)
+        self.assertEqual(w.run("reopen", item, "--reason", "needed again").returncode, 0)
         self.assertIn(item, w.run("ready").stdout)
 
     def test_draft_revert_returns_unclaimed_work_to_draft_only(self) -> None:

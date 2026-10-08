@@ -127,7 +127,7 @@ class ApproveWalk(ReleaseBase):
         """Approving discarded work would revive it; a bad root must also stop the good ones in the same call."""
         w = self.world
         gone, fine = self.draft("Gone"), self.draft("Fine")
-        w.run("close", gone, "--reason", "duplicate")
+        w.run("close", gone, "--reason", "not_planned")
         result = w.run("draft", "approve", fine, gone, "--quote", QUOTE)
         self.assertEqual(result.returncode, 2)
         self.assertIn("closed", result.stderr)
@@ -198,7 +198,7 @@ class RevertWalk(ReleaseBase):
         w = self.world
         live, gone = self.draft("Live"), self.draft("Gone")
         w.approve(live, gone)
-        w.run("close", gone, "--reason", "duplicate")
+        w.run("close", gone, "--reason", "not_planned")
         result = self.revert(live, gone, "--reason", "why not")
         self.assertEqual(result.returncode, 2)
         self.assertEqual(types(w, live), ["drafted", "approved"])

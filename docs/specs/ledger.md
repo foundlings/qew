@@ -68,10 +68,16 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
 - `completed` with `"provenance": "import"` (+ a non-empty `original_ids`; `qew check` refuses it without) is written only by an import path
   (`create --from-file --import`) for history without resolvable change ids; `qew check` counts these
   (`imported without evidence: N`) and does not fail on them. Everything else:
+- `completed` may carry `reason`, `commits` (full ids), `branch`, `prs`, `no_commit`, `taken_over_from`,
+  `delivered_by` (work that shipped unclaimed) or `children_finished` (an epic finished by its children); the last
+  two may complete an item from approved. `closed` may carry `duplicate_of` or `superseded_by` (one item id) and
+  `note`; `reopened` may carry `reason`.
 - `completed` (requires: all child tasks completed AND ≥1 evidence event whose change ids resolve
   as ancestors of the target branch in the code repo — checked by `qew complete`, refused otherwise)
 - `reopened`, `closed` (`reason`: `not_planned|duplicate|superseded`)
 - `field` (header change audit: key, old, new)
+An epic's claim is DERIVED at read time, never stored: it is in progress (`qew show`, `list`) while an open direct
+non-epic child is claimed, held by exactly those children's actors; a completed or closed epic shows nothing.
 State machine: draft → approved → claimed → completed (closed from any). Illegal transitions refused.
 
 ## Mirrors (`mirrors/<ID>/<target>.json`)

@@ -79,11 +79,29 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 - `qew release ITEM --reason TEXT [--force] [--lane ID] [--json]`: give up a claim; another actor's claim (or another
   lane's) needs `--force`, recorded as `forced` with the `previous_owner`. Unclaimed work is exit 2.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
-- `qew complete ITEM [--json]`: refused (exit 3 naming the holder) unless the caller holds the claim, an already
-  completed item is refused without a second event, every child is completed or closed, and (not for
-  epics) an evidence event whose change IDs are all ancestors of the configured target branch exists.
-  An epic needs at least one child.
-- `qew close ITEM --reason not_planned|duplicate|superseded`, `qew reopen ITEM`.
+- `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: refused (exit 3
+  naming the holder) unless the caller holds the claim; an already completed item is refused without a second event;
+  every child must be completed or closed; and (not for epics) an evidence event whose change IDs all landed on the
+  target branch (`--landed-on` overrides the configured one for stacked branches) must exist. The `completed` event
+  records the `reason`, the full `commits`, the `branch` and the numbers of the item's pull requests recorded as
+  merged (`state: merged` in the `pr` mirror), shown by `qew show`. A change this checkout cannot resolve is
+  `unknown to this checkout` (exit 2), a missing target branch is exit 3, unreadable pull request records are exit 4
+  (`indeterminate`, nothing written). Hostile values (a branch with `..` or a leading `-`, a blank reason, an
+  evidence id that is not a change id) are exit 2 before any VCS call. `--take-over --reason TEXT` finishes another
+  actor's claim after the same proof and records `taken_over_from` (nothing to take over is exit 2).
+  `--no-commit WHY` completes without code for work delivered outside the repository, only when no evidence exists
+  (exactly one of landed evidence or `--no-commit`); `qew check` counts these as `completed without code: N`.
+  An epic needs at least one child and no evidence. When a completion or a close finishes the last open child of
+  an epic that has at least one completed child, the epic completes in the same command (`children_finished`); a
+  failure of that step is a warning naming `qew complete EPIC` and the command still exits 0.
+- `qew close ITEM --reason not_planned|duplicate|superseded [--of ITEM | --by ITEM] [--note TEXT] [--json]`:
+  `duplicate` needs `--of` (the original), `superseded` needs `--by` (the replacement), `not_planned` takes neither;
+  the linked item must exist and differ from the closed one; `qew show` mentions the link at both ends.
+  Finished work is not closed as abandoned: `qew close ITEM --delivered-by SHA --landed-on BRANCH [--json]` records
+  work that shipped without a claim as completed under the same landing proof (an `evidence` and a `completed`
+  event), so dependents unblock; one flag alone, an unlanded commit or another actor's claim is refused first.
+- `qew reopen ITEM --reason TEXT [--json]`: completed or closed work returns to approved with the reason recorded;
+  an item that is already open prints `unchanged ITEM (already open)`, exit 0, and writes nothing.
 
 ## Drafts
 - `qew draft`: the group for the three commands below.

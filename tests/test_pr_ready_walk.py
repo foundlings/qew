@@ -89,7 +89,7 @@ class OwnershipWalk(unittest.TestCase):
         self.assertEqual(self.w.open(self.item, actor="other").code, 0)
 
     def hand_over(self, item: str, to: str) -> None:
-        self.assertEqual(self.w.qew("release", item, actor="other").code, 0)
+        self.assertEqual(self.w.qew("release", item, "--reason", "handover", actor="other").code, 0)
         self.assertEqual(self.w.qew("start", item, actor=to).code, 0)
 
     def test_the_holder_of_every_claim_acts_on_a_teammates_pull_request(self) -> None:
@@ -105,7 +105,7 @@ class OwnershipWalk(unittest.TestCase):
         self.assertEqual((run.code, run.out.strip()), (0, "[ ] a step"))
 
     def test_the_opener_still_acts_after_giving_the_claim_up(self) -> None:
-        self.assertEqual(self.w.qew("release", self.item, actor="other").code, 0)
+        self.assertEqual(self.w.qew("release", self.item, "--reason", "handover", actor="other").code, 0)
         self.assertEqual(self.w.qew("pr", "ready", "1", actor="other").code, 0)
 
     def refuse(self, *argv: str, merge: bool = False) -> None:
@@ -120,7 +120,7 @@ class OwnershipWalk(unittest.TestCase):
         self.refuse("ready", "1")  # other still holds the claim
         self.refuse("check", "1", "--all")
         self.refuse("merge", "1", merge=True)
-        self.w.qew("release", self.item, actor="other")  # now unclaimed
+        self.w.qew("release", self.item, "--reason", "handover", actor="other")  # now unclaimed
         self.refuse("ready", "1")
         self.hand_over_to_third = self.w.qew("start", self.item, actor="third")
         self.refuse("ready", "1")  # claimed by someone else
@@ -175,7 +175,7 @@ class OwnershipWalk(unittest.TestCase):
 
     def test_corrupt_claim_history_fails_loudly_instead_of_guessing_an_owner(self) -> None:
         """Prevents wrong-owner merges."""
-        self.w.ledger.append_event(self.item, "claimed", owner="tester")  # a second claim: illegal from claimed
+        self.w.ledger.append_event(self.item, "reopened")  # reopening claimed work: illegal from claimed (a second claim is a merged race, not corruption)
         run = self.w.qew("pr", "ready", "1")
         self.assertEqual(run.code, 4)
         self.assertEqual(self.w.forge.count("ready_pr"), 0)

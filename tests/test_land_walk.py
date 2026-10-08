@@ -63,7 +63,7 @@ class LandWalk(unittest.TestCase):
     def test_an_item_someone_else_holds_is_not_landed(self) -> None:
         """Prevents completing another actor's claim."""
         self.w.forge.edit_pull(1, state="merged")
-        self.w.qew("release", self.item)
+        self.w.qew("release", self.item, "--reason", "handover")
         self.w.qew("start", self.item, actor="other")
         run = self.w.qew("land", "1")
         self.assertEqual(run.code, 0, run)

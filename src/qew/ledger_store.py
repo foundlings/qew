@@ -1,6 +1,7 @@
 """Read and write the ledger's files. Every write makes a new file or edits one item file."""
 
 from dataclasses import dataclass, field, replace
+from functools import cached_property
 from datetime import datetime, timezone
 import json
 import os
@@ -203,6 +204,13 @@ class Snapshot:
     def short(self, item_id: str) -> str:
         return item_id
 
+    @cached_property
+    def derived(self):
+        """item id -> (effective state, holders); an epic is in progress while a direct child is claimed."""
+        from qew import epic_claims
+
+        return epic_claims.derive(self)
+
 
 def open_ledger(path: Path, prefix: str) -> Ledger:
     if not (path / LEDGER_FILE).is_file():
@@ -247,8 +255,7 @@ def _write_local(path: Path, text: str) -> None:
 
 def _write(path: Path, text: str, exclusive: bool) -> None:
     """Write whole or not at all: a temporary file then an atomic link or rename."""
-    if JOURNAL is not None:
-        JOURNAL.append((path, path.read_text(encoding="utf-8") if path.exists() else None))
+    previous = path.read_text(encoding="utf-8") if JOURNAL is not None and path.exists() else None
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         temporary.write_text(text, encoding="utf-8")
@@ -259,6 +266,8 @@ def _write(path: Path, text: str, exclusive: bool) -> None:
                 raise QewError(f"{path} already exists; ledger files are never overwritten here", 1) from None
         else:
             os.replace(temporary, path)
+        if JOURNAL is not None:
+            JOURNAL.append((path, previous))
     except OSError as error:
         raise QewError(f"cannot write {path}: {error}", 3) from None
     finally:

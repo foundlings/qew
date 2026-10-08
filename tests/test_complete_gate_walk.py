@@ -64,7 +64,7 @@ class CompleteGateWalk(unittest.TestCase):
         self.w.run("evidence", need, "--change", self.w.commit())
         self.assertEqual(self.w.run("complete", need).returncode, 0)
         blocked = self.started("Blocked", need)
-        self.assertEqual(self.w.run("reopen", need).returncode, 0)
+        self.assertEqual(self.w.run("reopen", need, "--reason", "needed again").returncode, 0)
         for item, fragment in ((draft, "draft"), (approved, "unclaimed"), (closed, "closed"), (blocked, need)):
             with self.subTest(item=item):
                 result = self.w.run("complete", item)

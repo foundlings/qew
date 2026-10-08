@@ -67,7 +67,7 @@ class ClaimEventsWalk(unittest.TestCase):
         w.run("start", self.item)
         claimed = w.events(self.item)[-1]
         claim_id = sorted((w.ledger / "events" / self.item).glob("*.json"))[-1].stem
-        w.run("release", self.item)
+        w.run("release", self.item, "--reason", "handover")
         write_event(w, self.item, "ZZZZZZZZA", type="claimed", owner="loser")
         write_event(w, self.item, "ZZZZZZZZB", type="claim_lost", ref="ZZZZZZZZA", winner="tester")
         shown = w.run("show", self.item).stdout

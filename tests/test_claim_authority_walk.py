@@ -80,7 +80,7 @@ class PrimaryForgeWalk(unittest.TestCase):
     def test_releasing_frees_the_item_for_the_next_claimant(self) -> None:
         """Prevents a released item staying locked on the forge forever."""
         self.a.run("start", self.item, env=ENV)
-        self.assertEqual(self.a.run("release", self.item, env=ENV).returncode, 0)
+        self.assertEqual(self.a.run("release", self.item, "--reason", "handover", env=ENV).returncode, 0)
         again = self.b.run("start", self.item, env={**ENV, "QEW_ACTOR": "second"})
         self.assertEqual(again.returncode, 0, again.stderr)
 

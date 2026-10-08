@@ -262,12 +262,12 @@ class ItemGateWalk(unittest.TestCase):
     def test_a_foreign_claim_blocks_the_merge_until_the_item_is_taken_over(self) -> None:
         """Prevents merging another actor's claimed work by accident."""
         self.w.qew("evidence", self.item, "--change", self.sha)
-        self.w.qew("release", self.item)
+        self.w.qew("release", self.item, "--reason", "handover")
         self.assertEqual(self.w.qew("start", self.item, actor="other").code, 0)
         refused = self.w.qew("pr", "merge", "1")
         self.assertEqual(refused.code, 3)
         self.assertIn("other", refused.err)
-        self.assertEqual(self.w.qew("release", self.item, actor="other").code, 0)
+        self.assertEqual(self.w.qew("release", self.item, "--reason", "handover", actor="other").code, 0)
         self.assertEqual(self.w.qew("start", self.item).code, 0)
         self.assertEqual(self.w.qew("pr", "merge", "1").code, 0)
 

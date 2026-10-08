@@ -42,8 +42,8 @@ class CompletionRecordWalk(unittest.TestCase):
         w = self.world
         item = started(w)
         sha = proven(w, item)
-        mirror(w, item, "github-github.com-o-r-pr-7", number=7, merged=True)
-        mirror(w, item, "github-github.com-o-r-pr-8", number=8, merged=False)
+        mirror(w, item, "github-github.com-o-r-pr-7", number=7, state="merged")
+        mirror(w, item, "github-github.com-o-r-pr-8", number=8, state="open")
         result = w.run("complete", item, "--reason", "parser done")
         self.assertEqual(result.returncode, 0, result.stderr)
         done = w.events(item)[-1]
