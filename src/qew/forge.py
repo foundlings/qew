@@ -7,7 +7,7 @@ ledgers. A capability a forge lacks raises `Unsupported`, never a faked result.
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Callable, Mapping, Optional, Tuple
+from typing import Callable, List, Mapping, Optional, Tuple
 
 COLUMNS = ("Draft", "Ready", "In progress", "In review", "Done")
 MARKER_PREFIX = "qew:"
@@ -88,6 +88,14 @@ class RemoteIssue:
 
 
 @dataclass(frozen=True)
+class RemoteComment:
+    id: str  # the forge's comment id, as text
+    author: str  # forge login; untrusted data like every forge field
+    body: str
+    created: str  # ISO timestamp as the forge reports it
+
+
+@dataclass(frozen=True)
 class PullRequestSpec:
     head: str
     base: str
@@ -139,6 +147,20 @@ class Forge(ABC):
 
     def read_issue(self, number: int) -> RemoteIssue:
         raise Unsupported("read_issue")
+
+    def list_issues(self) -> List[RemoteIssue]:
+        """Every issue of the repository, open and closed, pull requests excluded, oldest first.
+
+        Paginated up to forge_http.MAX_PAGES; a longer listing raises ForgeRejected rather than truncating.
+        """
+        raise Unsupported("list_issues")
+
+    def list_comments(self, number: int) -> List[RemoteComment]:
+        """User comments of one issue in creation order (system notes excluded)."""
+        raise Unsupported("list_comments")
+
+    def create_comment(self, number: int, body: str) -> RemoteComment:
+        raise Unsupported("create_comment")
 
     def link_dependency(self, number: int, blocked_by: int) -> None:
         """Record on the forge that issue `number` is blocked by issue `blocked_by` (idempotent)."""

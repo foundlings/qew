@@ -74,3 +74,10 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
 - Merge requests: `Draft:` title prefix (a leading `[Draft]`, `(Draft)` or `Draft:` is stripped on ready). `mergeable` is True for `detailed_merge_status` "mergeable", None while undecided (checking, unchecked, preparing, approvals_syncing, ci_still_running), False otherwise. Pipeline status maps to checks (success passing; failed, canceled failing; skipped none; others pending; an unknown status is `ForgeRejected`). A moved head yields GitLab's 409 as `ForgeRejected(409)`.
 - Pagination follows `X-Next-Page` and raises `ForgeRejected` beyond `forge_http.MAX_PAGES` rather than truncating.
 - The token is resolved per request, so constructing the backend never fails for a missing token.
+
+## Reading a forge (import, pull, restore)
+- `list_issues()` returns every issue (open and closed, no pull requests) oldest first with title, body, labels,
+  assignee and state; `list_comments(number)` returns user comments in creation order (system notes excluded);
+  `create_comment(number, body)` posts one. Pagination is bounded by `MAX_PAGES`; a longer listing raises
+  `ForgeRejected` instead of truncating. Malformed JSON raises `ForgeRejected`. The fakes in `tests/fake_*.py`
+  must implement the same endpoints and honor failure injection (`down`, `fail`, `delay` where the fake has them).
