@@ -23,6 +23,8 @@ qew-ledger.toml            # ledger metadata: name, id prefix, schema_version
 items/<ID>.md              # one file per item: fixed header + human body
 events/<ID>/<EVENT-ID>.json  # append-only; one tiny file per event, never edited
 mirrors/<ID>/<forge>-<host>-<repo-slug>.json  # one file per (item, mirror target)
+mirrors/<ID>/<target>-pr-<N>.json            # one per pull request opened for the item (kind: pr)
+boards/<target>.json       # board id recorded by `qew project ensure`
 ```
 - No shared index file is committed. `qew index` builds a local cache (gitignored) from files.
 - Every write creates a new file or edits only the item's own file → concurrent branches merge cleanly.
@@ -98,11 +100,12 @@ select = "kind:epic"
 
 ## Commands (agent-facing; terse output)
 - `qew init`, `qew create`, `qew set`, `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`
+- `qew pr open|ready|merge` (pull requests for items; merge only the checked head)
 - `qew start` (claim), `qew release`, `qew evidence ID --change ...`, `qew complete ID`, `qew close`
 - `qew draft list|approve|revert`
 - `qew sync [--target ...]` (push ledger → forges, record mirrors; pull forge numbers only)
 - `qew project ensure` (board with Draft / Ready / In progress / In review / Done per mirror target)
-- `qew hook install --claude --codex` (+ cursor/opencode as before)
+- `qew hook install` (claude, codex, cursor, opencode; flags pick a subset)
 - `qew check` (validate ledger: schema, cycles, dangling needs, illegal state) — exit non-zero
 - `qew import` is NOT in qew: project-specific converters live in the project repo and emit items via `qew create --from-file`.
 
@@ -116,3 +119,24 @@ select = "kind:epic"
 ## Trust
 - Forge text is untrusted data; never executed or turned into paths/instructions.
 - Fail loudly on malformed files, cycles, truncated reads, partial writes.
+
+## Decisions (v1 builder; the owner was not available)
+- `qew create` files a draft; `--quote` (a human's words) files it approved. Only quoted words release work.
+- Python 3.11+ (`tomllib`); no runtime dependencies.
+- The header `owner:` stays empty: ownership is derived from `claimed`/`released` events so claims merge cleanly.
+  `qew check` refuses a non-empty value.
+- Extra event `reverted` (`reason`, `quote`) returns approved, unclaimed work to draft.
+- Kinds nest epic > issue > task (a task may sit directly under an epic); `check` refuses other parents.
+- `complete`: the item must be claimed; every child must be completed or closed; non-epics need an
+  `evidence` event all of whose change ids are ancestors of the target branch (`[code] target` in
+  `.qew/config.toml`, default `main`; jj revset `::target`, git `merge-base --is-ancestor`). An epic needs
+  at least one child and no evidence of its own.
+- Readiness: approved, unclaimed, not an epic, every need completed. A dangling or closed need keeps it blocked.
+- Board columns: Draft = not startable (draft or blocked), Ready, In progress (claimed), In review (claimed with a
+  pull request mirror), Done (completed or closed).
+- Forge issue bodies start with `<!-- qew:ID -->`; sync adopts an issue found by that marker when a crash lost
+  the mirror file. Sync replaces an issue's whole label set with the item's labels plus `qew:STATE`,
+  `kind:KIND`, `priority:N`. Labels may not contain whitespace or commas.
+- Sync is push-only; forge numbers are recorded, forge state is never read back as truth.
+- `qew index` (local cache) is not built: reads are fast enough from files.
+- Pull requests never carry a closing keyword.

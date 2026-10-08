@@ -14,5 +14,5 @@
   Python's standard library and refuses non-regular distribution files.
 - Qew has no Python runtime dependencies. Build tools are release inputs, not
   runtime components, and remain visible in the workflow and provenance.
-- Pull requests and main run the complete behavioral suite on Python 3.10 and
+- Pull requests and main run the complete behavioral suite on Python 3.11 and
   3.12. Dependabot proposes cooled updates for action and Python build pins.

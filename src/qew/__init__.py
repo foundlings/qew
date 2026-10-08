@@ -1,3 +1,3 @@
-"""Qew: a dependency-aware GitHub Issues work queue."""
+"""Qew: an offline-first work ledger mirrored to forges."""
 
-__version__ = "2.10.0"
+__version__ = "3.0.0"

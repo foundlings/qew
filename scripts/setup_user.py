@@ -46,8 +46,8 @@ def run(command: list) -> None:
 def install() -> None:
     if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
         raise SetupError("this script supports only Linux and macOS")
-    if sys.version_info < (3, 10):
-        raise SetupError("Qew requires Python 3.10 or newer")
+    if sys.version_info < (3, 11):
+        raise SetupError("Qew requires Python 3.11 or newer")
     home = Path.home()
     if not home.is_absolute():
         raise SetupError("HOME must be an absolute path")
@@ -75,8 +75,6 @@ def install() -> None:
     print(f"installed qew: {link} -> {executable}")
     if not on_path(bin_dir):
         print(f"warning: {bin_dir} is not on PATH; add it to your shell profile", file=sys.stderr)
-    if shutil.which("gh") is None:
-        print("warning: GitHub CLI (gh) was not found; Qew requires it", file=sys.stderr)
 
 
 def main() -> int:

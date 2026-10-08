@@ -10,6 +10,36 @@ from qew import cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
 from qew.errors import QewError
 
 
+EPILOG = """Commands by workflow:
+Read
+  qew show        one item with derived edges and evidence
+  qew list        items, filtered
+  qew ready       approved, unclaimed, unblocked work
+  qew blocked     open work with unmet needs
+  qew graph       dependency edges
+  qew check       validate the ledger
+Work
+  qew create      file an item (a draft unless a human's quote releases it)
+  qew set         change header fields
+  qew start       claim work
+  qew release     give a claim up
+  qew evidence    record the code changes that deliver an item
+  qew complete    finish claimed work once the gate passes
+  qew close       close work that will not be completed
+  qew reopen      reopen completed or closed work
+Drafts (only a human's quoted words release work)
+  qew draft       list | approve | revert
+Pull requests
+  qew pr          open | ready | merge
+Mirrors
+  qew sync        push the ledger to every mirror target
+  qew project     ensure the board on each target
+Setup
+  qew init        create the config and the ledger
+  qew hook        install | remove agent hooks; the events agents call
+
+Help for one command: qew COMMAND --help. Finishing work is `qew complete`, never a forge-side close."""
+
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
@@ -28,7 +58,12 @@ def _plugins() -> list:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="qew", description="Offline-first work ledger mirrored to forges.")
+    parser = argparse.ArgumentParser(
+        prog="qew",
+        description="Offline-first work ledger mirrored to forges.",
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     commands = parser.add_subparsers(dest="command", required=True)
 
     init = commands.add_parser("init", help="create .qew/config.toml and the ledger")

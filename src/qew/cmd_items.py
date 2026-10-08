@@ -72,8 +72,8 @@ def build_item(ledger: Ledger, spec: dict, resolved: Dict[str, str], known: List
         "created": now(),
     }
     for label in spec.get("labels", []):
-        if not label or any(c.isspace() for c in label):
-            raise QewError(f"label `{label}` must be one word", 2)
+        if not label or any(c.isspace() or c == "," for c in label):
+            raise QewError(f"label `{label}` must be one word without commas", 2)
     return from_header(header, str(spec.get("body", "")), "new item")
 
 
