@@ -1,0 +1,73 @@
+"""Discoverability gates: help, README and the command spec agree on every command and flag.
+
+Adversary: a command missing from `qew --help`, a flag with no help line, and a command or
+flag that exists in code but is absent from the README or docs/specs/commands.md.
+"""
+
+import argparse
+import os
+from pathlib import Path
+import re
+import sys
+import unittest
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+from qew import cli
+from tests.ledger_harness import World
+
+ROOT = Path(__file__).resolve().parents[1]
+GROUPS = ("Read", "Work", "Drafts", "Pull requests", "Mirrors", "Setup")
+
+
+def walk(parser, path=()):
+    """Yield (command path, parser) for every subcommand, depth first."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            helps = {choice.dest: choice.help for choice in action._choices_actions}
+            for name, sub in action.choices.items():
+                yield path + (name,), sub, helps.get(name)
+                yield from walk(sub, path + (name,))
+
+
+class HelpWalk(unittest.TestCase):
+    def setUp(self) -> None:
+        self.parser = cli._parser()
+        self.commands = list(walk(self.parser))
+
+    def test_every_command_is_listed_under_a_workflow_group(self) -> None:
+        world = World()
+        self.addCleanup(world.close)
+        text = world.run("--help").stdout
+        self.assertIn("Commands by workflow", text)
+        listing = text[text.index("Commands by workflow"):]
+        for group in GROUPS:
+            self.assertIn(group, listing)
+        for path, _, _ in self.commands:
+            if len(path) == 1:
+                self.assertRegex(listing, rf"(?m)^\s+qew {path[0]}\b", f"{path[0]} is in no group")
+
+    def test_every_command_and_flag_has_a_help_line(self) -> None:
+        for path, sub, help_text in self.commands:
+            self.assertTrue(help_text, f"qew {' '.join(path)} has no help line")
+            for action in sub._actions:
+                if action.option_strings and "-h" not in action.option_strings:
+                    self.assertTrue(action.help, f"qew {' '.join(path)} {action.option_strings} has no help")
+
+    def test_readme_and_command_spec_name_every_command_and_flag(self) -> None:
+        for name in ("README.md", "docs/specs/commands.md"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            for path, sub, _ in self.commands:
+                self.assertIn(f"qew {' '.join(path)}", text, f"{name} lacks `qew {' '.join(path)}`")
+                for action in sub._actions:
+                    for flag in action.option_strings:
+                        if flag.startswith("--") and flag != "--help":
+                            self.assertIn(flag, text, f"{name} lacks {flag} (qew {' '.join(path)})")
+
+    def test_no_section_sign_appears_in_the_documents(self) -> None:
+        for name in ("README.md", "CLAUDE.md", *(str(p.relative_to(ROOT)) for p in (ROOT / "docs").rglob("*.md"))):
+            self.assertNotIn("§", (ROOT / name).read_text(encoding="utf-8"), name)
+
+
+if __name__ == "__main__":
+    unittest.main()
