@@ -65,8 +65,45 @@ class FakeGitHub:
         self.server.server_close()
         self.thread.join()
 
-    def fail_next(self, status: int, path_part: str = "", count: int = 1, body: Optional[Any] = None) -> None:
-        self.failures.append({"status": status, "part": path_part, "left": count, "body": body})
+    def fail_next(self, status: int, path_part: str = "", count: int = 1, body: Optional[Any] = None,
+                  headers: Optional[Dict[str, str]] = None, skip: int = 0) -> None:
+        """Answer `status` (with `headers`) to the next `count` matching requests, after letting `skip` through."""
+        self.failures.append({"status": status, "part": path_part, "left": count, "body": body,
+                              "headers": headers or {}, "skip": skip})
+
+    def graphql_operations(self) -> List[str]:
+        """Operation names of every GraphQL request so far, in order."""
+        found = []
+        for _method, path, body in self.requests:
+            if path.endswith(GRAPHQL_PATH) and body:
+                match = re.search(r"\b(?:query|mutation)\s+(\w+)", body["query"])
+                found.append(match.group(1) if match else "")
+        return found
+
+    def gql_BoardItems(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        project = next((p for p in self.projects.values() if p["number"] == variables["number"]), None)
+        if project is None:
+            return {"data": {"repositoryOwner": {"projectV2": None}}}
+        by_node = {issue["node_id"]: issue for issue in self.issues.values()}
+        nodes = []
+        for node_id, item in project["items"].items():
+            issue = by_node.get(node_id)
+            if issue is None:
+                continue
+            values = []
+            for field in project["fields"]:
+                chosen = item.get("values", {}).get(field["id"])
+                for option in field["options"]:
+                    if option["id"] == chosen:
+                        values.append({"name": option["name"], "field": {"name": field["name"]}})
+            nodes.append({
+                "id": item["id"],
+                "content": {"number": issue["number"], "repository": {"nameWithOwner": f"{OWNER}/{REPO}"}},
+                "fieldValues": {"nodes": values},
+            })
+        return {"data": {"repositoryOwner": {"projectV2": {"items": {
+            "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes,
+        }}}}}
 
     def calls(self, method: str, path_part: str) -> List[Any]:
         return [body for m, path, body in self.requests if m == method and path_part in path]
@@ -397,7 +434,8 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(401, {"message": "Bad credentials"})
         injected = self._injected()
         if injected is not None:
-            return self._send(injected["status"], injected["body"] or {"message": "injected"})
+            return self._send(injected["status"], injected["body"] or {"message": "injected"},
+                              headers=injected.get("headers", {}))
         if url.path == GRAPHQL_PATH and method == "POST":
             return self._send(200, self.fake.graphql(body["query"], body.get("variables", {})))
         self._rest(method, url.path, parse_qs(url.query), body)
@@ -405,6 +443,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _injected(self) -> Optional[Dict[str, Any]]:
         for failure in self.fake.failures:
             if failure["left"] > 0 and failure["part"] in self.path:
+                if failure.get("skip", 0) > 0:
+                    failure["skip"] -= 1
+                    return None
                 failure["left"] -= 1
                 return failure
         return None
@@ -423,13 +464,15 @@ class _Handler(BaseHTTPRequestHandler):
                 return handler(*found.groups(), query=query, body=body)
         self._send(404, {"message": "Not Found"})
 
-    def _send(self, status: int, payload: Any, link: str = "") -> None:
+    def _send(self, status: int, payload: Any, link: str = "", headers: Optional[Dict[str, str]] = None) -> None:
         data = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         if link:
             self.send_header("Link", link)
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 

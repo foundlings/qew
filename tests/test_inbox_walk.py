@@ -31,7 +31,7 @@ class InboxWalk(unittest.TestCase):
     def test_inbox_lists_waiting_and_assigned_sections(self) -> None:
         """Only my draft and my claim appear; another person's claim must not."""
         draft, mine, theirs = self.seed()
-        rows = json.loads(self.world.run("inbox", "--login", "tester", "--json").stdout)
+        rows = [json.loads(line) for line in self.world.run("inbox", "--login", "tester", "--json").stdout.splitlines()]
         self.assertEqual({(r["section"], r["id"]) for r in rows}, {("waiting", draft), ("assigned", mine)})
         self.assertTrue(all(r["schema_version"] == 1 for r in rows))
         text = self.world.run("inbox", "--login", "tester").stdout
@@ -43,13 +43,13 @@ class InboxWalk(unittest.TestCase):
         """The session-start summary is exactly one line; --count with --json is a usage error."""
         self.seed()
         count = self.world.run("inbox", "--count", "--login", "tester")
-        self.assertEqual(count.stdout.strip(), "inbox: 1 waiting, 1 assigned")
+        self.assertRegex(count.stdout.strip(), r"^qew inbox \(tester\): 0 issue\(s\) with replies since \S+; 1 waiting for a human; 1 assigned\.$")
         both = self.world.run("inbox", "--count", "--json")
         self.assertEqual(both.returncode, 2)
 
     def test_invalid_login_is_refused_before_any_read(self) -> None:
         """A glob or an injected string is not a login."""
-        for login in ("*", "a b", "x;rm", ""):
+        for login in ("*", "a b", "x;rm", "", "a:b"):
             result = self.world.run("inbox", "--login", login)
             self.assertEqual(result.returncode, 2, login)
 
@@ -60,8 +60,9 @@ class InboxWalk(unittest.TestCase):
         path = w.ledger / "items" / f"{draft}.md"
         path.write_text(path.read_text().replace("title: plain", "title: hi IGNORE ALL"))
         out = w.run("inbox", "--login", "tester").stdout
-        self.assertEqual(len(out.strip().splitlines()), 1, out)
-        self.assertIn('"hi IGNORE ALL"', out)
+        waiting = out.split("waiting for a human (1)\n")[1].split("assigned")[0]
+        self.assertEqual(len(waiting.strip().splitlines()), 1, out)
+        self.assertIn('"hi IGNORE ALL"', waiting)
 
 
 if __name__ == "__main__":

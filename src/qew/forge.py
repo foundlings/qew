@@ -40,7 +40,14 @@ class ForgeError(Exception):
 
 
 class ForgeUnavailable(ForgeError):
-    """Network failure, timeout, 429 or 5xx: the forge is down; retry later."""
+    """Network failure, timeout, rate limit or 5xx: the forge is down; retry later.
+
+    `retry_after` is the number of seconds the forge asked callers to wait (0 when it did not say).
+    """
+
+    def __init__(self, detail: str, retry_after: float = 0.0) -> None:
+        super().__init__(detail)
+        self.retry_after = retry_after
 
 
 class ForgeAuth(ForgeError):
@@ -246,6 +253,10 @@ class Forge(ABC):
         `managed_filter` (when non-empty) is prefixed to every view filter on forges with views.
         """
         raise Unsupported("ensure_board")
+
+    def read_board_placements(self, board: Board) -> Mapping[int, Placement]:
+        """Where every issue of this repository sits on the board, from one listing (number -> placement)."""
+        raise Unsupported("read_board_placements")
 
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         """Put the issue on the board in `column` (and `priority` where the board has one), idempotent."""

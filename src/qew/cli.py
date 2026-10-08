@@ -15,16 +15,20 @@ EPILOG = """Commands by workflow:
 Read
   qew show        one item with derived edges and evidence
   qew list        items, filtered
+  qew search      find approved work by words
   qew ready       approved, unclaimed, unblocked work
+  qew prime       bounded session context
   qew blocked     open work with unmet needs
   qew graph       dependency edges
   qew board       the offline kanban: seven status columns
+  qew triage      review drafts and items missing fields
   qew check       validate the ledger
   qew inbox       one person's waiting drafts and assigned work
   qew export      write items as Markdown files or JSON
 Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
+  qew comment     add a comment to an item
   qew start       claim work
   qew release     give a claim up
   qew evidence    record the code changes that deliver an item
@@ -53,7 +57,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
+_MODULES = ("cmd_read", "cmd_comment", "cmd_triage", "cmd_search", "cmd_prime", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
 _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 

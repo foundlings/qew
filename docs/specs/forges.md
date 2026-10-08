@@ -35,6 +35,15 @@ the board is exactly what it lists. Colors and descriptions: `forge.STATUS_OPTIO
 - GitLab: issue board (REST) whose lists are the scoped labels `board::<Column>`; placing sets that label and the scoped `priority::P0`-`P4` label, and `update_issue` leaves both scopes alone.
 - Forgejo/Gitea: no stable board API: `ensure_board` raises `Unsupported`; the labels sync adds are the view (`qew:<state>`, `status:<Status>` carrying the seven-status model, `priority:N`, `kind:K`, `qew:managed`).
 
+## Rate limits
+A 429, or a 403 carrying `Retry-After` or an exhausted `X-RateLimit-Reset` (or naming a rate limit), is
+`ForgeUnavailable` with `retry_after` seconds (60 when the forge names none, capped at an hour); a plain 403 stays
+`ForgeAuth`. GraphQL `RATE_LIMITED` answers carry the same wait. A sync pass stops at the first one and reports
+`retry after Ns`; the background worker writes `retry_at=EPOCH` into `.qew/sync.pending`, `queue` and
+`retry_if_pending` start no worker before it, and `qew status` prints `sync retry_after=N` while it holds. The GitHub
+backend reads a project's structure once per instance and caches issue node ids; sync reads the whole board with one
+listing (`read_board_placements`) instead of a call per card, so an unchanged board costs a constant number of calls.
+
 ## Board projection
 `place_on_board(board, number, column, priority)` sets Status and (where the board has one) Priority; `read_placement`
 reads them back (None = not on the board); `remove_from_board` drops only the card. Sync reads before writing (drift is
