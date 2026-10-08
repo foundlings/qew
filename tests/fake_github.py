@@ -568,6 +568,10 @@ class _Handler(BaseHTTPRequestHandler):
         issue = self.fake.issues.get(int(number))
         if issue is None:
             return self._send(404, {"message": "Not Found"})
+        if (issue["state"] == "closed" and body.get("state") == "closed" and body.get("state_reason")
+                and body["state_reason"] != issue["state_reason"]):  # real GitHub refuses to switch the reason of a closed issue
+            return self._send(422, {"message": "Validation Failed", "errors": [
+                {"resource": "Issue", "code": "custom", "field": "state_reason", "message": "state_reason Cannot transition to this state"}]})
         for key in ("title", "body", "labels", "state", "state_reason", "milestone"):
             if key in body:
                 issue[key] = body[key]

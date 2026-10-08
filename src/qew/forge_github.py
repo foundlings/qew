@@ -589,7 +589,15 @@ class GitHub(Forge):
         }
         if not spec.open and spec.close_reason:
             payload["state_reason"] = spec.close_reason
-        return self._remember(parse_issue(self._wire.rest("PATCH", f"{self._repo_path}/issues/{number}", payload)))
+        path = f"{self._repo_path}/issues/{number}"
+        try:
+            return self._remember(parse_issue(self._wire.rest("PATCH", path, payload)))
+        except ForgeRejected as error:
+            if error.status != 422 or "state_reason" not in error.detail or spec.open:
+                raise
+        # GitHub will not switch the reason of an already closed issue: reopen it, then close with the wanted reason.
+        self._wire.rest("PATCH", path, {"state": "open"})
+        return self._remember(parse_issue(self._wire.rest("PATCH", path, payload)))
 
     def read_issue(self, number: int) -> RemoteIssue:
         return self._remember(parse_issue(self._wire.rest("GET", f"{self._repo_path}/issues/{number}")))

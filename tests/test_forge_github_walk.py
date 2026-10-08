@@ -82,8 +82,10 @@ class IssueWalk(GitHubWalk):
         closed = self.backend.update_issue(created.number, replace(SPEC, open=False, close_reason="not_planned"))
         self.assertFalse(closed.open)
         self.assertEqual(self.fake.issues[created.number]["state_reason"], "not_planned")
-        done = self.backend.update_issue(created.number, replace(SPEC, open=False, close_reason="completed"))
+        # GitHub refuses to change the reason of a closed issue: the backend reopens and closes again with the wanted one
+        done = self.backend.update_issue(created.number, replace(SPEC, open=False, close_reason="completed", title="Edited while closed"))
         self.assertEqual(self.fake.issues[created.number]["state_reason"], "completed")
+        self.assertEqual(self.fake.issues[created.number]["title"], "Edited while closed")
         self.assertFalse(done.open)
         reopened = self.backend.update_issue(created.number, SPEC)
         self.assertTrue(reopened.open)
