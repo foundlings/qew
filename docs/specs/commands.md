@@ -46,7 +46,7 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
-  [--body-file F] [--quote Q] [--from-file F [--draft]] [--json]`: a draft unless `--quote` carries a human's words
+  [--body-file F] [--quote Q] [--from-file F [--draft] [--dry-run]] [--json]`: a draft unless `--quote` carries a human's words
   (`"Name: 'their words'"`), which files it approved. `--from-file` takes a plan: JSON Lines, one JSON object or an array (or `-`
   for stdin). The whole plan is validated before the first write (exit 2, naming the line): regular UTF-8
   file, not a symlink; no unknown fields; unique `ref`s; `@ref` entries in `needs`/`parent` resolve in any
@@ -54,6 +54,8 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   `quote` is filed approved with its own words; `--quote` is the default for entries without one; an entry with
   no quote is a draft; `approved: true` needs a quote. `--draft` files every entry as a draft and refuses
   `approved: true` lines and `--quote`.
+  `--dry-run` runs the full validation, writes and calls nothing, and prints the operations in apply order
+  (`create` with `draft`, `adopt`, `parent`, `need`; `--json` adds `schema_version` 1 and `plan_sha256`).
   Re-running the same plan file adopts the items an earlier (killed) run already wrote instead of creating them
   again: each created item's first event carries `plan` (sha256 of the bytes), `key` (`ref` or `line-N`) and
   `source` (file name). Two items with one marker are `ambiguous`; an edited file over items of its earlier

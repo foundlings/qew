@@ -191,6 +191,22 @@ def prepare(
     return planned
 
 
+def operations(planned: List[Planned]) -> List[dict]:
+    """The writes a run would do, in apply order: create (or adopt), then each item's parent and needs."""
+    keys = {p.item.id: p.entry.key for p in planned}
+    steps: List[dict] = []
+    for p in planned:
+        if p.adopted:
+            steps.append({"op": "adopt", "ref": p.entry.key, "id": p.item.id, "title": p.item.title})
+        else:
+            steps.append({"op": "create", "ref": p.entry.key, "kind": p.item.kind.value, "title": p.item.title, "draft": not p.quote})
+        if p.item.parent:
+            steps.append({"op": "parent", "ref": p.entry.key, "parent": keys.get(p.item.parent, p.item.parent)})
+        for need in p.item.needs:
+            steps.append({"op": "need", "ref": p.entry.key, "needs": keys.get(need, need)})
+    return steps
+
+
 def apply(
     config: Config,
     plan: Plan,
@@ -199,9 +215,15 @@ def apply(
     import_events: bool = False,
     mark: bool = True,
     as_json: bool = False,
+    dry_run: bool = False,
 ) -> List[str]:
     ledger = ledger_for(config)
     planned = prepare(ledger, plan, quote, draft, import_events, mark and not import_events)
+    if dry_run:
+        steps = operations(planned)
+        if as_json:
+            return [json.dumps({"schema_version": SCHEMA_VERSION, "plan_sha256": plan.digest, "operations": steps})]
+        return [_describe(step) for step in steps]
     for p in planned:
         if p.adopted == "item":
             continue
@@ -227,3 +249,13 @@ def apply(
         else:
             lines.append(f"{p.item.id} {p.state} {p.item.title}")
     return lines
+
+
+def _describe(step: dict) -> str:
+    if step["op"] == "create":
+        return f"create {step['ref']} {step['kind']} {step['title']!r}" + (" draft" if step["draft"] else "")
+    if step["op"] == "adopt":
+        return f"adopt {step['ref']} {step['id']}"
+    if step["op"] == "parent":
+        return f"parent {step['ref']} -> {step['parent']}"
+    return f"need {step['ref']} -> {step['needs']}"
