@@ -114,7 +114,7 @@ def managed_filter(select: str) -> str:
 
 def labels(snapshot: Snapshot, item: Item) -> Tuple[str, ...]:
     state = snapshot.folds[item.id].state
-    managed = ("qew:managed", f"qew:{state.value if state else 'unknown'}", f"kind:{item.kind.value}", f"priority:{item.priority}")
+    managed = ("qew:managed", f"qew:{state.value if state else 'unknown'}", f"status:{column(snapshot, item.id)}", f"kind:{item.kind.value}", f"priority:{item.priority}")
     return tuple(dict.fromkeys((*item.labels, *managed)))
 
 

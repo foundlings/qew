@@ -12,6 +12,7 @@ from qew import forge_http
 from qew.forge import (
     Board,
     Forge,
+    Placement,
     ForgeRejected,
     IssueSpec,
     PullRequestSpec,
@@ -23,6 +24,7 @@ from qew.forge import (
 )
 from qew.ledger_config import Mirror
 
+PRIORITY_PREFIX = "priority::"
 BOARD_PREFIX = "board::"
 DRAFT_TITLE = "Draft: "
 _DRAFT_MARKER = re.compile(r"^\s*(?:\[draft\]|\(draft\)|draft:)\s*", re.IGNORECASE)
@@ -257,7 +259,7 @@ class GitLab(Forge):
 
     def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
         current = self.read_issue(number)
-        kept = tuple(label for label in current.labels if label.startswith(BOARD_PREFIX) and label not in spec.labels)
+        kept = tuple(label for label in current.labels if label.startswith((BOARD_PREFIX, PRIORITY_PREFIX)) and label not in spec.labels)
         payload: Dict[str, Any] = {
             "title": spec.title, "description": spec.body, "labels": _csv((*spec.labels, *kept)),
             "assignee_ids": self._assignee_ids(spec.assignee),
@@ -329,19 +331,34 @@ class GitLab(Forge):
         data, _ = self._call("POST", f"{self._project}/labels", payload={"name": name, "color": _LABEL_COLOR})
         return _field(_object(data, "label"), "id", int)
 
-    def place_on_board(self, board: Board, number: int, column: str) -> None:
+    def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         if column not in board.columns:
             raise ForgeRejected(400, f"board has no column `{column}`")
-        target = BOARD_PREFIX + column
+        wanted = [BOARD_PREFIX + column] + ([PRIORITY_PREFIX + priority] if priority else [])
         labels = self.read_issue(number).labels
-        stale = [label for label in labels if label.startswith(BOARD_PREFIX) and label != target]
+        owned = (BOARD_PREFIX, PRIORITY_PREFIX) if priority else (BOARD_PREFIX,)
+        stale = [label for label in labels if label.startswith(owned) and label not in wanted]
         payload: Dict[str, Any] = {}
-        if target not in labels:
-            payload["add_labels"] = target
+        missing = [label for label in wanted if label not in labels]
+        if missing:
+            payload["add_labels"] = _csv(tuple(missing))
         if stale:
             payload["remove_labels"] = _csv(tuple(stale))
         if payload:
             self._call("PUT", f"{self._project}/issues/{number}", payload=payload)
+
+    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+        labels = self.read_issue(number).labels
+        columns = [label[len(BOARD_PREFIX):] for label in labels if label.startswith(BOARD_PREFIX)]
+        if not columns:
+            return None
+        priorities = [label[len(PRIORITY_PREFIX):] for label in labels if label.startswith(PRIORITY_PREFIX)]
+        return Placement(columns[0], priorities[0] if priorities else "")
+
+    def remove_from_board(self, board: Board, number: int) -> None:
+        stale = [label for label in self.read_issue(number).labels if label.startswith((BOARD_PREFIX, PRIORITY_PREFIX))]
+        if stale:
+            self._call("PUT", f"{self._project}/issues/{number}", payload={"remove_labels": _csv(tuple(stale))})
 
     # ----- merge requests -----
 

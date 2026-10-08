@@ -32,8 +32,8 @@ the board is exactly what it lists. Colors and descriptions: `forge.STATUS_OPTIO
 - GitHub: Projects v2 (GraphQL). `ensure_board` finds the project by the mirror's `project` number, or
   creates one (titled by the mirror option `project_title`, default the repo name) with a `Status`
   single-select field holding these options (with colors and descriptions), a `Priority` field (P0-P4) and the views in `forge.BOARD_VIEWS`; `place_on_board` adds the issue (by `node_id`) and sets Status.
-- GitLab: issue board (REST) whose lists are the scoped labels `board::<Column>`; placing sets that label.
-- Forgejo/Gitea: no stable board API: `ensure_board` raises `Unsupported`; the state labels sync adds are the view.
+- GitLab: issue board (REST) whose lists are the scoped labels `board::<Column>`; placing sets that label and the scoped `priority::P0`-`P4` label, and `update_issue` leaves both scopes alone.
+- Forgejo/Gitea: no stable board API: `ensure_board` raises `Unsupported`; the labels sync adds are the view (`qew:<state>`, `status:<Status>` carrying the seven-status model, `priority:N`, `kind:K`, `qew:managed`).
 
 ## Board projection
 `place_on_board(board, number, column, priority)` sets Status and (where the board has one) Priority; `read_placement`
