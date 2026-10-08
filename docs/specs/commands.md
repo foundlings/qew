@@ -5,6 +5,8 @@ Output is terse and fixed-format: `ID STATE pN kind title [@owner]`, ordered by 
 quoted or withheld (see security.md). `--json` gives machine output (see Machine output).
 An item reference is a full ID, the same ignoring case, or a unique prefix. Exit codes: 0 ok, 1 invalid
 ledger or forge failure, 2 refusal or usage, 3 environment.
+The actor written into events is `QEW_ACTOR`, else `USER`; it must be one word without spaces, commas or control
+characters (exit 3 otherwise) and `qew check` flags events whose actor is not such a token.
 
 ## Machine output
 Bounded answers (`ready`, `blocked`) print one envelope object; open-ended lists (`list`, `graph`,

@@ -9,7 +9,7 @@ from qew import ledger_graph, untrusted_text
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import State, fold, parse_event
+from qew.ledger_event import State, fold, parse_event, valid_actor
 from qew.ledger_item import Item, Kind, check_header_values, parse_item
 from qew.ledger_store import Ledger, Snapshot
 
@@ -54,6 +54,11 @@ def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
         if not events[item.id]:
             problems.append(f"{where}: no events (an item starts with `drafted` or `approved`)")
         problems.extend(f"events/{item.id}: {error}" for error in result.errors)
+        problems.extend(
+            f"events/{item.id}/{event.id}: actor is not a single token without spaces or commas"
+            for event in events[item.id]
+            if not valid_actor(event.actor)
+        )
     _check_orphans(ledger, items, problems)
     return Snapshot(ledger, items, folds, events), problems
 

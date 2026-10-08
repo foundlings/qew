@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from qew.errors import QewError
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import Event, Folded, fold, parse_event
+from qew.ledger_event import Event, Folded, fold, parse_event, valid_actor
 from qew.ledger_item import Item, parse_item, render_item
 from qew.ledger_ids import event_id, next_id, parse_modes, sort_key
 
@@ -19,7 +19,12 @@ def now() -> str:
 
 
 def actor() -> str:
-    return os.environ.get("QEW_ACTOR") or os.environ.get("USER") or "unknown"
+    """Who writes events: `QEW_ACTOR`, else `USER`; environment text is untrusted, so it must be a safe token."""
+    name = os.environ.get("QEW_ACTOR") or os.environ.get("USER") or "unknown"
+    if not valid_actor(name):
+        source = "QEW_ACTOR" if os.environ.get("QEW_ACTOR") else "USER"
+        raise QewError(f"{source} must be one word without spaces, commas or control characters", 3)
+    return name
 
 
 @dataclass(frozen=True)
