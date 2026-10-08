@@ -40,7 +40,7 @@ Mirrors
   qew sync        push the ledger to every mirror target
   qew project     ensure the board on each target
   qew status      replication state: uncommitted, unpushed, pending per target, divergences
-  qew import      read a forge project into the ledger
+  qew import      read a forge project, or an exported Markdown tree, into the ledger
   qew restore     recreate a forge project from the ledger alone
   qew accept      apply a forge-side change the ledger had not made
   qew reject      keep the ledger value; the next push restores the forge
