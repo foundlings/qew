@@ -14,7 +14,7 @@ import unicodedata
 from typing import Callable, Dict, List, Optional, Tuple
 
 from qew import instants, page_cache, pull_cursor, sync_plan
-from qew.forge import ForgeError, IssueSpec, RemoteIssue, Unsupported, marker_for
+from qew.forge import DUPLICATE_MARKER, ForgeError, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_event import State
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
@@ -133,7 +133,7 @@ def _close_duplicate(target, report: PullReport, issue: RemoteIssue, item_id: st
     finished = snapshot.folds[item_id].state in (State.COMPLETED, State.CLOSED)
     if keeper is None or not issue.open or (keeper >= issue.number and not finished):
         return
-    body = issue.body.replace(marker_for(named or item_id), "<!-- qew-duplicate -->")
+    body = issue.body.replace(marker_for(named or item_id), DUPLICATE_MARKER)
     target.forge.update_issue(issue.number, IssueSpec(issue.title, body, tuple(issue.labels), False, "not_planned", ""))
     report.duplicates += 1
 

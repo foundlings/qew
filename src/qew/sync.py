@@ -13,6 +13,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from qew import sync_milestones, sync_plan
 from qew.forge import (
+    DUPLICATE_MARKER,
     COLUMNS, Board, Forge, ForgeError, ForgeRejected, ForgeUnavailable, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for,
 )
 from qew.ledger_config import Config, Mirror
@@ -204,7 +205,7 @@ def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[
         return created, False
     if winner is not None and winner.number < created.number:
         # Another checkout created the same item at the same moment; the lowest number wins everywhere.
-        forge.update_issue(created.number, replace(spec, body=spec.body.replace(marker_for(item_id), "<!-- qew-duplicate -->"),
+        forge.update_issue(created.number, replace(spec, body=spec.body.replace(marker_for(item_id), DUPLICATE_MARKER),
                                                    open=False, close_reason="not_planned"))
         return winner, True
     return created, False

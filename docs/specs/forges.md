@@ -149,4 +149,4 @@ A pull never lists the whole forge when it can avoid it. The fakes bump `updated
 `Forge` has three calls for `qew sync --prune-labels`: `list_repo_labels()` (every definition), `labels_in_use()` (names carried by any
 issue or pull request, open or closed; GitHub and Forgejo list pull requests among issues, GitLab reads issues and merge requests) and
 `delete_label(name)` (a missing label is fine). Deleting a label also removes it from whatever carried it, so the command only deletes
-names `labels_in_use()` did not return.
+names `labels_in_use()` did not return. A closed issue whose body carries `<!-- qew-duplicate -->` (a retired twin) does not count as carrying anything.

@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
 from urllib.parse import quote
 
 from qew.forge import (
+    is_dead_twin,
     BOARD_VIEWS,
     LEGACY_STATUS,
     PRIORITY_OPTIONS,
@@ -538,7 +539,10 @@ class GitHub(Forge):
         used: Set[str] = set()
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):  # pull requests are listed too
             for entry in _array(page, "issue list"):
-                for label in _array(_obj(entry, "issue list entry").get("labels", []), "labels"):
+                issue = _obj(entry, "issue list entry")
+                if is_dead_twin(_nullable_str(issue, "body", "issue"), issue.get("state") == "open"):
+                    continue
+                for label in _array(issue.get("labels", []), "labels"):
                     used.add(_str(_obj(label, "label"), "name", "label"))
         return used
 
