@@ -7,7 +7,7 @@ import os
 import sys
 from typing import List, Optional, Sequence
 
-from qew import __version__, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
+from qew import __version__, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config
 from qew.errors import QewError
 
 
@@ -45,12 +45,15 @@ Setup
   qew init        create the config and the ledger
   qew hook        install | remove agent hooks; the events agents call
 
+Exit codes: 0 ok, 1 invalid ledger or forge failure, 2 refusal or usage, 3 ownership conflict or environment,
+4 indeterminate data (nothing written), 5 already yours, 6 claim cap reached.
+
 Help for one command: qew COMMAND --help. Finishing work is `qew complete`, never a forge-side close."""
 
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_claim", "cmd_finish")
 
 
 def _plugins() -> list:
@@ -72,6 +75,7 @@ def _parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--version", action="version", version=f"qew {__version__}", help="print the installed version and exit")
+    parser.add_argument("--json", dest="json_first", action="store_true", help="machine-readable result, also accepted after a command")
     commands = parser.add_subparsers(dest="command", required=True)
 
     init = commands.add_parser("init", help="create .qew/config.toml and the ledger")
@@ -100,17 +104,6 @@ def _parser() -> argparse.ArgumentParser:
     set_.add_argument("--body", help="replace the body")
     set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
 
-    for name, text in (("start", "claim approved, unblocked work"), ("release", "give up a claim"),
-                       ("complete", "finish claimed work once the gate passes"), ("reopen", "reopen completed or closed work")):
-        sub = commands.add_parser(name, help=text)
-        sub.add_argument("item", help="item id or alias")
-    evidence = commands.add_parser("evidence", help="record the code changes that deliver an item")
-    evidence.add_argument("item", help="item id or alias")
-    evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
-    evidence.add_argument("--vcs", choices=["jj", "git"], help="override the detected VCS")
-    close = commands.add_parser("close", help="close work that will not be completed")
-    close.add_argument("item", help="item id or alias")
-    close.add_argument("--reason", required=True, help="not_planned, duplicate or superseded")
     commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
 
     draft = commands.add_parser("draft", help="drafts and their release by a human")
@@ -195,12 +188,6 @@ def _run(arguments: argparse.Namespace) -> None:
             if value is not None:
                 changes[key] = " ".join(value)
         print("\n".join(cmd_items.set_fields(config, arguments.items, changes, arguments.body, arguments.closed)))
-    elif command in ("start", "release", "complete", "reopen"):
-        print(getattr(cmd_flow, command)(config, arguments.item))
-    elif command == "evidence":
-        print(cmd_flow.evidence(config, arguments.item, arguments.change, arguments.vcs))
-    elif command == "close":
-        print(cmd_flow.close(config, arguments.item, arguments.reason))
     elif command == "check":
         ledger = cmd_items.ledger_for(config)
         problems, notes = ledger_check.check_report(ledger)
@@ -219,6 +206,7 @@ def _run(arguments: argparse.Namespace) -> None:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = _parser().parse_args(argv)
+    arguments.json = outcome.wants_json(arguments)
     try:
         with replication.session(arguments):
             _run(arguments)

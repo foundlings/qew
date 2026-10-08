@@ -75,7 +75,7 @@ class StatusModelWalk(unittest.TestCase):
         self.assertEqual(self.status(epic), "Backlog")
         w.run("start", child)
         self.assertEqual(self.status(epic), "In progress")
-        w.run("release", child)
+        w.run("release", child, "--reason", "pause")
         self.assertEqual(self.status(epic), "Backlog")
 
     def test_a_merged_pull_request_does_not_keep_the_card_in_review(self) -> None:

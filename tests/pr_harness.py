@@ -9,7 +9,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from qew import cli, cmd_flow, cmd_items, ledger_config
+from qew import cli, cmd_claim, cmd_items, ledger_config
 from qew.ledger_store import Ledger
 from qew.sync import Target, sync_target
 from tests.ledger_harness import QUOTE, World, git
@@ -51,7 +51,7 @@ class PrWorld:
             created = cmd_items.create(self.config, specs, None if draft else QUOTE, False)
             item_id = created[0].split()[0]
             if claim and not draft:
-                cmd_flow.start(self.config, item_id)
+                cmd_claim.start(self.config, item_id)
         if sync:
             self.sync()
         return item_id

@@ -9,6 +9,7 @@ from enum import Enum
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
+from qew import claim_fields
 from qew.errors import QewError
 
 CLOSE_REASONS = ("not_planned", "duplicate", "superseded")
@@ -30,7 +31,7 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     "claimed": (("owner",), (State.APPROVED,)),
     "released": ((), (State.CLAIMED,)),
     "evidence": (("vcs", "repo"), (State.APPROVED, State.CLAIMED)),
-    "completed": ((), (State.CLAIMED,)),
+    "completed": ((), (State.CLAIMED,)),  # also from approved when delivered elsewhere or by its children
     "reopened": ((), (State.COMPLETED, State.CLOSED)),
     "closed": (("reason",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED)),
     "field": (("key",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED, State.CLOSED)),
@@ -42,7 +43,13 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     # Claim arbitration (docs/specs/ledger.md, Authority and topology).
     "claim_confirmed": (("ref",), tuple(State)),
     "claim_lost": (("ref",), tuple(State)),
+    "comment": (("text",), tuple(State)),
+    "edge": (("op", "need"), tuple(State)),
 }
+# A `completed` event with one of these keys finished the item without a claim: its children
+# finished it, or the code that delivers it landed without anyone claiming it.
+_UNCLAIMED_COMPLETION = ("children_finished", "delivered_by")
+MAX_COMMENT_BYTES = 20_000
 PROVENANCE = ("import", "forge", "forge-import")
 _INITIAL = {"drafted": State.DRAFT, "approved": State.APPROVED}
 _NEXT = {
@@ -109,8 +116,58 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
             raise QewError(f"{where}: evidence needs a non-empty change_ids list", 1)
         if value["vcs"] not in ("jj", "git"):
             raise QewError(f"{where}: evidence vcs must be jj or git", 1)
+    _check_optional_fields(kind, value, where)
     data = {key: item for key, item in value.items() if key not in ("type", "at", "actor")}
     return Event(event_id, kind, value["at"], value["actor"], data)
+
+
+def _strings(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(i, str) and i for i in value)
+
+
+def _check_optional_fields(kind: str, value: Dict[str, Any], where: str) -> None:
+    """Schema of the optional fields an event may carry; a malformed one makes `qew check` fail loudly."""
+
+    def text(key: str) -> None:
+        if key in value and (not isinstance(value[key], str) or not value[key].strip()):
+            raise QewError(f"{where}: `{key}` must be non-empty text", 1)
+
+    if kind == "claimed":
+        for key in ("lane", "workspace", "kind"):
+            if key in value and not isinstance(value[key], str):
+                raise QewError(f"{where}: claim `{key}` must be text", 1)
+        try:
+            claim_fields.validate(value.get("lane"), value.get("workspace"), value.get("kind"), exit_code=1)
+        except QewError as error:
+            raise QewError(f"{where}: {error}", 1) from None
+    elif kind == "released":
+        text("reason")
+        text("previous_owner")
+        if "forced" in value and not isinstance(value["forced"], bool):
+            raise QewError(f"{where}: `forced` must be true or false", 1)
+    elif kind == "completed":
+        for key in ("reason", "branch", "no_commit", "taken_over_from"):
+            text(key)
+        for key in ("commits", "delivered_by"):
+            if key in value and not _strings(value[key]):
+                raise QewError(f"{where}: `{key}` must be a non-empty list of commit ids", 1)
+        if "prs" in value and not (isinstance(value["prs"], list) and all(type(n) is int and n > 0 for n in value["prs"])):
+            raise QewError(f"{where}: `prs` must be a list of pull request numbers", 1)
+        if "children_finished" in value and (type(value["children_finished"]) is not int or value["children_finished"] < 1):
+            raise QewError(f"{where}: `children_finished` must be a positive count", 1)
+    elif kind == "closed":
+        for key in ("duplicate_of", "superseded_by", "note"):
+            text(key)
+        if "duplicate_of" in value and "superseded_by" in value:
+            raise QewError(f"{where}: a close names one linked item, `duplicate_of` or `superseded_by`, not both", 1)
+    elif kind == "reopened":
+        text("reason")
+    elif kind == "comment":
+        if len(value["text"].encode("utf-8")) > MAX_COMMENT_BYTES:
+            raise QewError(f"{where}: comment is larger than {MAX_COMMENT_BYTES} bytes", 1)
+    elif kind == "edge":
+        if value["op"] not in ("add", "remove"):
+            raise QewError(f"{where}: edge op must be add or remove", 1)
 
 
 @dataclass(frozen=True)
@@ -121,12 +178,25 @@ class Folded:
     errors: Tuple[str, ...]
     imported: bool = False  # completed by an import path, without verifiable evidence
     divergences: Tuple[Event, ...] = ()  # forge-side state changes nobody has accepted or rejected yet
+    claim: Optional[Dict[str, Optional[str]]] = None  # {by, kind, lane, workspace} while claimed
+    lost_claims: Tuple[Tuple[str, str], ...] = ()  # (event id, actor) of claims that lost a merged race
+    completion: Optional[Event] = None  # the `completed` event that finished the item
+    closure: Optional[Event] = None  # the `closed` event while the item is closed
 
 
 def fold(events: List[Event]) -> Folded:
-    """Apply events in ID order; collect every illegal transition instead of stopping."""
+    """Apply events in ID order; collect every illegal transition instead of stopping.
+
+    Two writers on different branches may both claim an item. A claim the authority recorded as lost
+    (`claim_lost`) never held the item. Of two claims that nobody arbitrated, the oldest in the current
+    claim period holds it; a later claim by another actor is a recorded lost race, not corruption.
+    """
     state: Optional[State] = None
     owner = ""
+    claim: Optional[Dict[str, Optional[str]]] = None
+    lost_claims: List[Tuple[str, str]] = []
+    completion: Optional[Event] = None
+    closure: Optional[Event] = None
     evidence: List[Event] = []
     errors: List[str] = []
     imported = False
@@ -139,6 +209,8 @@ def fold(events: List[Event]) -> Folded:
             # Imported history was never claimed here; it may complete from any open state.
             sources = (State.DRAFT, State.APPROVED, State.CLAIMED)
             imported = True
+        elif event.type == "completed" and any(key in event.data for key in _UNCLAIMED_COMPLETION):
+            sources = (State.APPROVED, State.CLAIMED)
         if sources is None:
             if state is not None:
                 errors.append(f"{event.id}: `drafted` is only valid as the first event")
@@ -151,21 +223,54 @@ def fold(events: List[Event]) -> Folded:
             else:
                 errors.append(f"{event.id}: `{event.type}` before the item was drafted or approved")
             continue
+        if event.type == "claimed" and state == State.CLAIMED:
+            if event.get("owner") != owner:
+                lost_claims.append((event.id, event.get("owner")))
+            continue
         if state not in sources:
             errors.append(f"{event.id}: `{event.type}` is illegal from state {state.value}")
             continue
         if event.type == "claimed":
             owner = event.get("owner")
+            claim = {
+                "by": owner,
+                "kind": event.get("kind") or "compute",
+                "lane": event.get("lane") or None,
+                "workspace": event.get("workspace") or None,
+            }
         elif event.type in ("released", "reverted", "reopened", "closed"):
             owner = ""
+            claim = None
+            closure = event if event.type == "closed" else None
+            if event.type in ("reopened", "closed", "reverted"):
+                completion = None
         elif event.type == "evidence":
             evidence.append(event)
+        elif event.type == "completed":
+            completion = event
         if event.type in _NEXT:
             state = _NEXT[event.type]
     resolved = {e.get("ref") for e in events if e.type in ("divergence_accepted", "divergence_rejected")}
     open_divergences = tuple(e for e in sorted(events, key=lambda item: item.id)
                              if e.type == "forge_divergence" and e.id not in resolved)
-    return Folded(state, owner, tuple(evidence), tuple(errors), imported, open_divergences)
+    return Folded(state, owner, tuple(evidence), tuple(errors), imported, open_divergences, claim,
+                  tuple(lost_claims), completion, closure)
+
+
+def needs_after(base: Tuple[str, ...], events: List[Event]) -> Tuple[str, ...]:
+    """The effective needs: the header's list with every `edge` event applied in ID order.
+
+    Each added or removed edge is its own event file, so two branches that change different edges merge
+    without conflict and without losing either one.
+    """
+    needs = list(base)
+    for event in sorted((e for e in events if e.type == "edge"), key=lambda item: item.id):
+        need = event.get("need")
+        if event.get("op") == "add" and need not in needs:
+            needs.append(need)
+        elif event.get("op") == "remove" and need in needs:
+            needs.remove(need)
+    return tuple(needs)
 
 
 def transition_error(state: Optional[State], event_type: str) -> Optional[str]:

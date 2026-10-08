@@ -54,30 +54,33 @@ def _primary_forge(config: Config, ledger: Ledger, item_id: str):
         raise QewError(f"cannot claim {item_id}: the primary forge is unavailable ({error.detail})", 3) from None
 
 
-def claim(config: Config, ledger: Ledger, item_id: str, owner: str) -> None:
-    """Write the claim, or refuse. The caller has already checked the item is approved and unblocked."""
+def claim(config: Config, ledger: Ledger, item_id: str, owner: str, **lane: str) -> None:
+    """Write the claim, or refuse. The caller has already checked the item is approved and unblocked.
+
+    `lane` carries the optional lane fields (lane, workspace, kind) of the `claimed` event.
+    """
     global PENDING
     if config.authority != "none":
-        _claim_on_primary(config, ledger, item_id, owner)
+        _claim_on_primary(config, ledger, item_id, owner, lane)
         return
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
     rep = config.replication
     if repo.vcs is None or not repo.has_remote() or not rep.auto_push:
-        ledger.append_event(item_id, "claimed", owner=owner)  # single writer: nothing to arbitrate, nothing to confirm
+        ledger.append_event(item_id, "claimed", owner=owner, **lane)  # single writer: nothing to arbitrate, nothing to confirm
         return
     marker = config.ledger_path / ".qew" / "remote-state"
     if rep.offline or (marker.exists() and marker.read_text(encoding="utf-8").strip() == "offline"):
         raise QewError(f"cannot claim {item_id}: the ledger remote arbitrates claims and is unreachable", 3)
-    event = ledger.append_event(item_id, "claimed", owner=owner)
+    event = ledger.append_event(item_id, "claimed", owner=owner, **lane)
     PENDING = (item_id, event.id)
 
 
-def _confirmed(ledger: Ledger, item_id: str, owner: str) -> None:
-    event = ledger.append_event(item_id, "claimed", owner=owner)
+def _confirmed(ledger: Ledger, item_id: str, owner: str, lane: dict) -> None:
+    event = ledger.append_event(item_id, "claimed", owner=owner, **lane)
     ledger.append_event(item_id, "claim_confirmed", ref=event.id)
 
 
-def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str) -> None:
+def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, lane: dict) -> None:
     forge, number = _primary_forge(config, ledger, item_id)
     nonce = secrets.token_hex(4)
     try:
@@ -88,7 +91,7 @@ def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str) 
     if winner is None or winner[1] != nonce:
         who = winner[0] if winner else "someone else"
         raise QewError(f"cannot claim {item_id}: already claimed by {who} on the primary", 2)
-    _confirmed(ledger, item_id, owner)
+    _confirmed(ledger, item_id, owner, lane)
 
 
 def release(config: Config, ledger: Ledger, item_id: str) -> None:

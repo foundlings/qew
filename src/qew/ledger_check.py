@@ -1,5 +1,6 @@
 """`qew check`: validate every file of a ledger without writing anything."""
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import tomllib
@@ -9,7 +10,7 @@ from qew import ledger_graph, untrusted_text
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import State, fold, parse_event
+from qew.ledger_event import State, fold, needs_after, parse_event
 from qew.ledger_item import Item, Kind, check_header_values, parse_item
 from qew.ledger_store import Ledger, Snapshot
 
@@ -47,8 +48,8 @@ def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
             continue
         claimed[item.id.lower()] = where
         problems.extend(f"{where}: {problem}" for problem in check_header_values(item))
-        items[item.id] = item
         events[item.id] = _load_events(ledger, item.id, problems)
+        items[item.id] = replace(item, needs=needs_after(item.needs, events[item.id]))
         result = fold(events[item.id])
         folds[item.id] = result
         if not events[item.id]:
@@ -72,12 +73,18 @@ def check_report(ledger: Ledger):
     snapshot, problems = load(ledger)
     items = snapshot.items
     _check_edges(snapshot, problems)
-    imported = _check_completed(snapshot, problems)
+    imported, without_code = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
     _check_claim_refs(snapshot, problems)
     problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in text_findings(snapshot) for kind in kinds)
-    return problems, ([f"imported without evidence: {imported}"] if imported else [])
+    notes = []
+    if imported:
+        notes.append(f"imported without evidence: {imported}")
+    if without_code:
+        notes.append(f"completed without code: {without_code}")
+    notes.extend(_lost_claim_notes(snapshot))
+    return problems, notes
 
 
 def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
@@ -128,16 +135,28 @@ def _check_edges(snapshot: Snapshot, problems: List[str]) -> None:
             problems.append(f"{label} cycle: {' -> '.join(cycle)}")
 
 
-def _check_completed(snapshot: Snapshot, problems: List[str]) -> int:
-    imported = 0
+def _check_completed(snapshot: Snapshot, problems: List[str]):
+    """(imported without evidence, completed with an explicit no-code reason); both are counted, not fatal."""
+    imported = without_code = 0
     for item_id, item in snapshot.items.items():
         folded = snapshot.folds[item_id]
         if folded.state == State.COMPLETED and item.kind != Kind.EPIC and not folded.evidence:
             if folded.imported:
                 imported += 1
+            elif folded.completion is not None and folded.completion.get("no_commit"):
+                without_code += 1
             else:
                 problems.append(f"events/{item_id}: completed without an evidence event")
-    return imported
+    return imported, without_code
+
+
+def _lost_claim_notes(snapshot: Snapshot) -> List[str]:
+    """A merged double claim is not corruption: the oldest claim holds, the later actors are named."""
+    return [
+        f"lost claim: {item_id} {actor} (held by {folded.owner}, event {event_id})"
+        for item_id, folded in snapshot.folds.items()
+        for event_id, actor in folded.lost_claims
+    ]
 
 
 def _check_claim_refs(snapshot: Snapshot, problems: List[str]) -> None:

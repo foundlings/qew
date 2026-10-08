@@ -242,7 +242,7 @@ class RevertGuardWalk(ReleaseBase):
         self.assertEqual(result.returncode, 3)
         self.assertIn(f"claimed by tester; release it first with qew release {item}", result.stderr)
         self.assertEqual(types(w, item), ["drafted", "approved", "claimed"])
-        self.assertEqual(w.run("release", item).returncode, 0)
+        self.assertEqual(w.run("release", item, "--reason", "make way for the revert").returncode, 0)
         self.assertEqual(self.revert(item).returncode, 0)
 
     def test_a_claimed_epic_is_refused_the_same_way(self) -> None:

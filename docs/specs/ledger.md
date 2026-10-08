@@ -58,7 +58,12 @@ Body…
 Append-only facts; current state = fold of events in ID order. One JSON object per file:
 `{"type": "...", "at": "...", "actor": "...", ...}`. Types:
 - `approved` (with quoted human words), `drafted`
-- `claimed` / `released` (owner)
+- `claimed` (`owner`; optional `lane`, `workspace`, `kind` = compute|token) / `released` (optional `reason`,
+  `previous_owner`, `forced`). Two branches may both claim an item: after the merge the oldest `claimed` event of
+  the current claim period (a `released`, `reopened` or `closed` event ends a period) holds the claim, a later
+  claim by another actor is a recorded lost race (`qew check` notes `lost claim: ITEM ACTOR`, not an error), and a
+  later claim by the same actor is ignored. The merged-claim moment is known only after the fetch, so `qew start`
+  re-reads after its write is committed and merged and exits 3 naming the winner when it lost.
 - `evidence` (`{"vcs": "jj", "change_ids": [...], "repo": "<code repo url>"}`)
 - `completed` with `"provenance": "import"` (+ a non-empty `original_ids`; `qew check` refuses it without) is written only by an import path
   (`create --from-file --import`) for history without resolvable change ids; `qew check` counts these
@@ -84,6 +89,9 @@ State machine: draft → approved → claimed → completed (closed from any). I
 url = "git@github.com:foundlings/foundlings-ledger.git"
 path = "../foundlings-ledger"   # local checkout
 prefix = "FND"
+[claims]
+max_active_claims = 4           # optional positive integer: `qew start` refuses (exit 6) at this many active claims
+                                # of the caller; counted from the folded ledger, so merged branches can briefly exceed it
 [[mirror]]                       # any number of targets, on any mix of forges and hosts
 forge = "github"
 repo = "https://github.com/foundlings/foundlings"

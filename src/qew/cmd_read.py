@@ -3,7 +3,7 @@
 import argparse
 from typing import List, Optional
 
-from qew import blocked_chains, graph_render, untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import blocked_chains, graph_render, show_lifecycle, untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
@@ -124,6 +124,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     for key, value in (("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body)):
         if value:
             data[key] = value
+    extra, lines = show_lifecycle.extras(snapshot, item_id)
+    data.update(extra)
     if as_json:
         print(readfmt.document(data))
         return
@@ -141,6 +143,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         print(f"evidence: {event.get('vcs')} {' '.join(event.get('change_ids'))}")
     for mirror in mirrors:
         print(f"mirror: {mirror['target']} #{mirror['number']}")
+    for line in lines:
+        print(line)
     if item.body.strip():
         print("---")
         print(item.body.rstrip())

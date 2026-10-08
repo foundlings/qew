@@ -11,7 +11,7 @@ import fcntl
 import os
 from pathlib import Path
 import time
-from typing import Iterator, List, Optional, Set
+from typing import Callable, Iterator, List, Optional, Set
 
 from qew import claim_authority, ledger_config, ledger_store
 from qew.errors import QewError
@@ -23,11 +23,19 @@ CHECKPOINT_EVERY = 25
 KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land"}
 
 
+_AFTER_SETTLE: List[Callable[[], None]] = []
+
+
+def after_settle(callback: Callable[[], None]) -> None:
+    """Run `callback` once the ledger remote has confirmed this command's claim (never when it was lost)."""
+    _AFTER_SETTLE.append(callback)
+
+
 def verb_for(arguments) -> Optional[str]:
     """The commit verb of a ledger-writing command, or None for reads and non-ledger commands."""
     command = arguments.command
     if command in ("create", "set", "start", "release", "evidence", "complete", "close", "reopen", "sync",
-                   "import", "restore", "accept", "reject"):
+                   "import", "restore", "accept", "reject", "block", "unblock", "land", "comment"):
         return command
     if command == "draft" and arguments.draft_command in ("approve", "revert"):
         return arguments.draft_command
@@ -137,6 +145,9 @@ def session(arguments) -> Iterator[None]:
             _settle_claim(config, repo, pending)
         elif replicating:
             _note(config, repo.push(rep.timeout_s))
+        confirmed, _AFTER_SETTLE[:] = list(_AFTER_SETTLE), []
+        for callback in confirmed:
+            callback()
     if entries and verb != "board":
         _after_write(config)
 

@@ -1,6 +1,6 @@
 """Read and write the ledger's files. Every write makes a new file or edits one item file."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
 import os
@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from qew.errors import QewError
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import Event, Folded, fold, parse_event
+from qew.ledger_event import Event, Folded, fold, needs_after, parse_event
 from qew.ledger_item import Item, parse_item, render_item
 from qew.ledger_ids import event_id, next_id, parse_modes, sort_key
 
@@ -105,8 +105,9 @@ class Ledger:
         folds: Dict[str, Folded] = {}
         events: Dict[str, List[Event]] = {}
         for item_id in self.item_ids():
-            items[item_id] = self.load_item(item_id)
             events[item_id] = self.load_events(item_id)
+            raw = self.load_item(item_id)
+            items[item_id] = replace(raw, needs=needs_after(raw.needs, events[item_id]))
             folds[item_id] = fold(events[item_id])
         return Snapshot(self, items, folds, events)
 

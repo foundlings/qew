@@ -93,6 +93,7 @@ class Config:
     mirrors: Tuple[Mirror, ...]
     replication: Replication = Replication()
     authority: str = "none"  # slug of the primary forge target, or "none": the ledger remote arbitrates
+    max_active_claims: Optional[int] = None  # per-actor cap on claimed items; None = no cap
 
 
 def find_root(start: Optional[Path] = None) -> Optional[Path]:
@@ -124,7 +125,22 @@ def load(start: Optional[Path] = None) -> Config:
     code = data.get("code", {})
     mirrors = tuple(_mirror(entry) for entry in data.get("mirror", []))
     return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors,
-                  _replication(data.get("replication")), _authority(data.get("authority"), mirrors))
+                  _replication(data.get("replication")), _authority(data.get("authority"), mirrors),
+                  _claim_cap(data.get("claims")))
+
+
+def _claim_cap(section: object) -> Optional[int]:
+    """`[claims] max_active_claims`: a positive integer, or absent for no cap; anything else is exit 2."""
+    if section is None:
+        return None
+    if not isinstance(section, dict) or set(section) - {"max_active_claims"}:
+        raise QewError("[claims] holds only `max_active_claims`", 2)
+    cap = section.get("max_active_claims")
+    if cap is None:
+        return None
+    if type(cap) is not int or cap < 1:
+        raise QewError("[claims] max_active_claims must be a positive integer", 2)
+    return cap
 
 
 _SEGMENT = re.compile(r"[A-Za-z0-9_.-]+")

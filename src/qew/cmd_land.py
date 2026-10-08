@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from qew import cmd_flow, ledger_config, pr_gate
+from qew import cmd_finish, ledger_config, pr_gate
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
 from qew.ledger_event import State
@@ -60,9 +60,9 @@ def land(config, number: int, target: Optional[str], build: Optional[Build] = No
 def _land_one(config, loaded: Loaded, item_id: str, head_sha: str, lines: List[str]) -> int:
     snapshot = loaded.snapshot.ledger.snapshot()
     if snapshot.items[item_id].kind != Kind.EPIC and not pr_gate.evidence_covers(config, snapshot.folds[item_id].evidence, head_sha):
-        cmd_flow.evidence(config, item_id, [head_sha], None)
+        cmd_finish.evidence(config, item_id, [head_sha], None)
     try:
-        lines.append(cmd_flow.complete(config, item_id))
+        lines.append(cmd_finish.complete(config, item_id)["line"])
     except QewError as error:
         lines.append(f"{item_id}: not completed: {error}")
         return 1

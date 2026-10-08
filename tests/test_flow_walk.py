@@ -82,7 +82,7 @@ class FlowWalk(unittest.TestCase):
         w.run("complete", child)
         self.assertEqual(w.run("complete", epic).returncode, 0)
 
-    def test_start_refuses_drafts_double_claims_and_blocked_work(self) -> None:
+    def test_start_refuses_drafts_and_blocked_work(self) -> None:
         w = self.world
         draft = w.create("--kind", "issue", "--title", "Draft")
         self.assertEqual(w.run("start", draft).returncode, 2)
@@ -92,15 +92,11 @@ class FlowWalk(unittest.TestCase):
         blocked = w.run("start", second)
         self.assertEqual(blocked.returncode, 2)
         self.assertIn("needs", blocked.stderr)
-        self.assertEqual(w.run("start", first).returncode, 0)
-        again = w.run("start", first, env={"QEW_ACTOR": "someone-else"})
-        self.assertEqual(again.returncode, 2)
-        self.assertIn("claimed", again.stderr)
 
     def test_release_close_and_reopen(self) -> None:
         w = self.world
         item = started(w)
-        self.assertEqual(w.run("release", item).returncode, 0)
+        self.assertEqual(w.run("release", item, "--reason", "pause").returncode, 0)
         self.assertIn(item, w.run("ready").stdout)
         bad = w.run("close", item, "--reason", "because")
         self.assertNotEqual(bad.returncode, 0)

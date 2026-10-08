@@ -6,7 +6,7 @@ rejecting keeps the ledger value and makes the next push restore the forge.
 
 from typing import List, Tuple
 
-from qew import cmd_flow, ledger_config
+from qew import cmd_finish, ledger_config
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
@@ -63,7 +63,7 @@ def accept(config: Config, reference: str, reason: str = "not_planned", complete
     forge = divergence.get("forge")
     if field == "state" and forge == "closed":
         if completed:
-            cmd_flow.complete(config, item_id)  # the gate decides; nothing is written when it refuses
+            cmd_finish.complete(config, item_id)  # the gate decides; nothing is written when it refuses
         elif state not in (State.CLOSED, State.COMPLETED):
             ledger.append_event(item_id, "closed", reason=reason, provenance="forge")
     elif field == "state" and forge == "open" and state in (State.CLOSED, State.COMPLETED):

@@ -4,7 +4,10 @@ Output is terse and fixed-format: `ID STATE pN kind title [@owner]`, ordered by 
 (counter ids numerically) the same way in `ready`, `list` and `blocked`. Titles are flattened, bounded and
 quoted or withheld (see security.md). `--json` gives machine output (see Machine output).
 An item reference is a full ID, the same ignoring case, or a unique prefix. Exit codes: 0 ok, 1 invalid
-ledger or forge failure, 2 refusal or usage, 3 environment.
+ledger or forge failure, 2 refusal or usage, 3 ownership conflict or environment, 4 indeterminate (malformed
+data: nothing written), 5 already yours (idempotent, nothing written), 6 claim cap reached.
+`--json` (before or after the command) prints `{"schema_version": 1, ...}` for write commands; errors keep the
+plain stderr message and the exit code.
 
 ## Machine output
 Bounded answers (`ready`, `blocked`) print one envelope object; open-ended lists (`list`, `graph`,
@@ -63,13 +66,24 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
   `--closed`. Several items may share parent, needs, labels or priority; `--title` and `--body` take one item.
   `qew create` applies the same edge rules before writing.
-- `qew start ITEM`: claim approved work whose needs are completed. `qew release ITEM` gives it up.
+- `qew start ITEM [--take-over --reason TEXT] [--lane ID [--workspace PATH] [--kind compute|token]] [--json]`:
+  claim approved work whose needs are completed. Another actor's claim is exit 3 naming the holder and
+  `--take-over`; your own claim is exit 5 (no event) when the lane matches, exit 3 naming the lane when it does
+  not; draft, blocked, completed or closed work is exit 2. `--take-over` writes a forced `released` event naming the
+  previous owner and a `claimed` event in one command, only for work that may start and is held by another actor.
+  A lane (`A-Za-z0-9._-`, 1 to 64, no `--`) tells lanes of one actor apart; `--workspace` (absolute path) and
+  `--kind` need `--lane`. The lane guards `start` and `release` only, as good-faith tooling, not access control.
+  After the write is merged with the ledger remote, a claim that lost to an older one exits 3 naming the winner.
+  `[claims] max_active_claims` in the config caps the caller's active claims (exit 6, take-over included); a
+  malformed cap is exit 2 naming the key. `qew show` prints the current claim as `claim: {by, kind, lane, workspace}`.
+- `qew release ITEM --reason TEXT [--force] [--lane ID] [--json]`: give up a claim; another actor's claim (or another
+  lane's) needs `--force`, recorded as `forced` with the `previous_owner`. Unclaimed work is exit 2.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
-- `qew complete ITEM`: refused unless the item is claimed, every child is completed or closed, and (not for
+- `qew complete ITEM [--json]`: refused (exit 3 naming the holder) unless the caller holds the claim, an already
+  completed item is refused without a second event, every child is completed or closed, and (not for
   epics) an evidence event whose change IDs are all ancestors of the configured target branch exists.
   An epic needs at least one child.
 - `qew close ITEM --reason not_planned|duplicate|superseded`, `qew reopen ITEM`.
-- `qew release ITEM`: give up a claim (listed under start).
 
 ## Drafts
 - `qew draft`: the group for the three commands below.

@@ -52,7 +52,8 @@ class SyncCliWalk(unittest.TestCase):
         w = self.world
         a = w.create("--kind", "epic", "--title", "A")
         b = w.create("--kind", "epic", "--title", "B", "--needs", a)
-        w.run("set", a, "--needs", b)
+        path = w.ledger / "items" / f"{a}.md"  # the shape a merge of two branches can produce; `qew set` refuses it
+        path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
         for arguments in (["sync"], ["sync", "--dry-run"]):
             result = w.run(*arguments)
             self.assertEqual(result.returncode, 1, result.stdout)
