@@ -111,8 +111,9 @@ class LedgerRemoteArbitrationWalk(unittest.TestCase):
         """Prevents two owners without a primary forge: the ledger remote lets one claim land; the other records claim_lost."""
         self.hold_pushes()
         first, second = self.start(self.a, "alice"), self.start(self.b, "bob")
-        codes = sorted([first.wait(timeout=90), second.wait(timeout=90)])
-        self.assertEqual(codes, [0, 2], [first.stderr.read(), second.stderr.read()])
+        outputs = [first.communicate(timeout=90), second.communicate(timeout=90)]
+        codes = sorted([first.returncode, second.returncode])
+        self.assertEqual(codes, [0, 2], outputs)
         for world in (self.a, self.b, self.a):
             world.run("ready")
         shown_a, shown_b = self.a.run("show", self.item).stdout, self.b.run("show", self.item).stdout

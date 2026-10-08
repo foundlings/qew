@@ -167,6 +167,12 @@ class LedgerRepo:
         if self._jj_ids("@ & empty()") and self._jj_ids(f'bookmarks(exact:"{self.branch}") ~ ::@'):
             self.run(["jj", "--no-pager", "new", self.branch])
 
+    def push_strict(self, timeout: float) -> str:
+        """Push and say why it failed: `ok`, `rejected` (the remote moved: fetch and merge) or `offline`."""
+        if self.push(timeout) == "ok":
+            return "ok"
+        return "offline" if self.fetch_merge(timeout) == "offline" else "rejected"
+
     def push(self, timeout: float) -> str:
         """Push the branch. Returns `ok`, `no-remote` or `offline`."""
         if not self.has_remote():
