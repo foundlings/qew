@@ -1,11 +1,19 @@
-"""Push ledger state to one mirror target (skeleton)."""
+"""Push ledger state to one mirror target.
+
+A mirror file is written only after the forge accepted the call, so a failed
+sync leaves nothing half-recorded. A crash between the forge accepting a create
+and the mirror file landing is repaired by adopting the issue found through the
+body marker. One target's failure never reaches another: callers run targets
+independently and the report says what happened.
+"""
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import Dict, List, Optional
 
-from qew.forge import Forge
+from qew import sync_plan
+from qew.forge import COLUMNS, Board, Forge, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_config import Config, Mirror
-from qew.ledger_store import Ledger
+from qew.ledger_store import Ledger, Snapshot, now
 
 
 @dataclass(frozen=True)
@@ -24,7 +32,148 @@ class TargetReport:
     adopted: int = 0
     skipped: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
+    stopped: Optional[str] = None  # set when the forge went away and the rest of the target was not tried
 
 
 def sync_target(ledger: Ledger, target: Target, config: Config) -> TargetReport:
-    return TargetReport(target.slug)
+    snapshot = ledger.snapshot()
+    report = TargetReport(target.slug)
+    assignees = {str(k): str(v) for k, v in dict(target.mirror.options.get("assignees", {})).items()}
+    ids = sync_plan.topological(snapshot, sync_plan.selected(snapshot, target.mirror.select))
+    numbers: Dict[str, int] = {}
+    for item_id in ids:
+        record = _read_mirror(ledger, item_id, target.slug)
+        if record:
+            numbers[item_id] = record["number"]
+    board = _board(target, report) if target.mirror.project is not None else None
+    for item_id in ids:
+        try:
+            _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board)
+        except ForgeRejected as error:
+            report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+        except ForgeError as error:
+            report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+            report.stopped = f"{type(error).__name__}: {error.detail}"
+            break
+    return report
+
+
+def _read_mirror(ledger: Ledger, item_id: str, slug: str) -> Optional[dict]:
+    return next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug), None)
+
+
+def _board(target: Target, report: TargetReport) -> Optional[Board]:
+    try:
+        return target.forge.ensure_board(COLUMNS)
+    except Unsupported as error:
+        report.skipped.append(error.capability)
+        return None
+    except ForgeError as error:
+        report.failures.append(f"board: {error.detail}")
+        report.stopped = f"{type(error).__name__}: {error.detail}"
+        return None
+
+
+def _sync_item(
+    ledger: Ledger,
+    snapshot: Snapshot,
+    target: Target,
+    report: TargetReport,
+    item_id: str,
+    numbers: Dict[str, int],
+    assignees: Dict[str, str],
+    board: Optional[Board],
+) -> None:
+    item = snapshot.items[item_id]
+    spec = sync_plan.issue_spec(snapshot, item, numbers, assignees)
+    column = sync_plan.column(snapshot, item_id)
+    record = _read_mirror(ledger, item_id, target.slug)
+    fingerprint = sync_plan.fingerprint(spec, column if board else None)
+    if record is None:
+        remote, adopted = _find_or_create(target.forge, item_id, spec)
+        numbers[item_id] = remote.number
+        # The create carried `spec`, so a created issue is already current; an adopted one is not.
+        record = _new_record(target, remote, snapshot, item_id, "" if adopted else fingerprint)
+        ledger.write_mirror(item_id, target.slug, record)
+        if adopted:
+            report.adopted += 1
+            record = _push(ledger, target, record, item_id, spec, fingerprint)
+        else:
+            report.created += 1
+    elif record.get("synced_hash") != fingerprint:
+        _push(ledger, target, record, item_id, spec, fingerprint)
+        report.updated += 1
+    else:
+        report.unchanged += 1
+    _link(ledger, snapshot, target, report, item_id, numbers, record)
+    if board is not None:
+        _place(ledger, target, report, item_id, board, column, record)
+
+
+def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec):
+    try:
+        found = forge.find_issue(marker_for(item_id))
+    except Unsupported:
+        found = None
+    if found is not None:
+        return found, True
+    return forge.create_issue(spec), False
+
+
+def _new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id: str, fingerprint: str) -> dict:
+    events = snapshot.events[item_id]
+    return {
+        "forge": target.mirror.forge,
+        "url": target.mirror.repo,
+        "kind": "issue",
+        "number": remote.number,
+        "node_id": remote.node_id,
+        "issue_url": remote.url,
+        "synced_at": now(),
+        "synced_event": events[-1].id if events else "",
+        "synced_hash": fingerprint,
+        "linked": [],
+    }
+
+
+def _push(ledger: Ledger, target: Target, record: dict, item_id: str, spec: IssueSpec, fingerprint: str) -> dict:
+    target.forge.update_issue(record["number"], spec)
+    events = ledger.load_events(item_id)
+    updated = {
+        **{k: v for k, v in record.items() if k != "_target"},
+        "synced_hash": fingerprint,
+        "synced_at": now(),
+        "synced_event": events[-1].id if events else "",
+    }
+    ledger.write_mirror(item_id, target.slug, updated)
+    return updated
+
+
+def _link(ledger, snapshot, target, report, item_id, numbers, record) -> None:
+    linked = list(record.get("linked", []))
+    missing = [n for n in snapshot.items[item_id].needs if n in numbers and n not in linked]
+    for need in missing:
+        try:
+            target.forge.link_dependency(numbers[item_id], numbers[need])
+        except Unsupported as error:
+            if error.capability not in report.skipped:
+                report.skipped.append(error.capability)
+            return
+        linked.append(need)
+    if missing:
+        clean = {k: v for k, v in record.items() if k != "_target"}
+        ledger.write_mirror(item_id, target.slug, {**clean, "linked": sorted(linked)})
+
+
+def _place(ledger, target, report, item_id, board, column, record) -> None:
+    current = _read_mirror(ledger, item_id, target.slug) or record
+    if current.get("column") == column:
+        return
+    try:
+        target.forge.place_on_board(board, current["number"], column)
+    except Unsupported as error:
+        if error.capability not in report.skipped:
+            report.skipped.append(error.capability)
+        return
+    clean = {k: v for k, v in current.items() if k != "_target"}
+    ledger.write_mirror(item_id, target.slug, {**clean, "column": column})
