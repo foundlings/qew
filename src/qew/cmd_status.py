@@ -4,7 +4,7 @@ import json
 import time
 from typing import Optional
 
-from qew import instants, ledger_config, pull_cursor, syncworker
+from qew import instants, ledger_config, ledger_conflicts, pull_cursor, syncworker
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.ledger_config import Config
@@ -88,6 +88,7 @@ def collect(config: Config) -> dict:
             for slug, rows in pending.items()
         ],
         "divergences": divergences,
+        "conflicts": len(ledger_conflicts.collect(config, snapshot)),
         "sync": {"retry_after": max(0, int(syncworker.retry_at(config) - time.time()))},
     }
 
@@ -103,6 +104,8 @@ def render(data: dict) -> str:
     if data["sync"]["retry_after"]:
         lines.append(f"sync retry_after={data['sync']['retry_after']}")
     lines.append(f"divergences={len(data['divergences'])}")
+    if data["conflicts"]:
+        lines.append(f"conflicts={data['conflicts']}: run `qew conflicts`, then `qew resolve REF --take SIDE --reason TEXT`")
     shown = data["divergences"][:SHOWN_DIVERGENCES]
     for d in shown:
         lines.append(f"divergence {d['id']} {d['item']} {d['field']} forge={d['forge']} ledger={d['ledger']}")

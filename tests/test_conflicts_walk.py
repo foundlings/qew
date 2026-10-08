@@ -45,8 +45,8 @@ class LedgerMergeConflictWalk(unittest.TestCase):
         conflict = found[0]
         self.assertEqual(conflict["files"], [f"items/{self.item}.md"])
         self.assertEqual(conflict["item"], self.item)
-        sides = {c["side"]: c["title"] for c in conflict["differences"]}
-        self.assertEqual(sides, {"ours": "Title from B", "theirs": "Title from A"})
+        titles = [(d["key"], d["ours"], d["theirs"]) for d in conflict["differences"]]
+        self.assertEqual(titles, [("title", "Title from B", "Title from A")])
         self.assertIn(f"qew resolve ledger --take theirs --reason TEXT", conflict["resolve"])
         self.assertIn(f"qew resolve ledger --take ours --reason TEXT", conflict["resolve"])
         human = self.b.run("conflicts")

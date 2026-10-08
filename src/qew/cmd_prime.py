@@ -2,7 +2,7 @@
 
 import argparse
 
-from qew import cmd_read, ledger_config, prime, readfmt
+from qew import cmd_read, ledger_conflicts, ledger_config, prime, readfmt
 
 
 def register(commands) -> None:
@@ -13,7 +13,9 @@ def register(commands) -> None:
 def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "prime":
         return False
-    text = prime.build(cmd_read.snapshot_for(ledger_config.load()), prime.PRIME)
+    config = ledger_config.load()
+    snapshot = cmd_read.snapshot_for(config)
+    text = prime.build(snapshot, prime.PRIME, len(ledger_conflicts.collect(config, snapshot)))
     if arguments.json:
         print(readfmt.document({"additional_context": text, "context_bytes": len(text.encode("utf-8"))}))
     else:

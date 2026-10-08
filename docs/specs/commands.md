@@ -343,6 +343,22 @@ shape prime: additional_context context_bytes schema_version
   to the contender, `qew reject` keeps the holder, each by writing `claim_lost` for the loser. `qew check` counts them
   as a note, `contested claims: N`.
 - `qew reject DIVERGENCE`: keep the ledger value; the mirror is marked stale so the next push rewrites the forge.
+- `qew conflicts [--json]`: every open sync conflict, ledger merge conflict first. Kinds: `ledger_merge` (two checkouts
+  changed the same ledger file; the last fetch recorded it in the local `.qew/merge-conflict.json`, and every command
+  that fetches keeps failing with exit 1 until it is settled), `divergence` (the forge changed something the ledger did not)
+  and `claim_contest` (two effective claims). Each entry gives `kind`, `id` (the reference `qew resolve` takes), `item`,
+  `files` and per-key `differences` (`ours`/`theirs`) for a merge, `forge` and `ledger` values for the others, `resolvable`
+  and the exact `resolve` commands. `--json` is `{schema_version, conflicts: [...]}`; no conflicts prints `no conflicts`
+  (exit 0). Read-only and offline: it never fetches. `qew status` prints `conflicts=N` and `qew prime` / the session-start
+  hook a `Conflicts:` line pointing here when N > 0.
+- `qew resolve REF --take SIDE --reason TEXT`: settle one conflict; `--reason` is required and recorded. `REF` is `ledger`
+  (the merge conflict: `--take ours` keeps this checkout's files, `--take theirs` the remote's; exit 2 if none is pending)
+  or a divergence event id / an item with one open divergence (`--take forge` = `qew accept`, `--take ledger` = `qew reject`;
+  a claim contest hands the item to the contender or keeps the holder). A merge is settled whole-file, only for ledger-owned
+  files (`items events mirrors boards views proposals`); a conflict in any other file exits 2 and nothing is touched. The
+  side not kept is written to a `conflict_resolved` event (`took`, `reason`, `discarded`: path to text, bounded) on the
+  item and stays in the merge commit's other parent. A divergence's `divergence_accepted`/`divergence_rejected` event
+  carries the same `reason`. `qew accept --completed` stays the way to complete on a forge close.
 - `qew import DIRECTORY [--quote Q]`: read a tree written by `qew export` into the ledger, ids kept, as drafts (approved
   with a human's quote, as on create). Mechanical: each `items/ID.md` is parsed header-only (unknown keys, a file name
   that differs from the header id, a set owner, a symbolic link or a non-Markdown file fail and name the file), then

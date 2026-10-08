@@ -7,7 +7,7 @@ import sys
 from typing import List, Optional, Tuple
 
 from qew import (
-    claude_hook, cmd_items, codex_hook, inbox, ledger_check, prime, cursor_hook, git_hook, hook_guard, hook_merge, ledger_config,
+    claude_hook, cmd_items, codex_hook, inbox, ledger_check, ledger_conflicts, prime, cursor_hook, git_hook, hook_guard, hook_merge, ledger_config,
     opencode_hook, vcs_check,
 )
 from qew.errors import QewError
@@ -205,8 +205,9 @@ def _render_context(agent: str, event: str, text: Optional[str]) -> str:
 def _prime(cwd: Optional[Path]) -> Optional[str]:
     if ledger_config.find_root(cwd) is None:
         return None
-    snapshot = ledger_check.read_snapshot(cmd_items.ledger_for(ledger_config.load(cwd)))
-    text = prime.build(snapshot, prime.HOOK)
+    config = ledger_config.load(cwd)
+    snapshot = ledger_check.read_snapshot(cmd_items.ledger_for(config))
+    text = prime.build(snapshot, prime.HOOK, len(ledger_conflicts.collect(config, snapshot)))
     try:
         login = inbox.require_login(actor())
     except QewError:
