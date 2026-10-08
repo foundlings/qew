@@ -32,6 +32,7 @@ class FakeGitLab:
         self.page_size = page_size
         self.endless_pages = False
         self.link_base = ""  # when set, list responses also carry a Link header pointing here
+        self.drop_label_creates = False  # accept a label create yet store nothing
         self.auto_merge_ignored = False  # accept the request yet change nothing
         self.search_returns_all = False
         self.malformed_issue_reads = False
@@ -282,7 +283,12 @@ class FakeGitLab:
             return self._page(sorted(project.labels, key=lambda x: x["id"]), query)
         if any(x["name"] == body["name"] for x in project.labels):
             return 409, {"message": "Label already exists"}, {}
-        return 201, self._ensure_label(project, body["name"]), {}
+        if self.drop_label_creates:
+            return 201, {"id": self._next_id(), "name": body["name"]}, {}
+        label = self._ensure_label(project, body["name"])
+        label["color"] = body.get("color", label["color"])
+        label["description"] = body.get("description", "")
+        return 201, label, {}
 
     def _board_json(self, board):
         return {"id": board["id"], "name": board["name"], "lists": board["lists"]}

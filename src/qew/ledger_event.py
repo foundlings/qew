@@ -9,6 +9,7 @@ from enum import Enum
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
+from qew import instants
 from qew.errors import QewError
 
 CLOSE_REASONS = ("not_planned", "duplicate", "superseded")
@@ -89,6 +90,8 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
     for key in ("at", "actor"):
         if not isinstance(value.get(key), str) or not value[key]:
             raise QewError(f"{where}: event is missing `{key}`", 1)
+    if instants.parse_instant(value["at"]) is None:
+        raise QewError(f"{where}: event time `{value['at']}` is not a UTC instant (YYYY-MM-DDTHH:MM:SSZ)", 1)
     for key in _RULES[kind][0]:
         if key not in value or value[key] in ("", None) or (isinstance(value[key], str) and not value[key].strip()):
             raise QewError(f"{where}: `{kind}` event is missing `{key}`", 1)

@@ -10,6 +10,10 @@ from urllib.parse import quote, urlencode
 
 from qew import forge_http
 from qew.forge import (
+    LABEL_COLOR,
+    LABEL_DESCRIPTION,
+    LabelNotPersisted,
+    marker_alone,
     Board,
     Forge,
     Placement,
@@ -222,11 +226,9 @@ class GitLab(Forge):
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
         query = {"search": marker, "in": "description", "state": "all"}
-        for raw in self._pages(f"{self._project}/issues", query):
-            issue = _parse_issue(raw)
-            if marker in issue.body:
-                return issue
-        return None
+        matches = [issue for issue in map(_parse_issue, self._pages(f"{self._project}/issues", query))
+                   if marker_alone(issue.body, marker)]
+        return min(matches, key=lambda found: found.number) if matches else None
 
     def list_issues(self) -> List[RemoteIssue]:
         query = {"state": "all", "order_by": "created_at", "sort": "asc"}
@@ -246,7 +248,21 @@ class GitLab(Forge):
         data, _ = self._call("GET", f"{self._project}/issues/{number}")
         return _parse_issue(data)
 
+    def _ensure_issue_labels(self, wanted: Tuple[str, ...]) -> None:
+        """Create the project labels that are missing (neutral, never touching an existing one) and confirm them."""
+        _csv(wanted)  # refuses an unusable label name before any request
+        known = {name for name, _ in self._label_ids()}
+        missing = [name for name in dict.fromkeys(wanted) if name not in known]
+        for name in missing:
+            self._create_label(name, "#" + LABEL_COLOR)
+        if missing:
+            present = {name for name, _ in self._label_ids()}
+            absent = [name for name in missing if name not in present]
+            if absent:
+                raise LabelNotPersisted(absent)
+
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
+        self._ensure_issue_labels(spec.labels)
         payload: Dict[str, Any] = {
             "title": spec.title, "description": spec.body, "labels": _csv(spec.labels),
             "assignee_ids": self._assignee_ids(spec.assignee),
@@ -258,6 +274,7 @@ class GitLab(Forge):
         return self._write_issue(created.number, {"state_event": "close"})
 
     def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
+        self._ensure_issue_labels(spec.labels)
         current = self.read_issue(number)
         kept = tuple(label for label in current.labels if label.startswith((BOARD_PREFIX, PRIORITY_PREFIX)) and label not in spec.labels)
         payload: Dict[str, Any] = {
@@ -327,8 +344,9 @@ class GitLab(Forge):
             found.append((_field(label, "name", str), _field(label, "id", int)))
         return found
 
-    def _create_label(self, name: str) -> int:
-        data, _ = self._call("POST", f"{self._project}/labels", payload={"name": name, "color": _LABEL_COLOR})
+    def _create_label(self, name: str, color: str = _LABEL_COLOR) -> int:
+        data, _ = self._call("POST", f"{self._project}/labels",
+                             payload={"name": name, "color": color, "description": LABEL_DESCRIPTION})
         return _field(_object(data, "label"), "id", int)
 
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:

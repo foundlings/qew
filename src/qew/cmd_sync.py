@@ -83,14 +83,21 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     for mirror in mirrors:
         target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror), ledger_config.is_read_only(config, mirror))
         pulled = pull_target(ledger, target)  # forge-side edits first, so the push cannot overwrite them
+        if pulled.retry_after:  # rate limited while reading: pushing would only hit the same wall
+            syncworker.set_backoff(pulled.retry_after)
+            failed = True
+            lines.append(f"{target.slug}: rate limited; retry after {int(pulled.retry_after)}s")
+            continue
         report = sync_target(ledger, target, config, item,
                              deadline=None if budget_s is None else time.monotonic() + budget_s, tick=tick)
+        if report.retry_after:
+            syncworker.set_backoff(report.retry_after)
         failed = failed or bool(report.failures)
         lines.extend(render(report, pulled))
     output = "\n".join(lines)
     if failed:
         print(output)
-        raise QewError("sync finished with failures", 1)
+        raise QewError("sync finished with failures; fix the cause above, then run `qew sync` to catch the mirrors up", 1)
     return output
 
 
@@ -139,4 +146,6 @@ def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[st
         lines.extend(f"  pull failed {failure}" for failure in pulled.failures)
     if report.stopped:
         lines.append(f"  stopped: {report.stopped}")
+    if report.retry_after:
+        lines.append(f"  retry after {int(report.retry_after)}s")
     return lines

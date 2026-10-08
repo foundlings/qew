@@ -19,6 +19,8 @@ class FakeForgejo:
     def __init__(self) -> None:
         self.issues: Dict[int, Dict[str, Any]] = {}
         self.labels: Dict[int, str] = {}
+        self.label_meta: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
+        self.drop_label_creates = False  # accept a label create yet store nothing
         self.pulls: Dict[int, Dict[str, Any]] = {}
         self.branches: Dict[str, str] = {}  # branch -> head sha
         self.protections: Dict[str, Dict[str, Any]] = {}  # branch -> branch protection record
@@ -226,12 +228,15 @@ def _route(
         return status, body, {}
 
     if method == "GET" and re.match(_BASE + r"/labels$", path):
-        items = [{"id": i, "name": n, "color": "ededed"} for i, n in fake.labels.items()]
+        items = [{"id": i, "name": n, **{"color": "ededed", "description": "", **fake.label_meta.get(n, {})}} for i, n in fake.labels.items()]
         return _page(fake, items, params)
     if method == "POST" and re.match(_BASE + r"/labels$", path):
         if any(name == payload["name"] for name in fake.labels.values()):
             raise _Reply(409, "label exists")
+        if fake.drop_label_creates:
+            return ok({"id": 999, "name": payload["name"]}, 201)
         label_id = fake._label_id(payload["name"])
+        fake.label_meta[payload["name"]] = {"color": payload.get("color", ""), "description": payload.get("description", "")}
         return ok({"id": label_id, "name": payload["name"]}, 201)
     if method == "GET" and re.match(_BASE + r"/issues$", path):
         query = params.get("q", "")

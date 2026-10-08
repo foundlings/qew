@@ -81,7 +81,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr check`, `qew pr ready`, `qew pr merge`, and `qew land` once one merged
-- Mirrors: `qew sync`, `qew mirror` (group), `qew mirror add`, `qew mirror remove`, `qew mirror list`, `qew forge` (group), `qew forge migrate`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
+- Mirrors: `qew sync`, `qew mirror` (group), `qew mirror add`, `qew mirror remove`, `qew mirror list`, `qew forge` (group), `qew forge migrate`, `qew status`, `qew accept`, `qew reject`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`, `qew project status`, `qew project prune`
 - Setup: `qew --version`, `qew init`, `qew ledger` (group), `qew ledger fork`, `qew hook install`, `qew hook remove`
 
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`), `qew hook vcs-check`.
@@ -93,9 +93,17 @@ Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`,
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 
-Read flags: `--limit`, `--owner`, `--author`, `--work-state`.
+Read flags: `--limit`, `--owner`, `--work-state`, `--bodies`, `--search`, `--since`.
 
-Board and admin flags: `--edit` (body in `$VISUAL`/`$EDITOR`), `--closed` (`qew set` on closed work); `--login`, `--count` (`qew inbox`); `--json` on `qew check` prints a stable report; `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
+Session context: `qew prime` prints what the session-start hook prints, for agents without hooks.
+
+Search: `qew search TERM...` finds approved work offline by id, title and label.
+
+Review: `qew triage` lists drafts and items missing planning fields with their bodies and text findings; `qew check --json` adds advisory findings.
+
+Board and admin flags: `--from` (`qew project prune`); `--edit` (body in `$VISUAL`/`$EDITOR`), `--closed` (`qew set` on closed work); `--login`, `--count` (`qew inbox`); `--json` on `qew check` prints a stable report; `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
+
+Discussion: `qew comment ITEM --body TEXT` (or `--body-file F`) appends a comment to the item's history; `qew show` lists it.
 
 ## Hooks
 

@@ -19,9 +19,10 @@ trust line `review and trust it with /hooks before it will run` on install. Inst
 
 They run `qew hook session-start|pre-tool|post-tool --agent NAME`; the agent payload arrives on stdin.
 
-- **session-start** prints bounded context: at most 10 ready items (priority order, short id,
-  one line each, rows cut at 110 characters), the blocked and draft counts, and the verbs
-  `ready start evidence complete show draft`. The whole text is at most 2000 bytes. Outside a
+- **session-start** prints the `qew prime` context in its hook variant (commands.md): counts, four convention
+  lines, then Next ready, Active, Blocked and Contradictions with at most 3 quoted titles per section (64 bytes
+  each), the verbs `ready start evidence complete show draft`, and titles that hide text withheld and named under
+  Contradictions. The whole text is at most 2000 bytes. Outside a
   Qew repository, or on an unreadable ledger, it prints nothing. opencode has no session-start
   entry (its plugin API has no context-injection point at session start).
 - **pre-tool** refuses, only inside a Qew-managed repository (`.qew/config.toml` at or above the

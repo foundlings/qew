@@ -10,23 +10,23 @@ import json
 import unicodedata
 from typing import Tuple
 
+from qew import textscan
+
 MAX_TITLE_BYTES = 96
 ELLIPSIS = "…"
-_ZERO_WIDTH = {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x180E}
-_BIDI = {0x200E, 0x200F, 0x061C, *range(0x202A, 0x202F), *range(0x2066, 0x206A)}
 
 
 def findings(text: str) -> Tuple[str, ...]:
-    """Sorted, unique names of the hidden-character classes found in `text`."""
-    found = set()
+    """Sorted, unique names of the hidden-character classes found in `text`.
+
+    The classes are textscan's (zero_width, bidi_control, unicode_tags, confusable) plus `control`: control,
+    format, private-use and unassigned characters that textscan's vocabulary does not already cover.
+    """
+    found = set(textscan.scan(text))
     for char in text:
-        code = ord(char)
-        if code in _ZERO_WIDTH:
-            found.add("zero_width")
-        elif code in _BIDI:
-            found.add("bidi")
-        elif not char.isspace() and unicodedata.category(char) in ("Cc", "Cf", "Co", "Cs", "Cn"):
+        if not textscan.covers(ord(char)) and not char.isspace() and unicodedata.category(char) in ("Cc", "Cf", "Co", "Cs", "Cn"):
             found.add("control")
+            break
     return tuple(sorted(found))
 
 

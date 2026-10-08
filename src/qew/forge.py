@@ -40,7 +40,14 @@ class ForgeError(Exception):
 
 
 class ForgeUnavailable(ForgeError):
-    """Network failure, timeout, 429 or 5xx: the forge is down; retry later."""
+    """Network failure, timeout, rate limit or 5xx: the forge is down; retry later.
+
+    `retry_after` is the number of seconds the forge asked callers to wait (0 when it did not say).
+    """
+
+    def __init__(self, detail: str, retry_after: float = 0.0) -> None:
+        super().__init__(detail)
+        self.retry_after = retry_after
 
 
 class ForgeAuth(ForgeError):
@@ -53,6 +60,17 @@ class ForgeRejected(ForgeError):
     def __init__(self, status: int, detail: str) -> None:
         super().__init__(f"HTTP {status}: {detail}")
         self.status = status
+
+
+class LabelNotPersisted(ForgeRejected):
+    """The forge accepted a label create but the label is not there afterwards: the item is indeterminate."""
+
+    def __init__(self, names) -> None:
+        super().__init__(502, f"label(s) {', '.join(sorted(names))} did not persist after creation")
+
+
+LABEL_COLOR = "ededed"  # the neutral colour of every label sync creates; existing labels are never recoloured
+LABEL_DESCRIPTION = "Managed by qew"
 
 
 class Unsupported(ForgeError):
@@ -176,6 +194,17 @@ class Placement:
     priority: str
 
 
+@dataclass(frozen=True)
+class Card:
+    """One card on a board: its id, the repository and number of its issue, and its Status and Priority names."""
+
+    id: str
+    repository: str  # OWNER/REPO of the card's issue; a shared board holds several
+    number: int
+    column: str
+    priority: str
+
+
 class Forge(ABC):
     """Implement what the forge can do; leave the rest raising `Unsupported`.
 
@@ -225,6 +254,10 @@ class Forge(ABC):
         """
         raise Unsupported("ensure_board")
 
+    def read_board_placements(self, board: Board) -> Mapping[int, Placement]:
+        """Where every issue of this repository sits on the board, from one listing (number -> placement)."""
+        raise Unsupported("read_board_placements")
+
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         """Put the issue on the board in `column` (and `priority` where the board has one), idempotent."""
         raise Unsupported("place_on_board")
@@ -232,6 +265,14 @@ class Forge(ABC):
     def read_placement(self, board: Board, number: int) -> Optional[Placement]:
         """What the forge shows now for the issue on the board, or None when it is not on it."""
         raise Unsupported("read_placement")
+
+    def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
+        """Every card on the board (all repositories), or `Unsupported`; a truncated listing raises, never returns."""
+        raise Unsupported("read_board_cards")
+
+    def delete_card(self, board: Board, card_id: str) -> None:
+        """Remove one card from the board without touching its issue."""
+        raise Unsupported("delete_card")
 
     def remove_from_board(self, board: Board, number: int) -> None:
         """Take the issue's card off the board; the issue itself is never touched."""
@@ -272,3 +313,8 @@ class Forge(ABC):
 def marker_for(item_id: str) -> str:
     """The HTML-comment marker embedded in every mirrored body; unique per ledger item."""
     return f"<!-- {MARKER_PREFIX}{item_id} -->"
+
+
+def marker_alone(body: str, marker: str) -> bool:
+    """True when `marker` is a whole line of `body` (the first line or any other), never merely quoted in text."""
+    return any(line.strip() == marker for line in body.splitlines())

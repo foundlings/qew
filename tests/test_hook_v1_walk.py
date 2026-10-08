@@ -216,7 +216,7 @@ class SessionStartWalk(unittest.TestCase):
         self.assertEqual(output["hookSpecificOutput"]["hookEventName"], "SessionStart")
         return output["hookSpecificOutput"]["additionalContext"]
 
-    def test_prime_is_bounded_with_ten_ready_counts_and_the_six_verbs(self) -> None:
+    def test_prime_is_bounded_lists_a_few_ready_rows_counts_and_the_six_verbs(self) -> None:
         specs = [{"title": f"Ready work number {n} " + "long " * 30, "priority": n % 3} for n in range(30)]
         specs.append({"ref": "a", "title": "first"})
         specs.append({"title": "waits", "needs": ["@a"]})
@@ -227,8 +227,9 @@ class SessionStartWalk(unittest.TestCase):
         for agent in ("claude", "codex", "cursor"):
             text = self.context(agent)
             self.assertLessEqual(len(text.encode("utf-8")), 2000)
-            rows = [line for line in text.splitlines() if " p" in line and line.split()[1] == "approved"]
-            self.assertEqual(len(rows), 10, text)
+            ready = text.split("Next ready:\n")[1].split("Active:")[0].splitlines()
+            self.assertEqual(len(ready), 4, text)
+            self.assertEqual(ready[-1], "... 28 more")
             self.assertIn("2 blocked", text)
             self.assertIn("1 draft", text)
             for verb in ("ready", "start", "evidence", "complete", "show", "draft"):

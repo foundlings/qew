@@ -1,19 +1,24 @@
-"""`qew export` writes items as Markdown files or JSON.
+"""`qew export` writes items as Markdown files or JSON; `qew import DIR` reads such a tree back.
 
-The tree is `DIR/items/<ID>.md` (the ledger's own item files) plus `DIR/events.json`, a summary.
+The tree is `DIR/items/<ID>.md` (the ledger's own item files) plus `DIR/events.json`, a summary that
+import ignores. Import is mechanical: header-only parse, every file validated before the first write.
 """
 
 import json
 import os
 from pathlib import Path
-from typing import List
+from typing import Dict, List, Optional
 
-from qew import cmd_read, ledger_config, ledger_graph
+from qew import cmd_items, cmd_read, graph_rules, ledger_config, ledger_graph, ledger_labels, untrusted_text
 from qew.errors import QewError
+from qew.ledger_config import Config
 from qew.ledger_ids import sort_key, valid_id
-from qew.ledger_item import Item, render_item
+from qew.ledger_item import Item, check_header_values, parse_item, render_item
 from qew.ledger_store import Snapshot
+from qew.requester import require_quote
 
+MAX_FILE_BYTES = 1024 * 1024
+USAGE = "export needs a directory or --json, not both and not neither"
 
 
 def register(commands) -> None:
@@ -100,3 +105,66 @@ def write_tree(snapshot: Snapshot, directory: Path) -> int:
     except OSError as error:
         raise QewError(f"cannot write {directory}: {error}", 3) from None
     return len(ids)
+
+
+def import_directory(config: Config, directory: str, quote: Optional[str]) -> List[str]:
+    """Read DIR/items/*.md into the ledger as drafts (approved with a human's quote), ids kept."""
+    verified = require_quote(quote) if quote is not None else None
+    ledger = cmd_items.ledger_for(config)
+    parsed = _read_tree(Path(directory))
+    existing = ledger.snapshot().items
+    taken = {i.lower() for i in existing}
+    for item in parsed.values():
+        if item.id.lower() in taken:
+            raise QewError(f"item {item.id} already exists in the ledger; nothing was imported", 2)
+    combined = {**existing, **parsed}
+    for name, item in parsed.items():
+        for reference in (*item.needs, *([item.parent] if item.parent else [])):
+            if reference not in combined:
+                raise QewError(f"{name}.md: refers to unknown item {reference}", 2)
+    graph_rules.validate_edges(combined, [item.id for item in parsed.values()])
+    lines = []
+    for item_id in sorted(parsed, key=sort_key):
+        item = parsed[item_id]
+        ledger.write_item(item)
+        if verified:
+            ledger.append_event(item.id, "approved", quote=verified)
+        else:
+            ledger.append_event(item.id, "drafted")
+        lines.append(f"{item.id} {'approved' if verified else 'draft'} {untrusted_text.show(item.title).text}")
+    return lines
+
+
+def _read_tree(root: Path) -> Dict[str, Item]:
+    items_dir = root / "items"
+    if not items_dir.is_dir() or items_dir.is_symlink():
+        raise QewError(f"{root}: no items directory (an exported tree holds items/ID.md files)", 2)
+    parsed: Dict[str, Item] = {}
+    lowered: Dict[str, str] = {}
+    for path in sorted(items_dir.iterdir(), key=lambda p: p.name):
+        name = path.name
+        if path.is_symlink():
+            raise QewError(f"{name}: is a symbolic link; import reads regular files only", 2)
+        if path.suffix != ".md" or not path.is_file():
+            raise QewError(f"{name}: is not a Markdown item file", 2)
+        if path.stat().st_size > MAX_FILE_BYTES:
+            raise QewError(f"{name}: exceeds {MAX_FILE_BYTES} bytes", 2)
+        try:
+            item = parse_item(path.read_text(encoding="utf-8"), name)
+        except QewError as error:
+            raise QewError(str(error), 2) from None
+        except (OSError, UnicodeError) as error:
+            raise QewError(f"{name}: cannot read: {error}", 2) from None
+        if item.id != path.stem:
+            raise QewError(f"{name}: header id {item.id} does not match the file name", 2)
+        problems = check_header_values(item)
+        if problems:
+            raise QewError(f"{name}: {problems[0]}", 2)
+        ledger_labels.require_valid(item.labels)
+        if item.id.lower() in lowered:
+            raise QewError(f"{name}: duplicate id (also {lowered[item.id.lower()]})", 2)
+        lowered[item.id.lower()] = name
+        parsed[item.id] = item
+    if not parsed:
+        raise QewError(f"{items_dir}: holds no item files", 2)
+    return parsed
