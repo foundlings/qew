@@ -101,10 +101,10 @@ def sort_cards(all_cards: Sequence[Card], spec: str = "priority") -> List[Card]:
     return sorted(ranked, key=lambda c: getattr(c, key), reverse=direction == "desc")
 
 
-def group_cards(snapshot: Snapshot, all_cards: Sequence[Card], key: str) -> List[Group]:
+def group_cards(snapshot: Snapshot, all_cards: Sequence[Card], key: str, columns: Sequence[str] = COLUMNS) -> List[Group]:
     """Sections for `key`. Every card lands in at least one section; a card with several labels lands in each."""
     if key == "column":
-        return by_column(all_cards)
+        return by_column(all_cards, columns)
     if key not in GROUP_KEYS:
         raise QewError(f"unknown group `{key}`; use one of {', '.join(GROUP_KEYS)}", 2)
     sections: Dict[str, List[Card]] = {}
@@ -125,17 +125,23 @@ def group_cards(snapshot: Snapshot, all_cards: Sequence[Card], key: str) -> List
 _FILTER_KEYS = ("label", "kind", "state", "priority", "owner", "epic", "parent", "status")
 
 
-def parse_filter(snapshot: Snapshot, expression: str):
-    """A predicate for space-separated `key:value` terms (all must match; commas in a value are alternatives)."""
+def filter_terms(expression: str) -> List[Tuple[str, List[str]]]:
+    """The syntax of a filter: (key, alternatives) per space-separated `key:value` term."""
     terms = []
     for term in expression.split():
         key, colon, value = term.partition(":")
         if not colon or key not in _FILTER_KEYS or not value:
             raise QewError(f"filter term `{term}` must be one of {', '.join(k + ':X' for k in _FILTER_KEYS)}", 2)
-        options = value.split(",")
-        if key in ("epic", "parent"):
-            options = [snapshot.ledger.resolve(option) for option in options]
-        terms.append((key, options))
+        terms.append((key, value.split(",")))
+    return terms
+
+
+def parse_filter(snapshot: Snapshot, expression: str):
+    """A predicate for the terms (all must match; commas in a value are alternatives)."""
+    terms = [
+        (key, [snapshot.ledger.resolve(o) for o in options] if key in ("epic", "parent") else options)
+        for key, options in filter_terms(expression)
+    ]
 
     def matches(card: Card) -> bool:
         values = {

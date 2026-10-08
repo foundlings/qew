@@ -33,6 +33,8 @@ def verb_for(arguments) -> Optional[str]:
         return arguments.draft_command
     if command == "project" and arguments.project_command == "ensure":
         return "board"
+    if command == "board" and arguments.board_command in ("create", "set"):
+        return "view"
     if command == "pr" and arguments.pr_command in ("open", "ready", "merge"):
         return f"pr-{arguments.pr_command}"
     if command == "land":

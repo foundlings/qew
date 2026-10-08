@@ -135,6 +135,13 @@ shape show: author id kind labels priority schema_version state title | blocks b
   appears under every label it carries and under `(none)` when it has no value for the key. `--filter` takes
   `label:X kind:X state:X priority:N owner:X epic:ID parent:ID status:X` (spaces and, commas or); an unknown key or a
   malformed term exits 2 naming the valid ones.
+- `qew board --name NAME`: use the named board file; bare `qew board` uses the file named `default` when there is
+  one. A board file's columns, sort, group and filter are the defaults; a flag replaces the one it names for that run.
+- `qew board create NAME [--columns A,B] [--sort K] [--group-by K] [--filter T]`: write `views/NAME.json` in the
+  ledger (one file per board, so branches merge). NAME is lowercase letters, digits and dashes; an existing name,
+  an unknown or repeated column or an invalid sort/group/filter exits 2 and writes nothing.
+- `qew board list`: one line per board file. `qew board set NAME [same options]`: change that file's defaults.
+  `qew check` fails a board file whose name differs from its file name or whose columns are unknown or repeated.
 - `qew board columns`: one `Column N` line per column.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close

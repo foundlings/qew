@@ -38,6 +38,7 @@ items/<ID>.md                   fixed header ended by `---`, then a Markdown bod
 events/<ID>/<EVENT-ID>.json     append-only facts; state is their fold
 mirrors/<ID>/<target>.json      one file per (item, mirror target)
 boards/<target>.json            board recorded by `qew project ensure`
+views/<name>.json               named offline board (`qew board create`)
 ```
 
 Header keys: `id kind title parent needs labels owner priority created`. Kinds: epic, issue, task. States:
@@ -73,7 +74,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 `docs/specs/commands.md`.
 
 - Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`, `qew inbox`
-- Board (offline kanban): `qew board`
+- Board (offline kanban): `qew board`, `qew board columns`, `qew board list`, `qew board create`, `qew board set`
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr check`, `qew pr ready`, `qew pr merge`, and `qew land` once one merged
@@ -85,7 +86,7 @@ Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--chains`, `--state`, `--change`, `--vcs`,
 `--reason`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
- `--compact`, `--sort`, `--group-by`, `--filter`, `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
+ `--compact`, `--name`, `--columns`, `--sort`, `--group-by`, `--filter`, `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 
