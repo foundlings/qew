@@ -5,7 +5,9 @@ An item reference is a full ID, the same ignoring case, or a unique prefix. Exit
 ledger or forge failure, 2 refusal or usage, 3 environment.
 
 ## Setup
-- `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml`.
+- `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml` once, at the repository
+  root (nearest `.git` or `.jj`; outside one, exit 2), atomically and never through a symlink (exit 2). Prints
+  `created PATH` lines plus the trust guidance; a rerun prints `already initialized` and changes nothing.
 - `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--json]`: wire agents (none = all; output order claude, codex, cursor, opencode).
 - `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--json]`: remove exactly Qew's entries.
 - `qew hook session-start --agent NAME`, `qew hook pre-tool --agent NAME`, `qew hook post-tool --agent NAME`:
