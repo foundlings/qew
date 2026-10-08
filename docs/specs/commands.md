@@ -56,7 +56,10 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
 - `qew check`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
-  evidence, malformed mirrors. Writes nothing; exit 1 on any problem.
+  evidence, malformed mirrors. Graph invariants, each named with its file and counted on a final
+  `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history or mirrors
+  of no item (orphans); a child whose `area:` labels share none with its parent's (cross_epic); a needs chain longer
+  than 20 edges, reported at its deepest item (depth); open work that needs a closed item (closed_needs). Writes nothing; exit 1 on any problem.
 
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]

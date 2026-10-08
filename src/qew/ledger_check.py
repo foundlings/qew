@@ -5,7 +5,7 @@ from pathlib import Path
 import tomllib
 from typing import Dict, List, Tuple
 
-from qew import ledger_graph, untrusted_text
+from qew import ledger_graph, ledger_invariants, untrusted_text
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
@@ -76,6 +76,7 @@ def check_report(ledger: Ledger):
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
     _check_claim_refs(snapshot, problems)
+    ledger_invariants.report(snapshot, problems)
     problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in text_findings(snapshot) for kind in kinds)
     return problems, ([f"imported without evidence: {imported}"] if imported else [])
 
