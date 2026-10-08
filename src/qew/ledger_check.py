@@ -5,7 +5,7 @@ from pathlib import Path
 import tomllib
 from typing import Dict, List
 
-from qew import ledger_graph
+from qew import ledger_graph, untrusted_text
 from qew.errors import QewError
 from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import State, fold, parse_event
@@ -56,6 +56,7 @@ def check_report(ledger: Ledger):
     imported = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
+    problems.extend(f"text_findings: {item_id} {kind}" for item_id, kinds in text_findings(snapshot) for kind in kinds)
     return problems, ([f"imported without evidence: {imported}"] if imported else [])
 
 
@@ -141,3 +142,12 @@ def _check_mirrors(ledger: Ledger, items: Dict[str, Item], problems: List[str]) 
             continue
         if not isinstance(value, dict) or any(key not in value for key in _MIRROR_KEYS):
             problems.append(f"{where}: a mirror needs {', '.join(_MIRROR_KEYS)}")
+
+
+def text_findings(snapshot: Snapshot):
+    """(item id, finding names) for every approved or claimed item whose title hides characters."""
+    return [
+        (item_id, untrusted_text.findings(item.title))
+        for item_id, item in snapshot.items.items()
+        if snapshot.folds[item_id].state in (State.APPROVED, State.CLAIMED) and untrusted_text.findings(item.title)
+    ]

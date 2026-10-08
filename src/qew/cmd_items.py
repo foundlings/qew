@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from typing import Callable, Dict, List, Optional
 
-from qew import ledger_config, ledger_graph, ledger_labels
+from qew import ledger_config, ledger_graph, ledger_labels, untrusted_text
 from qew.errors import QewError
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import Event, State, fold, parse_event
@@ -155,16 +155,18 @@ def row(snapshot: Snapshot, item_id: str) -> str:
     state = snapshot.folds[item_id].state
     owner = snapshot.folds[item_id].owner
     suffix = f" @{owner}" if owner else ""
-    return f"{snapshot.short(item_id)} {state.value if state else '?'} p{item.priority} {item.kind.value} {item.title}{suffix}"
+    return f"{snapshot.short(item_id)} {state.value if state else '?'} p{item.priority} {item.kind.value} {untrusted_text.show(item.title).text}{suffix}"
 
 
 def row_data(snapshot: Snapshot, item_id: str) -> dict:
     item = snapshot.items[item_id]
     folded = snapshot.folds[item_id]
+    hidden = untrusted_text.findings(item.title)
     return {
         "id": item_id,
         "kind": item.kind.value,
-        "title": item.title,
+        "title": None if hidden else item.title,
+        **({"text_findings": list(hidden)} if hidden else {}),
         "state": folded.state.value if folded.state else None,
         "owner": folded.owner,
         "priority": item.priority,
@@ -246,7 +248,7 @@ def show(config: Config, reference: str, as_json: bool) -> None:
         return
     print(f"id: {item_id}")
     print(f"kind: {item.kind.value}")
-    print(f"title: {item.title}")
+    print(f"title: {untrusted_text.show(item.title).text}")
     print(f"state: {data['state']}")
     if folded.owner:
         print(f"owner: {folded.owner}")

@@ -47,7 +47,7 @@ class UntrustedTextWalk(unittest.TestCase):
         self.assertEqual(data[0]["text_findings"], ["zero_width"])
         shown = self.world.run("show", self.item)
         self.assertIn("[title withheld: zero_width]", shown.stdout)
-        hook = self.world.run("hook", "session-start", "--agent", "claude")
+        hook = self.world.run("hook", "session-start", "--agent", "claude", stdin="{}")
         self.assertIn("title withheld: zero_width", hook.stdout)
 
     def test_bidi_and_control_titles_are_withheld_under_their_own_names(self) -> None:

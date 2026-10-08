@@ -2,6 +2,10 @@
 
 - Forge text (titles, bodies, labels, errors) is untrusted data: never evaluated, never used as a path,
   command or agent instruction. Error detail is truncated before it is shown.
+- Titles in command output (`src/qew/untrusted_text.py`) are flattened to one line, cut at 96 bytes plus an
+  ellipsis, and quoted once rewritten; a title with zero-width, bidirectional or control characters is
+  withheld (`[title withheld: zero_width]`, JSON `title: null` plus `text_findings`). `qew check` reports
+  `text_findings` for approved or claimed items. A runnable command is never printed beside a rewritten title.
 - Ledger files are validated on read: unknown header keys, malformed events, duplicate IDs, cycles and
   dangling edges fail loudly. Truncated or partial files are never guessed around.
 - Forge calls use bounded HTTP without redirects (a token cannot follow a redirect to another host);
