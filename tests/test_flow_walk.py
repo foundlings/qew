@@ -29,8 +29,8 @@ class FlowWalk(unittest.TestCase):
         self.assertEqual(w.run("evidence", item, "--change", sha).returncode, 0)
         done = w.run("complete", item)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual([e["type"] for e in w.events(item)], ["approved", "claimed", "evidence", "completed"])
-        self.assertEqual(w.events(item)[1]["owner"], "tester")
+        self.assertEqual([e["type"] for e in w.events(item)], ["drafted", "approved", "claimed", "evidence", "completed"])
+        self.assertEqual(w.events(item)[2]["owner"], "tester")
         self.assertIn("completed", w.run("show", item).stdout)
         self.assertEqual(w.run("ready").stdout, "")
 
@@ -131,13 +131,15 @@ class FlowWalk(unittest.TestCase):
     @unittest.skipUnless(jj_available(), "jj is not installed")
     def test_jujutsu_change_ids_resolve_against_the_target_bookmark(self) -> None:
         w = self.world
+        (w.code / ".git" / "info" / "exclude").write_text(".qew/\n")
         jj(w.code, "git", "init", "--colocate")
         jj(w.code, "bookmark", "set", "main", "-r", "@-", "--allow-backwards")
         item = started(w)
         jj(w.code, "new", "-m", "unmerged work")
         change = jj(w.code, "log", "--no-graph", "-r", "@", "-T", "change_id.short(12)")
         jj(w.code, "new", "main")
-        self.assertEqual(w.run("evidence", item, "--change", change).returncode, 0)
+        recorded = w.run("evidence", item, "--change", change)
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
         self.assertEqual(w.events(item)[-1]["vcs"], "jj")
         self.assertEqual(w.run("complete", item).returncode, 2)
         jj(w.code, "bookmark", "set", "main", "-r", change)

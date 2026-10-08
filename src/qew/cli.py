@@ -5,7 +5,7 @@ import json
 import sys
 from typing import List, Optional, Sequence
 
-from qew import cmd_draft, cmd_items, ledger_config
+from qew import cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
 from qew.errors import QewError
 
 
@@ -54,6 +54,19 @@ def _parser() -> argparse.ArgumentParser:
     blocked.add_argument("--json", action="store_true", help="machine-readable output")
     graph = commands.add_parser("graph", help="print dependency edges")
     graph.add_argument("--json", action="store_true", help="machine-readable output")
+
+    for name, text in (("start", "claim approved, unblocked work"), ("release", "give up a claim"),
+                       ("complete", "finish claimed work once the gate passes"), ("reopen", "reopen completed or closed work")):
+        sub = commands.add_parser(name, help=text)
+        sub.add_argument("item", help="item id or alias")
+    evidence = commands.add_parser("evidence", help="record the code changes that deliver an item")
+    evidence.add_argument("item", help="item id or alias")
+    evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
+    evidence.add_argument("--vcs", choices=["jj", "git"], help="override the detected VCS")
+    close = commands.add_parser("close", help="close work that will not be completed")
+    close.add_argument("item", help="item id or alias")
+    close.add_argument("--reason", required=True, help="not_planned, duplicate or superseded")
+    commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
 
     draft = commands.add_parser("draft", help="drafts and their release by a human")
     draft_commands = draft.add_subparsers(dest="draft_command", required=True)
@@ -136,6 +149,19 @@ def _run(arguments: argparse.Namespace) -> None:
         cmd_items.blocked(config, arguments.json)
     elif command == "graph":
         cmd_items.graph(config, arguments.json)
+    elif command in ("start", "release", "complete", "reopen"):
+        print(getattr(cmd_flow, command)(config, arguments.item))
+    elif command == "evidence":
+        print(cmd_flow.evidence(config, arguments.item, arguments.change, arguments.vcs))
+    elif command == "close":
+        print(cmd_flow.close(config, arguments.item, arguments.reason))
+    elif command == "check":
+        ledger = cmd_items.ledger_for(config)
+        problems = ledger_check.check(ledger)
+        if problems:
+            print("\n".join(problems))
+            raise QewError(f"{len(problems)} problem(s)", 1)
+        print(f"ok {len(ledger.item_ids())} items")
     elif command == "draft":
         if arguments.draft_command == "list":
             cmd_draft.list_drafts(config, arguments.json)
