@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import os
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -18,8 +19,27 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+_configured: Optional[str] = None
+
+
 def actor() -> str:
-    return os.environ.get("QEW_ACTOR") or os.environ.get("USER") or "unknown"
+    """Who is acting: QEW_ACTOR, else the configured VCS user name. Never the operating-system login."""
+    global _configured
+    named = os.environ.get("QEW_ACTOR")
+    if named:
+        return named
+    if _configured is None:
+        for argv in (["git", "config", "user.name"], ["jj", "config", "get", "user.name"]):
+            try:
+                result = subprocess.run(argv, capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False, timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if result.returncode == 0 and result.stdout.strip():
+                _configured = result.stdout.strip()
+                break
+    if not _configured:
+        raise QewError("no identity: run `git config user.name NAME` (or set QEW_ACTOR); qew never uses the OS login", 2)
+    return _configured
 
 
 @dataclass(frozen=True)

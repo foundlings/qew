@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from tests.ledger_harness import QUOTE, World, git
 
-NO_ACTOR = {"QEW_ACTOR": "", "USER": "os-login-name", "GIT_AUTHOR_NAME": "", "GIT_COMMITTER_NAME": ""}
+NO_ACTOR = {"QEW_ACTOR": "", "USER": "os-login-name", "GIT_AUTHOR_NAME": "887", "GIT_COMMITTER_NAME": "887"}
 
 
 class IdentityWalk(unittest.TestCase):
