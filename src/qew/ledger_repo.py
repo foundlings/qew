@@ -1,9 +1,11 @@
 """The ledger checkout as a VCS repository (git, or jj colocated): commit, fetch, push."""
 
+from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import subprocess
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from qew import ledger_lineage
 from qew.errors import QewError
@@ -13,13 +15,44 @@ OWNED = ("items", "events", "mirrors", "boards", "views", "proposals")
 SHOWN_CONFLICTS = 5
 
 
+MERGE_MARKER = "merge-conflict.json"  # in the ledger's local-only .qew/ cache
+MAX_DISCARDED_CHARS = 20_000
+
+
 def conflict_message(remote: str, files, path) -> str:
     """One short line: a few conflicting files and the count, never the whole list."""
     files = list(files)
     shown = ", ".join(files[:SHOWN_CONFLICTS]) or "unknown files"
     more = f" and {len(files) - SHOWN_CONFLICTS} more ({len(files)} files)" if len(files) > SHOWN_CONFLICTS else (f" ({len(files)} files)" if len(files) > 1 else "")
-    return (f"ledger conflict while merging {remote}: {shown}{more}; resolve it in {path} "
-            "(a conflict is a ledger bug; qew never resolves it)")
+    return (f"ledger conflict while merging {remote}: {shown}{more}; see `qew conflicts`, then "
+            f"`qew resolve ledger --take ours|theirs --reason TEXT` (or resolve it by hand in {path}); qew never picks a side itself")
+
+
+class LedgerConflict(QewError):
+    """The remote and the local ledger changed the same file differently and cannot merge."""
+
+    def __init__(self, remote: str, files: Sequence[str], path: Path, ours: str, theirs: str) -> None:
+        super().__init__(conflict_message(remote, files, path), 1)
+        self.remote = remote
+        self.files = list(files)
+        self.ours = ours
+        self.theirs = theirs
+
+
+@dataclass(frozen=True)
+class MergeConflict:
+    """What the last failed merge left behind: the files and the two commits that disagree."""
+    remote: str
+    files: tuple
+    ours: str
+    theirs: str
+
+
+@dataclass(frozen=True)
+class Resolution:
+    """A settled merge: the files it touched and the text of the side that was not kept (None: absent there)."""
+    took: str
+    discarded: Dict[str, Optional[str]]
 
 
 def only_mirrors(files) -> bool:
@@ -108,12 +141,126 @@ class LedgerRepo:
 
     # -- replication (best effort; the caller decides what a failure means)
     def fetch_merge(self, timeout: float) -> str:
-        """Bring remote commits in. Returns `ok`, `no-remote` or `offline`; a real conflict raises."""
+        """Bring remote commits in. Returns `ok`, `no-remote` or `offline`; a real conflict raises `LedgerConflict`."""
         if not self.has_remote():
             return "no-remote"
+        try:
+            result = self._git_fetch_merge(timeout) if self.vcs == "git" else self._jj_fetch_merge(timeout)
+        except LedgerConflict as conflict:
+            self._marker().parent.mkdir(exist_ok=True)
+            self._marker().write_text(json.dumps({"remote": conflict.remote, "files": conflict.files,
+                                                  "ours": conflict.ours, "theirs": conflict.theirs}), encoding="utf-8")
+            raise
+        if result == "ok":
+            self._marker().unlink(missing_ok=True)
+        return result
+
+    # -- a merge conflict agents settle with `qew resolve ledger`
+    def _marker(self) -> Path:
+        return self.path / ".qew" / MERGE_MARKER
+
+    def pending_conflict(self) -> Optional[MergeConflict]:
+        """The unresolved merge conflict recorded by the last failed fetch, or None (also when it was merged since)."""
+        try:
+            data = json.loads(self._marker().read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as error:
+            raise QewError(f"{self._marker()} is unreadable: {error}", 1) from None
+        found = MergeConflict(data["remote"], tuple(data["files"]), data["ours"], data["theirs"])
+        if self._contains(found.theirs):
+            self._marker().unlink(missing_ok=True)
+            return None
+        return found
+
+    def _contains(self, commit: str) -> bool:
+        """Whether the checked-out ledger already has `commit` in its history."""
         if self.vcs == "git":
-            return self._git_fetch_merge(timeout)
-        return self._jj_fetch_merge(timeout)
+            return self.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], check=False).returncode == 0
+        return bool(self._jj_ids(f"{commit} & ::@"))  # not the bookmark: a diverged bookmark lists the remote tip as a side
+
+    def file_at(self, revision: str, relative: str) -> Optional[str]:
+        """The text of a ledger file at a commit, or None when that commit has no such file."""
+        argv = (["git", "show", f"{revision}:{relative}"] if self.vcs == "git"
+                else ["jj", "--no-pager", "file", "show", "-r", revision, relative])
+        shown = self.run(argv, check=False)
+        return shown.stdout if shown.returncode == 0 else None
+
+    def resolve_merge(self, take: str, timeout: float) -> Resolution:
+        """Merge the remote now, settling every conflicted file by taking `ours` or `theirs` whole.
+
+        Only ledger-owned files are ever settled; a conflict anywhere else aborts the merge untouched. The text of
+        the side not kept is returned so the caller can record it (it also stays in the merge's other parent).
+        """
+        if take not in ("ours", "theirs"):
+            raise QewError(f"a ledger merge is settled with ours or theirs, not {take}", 2)
+        if not self.has_remote():
+            raise QewError("no ledger merge conflict: the ledger has no remote", 2)
+        if self.vcs == "git":
+            return self._git_resolve(take, timeout)
+        return self._jj_resolve(take, timeout)
+
+    def _foreign(self, files: Sequence[str]) -> List[str]:
+        return [f for f in files if f.split("/")[0] not in OWNED]
+
+    def _refuse_unowned(self, foreign: Sequence[str]) -> QewError:
+        return QewError(f"{', '.join(foreign)} is not a file qew owns; qew never settles it: resolve it by hand in {self.path}", 2)
+
+    def _git_resolve(self, take: str, timeout: float) -> Resolution:
+        remote = f"origin/{self.branch}"
+        self.run(["git", "fetch", "-q", "origin"], timeout=timeout, check=False)
+        self.run(["git", "merge", "-q", "--no-commit", "--no-ff", remote], check=False)
+        files = self.run(["git", "diff", "--name-only", "--diff-filter=U"], check=False).stdout.split()
+        if not files:
+            self.run(["git", "merge", "--abort"], check=False)
+            self._marker().unlink(missing_ok=True)
+            raise QewError("no ledger merge conflict to resolve", 2)
+        foreign = self._foreign(files)
+        if foreign:
+            self.run(["git", "merge", "--abort"], check=False)
+            raise self._refuse_unowned(foreign)
+        discarded: Dict[str, Optional[str]] = {}
+        other_stage, kept_flag = (":3", "--ours") if take == "ours" else (":2", "--theirs")
+        for relative in files:
+            shown = self.run(["git", "show", f"{other_stage}:{relative}"], check=False)
+            discarded[relative] = shown.stdout if shown.returncode == 0 else None
+            checked = self.run(["git", "checkout", kept_flag, "--", relative], check=False)
+            if checked.returncode == 0:
+                self.run(["git", "add", "--", relative])
+            else:  # the kept side deleted the file
+                self.run(["git", "rm", "-q", "-f", "--", relative])
+        self.run(["git", "commit", "-q", "--no-edit", "-m", f"qew: merge (conflict resolved: took {take}: {', '.join(files)})"])
+        self._marker().unlink(missing_ok=True)
+        return Resolution(take, discarded)
+
+    def _jj_resolve(self, take: str, timeout: float) -> Resolution:
+        self.run(["jj", "--no-pager", "git", "fetch"], timeout=timeout, check=False)
+        remote = self._jj_ids(f'remote_bookmarks(exact:"{self.branch}", exact:"origin")')
+        sides = self._jj_ids(f'bookmarks(exact:"{self.branch}")')
+        if not remote or not sides:
+            raise QewError("no ledger merge conflict to resolve", 2)
+        tip = remote[0]
+        local = [x for x in sides if x != tip]
+        if not local or self._jj_ids(f"{tip} & ::{local[0]}"):
+            self._marker().unlink(missing_ok=True)
+            raise QewError("no ledger merge conflict to resolve", 2)
+        self.run(["jj", "--no-pager", "new", *local, tip, "-m", f"qew: merge (conflict resolved: took {take})"])
+        files = [line.split()[0] for line in self.run(["jj", "--no-pager", "resolve", "--list"], check=False).stdout.splitlines() if line.strip()]
+        if not files:
+            self.run(["jj", "--no-pager", "undo"], check=False)
+            self._marker().unlink(missing_ok=True)
+            raise QewError("no ledger merge conflict to resolve", 2)
+        foreign = self._foreign(files)
+        if foreign:
+            self.run(["jj", "--no-pager", "undo"], check=False)
+            raise self._refuse_unowned(foreign)
+        dropped = tip if take == "ours" else local[0]
+        discarded = {relative: self.file_at(dropped, relative) for relative in files}
+        self.run(["jj", "--no-pager", "resolve", "--tool", ":ours" if take == "ours" else ":theirs"])
+        self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@"])
+        self.run(["jj", "--no-pager", "new"])
+        self._marker().unlink(missing_ok=True)
+        return Resolution(take, discarded)
 
     def _git_fetch_merge(self, timeout: float) -> str:
         try:
@@ -142,7 +289,9 @@ class LedgerRepo:
                 self.run(["git", "commit", "-q", "--no-edit", "-m", "qew: merge (mirror bookkeeping taken from the remote)"])
                 return "ok"
             self.run(["git", "merge", "--abort"], check=False)
-            raise QewError(conflict_message(remote, files, self.path), 1)
+            ours = self.run(["git", "rev-parse", "HEAD"]).stdout.strip()
+            theirs = self.run(["git", "rev-parse", remote]).stdout.strip()
+            raise LedgerConflict(remote, files, self.path, ours, theirs)
         return "ok"
 
     def _refuse_foreign(self, remote_file: subprocess.CompletedProcess, remote: str) -> None:
@@ -189,7 +338,7 @@ class LedgerRepo:
                 self.run(["jj", "--no-pager", "resolve", "--tool", ":theirs"])
             else:
                 self.run(["jj", "--no-pager", "undo"], check=False)
-                raise QewError(conflict_message(f"{self.branch}@origin", files, self.path), 1)
+                raise LedgerConflict(f"{self.branch}@origin", files, self.path, local[0], tip)
         self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@"])
         self.run(["jj", "--no-pager", "new"])
         return "ok"

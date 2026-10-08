@@ -290,6 +290,13 @@ def _route(
         items = [{"id": i, "name": n, **{"color": "ededed", "description": "", **fake.label_meta.get(n, {})}} for i, n in fake.labels.items()]
         return _page(fake, items, params)
     match = re.match(_BASE + r"/labels/(\d+)$", path)
+    if match and method == "PATCH":
+        label_id = int(match.group(1))
+        if label_id not in fake.labels:
+            raise _Reply(404, "label not found")
+        meta = fake.label_meta.setdefault(fake.labels[label_id], {"color": "ededed", "description": ""})
+        meta.update({key: payload[key] for key in ("color", "description") if key in payload})
+        return ok({"id": label_id, "name": fake.labels[label_id], **meta})
     if match and method == "DELETE":
         label_id = int(match.group(1))
         if label_id not in fake.labels:

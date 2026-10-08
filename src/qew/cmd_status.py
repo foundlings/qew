@@ -4,7 +4,7 @@ import json
 import time
 from typing import Optional
 
-from qew import claim_reconcile, instants, ledger_config, pull_cursor, syncworker
+from qew import claim_reconcile, instants, ledger_config, ledger_conflicts, pull_cursor, syncworker
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.ledger_config import Config
@@ -92,6 +92,7 @@ def collect(config: Config) -> dict:
             "lost": [{"item": item_id, "winner": winner} for item_id, winner in claim_reconcile.lost_provisional_claims(snapshot)],
         },
         "divergences": divergences,
+        "conflicts": len(ledger_conflicts.collect(config, snapshot)),
         "sync": {"retry_after": max(0, int(syncworker.retry_at(config) - time.time()))},
     }
 
@@ -111,6 +112,8 @@ def render(data: dict) -> str:
     for claim in data["claims"]["lost"]:
         lines.append(f"claim {claim['item']} lost winner={claim['winner']} (offline claim dropped; talk to the holder)")
     lines.append(f"divergences={len(data['divergences'])}")
+    if data["conflicts"]:
+        lines.append(f"conflicts={data['conflicts']}: run `qew conflicts`, then `qew resolve REF --take SIDE --reason TEXT`")
     shown = data["divergences"][:SHOWN_DIVERGENCES]
     for d in shown:
         lines.append(f"divergence {d['id']} {d['item']} {d['field']} forge={d['forge']} ledger={d['ledger']}")

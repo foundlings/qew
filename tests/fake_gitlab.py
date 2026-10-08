@@ -342,6 +342,12 @@ class FakeGitLab:
             return 204, b"", {}
         if method == "GET":
             return self._page(sorted(project.labels, key=lambda x: x["id"]), query)
+        if method == "PUT":
+            found = next((x for x in project.labels if tail and str(x["id"]) == tail[0]), None)
+            if found is None:
+                return 404, {"message": "404 Label Not Found"}, {}
+            found.update({key: body[key] for key in ("color", "description") if key in body})
+            return 200, found, {}
         if any(x["name"] == body["name"] for x in project.labels):
             return 409, {"message": "Label already exists"}, {}
         if self.drop_label_creates:

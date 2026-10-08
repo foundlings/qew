@@ -119,9 +119,13 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   must implement the same endpoints and honor failure injection (`down`, `fail`, `delay` where the fake has them).
   `RemoteIssue.comments` carries the forge's own user-comment count (GitHub and Forgejo `comments`, GitLab
   `user_notes_count`, which excludes system notes) in every issue result; 0 only when the forge reports none.
-- Labels: before an issue write, a backend lists the labels the repository has and creates only the missing ones, with the
-  neutral colour `ededed` and the description `Managed by qew`; an existing label is never recoloured, re-described or
-  deleted. A create that is not visible afterwards fails that item (`LabelNotPersisted`, reported against it).
+- Labels: before an issue write, a backend lists the labels the repository has and creates the missing ones with the description
+  `Managed by qew` and a colour: `P0` d73a4a, `P1` fb8500, `P2` fbca04, `P3` 2da44e, `P4` 8b949e (the Priority field colours),
+  `epic` 5319e7, `task` 006b75, `qew:` bfdadc, `status:` c2e0c6, `author:` d4c5f9, and for any other label (`area:*`,
+  `drive`, ...) a fixed palette entry chosen by a checksum of the name, so every machine paints it the same. The same list
+  repaints existing labels once per run: qew's own labels are held to the palette (colour and description); any other label
+  is repainted only while it still has a default colour (`ededed`, empty, `000000`, GitLab's `428bca`) and keeps its description;
+  a colour a human picked is never overwritten and no label is ever renamed or deleted here. A create that is not visible afterwards fails that item (`LabelNotPersisted`, reported against it).
 - `read_board_cards(board)` lists every card (id, repository, issue number, Status, Priority) or raises `Unsupported`; a listing
   past the page cap raises instead of truncating. `qew.board_cards.local_cards` is the one reading rule: cards of another
   repository are ignored (a shared board's numbers collide), one card id seen twice is a pagination overlap, two ids for one

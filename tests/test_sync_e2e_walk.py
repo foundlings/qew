@@ -41,7 +41,8 @@ class SyncE2eWalk(unittest.TestCase):
         w.run("set", item, "--title", "Ship it now")
         self.sync()
         self.assertEqual(self.fake.issues[1]["title"], "Ship it now")
-        self.assertIn("qew:draft", self.fake.issue_labels(1))
+        self.assertIn("P2", self.fake.issue_labels(1))
+        self.assertNotIn("qew:draft", self.fake.issue_labels(1))
 
     def test_a_down_forge_fails_loudly_leaves_no_mirror_and_never_blocks_offline_work(self) -> None:
         w = self.world

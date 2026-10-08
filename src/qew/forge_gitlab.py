@@ -8,10 +8,9 @@ import re
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
 from urllib.parse import quote, urlencode
 
-from qew import forge_http
+from qew import forge_http, label_style
 from qew.forge import (
     is_dead_twin,
-    LABEL_COLOR,
     LABEL_DESCRIPTION,
     LabelNotPersisted,
     Milestone,
@@ -295,10 +294,11 @@ class GitLab(Forge):
     def _ensure_issue_labels(self, wanted: Tuple[str, ...]) -> None:
         """Create the project labels that are missing (neutral, never touching an existing one) and confirm them."""
         _csv(wanted)  # refuses an unusable label name before any request
-        known = {name for name, _ in self._label_ids()}
+        known = self._repaint_managed_labels()
         missing = [name for name in dict.fromkeys(wanted) if name not in known]
         for name in missing:
-            self._create_label(name, "#" + LABEL_COLOR)
+            style = label_style.style_of(name)
+            self._create_label(name, "#" + style.color, style.description)
         if missing:
             present = {name for name, _ in self._label_ids()}
             absent = [name for name in missing if name not in present]
@@ -407,9 +407,23 @@ class GitLab(Forge):
                 self._call("DELETE", f"{self._project}/labels/{label_id}")
                 return
 
-    def _create_label(self, name: str, color: str = _LABEL_COLOR) -> int:
+    def _repaint_managed_labels(self) -> set:
+        """Names of the project's labels; those missing the palette or still default-coloured are repainted, a human's pick stays."""
+        names = set()
+        for raw in self._pages(f"{self._project}/labels", {}):
+            label = _object(raw, "label")
+            name = _field(label, "name", str)
+            names.add(name)
+            description = label.get("description")
+            wanted = label_style.repaint(name, _field(label, "color", str), description if isinstance(description, str) else "")
+            if wanted is not None:
+                self._call("PUT", f"{self._project}/labels/{_field(label, 'id', int)}",
+                           payload={"color": "#" + wanted.color, "description": wanted.description})
+        return names
+
+    def _create_label(self, name: str, color: str = _LABEL_COLOR, description: str = LABEL_DESCRIPTION) -> int:
         data, _ = self._call("POST", f"{self._project}/labels",
-                             payload={"name": name, "color": color, "description": LABEL_DESCRIPTION})
+                             payload={"name": name, "color": color, "description": description})
         return _field(_object(data, "label"), "id", int)
 
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:

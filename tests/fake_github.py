@@ -557,6 +557,13 @@ class _Handler(BaseHTTPRequestHandler):
             issue["labels"] = [x for x in issue["labels"] if x != unquote(name)]
         self._send(204, b"")
 
+    def _patch_label(self, name: str, query: Dict[str, List[str]], body: Any) -> None:
+        stored = self.fake.label_store.get(unquote(name))
+        if stored is None:
+            return self._send(404, {"message": "Not Found"})
+        stored.update({key: body[key] for key in ("color", "description") if key in body})
+        self._send(200, {"name": unquote(name), **stored})
+
     def _post_labels(self, query: Dict[str, List[str]], body: Any) -> None:
         if body["name"] in self.fake.label_store:
             return self._send(422, {"message": "already_exists"})

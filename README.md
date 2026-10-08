@@ -13,7 +13,7 @@ being down never blocks reading, planning or finishing work.
 - Only a human's quoted words release a draft to approved work.
 - Replication: every write commits to the ledger, pushes it and syncs the forges in a background worker; checkouts on
   several machines converge, and a forge can be the single authority for who owns what.
-- `qew sync` mirrors issues, labels, dependencies, pull requests and project boards to each forge, and pulls forge-side
+- `qew sync` mirrors issues, labels (coloured; priorities `P0`..`P4`, plain `epic`/`task`, `author:NAME`), dependencies, pull requests and project boards to each forge, and pulls forge-side
   edits back (only what changed since the last pull, deletions included); a state change made on a forge is a
   divergence a human settles with `qew accept` / `qew reject`.
 - Claude, Codex, Cursor and opencode hooks prime sessions and refuse forge-side bypasses.
@@ -111,7 +111,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew block`, `qew unblock`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open` (adopts an orphan pull request already open on its head), `qew pr check`, `qew pr ready`, `qew pr close`, `qew pr merge` (deletes the merged head branch), `qew land` once one merged, and `qew branch` (group), `qew branch prune` (`--base`, `--dry-run`) to clear the backlog of merged branches
-- Mirrors: `qew sync`, `qew mirror` (group), `qew mirror add`, `qew mirror remove`, `qew mirror list`, `qew forge` (group), `qew forge migrate`, `qew status`, `qew accept`, `qew reject`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`, `qew project status`, `qew project prune`
+- Mirrors: `qew sync`, `qew mirror` (group), `qew mirror add`, `qew mirror remove`, `qew mirror list`, `qew forge` (group), `qew forge migrate`, `qew status`, `qew accept`, `qew reject`, `qew conflicts`, `qew resolve`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`, `qew project status`, `qew project prune`
 - Setup: `qew --version`, `qew init`, `qew ledger` (group), `qew ledger fork`, `qew hook install`, `qew hook remove`
 
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`), `qew hook vcs-check`.

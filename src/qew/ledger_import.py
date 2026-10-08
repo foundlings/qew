@@ -10,7 +10,7 @@ sync, which recreates issues (adopting by marker after a crash), links and board
 import re
 from typing import Dict, List, Optional, Tuple
 
-from qew import sync_plan
+from qew import label_style, sync_plan
 from qew.forge import ForgeError, MARKER_PREFIX, RemoteIssue, Unsupported
 from qew.forge_pull import PullReport, clean_body, clean_labels, clean_line, pull_target
 from qew.ledger_ids import valid_id
@@ -21,6 +21,14 @@ _MARKER = re.compile(r"<!-- " + re.escape(MARKER_PREFIX) + r"([A-Za-z0-9][A-Za-z
 _FOOTER = re.compile(r"^(\S+) · (\w+) · (\w+)$")
 _LINK = re.compile(r"#(\d+)")
 RESTORED_QUOTE = "forge-import: restored from the forge's qew state label"
+
+
+def _priority_of(labels) -> str:
+    """The item priority from a `P0`..`P4` label, else from the retired `priority:N` spelling, else normal (2)."""
+    for label in labels:
+        if label_style.is_priority(label):
+            return label[1:]
+    return _managed(labels, "priority:") or "2"
 
 
 def _managed(labels, prefix: str) -> Optional[str]:
@@ -98,7 +106,7 @@ def import_target(ledger: Ledger, target, history: bool = False) -> PullReport:
 def _restore_item(ledger: Ledger, target, report: PullReport, issue: RemoteIssue, item_id: str,
                   footer: Tuple[str, str, str], history: bool) -> str:
     state, kind = footer[1], footer[2]
-    priority = _managed(issue.labels, "priority:") or "2"
+    priority = _priority_of(issue.labels)
     labels = clean_labels(sync_plan.user_labels(issue.labels))
     item = from_header({
         "id": item_id, "kind": kind if kind in [k.value for k in Kind] else "issue",

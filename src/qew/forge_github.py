@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
 from urllib.parse import quote
 
+from qew import label_style
 from qew.forge import (
     is_dead_twin,
     BOARD_VIEWS,
@@ -29,8 +30,6 @@ from qew.forge import (
     RemoteComment,
     RemoteIssue,
     RemotePullRequest,
-    LABEL_COLOR,
-    LABEL_DESCRIPTION,
     Card,
     LabelNotPersisted,
     Milestone,
@@ -529,11 +528,25 @@ class GitHub(Forge):
                 break  # one page of the newest issues: the lookup after a write must not grow with the repository
         return min(matches, key=lambda found: found.number) if matches else None
 
-    def _repo_labels(self) -> set:
-        names = set()
+    def _repo_label_looks(self) -> Dict[str, Tuple[str, str]]:
+        """Every label defined in the repository with its colour and description."""
+        found: Dict[str, Tuple[str, str]] = {}
         for page in self._wire.pages(f"{self._repo_path}/labels?per_page=100"):
-            names.update(_str(_obj(entry, "label"), "name", "label") for entry in _array(page, "label list"))
-        return names
+            for entry in _array(page, "label list"):
+                label = _obj(entry, "label")
+                found[_str(label, "name", "label")] = (_nullable_str(label, "color", "label"), _nullable_str(label, "description", "label"))
+        return found
+
+    def _repo_labels(self) -> set:
+        return set(self._repo_label_looks())
+
+    def _restyle(self, looks: Dict[str, Tuple[str, str]]) -> None:
+        """Repaint labels that miss the palette or still have the neutral default colour; a colour a human picked stays."""
+        for name, (colour, description) in looks.items():
+            wanted = label_style.repaint(name, colour, description)
+            if wanted is not None:
+                self._wire.rest("PATCH", f"{self._repo_path}/labels/{quote(name, safe='')}",
+                                {"color": wanted.color, "description": wanted.description})
 
     def list_repo_labels(self) -> List[str]:
         return sorted(self._repo_labels())
@@ -558,16 +571,20 @@ class GitHub(Forge):
         self._known_labels.discard(name)
 
     def _ensure_labels(self, wanted: Tuple[str, ...]) -> None:
-        """Create the labels the repository lacks (neutral, never touching an existing one) and confirm they exist."""
+        """Create the labels the repository lacks (qew's own in the palette, a human's neutral), repaint qew's own that
+        are not in the palette, never touch another existing label, and confirm the new ones exist."""
         missing = [name for name in dict.fromkeys(wanted) if name not in self._known_labels]
         if not missing:
             return
-        self._known_labels = self._repo_labels()
+        looks = self._repo_label_looks()
+        self._known_labels = set(looks)
+        self._restyle(looks)
         missing = [name for name in missing if name not in self._known_labels]
         for name in missing:
             try:
+                style = label_style.style_of(name)
                 self._wire.rest("POST", f"{self._repo_path}/labels",
-                                {"name": name, "color": LABEL_COLOR, "description": LABEL_DESCRIPTION})
+                                {"name": name, "color": style.color, "description": style.description})
             except ForgeRejected as error:
                 if error.status != 422:  # 422: it appeared in the meantime, which is fine
                     raise

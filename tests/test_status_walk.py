@@ -68,7 +68,7 @@ class StatusWalk(unittest.TestCase):
                 {"type": "forge_divergence", "at": "2026-01-01T00:00:00Z", "actor": "x", "target": "t", "field": "labels",
                  "forge": f"v{n}", "ledger": "v"}))
         text = self.status()
-        self.assertLessEqual(len(text.strip().splitlines()), 15)
+        self.assertLessEqual(len(text.strip().splitlines()), 16)  # the cap, plus the `conflicts=N: run qew conflicts` pointer
         self.assertIn("15 more", text)
         self.assertEqual(len(json.loads(self.status("--json"))["divergences"]), 25)
 

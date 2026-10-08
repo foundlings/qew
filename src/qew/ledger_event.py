@@ -45,6 +45,8 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     "forge_divergence": (("target", "field"), tuple(State)),
     "divergence_accepted": (("ref",), tuple(State)),
     "divergence_rejected": (("ref",), tuple(State)),
+    # A ledger merge conflict settled by taking one side (qew resolve ledger): the other side is kept in `discarded`.
+    "conflict_resolved": (("took", "reason"), tuple(State)),
     # Claim arbitration (docs/specs/ledger.md, Authority and topology).
     "claim_confirmed": (("ref",), tuple(State)),
     "claim_lost": (("ref",), tuple(State)),
