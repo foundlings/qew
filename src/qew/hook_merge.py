@@ -37,10 +37,10 @@ def reminder(command: str, cwd: Optional[Path], build: Build = forge_registry.bu
                     f"taking it over is `qew start {item_id} --take-over --reason TEXT`."
                 )
             elif folded.evidence:
-                lines.append(f"qew: pr #{number} is merged; finish {item_id} with `qew complete {item_id}`.")
+                lines.append(f"qew: pr #{number} is merged; {item_id}: evidence recorded; `qew complete {item_id}`, or `qew land {number}` for all.")
             else:
                 lines.append(
-                    f"qew: pr #{number} is merged; record `qew evidence {item_id}`, then `qew complete {item_id}`."
+                    f"qew: pr #{number} is merged; record `qew evidence {item_id}`, then `qew complete {item_id}` (or `qew land {number}`)."
                 )
     return "\n".join(lines) or None
 
