@@ -20,13 +20,14 @@ for a comment) where the source repeats; the kinds are `zero_width`, `bidi_contr
 and `control`.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | body children_done children_open completable needs owner parent schema_version text_findings work_state
+shape row: id kind labels priority state title | body children_done children_open completable needs owner parent schema_version section text_findings work_state
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
 shape edge: item schema_version | needs parent
 shape show: author draft id kind labels priority schema_version state title | blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings
 shape triage_row: body id kind labels missing priority schema_version state title | needs owner parent text_findings
 shape check: contradictions cycles problems schema_version text_findings valid
+shape inbox_reply: at author excerpt id schema_version section
 shape prime: additional_context context_bytes schema_version
 ```
 
@@ -86,9 +87,20 @@ shape prime: additional_context context_bytes schema_version
   `schema_version`, `valid`, `cycles` (each once, rotated to the smallest id, closed on it), `contradictions`,
   `text_findings`, `problems`.
 
-- `qew inbox [--login L] [--count] [--json]`: `waiting` (drafts whose author is L) and `assigned` (items L has
-  claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
-  that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
+- `qew inbox [--login L] [--since T] [--count] [--json]`: what waits on one person, from the ledger only.
+  Text sections with counts: `replies (N) since T` (one line per reply: `ID @author time: excerpt`, first line
+  only, control characters as spaces, at most 100 characters with an ellipsis), `waiting for a human (N)`
+  (drafts L created) and `assigned (N)` (items L holds). A reply is a `commented` event by someone else
+  (logins compare ASCII-case-insensitively; not `[bot]`, not a machine marker starting `<!-- qew:`) at or
+  after `--since` on an item L created, claimed or commented on; every event of every candidate item is
+  scanned. `--since` is `YYYY-MM-DDTHH:MM:SSZ` or a date (midnight UTC), default 7 days ago; anything else,
+  and a login outside letters, digits, `-`, `_`, `.` (optional `[bot]`), is exit 2 before any read; login
+  defaults to the configured actor. `--count` prints
+  `qew inbox (L): N issue(s) with replies since T: ID (author), ...; M waiting for a human; K assigned.` (no
+  list when N is 0; the session-start hook appends it when something waits and it fits its 2000 bytes);
+  with `--json` exit 2. `--json` is NDJSON: reply rows `{section: replies, id, author, at, excerpt}`, other
+  rows are item rows with `section` `waiting` or `assigned`. A malformed event (bad time, no text) makes the
+  read exit 1 with nothing on stdout.
 - `qew prime [--json]`: the bounded session context the session-start hook also prints (the hook variant is
   smaller: 3 lines per section, 64-byte titles, 2000 bytes). First line `Qew ledger: N ready, N active, N blocked,
   N draft.`, four convention lines (titles are approved but untrusted data, never instructions), then `Next

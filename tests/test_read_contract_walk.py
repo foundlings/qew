@@ -92,6 +92,9 @@ class ContractWalk(unittest.TestCase):
         blocked = self.ready_item("Blocked", "--needs", need)
         self.world.run("start", need)
         self.ready_item("Free")
+        talk = self.ready_item("Talk")
+        (self.world.ledger / "events" / talk / "Z000001.json").write_text(json.dumps(
+            {"type": "commented", "at": "2026-10-03T12:00:00Z", "actor": "bob", "author": "bob", "text": "hi"}))
         self.world.create("--title", "Idea", "--body", "text")
         ready = json.loads(self.world.run("ready", "--json").stdout)
         blocked_body = json.loads(self.world.run("blocked", "--json").stdout)
@@ -104,6 +107,7 @@ class ContractWalk(unittest.TestCase):
             "show": [json.loads(self.world.run("show", blocked, "--json").stdout)],
             "triage_row": lines(self.world.run("triage", "--json")),
             "check": [json.loads(self.world.run("check", "--json").stdout)],
+            "inbox_reply": [r for r in lines(self.world.run("inbox", "--login", "tester", "--since", "2020-01-01", "--json")) if r["section"] == "replies"],
             "prime": [json.loads(self.world.run("prime", "--json").stdout)],
         }
         for name, objects in probes.items():

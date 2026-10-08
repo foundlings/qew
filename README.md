@@ -90,7 +90,7 @@ Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`,
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 
-Read flags: `--limit`, `--owner`, `--work-state`, `--bodies`, `--search`.
+Read flags: `--limit`, `--owner`, `--work-state`, `--bodies`, `--search`, `--since`.
 
 Session context: `qew prime` prints what the session-start hook prints, for agents without hooks.
 
