@@ -8,6 +8,7 @@ from qew import blocked_chains, ledger_author, graph_render, untrusted_text, cmd
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
+from qew.ledger_item import Kind
 from qew.ledger_ids import sort_key
 from qew.ledger_store import Snapshot
 
@@ -158,23 +159,75 @@ def graph(snapshot: Snapshot, as_json: bool, form: Optional[str] = None) -> None
     print(graph_render.RENDERERS[form or "text"](snapshot), end="")
 
 
+def _plain(text: str) -> str:
+    """`text` with control characters other than newline replaced by spaces, for a terminal."""
+    return "".join(" " if (ord(c) < 0x20 and c != "\n") or 0x7F <= ord(c) <= 0x9F else c for c in text)
+
+
+def _comments(snapshot: Snapshot, item_id: str) -> List[dict]:
+    found = [e for e in sorted(snapshot.events[item_id], key=lambda e: e.id) if e.type == "commented"]
+    return [
+        {"index": number, "author": e.get("author") or e.actor, "at": e.at, "text": e.get("text")}
+        for number, e in enumerate(found, 1)
+    ]
+
+
+def _epic_facts(snapshot: Snapshot, item_id: str, kids: List[str]) -> dict:
+    """Draft count, the next workable child and the completion command (None unless it would be accepted)."""
+    progress = read_view.epic_progress(snapshot, item_id)
+    claimed = snapshot.folds[item_id].state == State.CLAIMED
+    ready = [k for k in ledger_graph.ready(snapshot) if snapshot.items[k].parent == item_id]
+    facts: dict = {
+        "children_drafts": sum(1 for k in kids if snapshot.folds[k].state in (None, State.DRAFT)),
+        "complete_command": f"qew complete {item_id}" if claimed and progress["completable"] else None,
+    }
+    if ready:
+        first = snapshot.items[ready[0]]
+        hidden = untrusted_text.findings(first.title)
+        facts["next"] = {"id": ready[0], "priority": first.priority, "title": None if hidden else first.title}
+    return facts
+
+
+def _progress_text(snapshot: Snapshot, item_id: str, kids: List[str], facts: dict, draft: bool) -> str:
+    """`C/T completed[, D drafts]` over the children that are not closed, plus `(draft epic)`."""
+    states = [snapshot.folds[k].state for k in kids]
+    text = f"{states.count(State.COMPLETED)}/{len([s for s in states if s != State.CLOSED])} completed"
+    if facts["children_drafts"]:
+        text += f", {facts['children_drafts']} drafts"
+    return text + (" (draft epic)" if draft else "")
+
+
 def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> None:
     ledger = snapshot.ledger
     item_id = ledger.resolve(reference, list(snapshot.items))
     item = snapshot.items[item_id]
     folded = snapshot.folds[item_id]
+    draft = folded.state in (None, State.DRAFT)
     kids = ledger_graph.children(snapshot).get(item_id, [])
     blocks = ledger_graph.blocks(snapshot).get(item_id, [])
     mirrors = [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in ledger.load_mirrors(item_id)]
     evidence = [event.data for event in folded.evidence]
+    comments = _comments(snapshot, item_id)
+    epic = _epic_facts(snapshot, item_id, kids) if item.kind == Kind.EPIC else {}
     data = read_view.row_data(snapshot, item_id, progress=True)
     data["author"] = ledger_author.author(snapshot, item_id) or "unknown"
-    for key, value in (("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body)):
+    data["draft"] = draft
+    data.update(epic)
+    related = (
+        ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
+        ("blocking", [read_view.related(snapshot, b) for b in blocks]),
+        ("children", [read_view.related(snapshot, k) for k in kids]),
+        ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("body", item.body),
+    )
+    for key, value in related:
         if value:
             data[key] = value
+    if item.parent:
+        data["parent"] = read_view.related(snapshot, item.parent)
     if as_json:
         print(readfmt.document(data))
         return
+    print(read_view.text_row(snapshot, item_id))
     print(f"id: {item_id}")
     print(f"kind: {item.kind.value}")
     print(f"title: {untrusted_text.show(item.title).text}")
@@ -182,17 +235,30 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     if folded.owner:
         print(f"owner: {folded.owner}")
     print(f"priority: {item.priority}")
+    needs = [n if n in snapshot.items else f"{n} (missing)" for n in item.needs]
     print(f"author: {data['author']}")
     for key in ("children_open", "children_done", "completable"):
         if key in data:
             print(f"{key}: {str(data[key]).lower() if isinstance(data[key], bool) else data[key]}")
-    for key, values in (("parent", [item.parent] if item.parent else []), ("needs", item.needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
+    for key, values in (("parent", [item.parent] if item.parent else []), ("needs", needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
         if values:
             print(f"{key}: {' '.join(values)}")
+    if epic:
+        print(f"progress: {_progress_text(snapshot, item_id, kids, epic, draft)}")
+        if "next" in epic:
+            print(f"next: {epic['next']['id']} p{epic['next']['priority']} {untrusted_text.show(snapshot.items[epic['next']['id']].title).text}")
+        if epic["complete_command"]:
+            print(f"complete: {epic['complete_command']}")
     for event in folded.evidence:
         print(f"evidence: {event.get('vcs')} {' '.join(event.get('change_ids'))}")
     for mirror in mirrors:
         print(f"mirror: {mirror['target']} #{mirror['number']}")
+    if comments:
+        print("comments:")
+        for entry in comments:
+            print(f"  {entry['index']} @{_plain(entry['author'])} {entry['at']}:")
+            for line in _plain(entry["text"]).rstrip("\n").split("\n"):
+                print(f"    {line}")
     if item.body.strip():
         print("---")
         print(item.body.rstrip())

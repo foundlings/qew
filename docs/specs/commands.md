@@ -21,7 +21,7 @@ shape row: id kind labels priority state title | children_done children_open com
 shape envelope: items schema_version total truncated
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
 shape edge: item schema_version | needs parent
-shape show: author id kind labels priority schema_version state title | children_done children_open completable blocks body children evidence mirrors needs owner parent text_findings
+shape show: author draft id kind labels priority schema_version state title | blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings
 ```
 
 ## Setup
@@ -37,7 +37,13 @@ shape show: author id kind labels priority schema_version state title | children
   trailers cite an item without evidence for that commit (exit 2, the exact `qew evidence` command on stderr); see hooks.md.
 
 ## Read
-- `qew show ITEM [--json]`: for an epic also `children_open`, `children_done`, `completable`; header, state, owner, derived children and blocks, evidence, mirrors, body.
+- `qew show ITEM [--json]`: the first line is the row (`ID STATE pN kind title`), so a draft says draft; then
+  header, state, owner, evidence, mirrors, comments (index, author, time, text) and body. JSON adds
+  `draft`, and neighbours as `{id, state, title}` objects (`state: missing` for a dangling edge):
+  `blocked_by` (unmet needs), `blocking`, `children`, `parent`. An epic also gets `children_open`,
+  `children_done`, `children_drafts` and `completable`, a text `progress: 0/3 completed, 2 drafts` line (plus
+  `(draft epic)`), `next` (its highest-priority ready child, text `next: ID pN title`) and
+  `complete_command` (null unless the epic is claimed with every child completed or closed).
 - `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
   [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
@@ -100,6 +106,8 @@ shape show: author id kind labels priority schema_version state title | children
   `--edit` runs `$VISUAL`, else `$EDITOR` (split, never via a shell) on an empty temp file in a private
   directory, removed on every path; unset, blank, unparseable, a non-zero exit or an empty result refuse with
   exit 2. `--body-file` refuses a symlink and an empty file.
+- `qew comment ITEM (--body TEXT | --body-file F)`: append a `commented` event (text kept verbatim, `-` reads
+  stdin); exactly one source, non-blank, else exit 2 before any write. Comment text is data and never a state change.
 - `qew start ITEM`: claim approved work whose needs are completed. `qew release ITEM` gives it up.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete ITEM`: refused unless the item is claimed, every child is completed or closed, and (not for

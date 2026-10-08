@@ -94,6 +94,8 @@ Read flags: `--limit`, `--owner`, `--author`, `--work-state`.
 
 Board and admin flags: `--edit` (body in `$VISUAL`/`$EDITOR`), `--closed` (`qew set` on closed work); `--login`, `--count` (`qew inbox`); `--json` on `qew check` prints a stable report; `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
 
+Discussion: `qew comment ITEM --body TEXT` (or `--body-file F`) appends a comment to the item's history; `qew show` lists it.
+
 ## Hooks
 
 `qew hook install --git` adds a tracked pre-push hook and `qew hook vcs-check` refuses pushes of commits whose `Refs: ID` trailers cite items without evidence (jj pushes are checked by the agent guard). `qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
