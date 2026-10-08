@@ -135,9 +135,12 @@ def prepare(
         raise QewError("--draft files drafts; a --quote would release them (give one or the other)", 2)
     snapshot = ledger.snapshot()
     existing = list(snapshot.items)
+    adopted = _adoptions(ledger, plan) if mark else {}
+    for adopted_id in adopted.values():
+        if adopted_id not in existing:
+            existing.append(adopted_id)  # an orphan's id is in use even though no item file shows it yet
     taken = {name.lower() for name in existing}  # ids in use, for the explicit-id collision check
     latest: Dict[str, str] = {}  # newest id allocated per kind: all the id modes need to pick the next one
-    adopted = _adoptions(ledger, plan) if mark else {}
     ids: Dict[str, str] = {}
     for entry in plan.entries:
         if entry.key in adopted:
@@ -156,7 +159,8 @@ def prepare(
         taken.add(ids[entry.key].lower())
 
     def reference(value: str) -> str:
-        return ids[value[1:]] if value.startswith("@") else ledger.resolve(value, list(snapshot.items))
+        # `@ref` names an entry; a bare id may be an item already in the ledger or an explicit `id` of this plan.
+        return ids[value[1:]] if value.startswith("@") else ledger.resolve(value, list(dict.fromkeys(existing + list(ids.values()))))
 
     planned: List[Planned] = []
     for entry in plan.entries:
@@ -176,11 +180,11 @@ def prepare(
             "created": spec.get("created") or now(),
         }
         item = from_header(header, spec.get("body") or "", entry.label)
-        existing = snapshot.items.get(item.id)
+        present = snapshot.items.get(item.id)
         how = None
         if entry.key in adopted:
-            how = "item" if existing else "events"
-            item = existing or item
+            how = "item" if present else "events"
+            item = present or item
         planned.append(
             Planned(
                 entry,
