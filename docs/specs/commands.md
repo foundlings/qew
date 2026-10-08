@@ -27,8 +27,13 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
-- `qew set ITEM [--title T] [--parent ID] [--needs ID...] [--labels L...] [--priority N] [--body TEXT]`:
-  edits the header; each change appends a `field` audit event.
+- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--labels L...] [--priority N] [--body TEXT]
+  [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
+  against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
+  need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
+  a kind or parent change must keep existing children valid. Completed or closed work is edited only with
+  `--closed`. Several items may share parent, needs, labels or priority; `--title` and `--body` take one item.
+  `qew create` applies the same edge rules before writing.
 - `qew start ITEM`: claim approved work whose needs are completed. `qew release ITEM` gives it up.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete ITEM`: refused unless the item is claimed, every child is completed or closed, and (not for

@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from typing import Callable, Dict, List, Optional
 
-from qew import ledger_config, ledger_graph, ledger_labels, untrusted_text
+from qew import graph_rules, ledger_config, ledger_graph, ledger_labels, untrusted_text
 from qew.errors import QewError
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import Event, State, fold, parse_event
@@ -107,6 +107,7 @@ def create(config: Config, specs: List[dict], quote: Optional[str], import_event
             resolved[str(spec["ref"])] = item.id
         built.append((item, _import_events(item, spec) if import_events else None))
         known.append(item.id)
+    graph_rules.validate_edges({**ledger.snapshot().items, **{item.id: item for item, _ in built}}, [item.id for item, _ in built])
     lines = []
     for item, events in built:
         ledger.write_item(item)
@@ -124,30 +125,50 @@ def create(config: Config, specs: List[dict], quote: Optional[str], import_event
     return lines
 
 
-def set_fields(config: Config, reference: str, changes: Dict[str, str], body: Optional[str]) -> List[str]:
+def set_fields(
+    config: Config, references: List[str], changes: Dict[str, str], body: Optional[str], allow_closed: bool = False
+) -> List[str]:
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
-    item_id = ledger.resolve(reference, list(snapshot.items))
-    item = snapshot.items[item_id]
     if "labels" in changes:
         ledger_labels.require_valid(changes["labels"].split())
+    ids = list(dict.fromkeys(ledger.resolve(reference, list(snapshot.items)) for reference in references))
+    if len(ids) > 1 and (body is not None or "title" in changes):
+        raise QewError("--title and --body name one item; several items may share parent, needs, labels or priority", 2)
+    for item_id in ids:
+        state = snapshot.folds[item_id].state
+        if state in (State.COMPLETED, State.CLOSED) and not allow_closed:
+            raise QewError(f"{item_id} is {state.value}; pass --closed to edit finished work", 2)
+    proposed = dict(snapshot.items)
+    audit = []  # (id, key, old, new) in write order
+    for item_id in ids:
+        item = proposed[item_id]
+        for key, value in changes.items():
+            if key in ("needs", "parent"):
+                value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())
+            old = item.header()[key]
+            if old == value:
+                continue
+            try:
+                item = item.with_value(key, value)
+            except QewError as error:
+                raise QewError(str(error).split(": ", 1)[-1], 2) from None
+            audit.append((item_id, key, old, value))
+        proposed[item_id] = item
+    graph_rules.validate_edges(proposed, ids)
     lines = []
-    for key, value in changes.items():
-        if key in ("needs", "parent"):
-            value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())
-        old = item.header()[key]
-        if old == value:
-            continue
-        updated = item.with_value(key, value)
-        ledger.write_item(updated, overwrite=True)
-        ledger.append_event(item_id, "field", key=key, old=old, new=value)
-        item = updated
-        lines.append(f"{item_id} {key}: {old} -> {value}")
-    if body is not None and body != item.body:
-        ledger.write_item(Item(**{**item.__dict__, "body": body}), overwrite=True)
-        ledger.append_event(item_id, "field", key="body", old="", new="(changed)")
-        lines.append(f"{item_id} body changed")
-    return lines or [f"{item_id} unchanged"]
+    for item_id in ids:
+        original = snapshot.items[item_id]
+        if proposed[item_id] != original:
+            ledger.write_item(proposed[item_id], overwrite=True)
+        for _, key, old, new in (entry for entry in audit if entry[0] == item_id):
+            ledger.append_event(item_id, "field", key=key, old=old, new=new)
+            lines.append(f"{item_id} {key}: {old} -> {new}")
+        if body is not None and body != original.body:
+            ledger.write_item(Item(**{**proposed[item_id].__dict__, "body": body}), overwrite=True)
+            ledger.append_event(item_id, "field", key="body", old="", new="(changed)")
+            lines.append(f"{item_id} body changed")
+    return lines or [f"{' '.join(ids)} unchanged"]
 
 
 def row(snapshot: Snapshot, item_id: str) -> str:

@@ -84,13 +84,14 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")
 
     set_ = commands.add_parser("set", help="change an item's header fields")
-    set_.add_argument("item", help="item id or alias")
+    set_.add_argument("items", nargs="+", help="item ids or aliases")
     set_.add_argument("--title", help="new title")
     set_.add_argument("--parent", help="new parent")
     set_.add_argument("--needs", nargs="*", help="replace the needs list")
     set_.add_argument("--labels", nargs="*", help="replace the labels")
     set_.add_argument("--priority", type=int, help="new priority")
     set_.add_argument("--body", help="replace the body")
+    set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
 
     show = commands.add_parser("show", help="show one item with derived edges and evidence")
     show.add_argument("item", help="item id or alias")
@@ -201,7 +202,7 @@ def _run(arguments: argparse.Namespace) -> None:
             value = getattr(arguments, key)
             if value is not None:
                 changes[key] = " ".join(value)
-        print("\n".join(cmd_items.set_fields(config, arguments.item, changes, arguments.body)))
+        print("\n".join(cmd_items.set_fields(config, arguments.items, changes, arguments.body, arguments.closed)))
     elif command == "show":
         cmd_items.show(config, arguments.item, arguments.json)
     elif command == "list":

@@ -7,13 +7,13 @@ from typing import Dict, List
 
 from qew import ledger_graph, untrusted_text
 from qew.errors import QewError
+from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import State, fold, parse_event
 from qew.ledger_item import Item, Kind, check_header_values, parse_item
 from qew.ledger_store import Ledger, Snapshot
 
 SCHEMA_VERSION = 1
-_PARENT_KINDS = {Kind.EPIC: (), Kind.ISSUE: (Kind.EPIC,), Kind.TASK: (Kind.ISSUE, Kind.EPIC)}
 _MIRROR_KEYS = ("forge", "url", "kind")
 
 
@@ -99,7 +99,7 @@ def _check_edges(snapshot: Snapshot, problems: List[str]) -> None:
             parent = snapshot.items.get(item.parent)
             if parent is None:
                 problems.append(f"{where}: dangling parent {item.parent}")
-            elif parent.kind not in _PARENT_KINDS[item.kind]:
+            elif parent.kind not in PARENT_KINDS[item.kind]:
                 problems.append(f"{where}: a {item.kind.value} cannot sit under a {parent.kind.value}")
     needs = {i.id: [n for n in i.needs if n in snapshot.items] for i in snapshot.items.values()}
     parents = {i.id: [i.parent] if i.parent in snapshot.items else [] for i in snapshot.items.values()}

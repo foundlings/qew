@@ -42,7 +42,8 @@ class CheckWalk(unittest.TestCase):
         w = self.world
         a = w.create("--kind", "issue", "--title", "A")
         b = w.create("--kind", "issue", "--title", "B", "--needs", a)
-        w.run("set", a, "--needs", b)
+        path = w.ledger / "items" / f"{a}.md"  # `set` refuses to write a cycle; a hand merge can still produce one
+        path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
         self._fails("cycle")
 
     def test_a_dangling_need_fails(self) -> None:
