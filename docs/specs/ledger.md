@@ -97,6 +97,12 @@ forge = "gitlab"
 repo = "https://gitlab.com/foundlings/foundlings-ops"
 select = "kind:epic"
 ```
+- `[qew] minimum_version = "MAJOR.MINOR.PATCH"` makes an older qew refuse every command (exit 2, names both
+  versions and `scripts/setup_user.py`); malformed values are refused. Unknown keys and mirror options are
+  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1). A symlinked config is refused.
+- `project` is a positive integer board number (title strings, numeric strings, 0, negatives, booleans, floats
+  are refused at load, exit 2); `project_title` must not be empty. Repository URLs that differ only in case or a
+  `.git` suffix are one target (the slug is casefolded).
 - Each `[[mirror]]` is an independent target: one item may live on several repositories across
   several forges at once; each gets its own `mirrors/<ID>/<target>.json`. Targets sync
   independently; one failing forge never blocks another.

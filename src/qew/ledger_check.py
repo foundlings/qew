@@ -93,7 +93,7 @@ def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         problems.append(f"{LEDGER_FILE}: {error}")
         return
-    if data.get("schema_version") != SCHEMA_VERSION:
+    if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
         problems.append(f"{LEDGER_FILE}: schema_version must be {SCHEMA_VERSION}")
 
 
