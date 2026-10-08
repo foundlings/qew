@@ -307,6 +307,19 @@ class FakeGitHub:
     def project(self, number: str) -> Dict[str, Any]:
         return next(p for p in self.projects.values() if str(p["number"]) == number)
 
+    def item_value(self, number: str, issue_node_id: str, field_name: str) -> Optional[str]:
+        """The option name the issue holds in the named single-select field, or None."""
+        project = self.project(number)
+        item = project["items"].get(issue_node_id)
+        if item is None:
+            return None
+        for field in project["fields"]:
+            if field["name"] != field_name:
+                continue
+            chosen = item.get("values", {}).get(field["id"])
+            return next((o["name"] for o in field["options"] if o["id"] == chosen), None)
+        return None
+
     def item_status(self, number: str, issue_node_id: str) -> Optional[str]:
         """The option name the issue holds in the project's Status field, or None."""
         project = self.project(number)
