@@ -66,6 +66,20 @@ class SyncWalk(unittest.TestCase):
         self.assertEqual([(r.created, r.updated) for r in again], [(0, 0), (0, 0)])
         self.assertEqual((self.a.count("create"), self.a.count("update"), self.b.count("create")), before)
 
+    def test_select_values_may_list_alternatives_with_commas(self) -> None:
+        w = self.world
+        w.create("--kind", "epic", "--title", "E")
+        w.create("--kind", "issue", "--title", "I")
+        w.create("--kind", "task", "--title", "T")
+        config, all_targets = targets(w, [self.a, self.b])
+        mirror = all_targets[0].mirror
+        from dataclasses import replace
+
+        narrowed = Target(replace(mirror, select="kind:epic,issue"), all_targets[0].slug, self.a)
+        report = sync_target(self.ledger(), narrowed, config)
+        self.assertEqual(report.created, 2)
+        self.assertEqual(sorted(i.title for i in self.a.issues.values()), ["E", "I"])
+
     def test_a_header_change_updates_the_mirror_once(self) -> None:
         w = self.world
         item = w.create("--kind", "epic", "--title", "Old")
