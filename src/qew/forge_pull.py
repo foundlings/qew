@@ -15,6 +15,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from qew import instants, page_cache, pull_cursor, sync_plan
 from qew.forge import ForgeError, IssueSpec, RemoteIssue, Unsupported, marker_for
+from qew.ledger_event import State
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
 
@@ -105,7 +106,7 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
             if marker is None:
                 _import_issue(ledger, snapshot, target, report, issue)
             elif aliases.canonical(marker.group(1)) in snapshot.items:  # an old marker names the item it was renamed to
-                _close_duplicate(target, report, issue, aliases.canonical(marker.group(1)), mirrored, marker.group(1))
+                _close_duplicate(target, report, issue, aliases.canonical(marker.group(1)), mirrored, snapshot, marker.group(1))
     except Unsupported as error:
         report.skipped.append(error.capability)
     except ForgeError as error:
@@ -121,10 +122,16 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
 _MARKER = re.compile(r"<!-- qew:([A-Za-z0-9][A-Za-z0-9._-]*) -->")
 
 
-def _close_duplicate(target, report: PullReport, issue: RemoteIssue, item_id: str, mirrored: Dict[int, str], named: str = "") -> None:
-    """A second issue for an item already mirrored to a lower number (concurrent syncs): close it, drop its marker."""
+def _close_duplicate(target, report: PullReport, issue: RemoteIssue, item_id: str, mirrored: Dict[int, str],
+                     snapshot: Snapshot, named: str = "") -> None:
+    """A second issue for an item already mirrored (concurrent syncs): close it, drop its marker.
+
+    While the item is live the lowest number is kept; a finished item has nothing to keep apart, so an open twin is
+    closed whichever number the mirror points at.
+    """
     keeper = min((n for n, i in mirrored.items() if i == item_id), default=None)
-    if keeper is None or keeper >= issue.number or not issue.open:
+    finished = snapshot.folds[item_id].state in (State.COMPLETED, State.CLOSED)
+    if keeper is None or not issue.open or (keeper >= issue.number and not finished):
         return
     body = issue.body.replace(marker_for(named or item_id), "<!-- qew-duplicate -->")
     target.forge.update_issue(issue.number, IssueSpec(issue.title, body, tuple(issue.labels), False, "not_planned", ""))
