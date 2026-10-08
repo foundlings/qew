@@ -7,7 +7,7 @@ import os
 import sys
 from typing import List, Optional, Sequence
 
-from qew import __version__, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
+from qew import __version__, replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
 from qew.errors import QewError
 
 
@@ -86,7 +86,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--body", help="Markdown body")
     create.add_argument("--body-file", help="read the body from a file, or - for stdin")
     create.add_argument("--quote", help="a human's words, \"Name: 'their words'\"; releases the item")
-    create.add_argument("--from-file", help="JSON object or array of items, or - for stdin")
+    create.add_argument("--from-file", help="a plan: JSON Lines, one object or an array of items, or - for stdin")
     create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")
 
     set_ = commands.add_parser("set", help="change an item's header fields")
@@ -133,23 +133,15 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _specs(arguments: argparse.Namespace) -> List[dict]:
+def _plan(arguments: argparse.Namespace) -> plan_file.Plan:
     if arguments.from_file:
-        text = sys.stdin.read() if arguments.from_file == "-" else _read(arguments.from_file)
-        try:
-            value = json.loads(text)
-        except ValueError as error:
-            raise QewError(f"--from-file is not valid JSON: {error}", 2) from None
-        specs = value if isinstance(value, list) else [value]
-        if not all(isinstance(spec, dict) for spec in specs):
-            raise QewError("--from-file holds an object or an array of objects", 2)
-        return specs
+        return plan_file.parse(plan_file.read_bytes(arguments.from_file), os.path.basename(arguments.from_file))
     if not arguments.title:
         raise QewError("--title is required", 2)
     body = arguments.body
     if arguments.body_file:
         body = sys.stdin.read() if arguments.body_file == "-" else _read(arguments.body_file)
-    return [
+    return plan_file.single(
         {
             "kind": arguments.kind,
             "title": arguments.title,
@@ -159,7 +151,7 @@ def _specs(arguments: argparse.Namespace) -> List[dict]:
             "priority": arguments.priority,
             "body": body or "",
         }
-    ]
+    )
 
 
 def _read(path: str) -> str:
@@ -182,7 +174,9 @@ def _run(arguments: argparse.Namespace) -> None:
         return
     config = ledger_config.load()
     if command == "create":
-        print("\n".join(cmd_items.create(config, _specs(arguments), arguments.quote, arguments.import_events)))
+        plan = _plan(arguments)
+        lines = plan_apply.apply(config, plan, arguments.quote, arguments.import_events)
+        print("\n".join(lines))
     elif command == "set":
         changes = {}
         for key in ("title", "parent", "priority"):

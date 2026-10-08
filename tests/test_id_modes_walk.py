@@ -57,7 +57,8 @@ class IdModeWalk(unittest.TestCase):
         w = self.world
         spec = json.dumps({"id": "WP-ADA-03", "kind": "task", "title": "Imported"})
         self.assertEqual(w.run("create", "--from-file", "-", stdin=spec).stdout.split()[0], "WP-ADA-03")
-        again = w.run("create", "--from-file", "-", stdin=spec)
+        other = json.dumps({"id": "WP-ADA-03", "kind": "task", "title": "A different plan, same id"})
+        again = w.run("create", "--from-file", "-", stdin=other)
         self.assertNotEqual(again.returncode, 0)
         self.assertIn("already exists", again.stderr)
         self.assertIn("WP-ADA-03", w.run("show", "WP-ADA").stdout)
