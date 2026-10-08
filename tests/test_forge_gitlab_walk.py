@@ -31,7 +31,7 @@ def spec(title="Title", body="", labels=(), open=True, assignee="", close_reason
     return IssueSpec(title, body, tuple(labels), open, close_reason, assignee)
 
 
-class GitLabWalk(unittest.TestCase):
+class GitLabBase(unittest.TestCase):
     def setUp(self):
         self.fake = FakeGitLab().start()
         self.addCleanup(self.fake.stop)
@@ -48,6 +48,9 @@ class GitLabWalk(unittest.TestCase):
     def issue_with(self, **kwargs):
         return self.forge.create_issue(spec(body=marker_for("A1"), **kwargs))
 
+
+
+class GitLabWalk(GitLabBase):
     # ----- issues -----
 
     def test_create_find_read_round_trip(self):
@@ -273,6 +276,95 @@ class GitLabWalk(unittest.TestCase):
         forge = GitLab(mirror, forge_http.urllib_transport(timeout=5), {"GITLAB_TOKEN": TOKEN})
         self.issue_with()
         self.assertEqual(forge.read_issue(1).number, 1)
+
+
+class GitLabReadSideWalk(GitLabBase):
+    def test_listing_pages_oldest_first_with_closed_issues(self):
+        """An import must see every issue, closed ones included, in creation order across pages."""
+        self.fake.page_size = 2
+        first = self.forge.create_issue(spec("one", "b", ("a",), assignee="alice"))
+        self.forge.create_issue(spec("two", open=False))
+        for n in range(3, 6):
+            self.forge.create_issue(spec(f"n{n}"))
+        listed = self.forge.list_issues()
+        self.assertEqual([i.title for i in listed], ["one", "two", "n3", "n4", "n5"])
+        self.assertEqual([i.open for i in listed], [True, False, True, True, True])
+        self.assertEqual((listed[0].labels, listed[0].assignee, listed[0].body), (("a",), "alice", "b"))
+        self.assertEqual(listed[0], self.forge.read_issue(first.number))
+        sent = self.fake.requests("GET", "/issues")
+        self.assertEqual({r["query"]["state"] for r in sent}, {"all"})
+        self.assertGreaterEqual(len(sent), 3)
+
+    def test_comments_in_order_without_system_notes_and_create_round_trips(self):
+        """Pull must replay user comments only; GitLab's own activity lines are not comments."""
+        self.fake.page_size = 2
+        issue = self.issue_with()
+        self.fake.add_note(PATH, issue.number, "alice", "first")
+        self.fake.add_note(PATH, issue.number, "gitlab", "added ~label", system=True)
+        posted = self.forge.create_comment(issue.number, "second")
+        self.fake.add_note(PATH, issue.number, "bob", "third")
+        self.fake.add_note(PATH, issue.number, "gitlab", "closed", system=True)
+        comments = self.forge.list_comments(issue.number)
+        self.assertEqual([c.body for c in comments], ["first", "second", "third"])
+        self.assertEqual([c.author for c in comments], ["alice", "qew-bot", "bob"])
+        self.assertEqual(comments[1], posted)
+        self.assertTrue(all(c.id and c.created for c in comments))
+
+    def test_comment_count_follows_create_comment_on_every_read_path(self):
+        """Incremental pull relies on the count moving for user comments only, never system notes."""
+        issue = self.issue_with()
+        self.assertEqual(issue.comments, 0)
+        self.forge.create_comment(issue.number, "hello")
+        self.fake.add_note(PATH, issue.number, "gitlab", "added ~label", system=True)
+        self.assertEqual(self.forge.read_issue(issue.number).comments, 1)
+        self.assertEqual(self.forge.list_issues()[0].comments, 1)
+        self.assertEqual(self.forge.update_issue(issue.number, spec(body=marker_for("A1"))).comments, 1)
+
+    def test_null_bodies_read_as_empty(self):
+        """A forge sends null for an empty body; that is empty text, not a rejected listing."""
+        issue = self.forge.create_issue(spec())
+        self.fake.add_note(PATH, issue.number, "alice", None)
+        self.assertEqual(self.forge.list_issues()[0].body, "")
+        self.assertEqual(self.forge.list_comments(issue.number)[0].body, "")
+
+    def test_listing_longer_than_the_page_bound_is_rejected_not_truncated(self):
+        """A silently truncated import would drop issues without anyone noticing."""
+        issue = self.issue_with()
+        self.fake.add_note(PATH, issue.number, "alice", "x")
+        self.fake.endless_pages = True
+        with mock.patch.object(forge_http, "MAX_PAGES", 3):
+            with self.assertRaises(ForgeRejected):
+                self.forge.list_issues()
+            with self.assertRaises(ForgeRejected):
+                self.forge.list_comments(issue.number)
+
+    def test_malformed_json_is_rejected(self):
+        """Garbage from the forge must stop the import, never become an empty listing."""
+        issue = self.issue_with()
+        for call in (
+            lambda: self.forge.list_issues(),
+            lambda: self.forge.list_comments(issue.number),
+            lambda: self.forge.create_comment(issue.number, "hi"),
+        ):
+            self.fake.garble_next()
+            with self.assertRaises(ForgeRejected):
+                call()
+        self.fake.add_note(PATH, issue.number, "alice", "ok")
+        self.fake.malformed_issue_reads = True
+        with self.assertRaises(ForgeRejected):
+            self.forge.list_issues()
+
+    def test_server_errors_are_unavailable(self):
+        """An outage must read as retry-later, not as an empty forge."""
+        issue = self.issue_with()
+        for call in (
+            lambda: self.forge.list_issues(),
+            lambda: self.forge.list_comments(issue.number),
+            lambda: self.forge.create_comment(issue.number, "x"),
+        ):
+            self.fake.fail_next(503, "/issues")
+            with self.assertRaises(ForgeUnavailable):
+                call()
 
 
 if __name__ == "__main__":

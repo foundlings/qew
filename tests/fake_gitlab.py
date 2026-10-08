@@ -35,6 +35,7 @@ class FakeGitLab:
         self.log: List[Dict[str, Any]] = []
         self.projects: Dict[str, _Project] = {}
         self._failures: List[Tuple[int, str]] = []
+        self._garbled: List[str] = []
         self._ids = 1000
         self._lock = threading.Lock()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(self))
@@ -62,6 +63,18 @@ class FakeGitLab:
 
     def fail_next(self, status: int, match: str = "", count: int = 1) -> None:
         self._failures.extend([(status, match)] * count)
+
+    def garble_next(self, match: str = "") -> None:
+        """The next request whose path contains `match` is answered 200 with a body that is not JSON."""
+        self._garbled.append(match)
+
+    def add_note(self, path: str, iid: int, username: str, body: Optional[str], system: bool = False) -> Dict[str, Any]:
+        """A note made on the forge by someone else; `system` notes are GitLab's own activity lines."""
+        issue = next(i for i in self.project(path).issues if i["iid"] == iid)
+        note = {"id": self._next_id(), "author": username, "body": body, "system": system,
+                "created_at": f"2026-01-01T00:{len(issue['notes']):02d}:00Z"}
+        issue["notes"].append(note)
+        return note
 
     def requests(self, method: str, suffix: str) -> List[Dict[str, Any]]:
         return [r for r in self.log if r["method"] == method and r["path"].endswith(suffix)]
@@ -104,6 +117,10 @@ class FakeGitLab:
             if match in raw_path:
                 del self._failures[index]
                 return status, {"message": f"injected {status}"}, {}
+        for index, match in enumerate(self._garbled):
+            if match in raw_path:
+                del self._garbled[index]
+                return 200, b"<html>not json", {}
         if parts[:2] != ["api", "v4"]:
             return 404, {"message": "404 Not Found"}, {}
         rest = parts[2:]
@@ -147,6 +164,7 @@ class FakeGitLab:
             "state": issue["state"], "labels": list(issue["labels"]),
             "assignees": [{"id": a, "username": n} for n, a in self.users.items() if a in issue["assignees"]],
             "web_url": f"{self.host}/{path}/-/issues/{issue['iid']}",
+            "user_notes_count": sum(1 for n in issue["notes"] if not n["system"]),
         }
         if self.malformed_issue_reads:
             del out["iid"]
@@ -159,7 +177,7 @@ class FakeGitLab:
             if method == "POST":
                 issue = {"id": self._next_id(), "iid": len(project.issues) + 1, "state": "opened",
                          "title": body["title"], "description": body.get("description", ""),
-                         "labels": [], "assignees": body.get("assignee_ids", [])}
+                         "labels": [], "assignees": body.get("assignee_ids", []), "notes": []}
                 self._set_labels(project, issue, body.get("labels", ""))
                 project.issues.append(issue)
                 return 201, self._issue_json(path, issue), {}
@@ -173,10 +191,26 @@ class FakeGitLab:
             return 200, self._issue_json(path, issue), {}
         if tail[1:] == ["links"] and method == "POST":
             return self._link(project, issue, body)
+        if tail[1:] == ["notes"]:
+            return self._notes(method, issue, query, body)
         return 404, {"message": "404 Not Found"}, {}
 
+    def _note_json(self, note):
+        return {"id": note["id"], "body": note["body"], "system": note["system"],
+                "author": {"id": 1, "username": note["author"]}, "created_at": note["created_at"]}
+
+    def _notes(self, method, issue, query, body):
+        if method == "POST":
+            note = {"id": self._next_id(), "author": "qew-bot", "body": body["body"], "system": False,
+                    "created_at": f"2026-01-01T00:{len(issue['notes']):02d}:00Z"}
+            issue["notes"].append(note)
+            return 201, self._note_json(note), {}
+        notes = sorted(issue["notes"], key=lambda n: n["id"], reverse=query.get("sort", "desc") != "asc")
+        status, chunk, headers = self._page(notes, query)
+        return status, [self._note_json(n) for n in chunk], headers
+
     def _issue_list(self, project, path, query):
-        issues = sorted(project.issues, key=lambda i: -i["iid"])
+        issues = sorted(project.issues, key=lambda i: i["iid"], reverse=query.get("sort", "desc") != "asc")
         if query.get("state", "all") != "all":
             issues = [i for i in issues if i["state"] == query["state"]]
         needle = query.get("search")
@@ -304,7 +338,7 @@ def _handler(fake: FakeGitLab):
             length = int(self.headers.get("Content-Length") or 0)
             headers = {k.lower(): v for k, v in self.headers.items()}
             status, payload, extra = fake.handle(self.command, self.path, headers, self.rfile.read(length))
-            data = json.dumps(payload).encode("utf-8")
+            data = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
