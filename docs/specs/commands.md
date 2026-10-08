@@ -123,6 +123,14 @@ shape show: author id kind labels priority schema_version state title | blocks b
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
   lose their card (`pruned N`); their issues are never closed.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
+- `qew board [--json] [--compact]`: the offline kanban, derived from the ledger alone (no forge, no network). Columns
+  are the seven statuses of `sync_plan.column`, stacked top to bottom (`Draft (2)` then one card line per card:
+  short id, `[pN]`, title, `@owner`, `#label`), cards by priority then id. Titles are made safe (hidden characters
+  withhold the title); lines are cut to the terminal width (`COLUMNS`); color only on a TTY without `NO_COLOR`.
+  `--json` prints `{"version":1,"board":NAME,"groups":[{"name","count","cards":[...]}]}` (card fields: id, short,
+  title, status, state, kind, priority, owner, labels, epic, parent, created, updated). `--compact` prints a
+  `# Column N` line per column then `SHORTID pN OWNER|- TITLE` (title cut to 40 characters).
+- `qew board columns`: one `Column N` line per column.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
