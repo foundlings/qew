@@ -53,14 +53,14 @@ class BackgroundSyncWalk(unittest.TestCase):
         w = self.world()
         for n in range(4):
             w.run("create", "--title", f"Burst {n}", env=ENV)
-        self.assertTrue(wait_for(lambda: len(self.fake.issues) == 4 and not (w.ledger / ".qew" / "sync.lock").exists() or len(self.fake.issues) == 4))
+        self.assertTrue(wait_for(lambda: len(self.fake.issues) == 4))
         time.sleep(1.0)
         self.assertEqual(len(self.fake.issues), 4)
         self.assertEqual(len(list((w.ledger / "mirrors").glob("*/*.json"))), 4)
 
     def test_a_failing_forge_leaves_pending_work_that_the_next_command_clears(self) -> None:
         """Prevents a forge outage losing updates: the backlog persists and a later command syncs it."""
-        w = self.world()
+        w = self.world("\n[replication]\nsync_retry_s = 0\nfetch_interval_s = 0\n")
         self.fake.down = True
         w.run("create", "--title", "Outage", env=ENV)
         self.assertTrue(wait_for(lambda: (w.ledger / ".qew" / "sync.pending").exists()))

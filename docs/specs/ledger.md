@@ -203,3 +203,12 @@ New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence
   `qew status` shows the backlog and the last log line. `[replication] background_sync = true` (default);
   `QEW_OFFLINE=1` or `background_sync = false` disables it. Tests and `qew sync` run the same worker in the
   foreground.
+
+### Replication keys and files (decisions)
+
+`[replication]` keys: `auto_commit`, `auto_push` (ledger fetch/merge/push), `auto_forge_sync`, `background_sync`
+(booleans, default true), `timeout_s` (5), `fetch_interval_s` (2: reads fetch at most this often; writes always),
+`sync_retry_s` (10: a read restarts a worker that left work), `sync_budget_s` (20: inline sync time budget),
+`branch` (`main`). Unknown keys fail. Cache files in the ledger checkout's `.qew/` (excluded from the VCS):
+`lock` (write lock), `sync.lock` (worker), `sync.log`, `sync.pending`, `sync.spawned`, `last-fetch`.
+A `sync` run takes the write lock only to commit (every 25 mirror writes and at the end), never during forge calls.

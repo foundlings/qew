@@ -18,6 +18,7 @@ from qew.errors import QewError
 from qew.ledger_repo import LedgerRepo
 
 LOCK_WAIT_SECONDS = 15.0
+CHECKPOINT_EVERY = 25
 # Commands that keep partial work when they fail midway (see module docstring).
 KEEP_PARTIAL = {"sync", "board", "import", "restore"}
 
@@ -80,6 +81,9 @@ def _lock(ledger_path: Path) -> Iterator[None]:
         handle.close()
 
 
+_ACTIVE = None  # (config, repo, verb) of the running sync session, for checkpoints
+
+
 @contextmanager
 def session(arguments) -> Iterator[None]:
     verb = verb_for(arguments)
@@ -96,14 +100,18 @@ def session(arguments) -> Iterator[None]:
     if not (config.ledger_path / ledger_config.LEDGER_FILE).is_file():
         yield
         return
+    rep = config.replication
+    committing = repo.vcs is not None and rep.auto_commit
+    replicating = committing and not rep.offline and rep.auto_push and not os.environ.get("QEW_NO_FETCH")
+    if verb == "sync":
+        yield from _sync_session(config, repo, committing, replicating)
+        return
     with _lock(config.ledger_path):
         repo.exclude_cache()
-        committing = repo.vcs is not None and config.replication.auto_commit
-        replicating = committing and not config.replication.offline and config.replication.auto_push
         if committing:
             _recover(repo)
         if replicating:
-            repo.fetch_merge(config.replication.timeout_s)
+            repo.fetch_merge(rep.timeout_s)
             (config.ledger_path / ".qew" / "last-fetch").touch()
         ledger_store.journal_start()
         try:
@@ -113,7 +121,7 @@ def session(arguments) -> Iterator[None]:
             if verb in KEEP_PARTIAL and committing and entries:
                 _commit(repo, config, verb, entries, rollback_on_failure=False)
                 if replicating:
-                    repo.push(config.replication.timeout_s)
+                    repo.push(rep.timeout_s)
             else:
                 ledger_store.journal_rollback(entries)
             raise
@@ -121,7 +129,68 @@ def session(arguments) -> Iterator[None]:
         if committing and entries:
             _commit(repo, config, verb, entries, rollback_on_failure=True)
         if replicating:
-            repo.push(config.replication.timeout_s)
+            repo.push(rep.timeout_s)
+    if entries and verb != "board":
+        _after_write(config)
+
+
+def _sync_session(config, repo: LedgerRepo, committing: bool, replicating: bool) -> Iterator[None]:
+    """Sync takes the lock only to commit: forge calls can be slow and must never block other writers."""
+    global _ACTIVE
+    rep = config.replication
+    with _lock(config.ledger_path):
+        repo.exclude_cache()
+        if committing:
+            _recover(repo)
+        if replicating:
+            repo.fetch_merge(rep.timeout_s)
+    ledger_store.journal_start()
+    _ACTIVE = (config, repo, committing, replicating)
+    try:
+        yield
+    finally:
+        _ACTIVE = None
+        entries = ledger_store.journal_take()
+        if committing and entries:
+            with _lock(config.ledger_path):
+                _commit(repo, config, "sync", entries, rollback_on_failure=False)
+                if replicating:
+                    repo.push(rep.timeout_s)
+
+
+def checkpoint() -> None:
+    """Commit the mirror files a running sync has written so far, so a kill loses at most a few."""
+    if _ACTIVE is None:
+        return
+    config, repo, committing, replicating = _ACTIVE
+    entries = ledger_store.journal_take()
+    ledger_store.journal_start()
+    if committing and len(entries) >= CHECKPOINT_EVERY:
+        with _lock(config.ledger_path):
+            _commit(repo, config, "sync", entries, rollback_on_failure=False)
+    else:
+        ledger_store.JOURNAL.extend(entries)
+
+
+def _after_write(config) -> None:
+    """Opportunistic forge sync of the pending items: detached and silent, or inline within a budget."""
+    rep = config.replication
+    if not config.mirrors or not rep.auto_forge_sync or rep.offline or os.environ.get("QEW_BACKGROUND"):
+        return
+    from qew import syncworker
+
+    if rep.background_sync:
+        print(syncworker.queue(config))
+        return
+    import argparse
+    from qew import cmd_sync
+
+    arguments = argparse.Namespace(command="sync", target=None, item=None, dry_run=False)
+    try:
+        with session(arguments):
+            cmd_sync.sync_command(config, None, None, False, budget_s=rep.sync_budget_s, tick=checkpoint)
+    except QewError:
+        syncworker.mark(config, True)  # failures stay pending; the next command retries
 
 
 def _pull_for_read(arguments) -> None:
@@ -145,6 +214,10 @@ def _pull_for_read(arguments) -> None:
         if repo.fetch_merge(rep.timeout_s) == "ok":
             repo.push(rep.timeout_s)  # catch up commits made while the remote was unreachable
         stamp.touch()
+    if config.mirrors and rep.auto_forge_sync and not rep.offline:
+        from qew import syncworker
+
+        syncworker.retry_if_pending(config)
 
 
 def _relative(config, entries) -> List[str]:

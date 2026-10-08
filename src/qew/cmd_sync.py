@@ -1,9 +1,11 @@
 """`qew sync`: push the ledger to every mirror target, each independently."""
 
+import os
+import time
 from dataclasses import replace
 from typing import Callable, List, Optional
 
-from qew import forge_registry, ledger_check, ledger_config, sync_plan
+from qew import forge_registry, ledger_check, ledger_config, replication, sync_plan, syncworker
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.forge import Forge
@@ -23,8 +25,21 @@ def run(arguments) -> bool:
     if arguments.command != "sync":
         return False
     config = ledger_config.load()
-    print(sync_command(config, arguments.target, arguments.item, arguments.dry_run))
+    if os.environ.get("QEW_BACKGROUND") and not arguments.dry_run:
+        syncworker.run_worker(config, lambda: _worker_round(config, arguments))
+        return True
+    print(sync_command(config, arguments.target, arguments.item, arguments.dry_run, tick=replication.checkpoint))
     return True
+
+
+def _worker_round(config: Config, arguments) -> bool:
+    """One background pass; its output goes to the log. True when every target synced cleanly."""
+    try:
+        print(sync_command(config, arguments.target, arguments.item, False, tick=replication.checkpoint))
+        return True
+    except QewError as error:
+        print(f"qew: {error}")
+        return False
 
 
 def mirrors_with_boards(ledger: Ledger, config: Config) -> List[Mirror]:
@@ -51,7 +66,8 @@ def choose(mirrors: List[Mirror], wanted: Optional[str]) -> List[Mirror]:
 
 
 def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry_run: bool,
-                 build: Callable[[Mirror], Forge] = forge_registry.build) -> str:
+                 build: Callable[[Mirror], Forge] = forge_registry.build, budget_s: Optional[float] = None,
+                 tick: Optional[Callable[[], None]] = None) -> str:
     ledger = ledger_for(config)
     problems = ledger_check.check(ledger)
     if problems:
@@ -64,7 +80,8 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     lines = []
     failed = False
     for mirror in mirrors:
-        report = sync_target(ledger, Target(mirror, ledger_config.mirror_slug(mirror), build(mirror)), config, item)
+        report = sync_target(ledger, Target(mirror, ledger_config.mirror_slug(mirror), build(mirror)), config, item,
+                             deadline=None if budget_s is None else time.monotonic() + budget_s, tick=tick)
         failed = failed or bool(report.failures)
         lines.extend(render(report))
     output = "\n".join(lines)

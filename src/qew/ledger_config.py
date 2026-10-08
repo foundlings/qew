@@ -32,6 +32,8 @@ class Replication:
     background_sync: bool = True
     timeout_s: float = 5.0
     fetch_interval_s: float = 2.0
+    sync_retry_s: float = 10.0
+    sync_budget_s: float = 20.0
     branch: str = "main"
 
     @property
@@ -41,7 +43,7 @@ class Replication:
 
 _REPLICATION_KEYS = {
     "auto_commit": bool, "auto_push": bool, "auto_forge_sync": bool, "background_sync": bool,
-    "timeout_s": (int, float), "fetch_interval_s": (int, float), "branch": str,
+    "timeout_s": (int, float), "fetch_interval_s": (int, float), "sync_retry_s": (int, float), "sync_budget_s": (int, float), "branch": str,
 }
 
 

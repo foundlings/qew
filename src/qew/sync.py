@@ -8,7 +8,8 @@ independently and the report says what happened.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+import time
+from typing import Callable, Dict, List, Optional
 
 from qew import sync_plan
 from qew.forge import COLUMNS, Board, Forge, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
@@ -35,7 +36,8 @@ class TargetReport:
     stopped: Optional[str] = None  # set when the forge went away and the rest of the target was not tried
 
 
-def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[str] = None) -> TargetReport:
+def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[str] = None,
+                deadline: Optional[float] = None, tick: Optional[Callable[[], None]] = None) -> TargetReport:
     snapshot = ledger.snapshot()
     report = TargetReport(target.slug)
     assignees = {str(k): str(v) for k, v in dict(target.mirror.options.get("assignees", {})).items()}
@@ -50,8 +52,13 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
     for item_id in ids:
         if chosen and item_id != chosen:
             continue
+        if deadline is not None and time.monotonic() > deadline:
+            report.stopped = "time budget used; the rest stays pending"
+            break
         try:
             _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board)
+            if tick is not None:
+                tick()
         except ForgeRejected as error:
             report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
         except ForgeError as error:
