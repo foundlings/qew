@@ -213,6 +213,45 @@ class Ledger:
         state_path.parent.mkdir(parents=True, exist_ok=True)
         _write_local(state_path, json.dumps({**self.read_state(item_id, target), **volatile}, sort_keys=True, indent=2) + "\n")
 
+    def cursor_path(self, target: str) -> Path:
+        return self.path / ".qew" / "state" / target / "cursor.json"
+
+    def read_cursor(self, target: str) -> dict:
+        """The pull cursor of one target (see pull_cursor); {} when absent or damaged."""
+        path = self.cursor_path(target)
+        if not path.is_file():
+            return {}
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            return {}  # a damaged cursor only costs one extra full listing
+        return value if isinstance(value, dict) else {}
+
+    def write_cursor(self, target: str, value: dict) -> None:
+        path = self.cursor_path(target)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_local(path, json.dumps(value, sort_keys=True, indent=2) + "\n")
+
+    def read_page_files(self, target: str) -> Dict[int, object]:
+        """The cached listing pages of a target by page number; damaged files are left out."""
+        found: Dict[int, object] = {}
+        for path in (self.path / ".qew" / "state" / target / "pages").glob("*.json"):
+            try:
+                found[int(path.stem)] = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, ValueError):
+                continue
+        return found
+
+    def write_page_files(self, target: str, pages: Dict[int, dict]) -> None:
+        """Replace the cached pages with exactly `pages`."""
+        directory = self.path / ".qew" / "state" / target / "pages"
+        directory.mkdir(parents=True, exist_ok=True)
+        for path in directory.glob("*.json"):
+            if int(path.stem) not in pages:
+                path.unlink(missing_ok=True)
+        for number, value in pages.items():
+            _write_local(directory / f"{number}.json", json.dumps(value, sort_keys=True) + "\n")
+
     def remove_mirror(self, item_id: str, target: str) -> None:
         """Forget one mirror file (journaled like every write, so the session commits the deletion)."""
         discard(self.mirrors_dir / item_id / f"{target}.json")

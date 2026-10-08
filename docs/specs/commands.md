@@ -273,7 +273,7 @@ shape prime: additional_context context_bytes schema_version
   read back; a state other than the intended one is exit 3, never success. Written events stay (no rollback).
 
 ## Mirrors
-- `qew sync [--target T] [--item ID] [--dry-run]`: push to every `[[mirror]]` target independently. On a target with a
+- `qew sync [--target T] [--item ID] [--full] [--dry-run]`: pull forge-side changes, then push to every `[[mirror]]` target independently. The pull asks only for what changed (conditional pages or `since`; see forges.md, Incremental pull); `--full` ignores the pull cursor and cached pages and re-reads every issue. On a target with a
   board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
   warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
@@ -328,7 +328,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew board list`: one line per board file. `qew board set NAME [same options]`: change that file's defaults.
   `qew check` fails a board file whose name differs from its file name or whose columns are unknown or repeated.
 - `qew board columns`: one `Column N` line per column.
-- `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never repos=on|off` line per target (`repos=off`: no git_url/ledger_git_url, so sync does not push the repositories), `divergences=N`, and `sync retry_after=N` (seconds) while a forge rate limit pause is recorded. Read-only: it never fetches, pushes or recovers.
+- `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never repos=on|off pulled=ISO|never next_pull=conditional|incremental|full full_set=ISO|never` line per target (`repos=off`: no git_url/ledger_git_url, so sync does not push the repositories; JSON: `last_pull`, `next_pull`, `last_full`), `divergences=N`, and `sync retry_after=N` (seconds) while a forge rate limit pause is recorded. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the

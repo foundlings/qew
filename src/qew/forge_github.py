@@ -15,7 +15,9 @@ from qew.forge import (
     PRIORITY_OPTIONS,
     STATUS_OPTIONS,
     Board,
+    CachedPage,
     Forge,
+    PageListing,
     Placement,
     ForgeAuth,
     ForgeRejected,
@@ -35,7 +37,8 @@ from qew.forge import (
     Transport,
     marker_alone,
 )
-from qew.forge_http import DEFAULT_WAIT, MAX_PAGES, api_base, call_json, resolve_token, split_repo, wait_from
+from qew.forge_http import DEFAULT_WAIT, MAX_PAGES, NotModified, api_base, call_json, get_conditional, resolve_token, split_repo, wait_from
+from qew.forge_pages import list_pages
 from qew.ledger_config import Mirror
 
 API_VERSION = "2022-11-28"
@@ -445,6 +448,10 @@ class _Wire:
         data, _ = call_json(self._transport, method, self.rest_root + path, self._headers(), payload)
         return data
 
+    def conditional(self, path: str, etag: str):
+        """One GET of a list page with the cached ETag: NotModified, or (json, headers)."""
+        return get_conditional(self._transport, self.rest_root + path, self._headers(), etag)
+
     def pages(self, path: str) -> Iterator[Any]:
         """Every page of a list endpoint, following Link rel=next on this API root only."""
         url: Optional[str] = self.rest_root + path
@@ -602,13 +609,28 @@ class GitHub(Forge):
     def read_issue(self, number: int) -> RemoteIssue:
         return self._remember(parse_issue(self._wire.rest("GET", f"{self._repo_path}/issues/{number}")))
 
-    def list_issues(self) -> List[RemoteIssue]:
+    def list_issues(self, since: str = "") -> List[RemoteIssue]:
         found: List[RemoteIssue] = []
-        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&sort=created&direction=asc&per_page=100"):
+        window = f"&since={quote(since, safe='')}" if since else ""
+        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&sort=created&direction=asc&per_page=100{window}"):
             for entry in _array(page, "issue list"):
                 if "pull_request" not in _obj(entry, "issue list entry"):
                     found.append(self._remember(parse_issue(entry)))
         return found
+
+    def list_issue_pages(self, cached: Mapping[int, CachedPage]) -> PageListing:
+        base = f"{self._repo_path}/issues?state=all&sort=created&direction=asc&per_page=100"
+
+        def fetch(number: int, etag: str):
+            answer = self._wire.conditional(f"{base}&page={number}", etag)
+            if isinstance(answer, NotModified):
+                return answer
+            data, headers = answer
+            entries = _array(data, "issue list")
+            issues = tuple(self._remember(parse_issue(e)) for e in entries if "pull_request" not in _obj(e, "issue list entry"))
+            return issues, len(entries), headers, _next_url(headers) is not None
+
+        return list_pages(fetch, cached)
 
     def list_comments(self, number: int) -> List[RemoteComment]:
         found: List[RemoteComment] = []

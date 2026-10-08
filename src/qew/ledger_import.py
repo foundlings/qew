@@ -86,7 +86,7 @@ def import_target(ledger: Ledger, target, history: bool = False) -> PullReport:
         if updated != item:
             ledger.write_item(updated, overwrite=True)
     # Whatever carries no marker (or is already mirrored) goes through the ordinary pull.
-    pulled = pull_target(ledger, target)
+    pulled = pull_target(ledger, target, full=True)
     report.new_items += pulled.new_items
     report.applied += pulled.applied
     report.comments += pulled.comments

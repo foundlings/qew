@@ -1,12 +1,13 @@
 """Shared HTTP plumbing for backends: the real transport, token lookup, JSON calls."""
 
+from dataclasses import dataclass
 import json
 import os
 import subprocess
 import time
 import urllib.error
 import urllib.request
-from typing import Any, List, Mapping, Optional, Tuple
+from typing import Any, List, Mapping, Optional, Tuple, Union
 
 from qew.forge import (
     ForgeAuth,
@@ -45,7 +46,8 @@ def urllib_transport(timeout: float = TIMEOUT_SECONDS) -> Transport:
             with opener.open(wire, timeout=timeout) as response:
                 return HttpResponse(response.status, dict(response.headers), response.read())
         except urllib.error.HTTPError as error:
-            return HttpResponse(error.code, dict(error.headers), error.read())
+            with error:
+                return HttpResponse(error.code, dict(error.headers), error.read())
         except (urllib.error.URLError, OSError, TimeoutError) as error:
             raise ForgeUnavailable(f"{request.method} {request.url}: {error}") from None
 
@@ -106,6 +108,19 @@ def wait_from(headers: Mapping[str, str]) -> Optional[float]:
     return None
 
 
+@dataclass(frozen=True)
+class NotModified:
+    """A conditional GET answered 304: the cached copy is still current. A result, never an error."""
+
+    headers: Mapping[str, str]
+
+
+def header(headers: Mapping[str, str], name: str) -> Optional[str]:
+    """One response header by case-insensitive name."""
+    lowered = name.lower()
+    return next((value for key, value in headers.items() if key.lower() == lowered), None)
+
+
 def call_json(
     transport: Transport,
     method: str,
@@ -119,7 +134,23 @@ def call_json(
     merged = {"Accept": "application/json", **headers}
     if body is not None:
         merged["Content-Type"] = "application/json"
-    response = transport(HttpRequest(method, url, merged, body))
+    return _interpret(transport(HttpRequest(method, url, merged, body)), ok)
+
+
+def get_conditional(
+    transport: Transport, url: str, headers: Mapping[str, str], etag: str = "",
+) -> Union[NotModified, Tuple[Any, Mapping[str, str]]]:
+    """GET with `If-None-Match: etag` (when given): NotModified on 304, else (json, headers) like call_json."""
+    sent = {"Accept": "application/json", **headers}
+    if etag:
+        sent["If-None-Match"] = etag
+    response = transport(HttpRequest("GET", url, sent, None))
+    if response.status == 304:
+        return NotModified(response.headers)
+    return _interpret(response, (200,))
+
+
+def _interpret(response: HttpResponse, ok: Tuple[int, ...]) -> Tuple[Any, Mapping[str, str]]:
     if response.status in ok:
         if not response.body:
             return None, response.headers

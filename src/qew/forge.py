@@ -126,6 +126,28 @@ class RemoteIssue:
 
 
 @dataclass(frozen=True)
+class CachedPage:
+    """One page of the creation-ordered issue listing as last fetched: its ETag and the issues it held."""
+
+    etag: str
+    issues: Tuple["RemoteIssue", ...]
+    more: bool  # the forge said another page follows
+    raw: int  # entries on the wire page (pull requests included), to tell a full page from a short one
+
+
+@dataclass(frozen=True)
+class PageListing:
+    """The complete current issue set, page by page. `fetched` pages came over the wire, `reused` answered 304."""
+
+    pages: Tuple[CachedPage, ...]
+    fetched: int
+    reused: int
+
+    def issues(self) -> List["RemoteIssue"]:
+        return [issue for page in self.pages for issue in page.issues]
+
+
+@dataclass(frozen=True)
 class RemoteComment:
     id: str  # the forge's comment id, as text
     author: str  # forge login; untrusted data like every forge field
@@ -255,12 +277,21 @@ class Forge(ABC):
     def read_issue(self, number: int) -> RemoteIssue:
         raise Unsupported("read_issue")
 
-    def list_issues(self) -> List[RemoteIssue]:
-        """Every issue of the repository, open and closed, pull requests excluded, oldest first.
+    def list_issues(self, since: str = "") -> List[RemoteIssue]:
+        """Issues of the repository, open and closed, pull requests excluded, oldest first.
 
+        `since` (an ISO instant, empty = everything) keeps only issues created or modified at or after it; a
+        comment, label or title edit counts as a modification. Only the empty listing is the complete set.
         Paginated up to forge_http.MAX_PAGES; a longer listing raises ForgeRejected rather than truncating.
         """
         raise Unsupported("list_issues")
+
+    def list_issue_pages(self, cached: Mapping[int, CachedPage]) -> PageListing:
+        """The complete issue set as creation-ordered pages, each requested with the ETag of `cached[page]`
+        (pages numbered from 1): a 304 reuses the cached page. Raises Unsupported("conditional_listing") when
+        the forge sends no ETags; the caller then falls back to `list_issues(since)`.
+        """
+        raise Unsupported("conditional_listing")
 
     def list_comments(self, number: int) -> List[RemoteComment]:
         """User comments of one issue in creation order (system notes excluded)."""

@@ -3,9 +3,10 @@
 import os
 import time
 from dataclasses import replace
+from datetime import datetime
 from typing import Callable, List, Optional
 
-from qew import forge_registry, ledger_check, ledger_config, replication, sync_plan, syncworker
+from qew import forge_registry, instants, ledger_check, ledger_config, replication, sync_plan, syncworker
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.forge import Forge
@@ -19,6 +20,7 @@ def register(commands) -> None:
     sync = commands.add_parser("sync", help="push ledger state to every mirror target")
     sync.add_argument("--target", help="only this target (slug or unique part of it)")
     sync.add_argument("--item", help="only this item")
+    sync.add_argument("--full", action="store_true", help="re-read every issue from the forge, ignoring the pull cursor and cached pages")
     sync.add_argument("--dry-run", action="store_true", help="show what would change without calling any forge")
 
 
@@ -29,14 +31,15 @@ def run(arguments) -> bool:
     if os.environ.get("QEW_BACKGROUND") and not arguments.dry_run:
         syncworker.run_worker(config, lambda: _worker_round(config, arguments))
         return True
-    print(sync_command(config, arguments.target, arguments.item, arguments.dry_run, tick=replication.checkpoint))
+    print(sync_command(config, arguments.target, arguments.item, arguments.dry_run, tick=replication.checkpoint,
+                        full=arguments.full))
     return True
 
 
 def _worker_round(config: Config, arguments) -> bool:
     """One background pass; its output goes to the log. True when every target synced cleanly."""
     try:
-        print(sync_command(config, arguments.target, arguments.item, False, tick=replication.checkpoint))
+        print(sync_command(config, arguments.target, arguments.item, False, tick=replication.checkpoint, full=arguments.full))
         return True
     except QewError as error:
         print(f"qew: {error}")
@@ -68,7 +71,8 @@ def choose(mirrors: List[Mirror], wanted: Optional[str]) -> List[Mirror]:
 
 def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry_run: bool,
                  build: Callable[[Mirror], Forge] = forge_registry.build, budget_s: Optional[float] = None,
-                 tick: Optional[Callable[[], None]] = None) -> str:
+                 tick: Optional[Callable[[], None]] = None, full: bool = False,
+                 clock: Callable[[], datetime] = instants.now) -> str:
     ledger = ledger_for(config)
     # Contradictions and unsafe actor names are reported by `qew check` but must never stop mirroring.
     problems = [p for p in ledger_check.check(ledger) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
@@ -83,7 +87,7 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     failed = False
     for mirror in mirrors:
         target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror), ledger_config.is_read_only(config, mirror))
-        pulled = pull_target(ledger, target)  # forge-side edits first, so the push cannot overwrite them
+        pulled = pull_target(ledger, target, full=full, clock=clock)  # forge-side edits first, so the push cannot overwrite them
         if pulled.retry_after:  # rate limited while reading: pushing would only hit the same wall
             syncworker.set_backoff(pulled.retry_after)
             failed = True

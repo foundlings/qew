@@ -247,8 +247,8 @@ class GitLab(Forge):
                    if marker_alone(issue.body, marker)]
         return min(matches, key=lambda found: found.number) if matches else None
 
-    def list_issues(self) -> List[RemoteIssue]:
-        query = {"state": "all", "order_by": "created_at", "sort": "asc"}
+    def list_issues(self, since: str = "") -> List[RemoteIssue]:
+        query = {"state": "all", "order_by": "created_at", "sort": "asc", **({"updated_after": since} if since else {})}
         return [_parse_issue(raw) for raw in self._pages(f"{self._project}/issues", query)]
 
     def list_comments(self, number: int) -> List[RemoteComment]:

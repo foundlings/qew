@@ -111,7 +111,7 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
 - The token is resolved per request, so constructing the backend never fails for a missing token.
 
 ## Reading a forge (import, pull, restore)
-- `list_issues()` returns every issue (open and closed, no pull requests) oldest first with title, body, labels,
+- `list_issues(since="")` returns every issue (open and closed, no pull requests) oldest first; a non-empty `since` (ISO instant) keeps only issues created or modified at or after it (GitHub and Forgejo `since`, GitLab `updated_after`) with title, body, labels,
   assignee and state; `list_comments(number)` returns user comments in creation order (system notes excluded);
   `create_comment(number, body)` posts one. Pagination is bounded by `MAX_PAGES`; a longer listing raises
   `ForgeRejected` instead of truncating. Malformed JSON raises `ForgeRejected`. The fakes in `tests/fake_*.py`
@@ -129,3 +129,18 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   `read_milestone`, `set_milestone_open` and `assign_milestone(issue, milestone)`; `RemoteIssue.milestone` is the milestone an
   issue sits in (0 none). GitHub and Forgejo use `/milestones` (`due_on`), GitLab project milestones (`due_date`,
   `state_event`). Dates are `YYYY-MM-DD` at this interface. A forge without them raises `Unsupported`.
+
+## Incremental pull
+A pull never lists the whole forge when it can avoid it. The fakes bump `updated_at` on every create, edit, comment and label change.
+- **Conditional pages** (GitHub, Forgejo): `list_issue_pages(cached)` requests the creation-ordered issue pages, each with
+  `If-None-Match` set to the cached page's ETag; a 304 (`forge_http.NotModified`, a result, never an error) reuses the
+  cached page, a 200 replaces it. The union of the pages is the complete current set on every pull, so an issue missing from
+  it is a deletion (an `exists` divergence) at the cost of the changed pages only; a page's ETag changes when any issue on it
+  is created, edited, commented, deleted or shifts onto it. A last page as full as the others is followed by one more request.
+  A 200 without an ETag makes the forge raise `Unsupported("conditional_listing")` and the pull falls back below.
+- **Fallback** (no ETags, GitLab, the in-memory forge): `list_issues(since)` with `since` = the last successful pull's start
+  minus 120 seconds. Only a full listing (no cursor, `qew sync --full`, or the last complete set older than 24 hours) may conclude an
+  issue was deleted; an incremental result merges with the mirrored set by number.
+- **Local state**, never committed: `.qew/state/TARGET/cursor.json` (`pulled_at`, `full_at`, `mode`) and
+  `.qew/state/TARGET/pages/N.json` (ETag and parsed issues). Both change only after a pull whose requests all succeeded; damaged
+  files cost one unconditional full listing. `qew status` shows the last pull, the last complete set and the next pull's mode.

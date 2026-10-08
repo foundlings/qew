@@ -8,12 +8,12 @@ titles are flattened to one safe line, bodies lose control characters.
 """
 
 from dataclasses import dataclass, field, replace
-import hashlib
+from datetime import datetime
 import re
 import unicodedata
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
-from qew import sync_plan
+from qew import instants, page_cache, pull_cursor, sync_plan
 from qew.forge import ForgeError, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
@@ -33,6 +33,9 @@ class PullReport:
     skipped: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
     retry_after: float = 0.0  # seconds a rate-limited forge asked us to wait
+    mode: str = ""  # how the issues were listed: conditional, incremental or full
+    pages_fetched: int = 0  # conditional listing: pages that came over the wire
+    pages_reused: int = 0  # conditional listing: pages answered 304
 
 
 def clean_line(text: str) -> str:
@@ -49,10 +52,31 @@ def clean_labels(labels) -> List[str]:
     return sorted({l for l in labels if l and not any(c.isspace() or c == "," for c in l) and len(l) <= 60})
 
 
-def pull_target(ledger: Ledger, target) -> PullReport:
-    report = PullReport(target.slug)
+def _list(ledger: Ledger, target, report: PullReport, cursor: Optional[pull_cursor.Cursor], started: datetime,
+          full: bool) -> Tuple[list, bool]:
+    """(issues, complete): the whole set through conditional pages when the forge sends ETags, else a `since` listing."""
+    cached = {} if full else page_cache.load(ledger.read_page_files(target.slug))
     try:
-        remote = target.forge.list_issues()
+        listing = target.forge.list_issue_pages(cached)
+    except Unsupported as error:
+        if error.capability != "conditional_listing":
+            raise
+    else:
+        ledger.write_page_files(target.slug, page_cache.dump(listing.pages))
+        report.mode, report.pages_fetched, report.pages_reused = "conditional", listing.fetched, listing.reused
+        return listing.issues(), True
+    since = pull_cursor.since_of(cursor, started, full)
+    report.mode = "incremental" if since else "full"
+    return target.forge.list_issues(since), not since
+
+
+def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], datetime] = instants.now) -> PullReport:
+    """Pull one target. `full` ignores the cursor and every cached page. The cursor advances only when the whole pull succeeded."""
+    report = PullReport(target.slug)
+    started = clock()
+    cursor = pull_cursor.parse(ledger.read_cursor(target.slug))
+    try:
+        remote, complete = _list(ledger, target, report, cursor, started, full)
     except Unsupported as error:
         report.skipped.append(error.capability)
         return report
@@ -70,7 +94,10 @@ def pull_target(ledger: Ledger, target) -> PullReport:
                 mirrored[record["number"]] = item_id
     try:
         for number, item_id in sorted(mirrored.items()):
-            _pull_item(ledger, snapshot, target, report, item_id, by_number.get(number))
+            issue = by_number.get(number)
+            if issue is None and not complete:
+                continue  # unchanged since the cursor; only the complete set can show a deletion
+            _pull_item(ledger, snapshot, target, report, item_id, issue)
         for issue in () if target.read_only else remote:
             if issue.number in mirrored:
                 continue
@@ -84,6 +111,10 @@ def pull_target(ledger: Ledger, target) -> PullReport:
     except ForgeError as error:
         report.failures.append(error.detail)
         report.retry_after = getattr(error, "retry_after", 0.0)
+    if not report.failures and not report.skipped:
+        ledger.write_cursor(target.slug, pull_cursor.after_pull(cursor, started, report.mode).to_json())
+    if full:
+        report.mode = "full"
     return report
 
 

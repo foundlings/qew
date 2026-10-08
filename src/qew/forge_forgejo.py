@@ -14,7 +14,9 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from qew.forge import (
     LABEL_DESCRIPTION,
+    CachedPage,
     LabelNotPersisted,
+    PageListing,
     Milestone,
     MilestoneSpec,
     marker_alone,
@@ -28,7 +30,8 @@ from qew.forge import (
     RemotePullRequest,
     Transport,
 )
-from qew.forge_http import MAX_PAGES, api_base, call_json, resolve_token, split_repo
+from qew.forge_http import MAX_PAGES, NotModified, api_base, call_json, get_conditional, resolve_token, split_repo
+from qew.forge_pages import list_pages
 from qew.ledger_config import Mirror
 
 PAGE_SIZE = 50
@@ -313,10 +316,25 @@ class Forgejo(Forge):
         data, _ = self._call("GET", f"/issues/{number}")
         return _parse_issue(data)
 
-    def list_issues(self) -> List[RemoteIssue]:
+    def list_issues(self, since: str = "") -> List[RemoteIssue]:
         # `type=issues` keeps pull requests out; the key check guards a server that ignores it.
-        listed = self._list("/issues", {"type": "issues", "state": "all", "sort": "oldest"})
+        window = {"since": since} if since else {}
+        listed = self._list("/issues", {"type": "issues", "state": "all", "sort": "oldest", **window})
         return [_parse_issue(entry) for entry in listed if "pull_request" not in _object(entry, "issue")]
+
+    def list_issue_pages(self, cached: Mapping[int, CachedPage]) -> PageListing:
+        def fetch(number: int, etag: str):
+            query = urllib.parse.urlencode({"type": "issues", "state": "all", "sort": "oldest", "page": number, "limit": PAGE_SIZE})
+            answer = get_conditional(self._transport, f"{self._repo_url}/issues?{query}", self._headers(), etag)
+            if isinstance(answer, NotModified):
+                return answer
+            data, headers = answer
+            if not isinstance(data, list):
+                raise _malformed("/issues is not a list")
+            issues = tuple(_parse_issue(e) for e in data if "pull_request" not in _object(e, "issue"))
+            return issues, len(data), headers, _has_next_link(headers)
+
+        return list_pages(fetch, cached, PAGE_SIZE)
 
     def list_comments(self, number: int) -> List[RemoteComment]:
         return [_parse_comment(entry) for entry in self._list(f"/issues/{number}/comments")]

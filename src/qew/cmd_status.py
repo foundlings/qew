@@ -4,7 +4,7 @@ import json
 import time
 from typing import Optional
 
-from qew import ledger_config, syncworker
+from qew import instants, ledger_config, pull_cursor, syncworker
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.ledger_config import Config
@@ -41,6 +41,15 @@ def last_sync(ledger, slug: str, item_ids) -> Optional[str]:
     return max(stamps, default="") or None
 
 
+def pull_state(ledger, slug: str) -> dict:
+    """When the target was last pulled, when it last saw the complete issue set, and how the next pull will list."""
+    cursor = pull_cursor.parse(ledger.read_cursor(slug))
+    if cursor is None:
+        return {"last_pull": None, "last_full": None, "next_pull": "full"}
+    return {"last_pull": instants.format_instant(cursor.pulled_at), "last_full": instants.format_instant(cursor.full_at),
+            "next_pull": pull_cursor.next_mode(cursor, instants.now())}
+
+
 def _contested(item_id: str, claim, holder: str) -> dict:
     """A second effective claim in a merged ledger: the holder by event order against the contender."""
     return {"id": claim.id, "item": item_id, "target": "ledger", "field": "owner", "forge": claim.get("owner"), "ledger": holder}
@@ -74,7 +83,8 @@ def collect(config: Config) -> dict:
             "remote": remote_state(config),
         },
         "targets": [
-            {"target": slug, "pending": len(rows), "last_sync": last_sync(ledger, slug, ids), "repos": repos_on(mirrors, slug)}
+            {"target": slug, "pending": len(rows), "last_sync": last_sync(ledger, slug, ids), "repos": repos_on(mirrors, slug),
+             **pull_state(ledger, slug)}
             for slug, rows in pending.items()
         ],
         "divergences": divergences,
@@ -87,7 +97,9 @@ def render(data: dict) -> str:
     lines = [f"authority primary={data['authority']['primary']}"]
     lines += [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]
     for target in data["targets"]:
-        lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'} repos={'on' if target['repos'] else 'off'}")
+        lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}"
+                     f" repos={'on' if target['repos'] else 'off'}"
+                     f" pulled={target['last_pull'] or 'never'} next_pull={target['next_pull']} full_set={target['last_full'] or 'never'}")
     if data["sync"]["retry_after"]:
         lines.append(f"sync retry_after={data['sync']['retry_after']}")
     lines.append(f"divergences={len(data['divergences'])}")
