@@ -86,7 +86,7 @@ Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`,
 
 ## Hooks
 
-`qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
+`qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
 (`.codex/hooks.json`), Cursor and opencode. Session start prints a bounded list of ready work; before a shell
 tool call, forge-side issue/label/board edits and pull request merges that bypass qew are refused. See
 `docs/specs/hooks.md`.

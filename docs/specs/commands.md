@@ -6,8 +6,8 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
 
 ## Setup
 - `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml`.
-- `qew hook install [--claude] [--codex] [--cursor] [--opencode]`: wire agents (none = all).
-- `qew hook remove [--claude] [--codex] [--cursor] [--opencode]`: remove exactly Qew's entries.
+- `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--json]`: wire agents (none = all; output order claude, codex, cursor, opencode).
+- `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--json]`: remove exactly Qew's entries.
 - `qew hook session-start --agent NAME`, `qew hook pre-tool --agent NAME`, `qew hook post-tool --agent NAME`:
   the events agents call; see hooks.md.
 

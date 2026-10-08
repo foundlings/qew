@@ -32,6 +32,8 @@ _PRIME_COMMANDS = (
     "Claim before coding; never change forge issues or merge pull requests around qew."
 )
 _REFUSAL_EXIT = 2
+_SCHEMA_VERSION = 1
+_TRUST_LINE = "review and trust it with /hooks before it will run"
 
 
 def register(commands) -> None:
@@ -41,6 +43,7 @@ def register(commands) -> None:
         sub = actions.add_parser(name, help=text)
         for agent in AGENTS:
             sub.add_argument(f"--{agent}", action="store_true", help=f"only {agent}")
+        sub.add_argument("--json", action="store_true", help="machine-readable result (schema_version 1)")
     for event in EVENTS:
         sub = actions.add_parser(event, help=f"answer the agent's {event} event")
         sub.add_argument("--agent", choices=AGENTS, required=True, help="calling agent")
@@ -74,14 +77,21 @@ def _configure(arguments: argparse.Namespace) -> str:
     chosen = [agent for agent in AGENTS if getattr(arguments, agent)] or list(AGENTS)
     root = _checkout_root()
     installing = arguments.hook_command == "install"
-    lines = []
+    results = []
     for agent in chosen:
         adapter = _ADAPTERS[agent]
         changed = adapter.install(root) if installing else adapter.remove(root)
         action = ("installed" if installing else "removed") if changed else "unchanged"
-        lines.append(f"{action} {agent} hook")
+        result = {"agent": agent, "action": action}
+        if agent == "codex" and installing:
+            result["trust_required"] = True
+        results.append(result)
+    if arguments.json:
+        body = results[0] if len(results) == 1 else {"agents": results}
+        return json.dumps({"schema_version": _SCHEMA_VERSION, **body})
+    lines = [f"{result['action']} {result['agent']} hook" for result in results]
     if installing and "codex" in chosen:
-        lines.append("review and trust it with /hooks before it will run")
+        lines.append(_TRUST_LINE)
     return "\n".join(lines)
 
 

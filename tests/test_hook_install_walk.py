@@ -1,8 +1,7 @@
-"""Walks of `qew hook install|remove`: ownership, repository roots, malformed config, machine output.
+"""Walks of `qew hook install|remove`: ownership, repository roots, malformed config.
 
 Adversary: an install that clobbers a teammate's hooks, a remove that litters a clean checkout,
-a root resolved to the wrong directory, a half-valid config repaired destructively, and
-automation that cannot tell whether a manual trust step remains.
+a root resolved to the wrong directory, and a half-valid config repaired destructively.
 """
 
 import json

@@ -3,7 +3,11 @@
 `qew hook install|remove [--claude] [--codex] [--cursor] [--opencode]` (no flag = all four)
 writes project-relative config at the nearest ancestor holding `.git` or `.jj`, through the
 safe-write foundation described below (atomic, private, idempotent, foreign entries kept).
-Outside a repository it fails with exit 2. Install drops Qew's own earlier entries
+Outside a repository it fails with exit 2 and creates nothing.
+`--json` prints `{schema_version: 1, agent, action: installed|removed|unchanged}` (Codex install adds
+`trust_required: true`); with several agents the object carries an `agents` list in the fixed order
+claude, codex, cursor, opencode. Human output is one `ACTION AGENT hook` line per agent, plus the Codex
+trust line `review and trust it with /hooks before it will run` on install. Install drops Qew's own earlier entries
 (`hook pre-shell|post-shell`, `qew prime`); remove deletes current and earlier Qew entries.
 
 | Agent | File | Entries |
