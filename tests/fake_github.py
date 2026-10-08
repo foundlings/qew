@@ -164,10 +164,6 @@ class FakeGitHub:
         self.projects[project["id"]] = project
         return {"data": {"createProjectV2": {"projectV2": self.project_json(project)}}}
 
-    def gql_ProjectFields(self, variables: Dict[str, Any]) -> Dict[str, Any]:
-        project = self.projects.get(variables["id"])
-        return {"data": {"node": None if project is None else self.project_json(project)}}
-
     def gql_CreateStatusField(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         project = self.projects[variables["projectId"]]
         field = {"id": f"PVTSSF_new{len(project['fields'])}", "name": variables["name"], "options": []}
@@ -208,9 +204,12 @@ class FakeGitHub:
                 return {"data": {"markPullRequestReadyForReview": {"pullRequest": {"id": pull["node_id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "pull request not found"}]}
 
-    def item_status(self, project_id: str, issue_node_id: str) -> Optional[str]:
+    def project(self, number: str) -> Dict[str, Any]:
+        return next(p for p in self.projects.values() if str(p["number"]) == number)
+
+    def item_status(self, number: str, issue_node_id: str) -> Optional[str]:
         """The option name the issue holds in the project's Status field, or None."""
-        project = self.projects[project_id]
+        project = self.project(number)
         item = project["items"].get(issue_node_id)
         if item is None or "option" not in item:
             return None

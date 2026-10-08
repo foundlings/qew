@@ -181,13 +181,13 @@ class PullRequestWalk(GitHubWalk):
 
 class BoardWalk(GitHubWalk):
     def status_field(self, board: forge.Board) -> dict:
-        project = self.fake.projects[board.id]
+        project = self.fake.project(board.id)
         return next(f for f in project["fields"] if f["name"] == "Status")
 
     def test_ensure_creates_project_with_exact_status_options(self) -> None:
         board = self.backend.ensure_board(COLUMNS)
         self.assertEqual(board.columns, COLUMNS)
-        self.assertEqual(self.fake.projects[board.id]["title"], REPO)
+        self.assertEqual(self.fake.project(board.id)["title"], REPO)
         self.assertEqual([o["name"] for o in self.status_field(board)["options"]], list(COLUMNS))
 
     def test_ensure_is_idempotent_and_does_not_rewrite_matching_options(self) -> None:
@@ -200,9 +200,25 @@ class BoardWalk(GitHubWalk):
 
     def test_ensure_titles_by_option_and_finds_by_number(self) -> None:
         board = self.build(project_title="Roadmap").ensure_board(COLUMNS)
-        self.assertEqual(self.fake.projects[board.id]["title"], "Roadmap")
+        self.assertEqual(self.fake.project(board.id)["title"], "Roadmap")
         again = self.build(project="1").ensure_board(COLUMNS)
         self.assertEqual(again.id, board.id)
+
+    def test_board_id_round_trips_as_the_mirror_project(self) -> None:
+        first = self.backend.ensure_board(COLUMNS)
+        self.assertEqual(first.id, "1")
+        second = self.build(project=first.id).ensure_board(COLUMNS)
+        self.assertEqual(second, first)
+        self.assertEqual(len(self.fake.projects), 1)
+        issue = self.backend.create_issue(SPEC)
+        self.build(project=first.id).place_on_board(second, issue.number, "Done")
+        self.assertEqual(self.fake.item_status(first.id, issue.node_id), "Done")
+
+    def test_existing_title_is_never_duplicated(self) -> None:
+        self.backend.ensure_board(COLUMNS)
+        self.build().ensure_board(COLUMNS)
+        self.build(project_title=REPO).ensure_board(COLUMNS)
+        self.assertEqual(len(self.fake.projects), 1)
 
     def test_unknown_project_number_is_rejected(self) -> None:
         with self.assertRaises(ForgeRejected):
@@ -210,7 +226,7 @@ class BoardWalk(GitHubWalk):
 
     def test_missing_status_field_is_created(self) -> None:
         board = self.backend.ensure_board(COLUMNS)
-        self.fake.projects[board.id]["fields"] = []
+        self.fake.project(board.id)["fields"] = []
         self.backend.ensure_board(COLUMNS)
         self.assertEqual([o["name"] for o in self.status_field(board)["options"]], list(COLUMNS))
 
@@ -222,14 +238,14 @@ class BoardWalk(GitHubWalk):
         self.backend.place_on_board(board, issue.number, "Ready")
         self.backend.place_on_board(board, issue.number, "In review")
         self.assertEqual(self.fake.item_status(board.id, issue.node_id), "In review")
-        self.assertEqual(len(self.fake.projects[board.id]["items"]), 1)
+        self.assertEqual(len(self.fake.project(board.id)["items"]), 1)
 
     def test_unknown_column_is_rejected_before_any_write(self) -> None:
         board = self.backend.ensure_board(COLUMNS)
         issue = self.backend.create_issue(SPEC)
         with self.assertRaises(ForgeRejected):
             self.backend.place_on_board(board, issue.number, "Nowhere")
-        self.assertEqual(self.fake.projects[board.id]["items"], {})
+        self.assertEqual(self.fake.project(board.id)["items"], {})
 
     def test_graphql_errors_are_typed(self) -> None:
         self.fake.fail_next(200, "/api/graphql", body={"errors": [{"type": "RATE_LIMITED", "message": "slow"}]})
