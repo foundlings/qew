@@ -2,18 +2,15 @@
 
 import json
 import os
-import shlex
-import subprocess
 import sys
-import tempfile
 from typing import Dict, List, Optional
 
-from qew import code_text, graph_rules, ledger_config, outcome
+from qew import code_text, editor, graph_rules, ledger_config, outcome
 from qew.cmd_items import apply_set, create_items, ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import MAX_COMMENT_BYTES, State
-from qew.ledger_store import Ledger, Snapshot, require_usable_actor, actor
+from qew.ledger_store import Snapshot
 
 _SECTIONS = (("where", "Where"), ("problem", "Problem"), ("goal", "Goal"), ("fix", "Fix"),
              ("approach", "Approach"), ("done_when", "Done when"))
@@ -36,7 +33,7 @@ def register(commands) -> None:
     create.add_argument("--fix", help="structured body: the fix (not with --approach)")
     create.add_argument("--approach", help="structured body: the approach (not with --fix)")
     create.add_argument("--done-when", help="structured body: what done looks like")
-    create.add_argument("--edit", action="store_true", help="write the body in $EDITOR (run directly, never through a shell)")
+    create.add_argument("--edit", action="store_true", help="write the body in $VISUAL or $EDITOR")
     create.add_argument("--draft", action="store_true", help="file a draft explicitly (refused together with --quote)")
     create.add_argument("--discovered-from", metavar="ITEM", help="the item this one was found while working on (not a dependency)")
     create.add_argument("--quote", help="a human's words, \"Name: 'their words'\"; releases the item")
@@ -57,6 +54,7 @@ def register(commands) -> None:
     set_.add_argument("--priority", type=int, help="new priority")
     set_.add_argument("--body", help="replace the body")
     set_.add_argument("--body-file", help="replace the body with a file's text")
+    set_.add_argument("--edit", action="store_true", help="rewrite the body in $VISUAL or $EDITOR")
     set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
     set_.add_argument("--json", action="store_true", help="machine-readable output")
 
@@ -127,22 +125,6 @@ def _structured(arguments) -> Optional[str]:
     return "\n\n".join(f"## {title}\n\n{given[key].strip()}" for key, title in _SECTIONS if key in given) + "\n"
 
 
-def _edited() -> str:
-    command = shlex.split(os.environ.get("EDITOR", ""))
-    if not command:
-        raise QewError("--edit needs $EDITOR", 2)
-    with tempfile.TemporaryDirectory() as scratch:
-        path = os.path.join(scratch, "body.md")
-        open(path, "w", encoding="utf-8").close()
-        try:
-            done = subprocess.run([*command, path], check=False)
-        except OSError as error:
-            raise QewError(f"cannot run the editor: {error}", 2) from None
-        if done.returncode != 0:
-            raise QewError(f"the editor exited {done.returncode}; nothing was filed", 2)
-        return read_text(path)
-
-
 def _body(arguments) -> str:
     structured = _structured(arguments)
     sources = [name for name, used in (("--body", arguments.body is not None), ("--body-file", bool(arguments.body_file)),
@@ -152,9 +134,9 @@ def _body(arguments) -> str:
     if structured is not None:
         return structured
     if arguments.edit:
-        return _edited()
+        return editor.edit_body()
     if arguments.body_file:
-        return read_text(arguments.body_file)
+        return editor.read_body_file(arguments.body_file) if arguments.body_file != "-" else sys.stdin.read()
     return arguments.body or ""
 
 
@@ -180,7 +162,6 @@ def _specs(arguments) -> List[dict]:
 def _create(config: Config, arguments) -> None:
     if arguments.draft and arguments.quote is not None:
         raise QewError("--draft files a draft and --quote releases the item: use one", 2)
-    require_usable_actor(actor())
     specs = _specs(arguments)
     rows = create_items(config, specs, arguments.quote, arguments.import_events)
     for spec in specs:
@@ -196,8 +177,6 @@ def _set(config: Config, arguments) -> None:
         raise QewError("--no-parent and --parent contradict each other", 2)
     if arguments.labels is not None and (arguments.add_label or arguments.remove_label):
         raise QewError("--labels replaces the set; --add-label and --remove-label edit it: use one way", 2)
-    if arguments.body is not None and arguments.body_file:
-        raise QewError("--body and --body-file each give the body; use one", 2)
     changes: Dict[str, str] = {}
     for key in ("title", "parent", "priority", "kind"):
         value = getattr(arguments, key)
@@ -209,7 +188,9 @@ def _set(config: Config, arguments) -> None:
         value = getattr(arguments, key)
         if value is not None:
             changes[key] = " ".join(value)
-    body = read_text(arguments.body_file) if arguments.body_file else arguments.body
+    if sum([arguments.body is not None, bool(arguments.body_file), arguments.edit]) > 1:
+        raise QewError("use only one of --body, --body-file and --edit", 2)
+    body = editor.edit_body() if arguments.edit else (editor.read_body_file(arguments.body_file) if arguments.body_file else arguments.body)
     lines, changed = apply_set(config, arguments.items, changes, body, arguments.closed, arguments.add_label, arguments.remove_label)
     if body is not None:
         _warn(body)
@@ -219,7 +200,7 @@ def _set(config: Config, arguments) -> None:
 def comment(config: Config, reference: str, body: Optional[str], body_file: Optional[str]) -> Dict[str, object]:
     if (body is None) == (not body_file):
         raise QewError("give the comment as exactly one of --body and --body-file", 2)
-    text = body if body is not None else read_text(body_file)
+    text = body if body is not None else editor.read_body_file(body_file)
     if not text.strip():
         raise QewError("a comment must say something", 2)
     if len(text.encode("utf-8")) > MAX_COMMENT_BYTES:

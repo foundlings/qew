@@ -5,8 +5,8 @@ from typing import Iterable, Optional
 from qew.errors import QewError
 
 MAX_LABEL = 50
-# Sync writes `qew:STATE`, `kind:KIND`, `priority:N` and `author:LOGIN` itself.
-RESERVED_PREFIXES = ("qew:", "kind:", "priority:", "author:")
+# Sync writes `qew:STATE`, `qew:managed`, `status:STATUS`, `kind:KIND`, `priority:N` and `author:LOGIN` itself.
+RESERVED_PREFIXES = ("qew:", "kind:", "priority:", "status:", "author:")
 
 
 def problem(label: str) -> Optional[str]:
@@ -18,7 +18,7 @@ def problem(label: str) -> Optional[str]:
     if label != label.strip() or any(c.isspace() or c == "," or not c.isprintable() for c in label):
         return f"label `{label!r}` must be one word without commas or control characters"
     if label.casefold().startswith(RESERVED_PREFIXES):
-        return f"label `{label}` is in a namespace reserved for qew (qew:, kind:, priority:, author:)"
+        return f"label `{label}` is in a namespace reserved for qew (qew:, kind:, priority:, status:, author:)"
     return None
 
 

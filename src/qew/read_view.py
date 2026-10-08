@@ -2,7 +2,7 @@
 
 from typing import Dict, List
 
-from qew import stale_claims, untrusted_text
+from qew import ledger_graph, stale_claims, untrusted_text
 from qew.ledger_event import State
 from qew.ledger_store import Snapshot
 
@@ -19,8 +19,8 @@ def text_row(snapshot: Snapshot, item_id: str) -> str:
     return f"{item_id} {state} p{item.priority} {item.kind.value} {untrusted_text.show(item.title).text}{suffix}"
 
 
-def row_data(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
-    """The fixed row shape; owner, parent and needs are omitted when empty."""
+def row_data(snapshot: Snapshot, item_id: str, work_state: bool = False) -> Dict[str, object]:
+    """The fixed row shape; owner, parent and needs are omitted when empty. `list` adds `work_state`."""
     item = snapshot.items[item_id]
     folded = snapshot.folds[item_id]
     hidden = untrusted_text.findings(item.title)
@@ -34,12 +34,14 @@ def row_data(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
     }
     if hidden:
         row["text_findings"] = list(hidden)
-    if folded.state == State.CLAIMED:
-        row["stale"] = bool(stale_claims.merged_pull_requests(snapshot, item_id))
+    if work_state:
+        row["work_state"] = ledger_graph.work_state(snapshot, item_id)
     if folded.owner:
         row["owner"] = folded.owner
     if item.kind.value == "epic" and snapshot.derived[item_id][1]:
         row["holders"] = list(snapshot.derived[item_id][1])
+    if folded.state == State.CLAIMED:
+        row["stale"] = bool(stale_claims.merged_pull_requests(snapshot, item_id))
     if item.parent:
         row["parent"] = item.parent
     if item.needs:
@@ -47,5 +49,22 @@ def row_data(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
     return row
 
 
-def rows(snapshot: Snapshot, ids: List[str]) -> List[Dict[str, object]]:
-    return [row_data(snapshot, item_id) for item_id in ids]
+def rows(snapshot: Snapshot, ids: List[str], work_state: bool = False) -> List[Dict[str, object]]:
+    return [row_data(snapshot, item_id, work_state) for item_id in ids]
+
+
+def related(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
+    """A neighbouring item as `{id, state, title}`; one that does not exist is `{id, state: "missing"}`."""
+    if item_id not in snapshot.items:
+        return {"id": item_id, "state": "missing"}
+    item = snapshot.items[item_id]
+    folded = snapshot.folds[item_id]
+    hidden = untrusted_text.findings(item.title)
+    entry: Dict[str, object] = {
+        "id": item_id,
+        "state": folded.state.value if folded.state else None,
+        "title": None if hidden else item.title,
+    }
+    if hidden:
+        entry["text_findings"] = list(hidden)
+    return entry

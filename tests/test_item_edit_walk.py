@@ -67,32 +67,6 @@ class SetOptionsWalk(unittest.TestCase):
         self.assertEqual(tree(w), before)
 
 
-class AuthorshipWalk(unittest.TestCase):
-    def setUp(self) -> None:
-        self.world = World()
-        self.addCleanup(self.world.close)
-
-    def test_an_actor_that_cannot_form_a_label_is_refused_at_the_first_write(self) -> None:
-        """Prevents malformed text spliced into a mirror label name."""
-        w = self.world
-        before = tree(w)
-        for actor in ("bad login,x", "two words", "a,b"):
-            result = w.run("create", "--title", "Work", env={"QEW_ACTOR": actor})
-            self.assertEqual(result.returncode, 2, (actor, result.stderr))
-        self.assertEqual(tree(w), before)
-
-    def test_show_prints_the_author_from_the_first_event_not_the_claimant(self) -> None:
-        """Prevents the author being read as the claim."""
-        w = self.world
-        result = w.run("create", "--title", "Work", "--quote", QUOTE, env={"QEW_ACTOR": "alice"})
-        item = result.stdout.split()[0]
-        w.run("start", item, env={"QEW_ACTOR": "bob"})
-        shown = w.run("show", item).stdout
-        self.assertIn("author: alice", shown)
-        self.assertIn("owner: bob", shown)
-        self.assertEqual(json.loads(w.run("show", item, "--json").stdout)["author"], "alice")
-
-
 class DraftFlagWalk(unittest.TestCase):
     def setUp(self) -> None:
         self.world = World()
@@ -239,7 +213,7 @@ class BodyWalk(unittest.TestCase):
         script.write_text("import sys\nopen(sys.argv[-1], 'w').write('edited body\\n')\n")
         marker = w.base / "marker"
         editor = f"python3 {script} ; touch {marker}"
-        result = w.run("create", "--title", "Edited", "--edit", env={"EDITOR": editor})
+        result = w.run("create", "--title", "Edited", "--edit", env={"VISUAL": "", "EDITOR": editor})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(marker.exists())
         item = result.stdout.split()[0]

@@ -79,3 +79,53 @@ class CheckWalk(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CheckReportWalk(unittest.TestCase):
+    """`qew check --json`: one stable machine report."""
+
+    def setUp(self) -> None:
+        self.world = World()
+        self.addCleanup(self.world.close)
+
+    def report(self, expected_code: int) -> dict:
+        result = self.world.run("check", "--json")
+        self.assertEqual(result.returncode, expected_code, result.stdout + result.stderr)
+        return json.loads(result.stdout)
+
+    def set_needs(self, item: str, needs: str) -> None:
+        path = self.world.ledger / "items" / f"{item}.md"
+        lines = [f"needs: {needs}" if line.startswith("needs:") else line for line in path.read_text().split("\n")]
+        path.write_text("\n".join(lines))
+
+    def test_valid_ledger_reports_valid_true_and_exit_0(self) -> None:
+        """A clean ledger gives empty lists and a schema_version, so callers can test one field."""
+        self.world.create("--title", "A")
+        data = self.report(0)
+        self.assertEqual((data["valid"], data["cycles"], data["contradictions"], data["text_findings"]), (True, [], [], []))
+        self.assertEqual(data["schema_version"], 1)
+
+    def test_cycles_are_reported_once_in_canonical_rotation(self) -> None:
+        """A cycle entered through a tail must print rotated to its smallest id and closed, so diffs are stable."""
+        w = self.world
+        tail = w.create("--title", "tail")
+        a = w.create("--title", "a")
+        b = w.create("--title", "b")
+        c = w.create("--title", "c")
+        self.set_needs(a, b)
+        self.set_needs(b, c)
+        self.set_needs(c, a)
+        self.set_needs(tail, c)
+        data = self.report(1)
+        self.assertFalse(data["valid"])
+        self.assertEqual(data["cycles"], [[a, b, c, a]])
+
+    def test_claimed_epic_is_a_contradiction(self) -> None:
+        """Epics are never claimed; a merged claim event on one is reported by id."""
+        w = self.world
+        epic = w.create("--kind", "epic", "--title", "E")
+        w.approve(epic)
+        event = w.ledger / "events" / epic / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json"
+        event.write_text(json.dumps({"type": "claimed", "owner": "x", "at": "2026-01-01T00:00:00Z", "actor": "x"}))
+        data = self.report(1)
+        self.assertEqual(data["contradictions"], [{"item": epic, "kind": "claimed_epic"}])

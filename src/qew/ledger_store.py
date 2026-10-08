@@ -23,13 +23,6 @@ def actor() -> str:
     return os.environ.get("QEW_ACTOR") or os.environ.get("USER") or "unknown"
 
 
-def require_usable_actor(name: str) -> str:
-    """An actor ends up in event files and mirror labels: no whitespace, no commas, not empty (exit 2)."""
-    if not name or any(c.isspace() or c == "," for c in name):
-        raise QewError(f"actor `{name}` cannot be used in a label (no spaces or commas); set QEW_ACTOR", 2)
-    return name
-
-
 @dataclass(frozen=True)
 class Ledger:
     path: Path
@@ -148,7 +141,7 @@ class Ledger:
         directory = self.events_dir / item_id
         directory.mkdir(parents=True, exist_ok=True)
         existing = sorted(path.stem for path in directory.glob("*.json"))
-        who = by or require_usable_actor(actor())
+        who = by or actor()
         event = Event(event_id(existing[-1] if existing else ""), event_type, at or now(), who, dict(data))
         _write(directory / f"{event.id}.json", event.to_json(), exclusive=True)
         return event
@@ -192,6 +185,15 @@ class Ledger:
         if not isinstance(value, dict) or not isinstance(value.get("id"), str):
             raise QewError(f"{path}: a board record needs a string `id`", 1)
         return value
+
+    @property
+    def views_dir(self) -> Path:
+        return self.path / "views"
+
+    def write_view(self, name: str, value: dict, overwrite: bool) -> None:
+        """One file per named board view; a new name never replaces an existing file."""
+        self.views_dir.mkdir(parents=True, exist_ok=True)
+        _write(self.views_dir / f"{name}.json", json.dumps(value, sort_keys=True, indent=2) + "\n", exclusive=not overwrite)
 
     def write_board(self, target: str, value: dict) -> None:
         directory = self.path / "boards"

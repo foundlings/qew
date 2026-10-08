@@ -28,6 +28,26 @@ def run_setup(home: Path, path_entries: list) -> subprocess.CompletedProcess:
     )
 
 
+@unittest.skipUnless(SUPPORTED, "the install script runs only on Linux and macOS")
+class InstallShellWalk(unittest.TestCase):
+    def test_the_shell_front_door_installs_a_working_qew_and_refuses_when_no_python_is_new_enough(self) -> None:
+        """Prevents install.sh picking an old system Python or failing silently: it installs, or exits 3 saying why."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            home = Path(temporary_directory)
+            environment = {**os.environ, "HOME": str(home), "PATH": f"{home / '.local' / 'bin'}{os.pathsep}{os.environ['PATH']}"}
+            environment.pop("XDG_DATA_HOME", None)
+            script = PROJECT_ROOT / "scripts" / "install.sh"
+            done = subprocess.run(["sh", str(script)], cwd=PROJECT_ROOT, env=environment, capture_output=True, text=True, check=False)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            smoke = subprocess.run([str(home / ".local" / "bin" / "qew"), "--help"], capture_output=True, text=True, check=False)
+            self.assertEqual(smoke.returncode, 0, smoke.stderr)
+            bare = {**environment, "PATH": "/nonexistent"}
+            refused = subprocess.run(["/bin/sh", str(script)], cwd=PROJECT_ROOT, env=bare, capture_output=True, text=True, check=False)
+            if not any(Path(p).exists() and os.access(p, os.X_OK) for p in ("/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3")):
+                self.assertEqual(refused.returncode, 3)
+                self.assertIn("Python 3.11", refused.stderr)
+
+
 @unittest.skipUnless(SUPPORTED, "the setup script installs only on Linux and macOS")
 class UserSetupWalk(unittest.TestCase):
     def test_setup_links_a_working_qew_into_local_bin_and_is_idempotent(self) -> None:

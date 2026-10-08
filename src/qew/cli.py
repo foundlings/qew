@@ -18,7 +18,9 @@ Read
   qew ready       approved, unclaimed, unblocked work
   qew blocked     open work with unmet needs
   qew graph       dependency edges
+  qew board       the offline kanban: seven status columns
   qew check       validate the ledger
+  qew inbox       one person's waiting drafts and assigned work
 Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
@@ -56,7 +58,8 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_claim", "cmd_finish", "cmd_edit")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox", "cmd_claim", "cmd_finish", "cmd_edit")
+_MODULES += ("cmd_board",)
 
 
 def _plugins() -> list:
@@ -84,7 +87,8 @@ def _parser() -> argparse.ArgumentParser:
     init = commands.add_parser("init", help="create .qew/config.toml and the ledger")
     init.add_argument("--ledger", help="path to the ledger checkout, relative to the repo root")
 
-    commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
+    check = commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
+    check.add_argument("--json", action="store_true", help="machine-readable report: valid, cycles, contradictions, text_findings")
 
     draft = commands.add_parser("draft", help="drafts and their release by a human")
     draft_commands = draft.add_subparsers(dest="draft_command", required=True)
@@ -118,6 +122,12 @@ def _run(arguments: argparse.Namespace) -> None:
     config = ledger_config.load()
     if command == "check":
         ledger = cmd_items.ledger_for(config)
+        if arguments.json:
+            report = ledger_check.analyse(ledger)
+            print(json.dumps(report.as_json()))
+            if report.problems:
+                raise QewError(f"{len(report.problems)} problem(s)", 1)
+            return
         problems, notes = ledger_check.check_report(ledger)
         if problems:
             print("\n".join(problems))

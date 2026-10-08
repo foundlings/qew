@@ -3,6 +3,7 @@
 Each test is a scenario; its docstring names the failure it prevents.
 """
 
+import json
 import os
 import sys
 import unittest
@@ -53,6 +54,30 @@ class PullWalk(unittest.TestCase):
         before = len(self.events())
         self.assertEqual(self.pull().applied, 0)
         self.assertEqual(len(self.events()), before)
+
+    def test_a_baseline_recorded_before_a_label_became_managed_does_not_diverge(self) -> None:
+        """Prevents a flood after an upgrade (seen live): old local baselines still holding status:* labels are normalised."""
+        state = self.world.ledger / ".qew" / "state"
+        path = next(state.rglob(f"{self.item}.json"))
+        data = json.loads(path.read_text())
+        data["seen"]["labels"] = sorted([*data["seen"]["labels"], "status:Ready"])
+        path.write_text(json.dumps(data))
+        report = self.pull()
+        self.assertEqual((report.applied, report.divergences), (0, 0))
+
+    def test_several_divergences_resolve_in_one_command(self) -> None:
+        """Prevents 170 divergences needing 170 commits: accept and reject take many ids at once."""
+        self.forge.edit(1, open=False)
+        self.pull()
+        second = self.world.create("--kind", "issue", "--title", "Second", "--quote", QUOTE)
+        sync_target(self.ledger, self.target, self.config)
+        self.forge.edit(2, open=False)
+        self.pull()
+        ids = [e.stem for item in (self.item, second) for e in sorted((self.world.ledger / "events" / item).glob("*.json"))
+               if json.loads(e.read_text())["type"] == "forge_divergence"]
+        self.assertEqual(len(ids), 2)
+        cmd_divergence.reject(self.config, ids)
+        self.assertEqual(self.world.run("status").stdout.count("divergence "), 0)
 
     def test_a_title_edit_merges_when_the_ledger_did_not_change_it_and_diverges_when_it_did(self) -> None:
         """Prevents silent overwrite: a concurrent edit on both sides becomes a divergence, never a merge guess."""

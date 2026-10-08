@@ -1,0 +1,81 @@
+"""Graph invariants `qew check` reports with counts: orphans, cross-epic parents, depth, needs on closed items."""
+
+from typing import Dict, List
+
+from qew.ledger_event import State
+from qew.ledger_ids import sort_key
+from qew.ledger_store import Snapshot
+
+MAX_NEEDS_DEPTH = 20
+AREA = "area:"
+_ORPHAN = "belongs to no item"
+
+
+def _areas(labels) -> frozenset:
+    return frozenset(label[len(AREA):] for label in labels if label.startswith(AREA))
+
+
+def cross_parent(snapshot: Snapshot) -> List[str]:
+    """Children filed under a parent that shares none of their `area:` labels (only when both have one)."""
+    found = []
+    for item_id in sorted(snapshot.items, key=sort_key):
+        item = snapshot.items[item_id]
+        parent = snapshot.items.get(item.parent)
+        if parent is None:
+            continue
+        own, theirs = _areas(item.labels), _areas(parent.labels)
+        if own and theirs and not own & theirs:
+            found.append(
+                f"items/{item_id}.md: area {' '.join(sorted(own))} differs from parent {parent.id} (area {' '.join(sorted(theirs))})"
+            )
+    return found
+
+
+def deep_needs(snapshot: Snapshot) -> List[str]:
+    """Items whose longest needs chain exceeds the limit and that no deeper item builds on. Cycles are skipped."""
+    depth: Dict[str, int] = {}
+    for start in snapshot.items:
+        stack = [(start, iter(snapshot.items[start].needs))]
+        on_path = {start}
+        while stack:
+            node, rest = stack[-1]
+            descended = False
+            for need in rest:
+                if need in snapshot.items and need not in on_path and need not in depth:
+                    stack.append((need, iter(snapshot.items[need].needs)))
+                    on_path.add(need)
+                    descended = True
+                    break
+            if not descended:
+                stack.pop()
+                on_path.discard(node)
+                depth[node] = max((1 + depth[n] for n in snapshot.items[node].needs if n in depth), default=0)
+    needed = {n for item in snapshot.items.values() for n in item.needs}
+    return [
+        f"items/{i}.md: needs chain of {depth[i]} edges exceeds the limit of {MAX_NEEDS_DEPTH}"
+        for i in sorted(snapshot.items, key=sort_key)
+        if depth[i] > MAX_NEEDS_DEPTH and i not in needed
+    ]
+
+
+def closed_needs(snapshot: Snapshot) -> List[str]:
+    """Open work that needs a closed item: it can never become ready."""
+    found = []
+    for item_id in sorted(snapshot.items, key=sort_key):
+        if (snapshot.folds[item_id].state or State.DRAFT) in (State.COMPLETED, State.CLOSED):
+            continue
+        for need in snapshot.items[item_id].needs:
+            if need in snapshot.items and snapshot.folds[need].state == State.CLOSED:
+                found.append(f"items/{item_id}.md: needs closed item {need}")
+    return found
+
+
+def report(snapshot: Snapshot, problems: List[str]) -> None:
+    """Append the invariant problems and, when any exist, one counts line. Orphans are already in `problems`."""
+    orphans = sum(1 for problem in problems if problem.endswith(_ORPHAN))
+    groups = (cross_parent(snapshot), deep_needs(snapshot), closed_needs(snapshot))
+    for found in groups:
+        problems.extend(found)
+    cross, deep, closed = (len(found) for found in groups)
+    if orphans or cross or deep or closed:
+        problems.append(f"graph invariants: orphans={orphans} cross_epic={cross} depth={deep} closed_needs={closed}")

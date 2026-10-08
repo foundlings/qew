@@ -1,13 +1,28 @@
 """The read commands over items: show, list, ready, blocked, graph."""
 
 import argparse
+import sys
 from typing import List, Optional
 
-from qew import blocked_chains, graph_render, show_lifecycle, untrusted_text, cmd_items, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State
+from qew.ledger_ids import sort_key
 from qew.ledger_store import Snapshot
+
+
+READY_LIMIT = 30
+
+
+def _limit(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"`{value}` is not a whole number") from None
+    if number < 0:
+        raise argparse.ArgumentTypeError("a limit is zero (all) or more")
+    return number
 
 
 def register(commands) -> None:
@@ -15,13 +30,19 @@ def register(commands) -> None:
     show.add_argument("item", help="item id or alias")
     show.add_argument("--json", action="store_true", help="machine-readable output")
 
-    list_ = commands.add_parser("list", help="list items")
+    list_ = commands.add_parser("list", help="list items, actionable work first")
     list_.add_argument("--kind", choices=["epic", "issue", "task"], help="only this kind")
     list_.add_argument("--state", choices=["draft", "approved", "claimed", "completed", "closed"], help="only this state")
-    list_.add_argument("--label", help="only items carrying this label")
+    list_.add_argument("--work-state", choices=ledger_graph.WORK_STATES, help="only this derived work state")
+    list_.add_argument("--label", action="append", default=[], help="only items carrying this label (repeat: every label)")
+    list_.add_argument("--owner", help="only items this person currently holds")
+    list_.add_argument("--author", help="only items this person created")
+    list_.add_argument("--parent", help="only children of this item")
+    list_.add_argument("--limit", type=_limit, default=0, help="at most N items (0 = all)")
     list_.add_argument("--json", action="store_true", help="machine-readable output")
 
     ready = commands.add_parser("ready", help="approved, unclaimed work with every need completed")
+    ready.add_argument("--limit", type=_limit, default=READY_LIMIT, help=f"at most N items, default {READY_LIMIT} (0 = all)")
     ready.add_argument("--json", action="store_true", help="machine-readable output")
     blocked = commands.add_parser("blocked", help="open work with unmet needs")
     blocked.add_argument("--json", action="store_true", help="machine-readable output")
@@ -40,9 +61,9 @@ def run(arguments: argparse.Namespace) -> bool:
     if command == "show":
         show(config, snapshot, arguments.item, arguments.json)
     elif command == "list":
-        list_items(snapshot, arguments.kind, arguments.state, arguments.label, arguments.json)
+        list_items(snapshot, arguments, arguments.json)
     elif command == "ready":
-        ready(snapshot, arguments.json)
+        ready(snapshot, arguments.limit, arguments.json)
     elif command == "blocked":
         blocked(snapshot, arguments.json, arguments.chains)
     else:
@@ -54,39 +75,63 @@ def snapshot_for(config: Config) -> Snapshot:
     return ledger_check.read_snapshot(cmd_items.ledger_for(config))
 
 
-def print_rows(snapshot: Snapshot, ids: List[str], as_json: bool) -> None:
+def print_rows(snapshot: Snapshot, ids: List[str], as_json: bool, work_state: bool = False) -> None:
     if as_json:
-        for line in readfmt.ndjson(read_view.rows(snapshot, ids)):
+        for line in readfmt.ndjson(read_view.rows(snapshot, ids, work_state)):
             print(line)
     else:
         for item_id in ids:
             print(read_view.text_row(snapshot, item_id))
 
 
-def list_items(snapshot: Snapshot, kind, state, label, as_json: bool) -> None:
-    ids = ledger_graph.ordered(snapshot, list(snapshot.items))
-    if kind:
-        ids = [i for i in ids if snapshot.items[i].kind.value == kind]
-    if state:
-        ids = [i for i in ids if (snapshot.derived[i][0] or State.DRAFT).value == state]
-    if label:
-        ids = [i for i in ids if label in snapshot.items[i].labels]
-    print_rows(snapshot, ids, as_json)
+def _bounded(ids: List[str], limit: int, what: str) -> List[str]:
+    """The first `limit` ids (0 = all); a cut is announced on stderr."""
+    if limit and len(ids) > limit:
+        print(f"qew: {what} truncated: showing {limit} of {len(ids)} (--limit 0 shows all)", file=sys.stderr)
+        return ids[:limit]
+    return ids
 
 
-def ready(snapshot: Snapshot, as_json: bool) -> None:
+def list_items(snapshot: Snapshot, arguments: argparse.Namespace, as_json: bool) -> None:
+    ids = sorted(
+        snapshot.items,
+        key=lambda i: (ledger_graph.WORK_STATES.index(ledger_graph.work_state(snapshot, i)), snapshot.items[i].priority, sort_key(i)),
+    )
+    if arguments.kind:
+        ids = [i for i in ids if snapshot.items[i].kind.value == arguments.kind]
+    if arguments.state:
+        ids = [i for i in ids if (snapshot.derived[i][0] or State.DRAFT).value == arguments.state]
+    if arguments.work_state:
+        ids = [i for i in ids if ledger_graph.work_state(snapshot, i) == arguments.work_state]
+    if arguments.label:
+        ids = [i for i in ids if read_filter.has_all_labels(snapshot.items[i].labels, arguments.label)]
+    if arguments.owner:
+        ids = [i for i in ids if read_filter.fold(snapshot.folds[i].owner) == read_filter.fold(arguments.owner)]
+    if arguments.author:
+        ids = [i for i in ids if read_filter.fold(read_filter.author(snapshot, i)) == read_filter.fold(arguments.author)]
+    if arguments.parent:
+        parent = snapshot.ledger.resolve(arguments.parent, list(snapshot.items))
+        ids = [i for i in ids if snapshot.items[i].parent == parent]
+    print_rows(snapshot, _bounded(ids, arguments.limit, "list"), as_json, work_state=True)
+
+
+def ready(snapshot: Snapshot, limit: int, as_json: bool) -> None:
     ids = ledger_graph.ready(snapshot)
+    shown = _bounded(ids, limit, "ready")
     if as_json:
-        print(readfmt.envelope(read_view.rows(snapshot, ids), len(ids), False))
+        print(readfmt.envelope(read_view.rows(snapshot, shown), len(ids), len(shown) < len(ids)))
     else:
-        print_rows(snapshot, ids, False)
+        print_rows(snapshot, shown, False)
 
 
 def blocked(snapshot: Snapshot, as_json: bool, with_chains: bool = False) -> None:
     ids = ledger_graph.blocked(snapshot)
     found = blocked_chains.chains(snapshot, ids) if with_chains else {}
     if as_json:
-        rows = [{**read_view.row_data(snapshot, i), "blocked_by": ledger_graph.blockers(snapshot, i)} for i in ids]
+        rows = [
+            {**read_view.row_data(snapshot, i), "blocked_by": [read_view.related(snapshot, b) for b in ledger_graph.blockers(snapshot, i)]}
+            for i in ids
+        ]
         for row in rows:
             if row["id"] in found:
                 chain = found[row["id"]]
@@ -121,6 +166,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     mirrors = [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in ledger.load_mirrors(item_id)]
     evidence = [event.data for event in folded.evidence]
     data = read_view.row_data(snapshot, item_id)
+    data["author"] = ledger_author.author(snapshot, item_id) or "unknown"
     for key, value in (("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body)):
         if value:
             data[key] = value
@@ -136,6 +182,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     if folded.owner:
         print(f"owner: {folded.owner}")
     print(f"priority: {item.priority}")
+    print(f"author: {data['author']}")
     for key, values in (("parent", [item.parent] if item.parent else []), ("needs", item.needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
         if values:
             print(f"{key}: {' '.join(values)}")

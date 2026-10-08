@@ -58,9 +58,6 @@ def extras(snapshot: Snapshot, item_id: str) -> Tuple[dict, List[str]]:
     data: dict = {"claim": folded.claim, "holders": list(holders)}
     lines: List[str] = []
     events = sorted(snapshot.events[item_id], key=lambda event: event.id)
-    if events:
-        data["author"] = events[0].actor
-        lines.append(f"author: {events[0].actor}")
     origin = snapshot.items[item_id].discovered_from
     if origin:
         data["discovered_from"] = origin

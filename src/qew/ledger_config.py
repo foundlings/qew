@@ -2,12 +2,14 @@
 
 from dataclasses import dataclass
 import os
+import re
 from pathlib import Path
 import re
 import tomllib
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
+from qew import __version__
 from qew.errors import QewError
 
 LEDGER_FILE = "qew-ledger.toml"
@@ -112,18 +114,22 @@ def load(start: Optional[Path] = None) -> Config:
         if ledger is None:
             raise QewError("no .qew/config.toml found; run `qew init`", 2)
         return Config(ledger, ledger, _ledger_prefix(ledger), "main", ())
+    if (root / CONFIG).is_symlink() or (root / CONFIG).parent.is_symlink():
+        raise QewError(f"{root / CONFIG} is a symlink; refusing to read configuration through it", 2)
     try:
         data = tomllib.loads((root / CONFIG).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         raise QewError(f"{root / CONFIG}: {error}", 1) from None
+    _require_minimum_version(data.get("qew"))
     section = data.get("ledger")
     if not isinstance(section, dict) or not isinstance(section.get("path"), str):
         raise QewError(f"{root / CONFIG}: [ledger] path is required", 1)
     override = os.environ.get("QEW_LEDGER")
     ledger_path = Path(override) if override else (root / section["path"])
-    prefix = section.get("prefix") or _ledger_prefix(ledger_path.resolve())
+    ledger_prefix = _ledger_prefix(ledger_path.resolve())
+    prefix = section.get("prefix") or ledger_prefix
     code = data.get("code", {})
-    mirrors = tuple(_mirror(entry) for entry in data.get("mirror", []))
+    mirrors = _distinct(_mirror(entry) for entry in data.get("mirror", []))
     return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors,
                   _replication(data.get("replication")), _authority(data.get("authority"), mirrors),
                   _claim_cap(data.get("claims")))
@@ -174,11 +180,51 @@ def _checked_url(value: object, name: str, forge: str, repository: bool) -> str:
     return value
 
 
+_VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+
+
+def _require_minimum_version(section: object) -> None:
+    """`[qew] minimum_version` refuses every command of an older qew; additions elsewhere are ignored."""
+    if section is None:
+        return
+    if not isinstance(section, dict):
+        raise QewError("[qew] must be a table", 2)
+    minimum = section.get("minimum_version")
+    if minimum is None:
+        return
+    wanted = _VERSION.match(minimum) if isinstance(minimum, str) else None
+    if wanted is None:
+        raise QewError(f"[qew] minimum_version must look like 1.2.3, not {minimum!r}", 2)
+    running = tuple(int(n) for n in _VERSION.match(__version__).groups())
+    if running < tuple(int(n) for n in wanted.groups()):
+        raise QewError(
+            f"this repository needs qew {minimum} or newer; this is {__version__}; upgrade with scripts/setup_user.py", 2)
+
+
+def _distinct(mirrors) -> Tuple[Mirror, ...]:
+    """One mirror per target: URL spellings that differ in case or `.git` are the same repository."""
+    seen = {}
+    for mirror in mirrors:
+        seen.setdefault(mirror_slug(mirror), mirror)
+    return tuple(seen.values())
+
+
+def _project_number(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise QewError(f"project must be a positive board number, got {value!r}", 2)
+    return str(value)
+
+
 def _mirror(entry: object) -> Mirror:
     if not isinstance(entry, dict) or not isinstance(entry.get("forge"), str) or not isinstance(entry.get("repo"), str):
         raise QewError("each [[mirror]] needs string `forge` and `repo`", 1)
     known = {"forge", "repo", "project", "select"}
-    project = entry.get("project")
+    project = _project_number(entry.get("project"))
+    title = entry.get("project_title")
+    if title is not None and (not isinstance(title, str) or not title.strip()):
+        raise QewError("mirror `project_title` must not be empty", 2)
     forge = ALIASES.get(entry["forge"], entry["forge"])
     for name in _URL_OPTIONS:
         if name in entry:
@@ -189,7 +235,7 @@ def _mirror(entry: object) -> Mirror:
     return Mirror(
         forge=forge,
         repo=_checked_url(entry["repo"], "repo", forge, repository=True).rstrip("/"),
-        project=None if project is None else str(project),
+        project=project,
         select=str(entry.get("select", "")),
         options={key: value for key, value in entry.items() if key not in known},
     )
@@ -214,6 +260,9 @@ def _ledger_prefix(ledger: Path) -> str:
         return ""
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         raise QewError(f"{ledger / LEDGER_FILE}: {error}", 1) from None
+    version = data.get("schema_version", 1)
+    if version != 1 or isinstance(version, bool):
+        raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version!r} is not supported by this qew (1)", 2)
     prefix = data.get("prefix", "")
     if not isinstance(prefix, str):
         raise QewError(f"{ledger / LEDGER_FILE}: prefix must be a string", 1)
@@ -222,7 +271,8 @@ def _ledger_prefix(ledger: Path) -> str:
 
 def mirror_slug(mirror: Mirror) -> str:
     """The `<forge>-<host>-<repo-slug>` stem of a mirror file."""
-    without_scheme = mirror.repo.split("://", 1)[-1]
+    without_scheme = mirror.repo.split("://", 1)[-1].casefold()
     host, _, path = without_scheme.partition("/")
+    path = path.rstrip("/").removesuffix(".git")
     slug = "".join(c if c.isalnum() or c in ".-" else "-" for c in path)
     return f"{mirror.forge}-{host}-{slug}"
