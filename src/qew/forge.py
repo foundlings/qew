@@ -167,6 +167,14 @@ class Board:
     notes: Tuple[str, ...] = ()  # corrections and foreign leftovers `ensure_board` reports
 
 
+@dataclass(frozen=True)
+class Placement:
+    """Where an issue sits on a board: its Status column and Priority option name ("" when unset)."""
+
+    column: str
+    priority: str
+
+
 class Forge(ABC):
     """Implement what the forge can do; leave the rest raising `Unsupported`.
 
@@ -216,9 +224,17 @@ class Forge(ABC):
         """
         raise Unsupported("ensure_board")
 
-    def place_on_board(self, board: Board, number: int, column: str) -> None:
-        """Put the issue on the board in `column`, moving it if already there (idempotent)."""
+    def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
+        """Put the issue on the board in `column` (and `priority` where the board has one), idempotent."""
         raise Unsupported("place_on_board")
+
+    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+        """What the forge shows now for the issue on the board, or None when it is not on it."""
+        raise Unsupported("read_placement")
+
+    def remove_from_board(self, board: Board, number: int) -> None:
+        """Take the issue's card off the board; the issue itself is never touched."""
+        raise Unsupported("remove_from_board")
 
     def open_pull_request(self, spec: PullRequestSpec) -> RemotePullRequest:
         raise Unsupported("open_pull_request")

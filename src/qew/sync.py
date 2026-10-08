@@ -12,9 +12,14 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from qew import sync_plan
-from qew.forge import COLUMNS, Board, Forge, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
+from qew.forge import COLUMNS, Board, Forge, ForgeError, ForgeRejected, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for
 from qew.ledger_config import Config, Mirror
 from qew.ledger_store import Ledger, Snapshot, now
+
+
+# After a board write the forge may not show it at once: read it back this often, this far apart.
+READBACK_ATTEMPTS = 3
+READBACK_DELAY = 1.0
 
 
 @dataclass(frozen=True)
@@ -33,6 +38,8 @@ class TargetReport:
     adopted: int = 0
     skipped: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    pruned: int = 0
     stopped: Optional[str] = None  # set when the forge went away and the rest of the target was not tried
 
 
@@ -65,7 +72,27 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
             report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
             report.stopped = f"{type(error).__name__}: {error.detail}"
             break
+    if board is not None and chosen is None and report.stopped is None:
+        _prune(ledger, snapshot, target, report, set(ids), board)
     return report
+
+
+def _prune(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, selected: set, board: Board) -> None:
+    """Take cards of items that left the select off the board; their issues stay exactly as they are."""
+    for item_id in snapshot.items:
+        record = _read_mirror(ledger, item_id, target.slug)
+        if item_id in selected or record is None or "column" not in record or record.get("kind") != "issue":
+            continue
+        try:
+            target.forge.remove_from_board(board, record["number"])
+        except Unsupported:
+            return
+        except ForgeError as error:
+            report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+            continue
+        clean = {k: v for k, v in record.items() if k not in ("_target", "column", "priority")}
+        ledger.write_mirror(item_id, target.slug, clean)
+        report.pruned += 1
 
 
 def _read_mirror(ledger: Ledger, item_id: str, slug: str) -> Optional[dict]:
@@ -117,7 +144,7 @@ def _sync_item(
         report.unchanged += 1
     _link(ledger, snapshot, target, report, item_id, numbers, record)
     if board is not None:
-        _place(ledger, target, report, item_id, board, column, record)
+        _place(ledger, snapshot, target, report, item_id, board, column, record)
 
 
 def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec):
@@ -177,15 +204,49 @@ def _link(ledger, snapshot, target, report, item_id, numbers, record) -> None:
         ledger.write_mirror(item_id, target.slug, {**clean, "linked": sorted(linked)})
 
 
-def _place(ledger, target, report, item_id, board, column, record) -> None:
+def _place(ledger, snapshot, target, report, item_id, board, column, record) -> None:
+    """Make the card show `column` and the item's priority, verified by reading the forge back."""
     current = _read_mirror(ledger, item_id, target.slug) or record
-    if current.get("column") == column:
-        return
+    priority, clamped = sync_plan.priority_option(snapshot.items[item_id].priority)
+    if clamped:
+        report.warnings.append(f"{snapshot.short(item_id)}: priority {snapshot.items[item_id].priority} shown as {priority}")
+    wanted = Placement(column, priority)
+    number = current["number"]
     try:
-        target.forge.place_on_board(board, current["number"], column)
+        verifiable = True
+        try:
+            seen = target.forge.read_placement(board, number)
+        except Unsupported:
+            verifiable, seen = False, None
+        if verifiable and seen == wanted:
+            _record_placement(ledger, target, item_id, current, wanted)
+            return
+        if not verifiable and (current.get("column"), current.get("priority")) == (column, priority):
+            return
+        target.forge.place_on_board(board, number, column, priority)
+        if verifiable and not _visible(target.forge, board, number, wanted):
+            report.failures.append(
+                f"{snapshot.short(item_id)}: board placement not visible after {READBACK_ATTEMPTS} reads; will retry"
+            )
+            return
     except Unsupported as error:
         if error.capability not in report.skipped:
             report.skipped.append(error.capability)
         return
+    _record_placement(ledger, target, item_id, current, wanted)
+
+
+def _visible(forge: Forge, board: Board, number: int, wanted: Placement) -> bool:
+    for attempt in range(READBACK_ATTEMPTS):
+        if attempt:
+            time.sleep(READBACK_DELAY)
+        if forge.read_placement(board, number) == wanted:
+            return True
+    return False
+
+
+def _record_placement(ledger, target, item_id, current, wanted: Placement) -> None:
+    if (current.get("column"), current.get("priority")) == (wanted.column, wanted.priority):
+        return
     clean = {k: v for k, v in current.items() if k != "_target"}
-    ledger.write_mirror(item_id, target.slug, {**clean, "column": column})
+    ledger.write_mirror(item_id, target.slug, {**clean, "column": wanted.column, "priority": wanted.priority})

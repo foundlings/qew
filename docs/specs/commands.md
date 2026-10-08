@@ -62,7 +62,11 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
   read back; a state other than the intended one is exit 3, never success. Written events stay (no rollback).
 
 ## Mirrors
-- `qew sync [--target T] [--item ID] [--dry-run]`: push to every `[[mirror]]` target independently.
+- `qew sync [--target T] [--item ID] [--dry-run]`: push to every `[[mirror]]` target independently. On a target with a
+  board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
+  warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
+  is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
+  lose their card (`pruned N`); their issues are never closed.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close

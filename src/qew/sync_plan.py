@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 
 from qew import ledger_graph
 from qew.errors import QewError
-from qew.forge import COLUMNS, MANAGED_FILTER, MARKER_PREFIX, IssueSpec, marker_for
+from qew.forge import COLUMNS, MANAGED_FILTER, MARKER_PREFIX, PRIORITY_OPTIONS, IssueSpec, marker_for
 from qew.ledger_event import State
 from qew.ledger_item import Item, Kind
 from qew.ledger_store import Snapshot
@@ -99,6 +99,12 @@ def _has_open_pull_request(snapshot: Snapshot, item_id: str) -> bool:
         m.get("kind") == "pr" and m.get("state", "open") not in ("merged", "closed")
         for m in snapshot.ledger.load_mirrors(item_id)
     )
+
+
+def priority_option(priority: int) -> Tuple[str, bool]:
+    """The Priority option name for an item priority, and whether it was clamped to the last option."""
+    last = len(PRIORITY_OPTIONS) - 1
+    return PRIORITY_OPTIONS[min(priority, last)][0], priority > last
 
 
 def managed_filter(select: str) -> str:

@@ -16,6 +16,7 @@ from qew.forge import (
     STATUS_OPTIONS,
     Board,
     Forge,
+    Placement,
     ForgeAuth,
     ForgeRejected,
     ForgeUnavailable,
@@ -78,6 +79,24 @@ mutation CreateView($projectId: ID!, $name: String!, $layout: ProjectV2ViewLayou
 _UPDATE_VIEW = """
 mutation UpdateView($viewId: ID!, $name: String, $layout: ProjectV2ViewLayout, $filter: String) {
   updateProjectV2View(input: {viewId: $viewId, name: $name, layout: $layout, filter: $filter}) { projectV2View { id } }
+}"""
+_ITEM_PLACEMENT = """
+query ItemPlacement($contentId: ID!) {
+  node(id: $contentId) {
+    ... on Issue {
+      projectItems(first: 50) {
+        nodes {
+          id
+          project { number }
+          fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+        }
+      }
+    }
+  }
+}"""
+_DELETE_ITEM = """
+mutation DeleteItem($projectId: ID!, $itemId: ID!) {
+  deleteProjectV2Item(input: {projectId: $projectId, itemId: $itemId}) { deletedItemId }
 }"""
 _ADD_ITEM = """
 mutation AddItem($projectId: ID!, $contentId: ID!) {
@@ -599,22 +618,61 @@ class GitHub(Forge):
                 self._wire.graphql(_UPDATE_VIEW, {"viewId": view.id, "name": name, "layout": layout, "filter": wanted})
                 notes.append(f"view {name} corrected: was {view.layout} `{view.filter}`, now {layout} `{wanted}`")
 
-    def place_on_board(self, board: Board, number: int, column: str) -> None:
-        issue = self.read_issue(number)
-        number_wanted = _project_number(board.id)
+    def _board_project(self, board: Board) -> _Project:
+        wanted = _project_number(board.id)
         _, projects = self._owner_projects()
-        project = next((p for p in projects if p.number == number_wanted), None)
+        project = next((p for p in projects if p.number == wanted), None)
         if project is None:
-            raise ForgeRejected(404, f"project number {number_wanted} not found for {self._owner}")
-        options = {name: option_id for option_id, name in project.status_options}
-        if project.status_field_id is None or column not in options:
+            raise ForgeRejected(404, f"project number {wanted} not found for {self._owner}")
+        return project
+
+    def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
+        issue = self.read_issue(number)
+        project = self._board_project(board)
+        status = project.fields.get(STATUS_FIELD)
+        options = {o.name: o.id for o in status.options} if status else {}
+        if status is None or column not in options:
             raise ForgeRejected(400, f"board has no `{column}` column in its {STATUS_FIELD} field")
+        urgency = project.fields.get(PRIORITY_FIELD)
+        urgent = {o.name: o.id for o in urgency.options} if urgency else {}
+        if priority and priority not in urgent:
+            raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field")
         added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": issue.node_id})
         item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
+        item_id = _str(item, "id", "item")
         self._wire.graphql(_SET_STATUS, {
-            "projectId": project.id, "itemId": _str(item, "id", "item"),
-            "fieldId": project.status_field_id, "optionId": options[column],
+            "projectId": project.id, "itemId": item_id, "fieldId": status.id, "optionId": options[column],
         })
+        if priority and urgency is not None:
+            self._wire.graphql(_SET_STATUS, {
+                "projectId": project.id, "itemId": item_id, "fieldId": urgency.id, "optionId": urgent[priority],
+            })
+
+    def _placement(self, board: Board, number: int) -> Optional[Tuple[str, Placement]]:
+        issue = self.read_issue(number)
+        data = self._wire.graphql(_ITEM_PLACEMENT, {"contentId": issue.node_id})
+        node = _obj(data.get("node"), "node")
+        wanted = _project_number(board.id)
+        for entry in _array(_obj(node.get("projectItems"), "projectItems").get("nodes"), "projectItems.nodes"):
+            entry = _obj(entry, "project item")
+            if _int(_obj(entry.get("project"), "item.project"), "number", "item.project") != wanted:
+                continue
+            values: Dict[str, str] = {}
+            for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
+                value = _obj(value, "field value")
+                if value:  # other field kinds match no fragment and arrive as {}
+                    values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name", "value")
+            return _str(entry, "id", "item"), Placement(values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""))
+        return None
+
+    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+        found = self._placement(board, number)
+        return found[1] if found else None
+
+    def remove_from_board(self, board: Board, number: int) -> None:
+        found = self._placement(board, number)
+        if found is not None:
+            self._wire.graphql(_DELETE_ITEM, {"projectId": self._board_project(board).id, "itemId": found[0]})
 
     def _find_or_create_project(self) -> Tuple[_Project, bool]:
         """The project and whether this call created it."""

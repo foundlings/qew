@@ -35,6 +35,12 @@ the board is exactly what it lists. Colors and descriptions: `forge.STATUS_OPTIO
 - GitLab: issue board (REST) whose lists are the scoped labels `board::<Column>`; placing sets that label.
 - Forgejo/Gitea: no stable board API: `ensure_board` raises `Unsupported`; the state labels sync adds are the view.
 
+## Board projection
+`place_on_board(board, number, column, priority)` sets Status and (where the board has one) Priority; `read_placement`
+reads them back (None = not on the board); `remove_from_board` drops only the card. Sync reads before writing (drift is
+repaired), reads back `sync.READBACK_ATTEMPTS` times after a write, and records `column`/`priority` in the mirror file only
+once the forge shows them. A forge without `read_placement` falls back to the recorded column.
+
 ## Tests (offline, no network)
 Each backend ships a stdlib `http.server` fake of the forge's real wire format on 127.0.0.1 in
 `tests/fake_<forge>.py` (started in a thread, state in memory, optional failure injection) and a walk

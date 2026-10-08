@@ -130,7 +130,10 @@ def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[st
     if pulled is not None and (pulled.applied or pulled.divergences or pulled.new_items or pulled.comments):
         head += (f" pulled applied={pulled.applied} divergences={pulled.divergences}"
                  f" new={pulled.new_items} comments={pulled.comments}")
+    if report.pruned:
+        head += f" pruned {report.pruned}"
     lines = [head]
+    lines.extend(f"  warning {warning}" for warning in report.warnings)
     lines.extend(f"  failed {failure}" for failure in report.failures)
     if pulled is not None:
         lines.extend(f"  pull failed {failure}" for failure in pulled.failures)

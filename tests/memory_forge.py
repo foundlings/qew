@@ -14,6 +14,7 @@ from qew.forge import (
     ForgeRejected,
     ForgeUnavailable,
     IssueSpec,
+    Placement,
     PullRequestSpec,
     RemoteComment,
     RemoteIssue,
@@ -31,6 +32,7 @@ class MemoryForge(Forge):
         self.calls: List[Tuple] = []
         self.links: List[Tuple[int, int]] = []
         self.columns: Dict[int, str] = {}
+        self.priorities: Dict[int, str] = {}
         self.down = False
         self.reject_title: Optional[str] = None
         self.supports_boards = boards
@@ -81,9 +83,23 @@ class MemoryForge(Forge):
         self._live("board")
         return Board("B1", f"https://{self.host}/o/r/projects/1", columns)
 
-    def place_on_board(self, board: Board, number: int, column: str) -> None:
+    def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         self._live("place")
         self.columns[number] = column
+        self.priorities[number] = priority
+
+    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+        if not self.supports_boards:
+            raise Unsupported("read_placement")
+        self._live("read_placement")
+        if number not in self.columns:
+            return None
+        return Placement(self.columns[number], self.priorities.get(number, ""))
+
+    def remove_from_board(self, board: Board, number: int) -> None:
+        self._live("remove")
+        self.columns.pop(number, None)
+        self.priorities.pop(number, None)
 
     def count(self, name: str) -> int:
         return sum(1 for call in self.calls if call[0] == name)
