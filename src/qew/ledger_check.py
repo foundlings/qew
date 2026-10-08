@@ -111,6 +111,9 @@ def analyse(ledger: Ledger) -> Report:
     found = contradictions(snapshot)
     findings = text_findings(snapshot)
     notes = [f"imported without evidence: {imported}"] if imported else []
+    contested = sum(1 for fold_ in snapshot.folds.values() for e in fold_.divergences if e.type == "claimed")
+    if contested:
+        notes.append(f"contested claims: {contested} (see `qew status`; settle with `qew accept` or `qew reject`)")
     return Report(problems, notes, _cycles(snapshot), found, findings, _advisories(found, findings))
 
 
@@ -149,6 +152,10 @@ def _check_edges(snapshot: Snapshot, problems: List[str]) -> None:
         for need in item.needs:
             if need not in snapshot.items:
                 problems.append(f"{where}: dangling need {need}")
+        for key in ("tracks", "pr"):
+            link = getattr(item, key)
+            if link and link not in snapshot.items:
+                problems.append(f"{where}: dangling {key} {link}")
         if item.parent:
             parent = snapshot.items.get(item.parent)
             if parent is None:

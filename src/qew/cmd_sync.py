@@ -81,7 +81,7 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     lines = []
     failed = False
     for mirror in mirrors:
-        target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror))
+        target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror), ledger_config.is_read_only(config, mirror))
         pulled = pull_target(ledger, target)  # forge-side edits first, so the push cannot overwrite them
         if pulled.retry_after:  # rate limited while reading: pushing would only hit the same wall
             syncworker.set_backoff(pulled.retry_after)

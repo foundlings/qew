@@ -5,6 +5,12 @@ interface; `forge_github.py`, `forge_forgejo.py` (Forgejo and Gitea) and `forge_
 Backends know nothing about ledgers: they turn `IssueSpec`, `PullRequestSpec` and board calls into REST
 (and GitHub GraphQL) requests and parse the answers into `RemoteIssue` / `RemotePullRequest` / `Board`.
 
+## Support priority
+GitHub and Forgejo/Gitea are the first-class forges: every authority feature (claim arbitration on a primary forge,
+read-only secondary mirrors, repo pushes, forge migration) gets full scenarios against `tests/fake_github.py` and
+`tests/fake_forgejo.py`. GitLab is not extended: it keeps the behavior and the tests it has, and a new authority
+feature needs no GitLab scenario. `tests/test_forge_priority_walk.py` holds the authority walks off the GitLab fake.
+
 ## Contract
 - Built as `Backend(mirror, transport, env)`; `transport` is the injectable HTTP seam (`forge_http`).
 - A missing capability raises `Unsupported(name)` (the base class default). Never fake a result.
@@ -13,7 +19,7 @@ Backends know nothing about ledgers: they turn `IssueSpec`, `PullRequestSpec` an
 - Tokens come from the environment only (`forge_http.resolve_token`); never read from or written to files.
 - `IssueSpec.labels` replaces the issue's label set. A backend that implements boards with labels (GitLab
   `board::<Column>`) must leave its own board labels untouched on `update_issue`.
-- `create_issue` is not idempotent; the caller first calls `find_issue(marker)` (body contains the marker).
+- `create_issue` is not idempotent; the caller first calls `find_issue(marker)` (the marker is a whole line of the body: a marker merely quoted in text, blockquoted, recased or of another id never matches; pull requests are skipped; several matches resolve to the lowest number, which is how a race between two creators ends).
 - `merge_pull_request(number, expected_head_sha)` merges exactly that head (merge commit, no squash) and
   raises `ForgeRejected` if the head moved. `open_pull_request` honors `draft`.
 - API roots: GitHub `https://api.github.com` (a GHES host uses `<host>/api/v3`; GraphQL `<host>/api/graphql`),
@@ -108,3 +114,10 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   must implement the same endpoints and honor failure injection (`down`, `fail`, `delay` where the fake has them).
   `RemoteIssue.comments` carries the forge's own user-comment count (GitHub and Forgejo `comments`, GitLab
   `user_notes_count`, which excludes system notes) in every issue result; 0 only when the forge reports none.
+- Labels: before an issue write, a backend lists the labels the repository has and creates only the missing ones, with the
+  neutral colour `ededed` and the description `Managed by qew`; an existing label is never recoloured, re-described or
+  deleted. A create that is not visible afterwards fails that item (`LabelNotPersisted`, reported against it).
+- `read_board_cards(board)` lists every card (id, repository, issue number, Status, Priority) or raises `Unsupported`; a listing
+  past the page cap raises instead of truncating. `qew.board_cards.local_cards` is the one reading rule: cards of another
+  repository are ignored (a shared board's numbers collide), one card id seen twice is a pagination overlap, two ids for one
+  issue is an error naming both (exit 1). `delete_card(board, card_id)` removes a card and never touches its issue.

@@ -2,7 +2,7 @@
 
 from typing import Callable
 
-from qew import forge_registry, ledger_config, sync_plan, untrusted_text
+from qew import forge_registry, ledger_config, project_prune, project_status, sync_plan, untrusted_text
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import choose, mirrors_with_boards
 from qew.errors import QewError
@@ -15,11 +15,26 @@ def register(commands) -> None:
     sub = project.add_subparsers(dest="project_command", required=True)
     ensure = sub.add_parser("ensure", help="create the seven-status board on each target")
     ensure.add_argument("--target", help="only this target (slug or unique part of it)")
+    prune = sub.add_parser("prune", help="remove another repository's cards from a shared board")
+    prune.add_argument("--target", help="the target whose board to prune (slug or unique part of it)")
+    prune.add_argument("--from", dest="source", required=True, help="OWNER/REPO whose cards to remove")
+    report = sub.add_parser("status", help="report board drift from the ledger")
+    report.add_argument("--target", help="only this target (slug or unique part of it)")
+    report.add_argument("--json", action="store_true", help="machine-readable output")
 
 
 def run(arguments) -> bool:
     if arguments.command != "project":
         return False
+    if arguments.project_command == "prune":
+        print(project_prune.prune(ledger_config.load(), arguments.target, arguments.source))
+        return True
+    if arguments.project_command == "status":
+        text, code = project_status.status(ledger_config.load(), arguments.target, arguments.json)
+        print(text)
+        if code:
+            raise QewError("the board is not in sync" if code == 1 else "no board to compare with", code)
+        return True
     print(ensure(ledger_config.load(), arguments.target))
     return True
 

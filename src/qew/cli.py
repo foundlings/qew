@@ -46,6 +46,8 @@ Pull requests
   qew land        complete the items of a merged pull request
 Mirrors
   qew sync        push the ledger to every mirror target
+  qew mirror      add | remove | list mirror targets
+  qew forge       migrate the primary forge to another target
   qew project     ensure the board on each target
   qew status      replication state: uncommitted, unpushed, pending per target, divergences
   qew import      read a forge project, or an exported Markdown tree, into the ledger
@@ -54,6 +56,7 @@ Mirrors
   qew reject      keep the ledger value; the next push restores the forge
 Setup
   qew init        create the config and the ledger
+  qew ledger      fork the ledger into a new identity
   qew hook        install | remove agent hooks; the events agents call
 
 Help for one command: qew COMMAND --help. Finishing work is `qew complete`, never a forge-side close."""
@@ -64,6 +67,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 _MODULES = ("cmd_read", "cmd_comment", "cmd_triage", "cmd_search", "cmd_prime", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
 _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
+_MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan")
 
 
@@ -113,6 +117,8 @@ def _parser() -> argparse.ArgumentParser:
     set_.add_argument("--title", help="new title")
     set_.add_argument("--parent", help="new parent")
     set_.add_argument("--needs", nargs="*", help="replace the needs list")
+    set_.add_argument("--tracks", help="ledger id of the tracking issue item (empty clears it)")
+    set_.add_argument("--pr", help="ledger id of the pull request item (empty clears it)")
     set_.add_argument("--labels", nargs="*", help="replace the labels")
     set_.add_argument("--priority", type=int, help="new priority")
     set_.add_argument("--body", help="replace the body")
@@ -213,7 +219,7 @@ def _run(arguments: argparse.Namespace) -> None:
         print("\n".join(lines))
     elif command == "set":
         changes = {}
-        for key in ("title", "parent", "priority", "kind"):
+        for key in ("title", "parent", "priority", "kind", "tracks", "pr"):
             value = getattr(arguments, key)
             if value is not None:
                 changes[key] = str(value)

@@ -22,9 +22,9 @@ for a comment) where the source repeats; the kinds are `zero_width`, `bidi_contr
 and `control`.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | body children_done children_open completable needs owner parent schema_version section text_findings work_state
+shape row: id kind labels priority state title | body children_done children_open completable needs owner parent pr schema_version section text_findings tracks work_state
 shape envelope: items schema_version total truncated
-shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent root text_findings
+shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent pr root text_findings tracks
 shape edge: item schema_version | needs parent
 shape show: author draft id kind labels priority schema_version state title | approvals blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings
 shape triage_row: body id kind labels missing priority schema_version state title | needs owner parent text_findings
@@ -54,6 +54,8 @@ shape prime: additional_context context_bytes schema_version
   `(draft epic)`), `next` (its highest-priority ready child, text `next: ID pN title`) and
   `complete_command` (null unless the epic is claimed with every child completed or closed). `text_findings`
   lists hidden-text findings of the title, body, labels and comments; a title with any is withheld in rows.
+  A `tracks:` or `pr:` link prints `KEY: ID URL...`, the linked item's forge URLs read from its `mirrors/` files (header values
+  are ledger ids only; `check` flags a URL, a forge number or an unknown id there).
 - `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
   [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
@@ -157,8 +159,8 @@ shape prime: additional_context context_bytes schema_version
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
-- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--labels L...] [--priority N] [--body TEXT | --edit]
-  [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--closed] [--json]`: edits the header; each change appends a `field` audit event. The whole result is validated
+- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N]
+  [--body TEXT | --edit] [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--closed] [--json]`: edits the header; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
   need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
@@ -215,6 +217,29 @@ shape prime: additional_context context_bytes schema_version
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
   lose their card (`pruned N`); their issues are never closed.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
+  After the ledger commit, `sync` pushes the code repo (`[code] target`) and the ledger repo (`[replication] branch`)
+  to every target through a git remote `qew-<slug>` (never forced). The clone URLs are the `[[mirror]]` keys `git_url`
+  (code repo) and `ledger_git_url` (ledger repo), never derived from `repo`; a target with neither gets one
+  `repos SLUG: set git_url ...` report line and no remote. Each target and repo is isolated: `repos SLUG code|ledger:
+  failed: WHY` reports an unreachable or rejecting remote without blocking the rest. The forge repositories must exist.
+- `qew mirror add FORGE REPO [--read-only] [--api URL]`, `qew mirror remove TARGET`, `qew mirror list [--json]`: edit the
+  `[[mirror]]` entries of `.qew/config.toml` line by line; comments and every other table stay byte for byte. `add` refuses
+  an unknown forge, an invalid URL and a repeated target (exit 2). `remove` refuses the primary forge (exit 2) and keeps
+  the target's mirror files. A target is one-way (`read-only`) when marked `read_only = true` or when a primary is set
+  and it is not the primary: pull never imports its content edits, new issues or comments, and only flags a close or
+  reopen as a divergence. `list` prints `SLUG primary|two-way|read-only FORGE REPO`.
+- `qew ledger fork --to REMOTE [--primary TARGET]`: push a copy of the ledger to the empty git repository REMOTE under a
+  new identity: `ledger_id` (random) and `forked_from = "<origin id or name>@<commit>"` in `qew-ledger.toml`. Items and
+  their events keep their ids; `mirrors/`, `boards/`, the claim in force on open work (the item is approved again) and
+  unresolved divergences are not carried. `--primary` prints the `[authority] primary` config for the fork's code repo.
+  Ledgers of different identity never merge: a fetch that would bring a fork into its origin (or back) is refused
+  (exit 1, nothing merged). A ledger without `ledger_id` merges only with one without.
+- `qew forge migrate --to TARGET [--remove-old]`: make a configured target the primary forge. It restores the ledger onto
+  the target (the ordinary restore: issues, board; a pull request of another target becomes a `Pull request: URL`
+  comment on the issue), verifies that every selected item has its issue there, and only then switches
+  `[authority] primary` and marks the old primary `read_only = true` (`--remove-old` drops its block) in one atomic config
+  write. Any failure or a missing issue is exit 1 or 3 with the config untouched; a rerun resumes from the mirror files
+  without duplicates. Migrating to the current primary prints `already the primary`. The ledger is locked meanwhile.
 - `qew board [--json] [--compact] [--sort KEY[:desc]] [--group-by KEY] [--filter TERMS]`: the offline kanban, derived from the ledger alone (no forge, no network). Columns
   are the seven statuses of `sync_plan.column`, stacked top to bottom (`Draft (2)` then one card line per card:
   short id, `[pN]`, title, `@owner`, `#label`), cards by priority then id. Titles are made safe (hidden characters
@@ -240,6 +265,10 @@ shape prime: additional_context context_bytes schema_version
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the
   divergence event id (a unique prefix) or an item with exactly one open divergence.
+  A second effective `claimed` event on a held item (found after a merge) is a divergence too (`DIVERGENCE` is that
+  event's id, field `owner`): the holder is the first claim by event order, never by timestamp; `qew accept` hands the item
+  to the contender, `qew reject` keeps the holder, each by writing `claim_lost` for the loser. `qew check` counts them
+  as a note, `contested claims: N`.
 - `qew reject DIVERGENCE`: keep the ledger value; the mirror is marked stale so the next push rewrites the forge.
 - `qew import DIRECTORY [--quote Q]`: read a tree written by `qew export` into the ledger, ids kept, as drafts (approved
   with a human's quote, as on create). Mechanical: each `items/ID.md` is parsed header-only (unknown keys, a file name
@@ -252,7 +281,17 @@ shape prime: additional_context context_bytes schema_version
   accepted for closed foreign issues.
 - `qew restore [--to TARGET | --forge F --repo URL [--api URL]]`: recreate the issues, links and board of a target from the ledger
   alone; mirror files whose remote issue is gone are forgotten first. Idempotent and resumable.
-- `qew project`: the group for `ensure`.
+- `qew project`: the group for `ensure`, `status` and `prune`.
+- `qew project prune --from OWNER/REPO [--target T]`: delete exactly the cards whose issue is in the named repository
+  (case-insensitive, never a prefix) from a board shared by two targets, then re-read; cards left over are an
+  `indeterminate` error (exit 1). Refused before any call (exit 2): a source that is not `OWNER/REPO` and the
+  target's own repository. Issues are never touched; `removed 0` when nothing matches. Prints `SLUG: removed N`.
+- `qew project status [--target T] [--json]`: read-only drift report of each target's board against the ledger: per
+  target `<slug>: in sync`, or the lists `missing` (selected items with no card, or no mirror), `stale_column`,
+  `stale_priority` and the fix (`qew sync`). JSON rows: `schema_version`, `target`, `in_sync`, `missing`,
+  `stale_column`, `stale_priority`, `fix`. Exit 0 in sync (also `boards unsupported`), 1 drifted or the forge failed,
+  2 a bad target or no recorded or configured board (names `qew project ensure`). Cards of other repositories are
+  ignored. Drift is advisory: forge state is never read back as truth for the ledger.
 - `qew project ensure [--target T]`: create or repair the full board where the forge has boards: the seven
   Status options (colors, descriptions), the Priority field P0-P4 and eight views (Kanban, Table, Ready, Blocked,
   Active, Review, Drafts, Roadmap). Idempotent; a corrected view or kept foreign option is printed as a note; extra

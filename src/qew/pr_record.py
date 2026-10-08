@@ -79,9 +79,9 @@ def known_states(snapshot: Snapshot, record: PrRecord) -> Dict[str, State]:
     states: Dict[str, State] = {}
     for item_id in record.items:
         folded = snapshot.folds.get(item_id)
-        if folded is None or folded.errors or folded.state is None:
+        if folded is None or folded.errors or folded.state is None or any(e.type == "claimed" for e in folded.divergences):
             raise QewError(
-                f"pull request #{record.number} covers {item_id}, whose history cannot be read; run `qew check`", 4
+                f"pull request #{record.number} covers {item_id}, whose history cannot be read or whose owner is contested; run `qew check` and `qew status`", 4
             )
         states[item_id] = folded.state
     return states

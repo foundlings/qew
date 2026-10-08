@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import os
+import subprocess
 import tomllib
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -18,13 +19,35 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def actor() -> str:
-    """Who writes events: `QEW_ACTOR`, else `USER`; environment text is untrusted, so it must be a safe token."""
-    name = os.environ.get("QEW_ACTOR") or os.environ.get("USER") or "unknown"
+_configured: Optional[str] = None
+
+
+def _safe(name: str, source: str) -> str:
+    """The actor is untrusted text (it may become a forge label): one printable token, else refuse."""
     if not valid_actor(name):
-        source = "QEW_ACTOR" if os.environ.get("QEW_ACTOR") else "USER"
         raise QewError(f"{source} must be one word without spaces, commas or control characters", 3)
     return name
+
+
+def actor() -> str:
+    """Who is acting: QEW_ACTOR, else the configured VCS user name. Never the operating-system login."""
+    global _configured
+    named = os.environ.get("QEW_ACTOR")
+    if named:
+        return _safe(named, "QEW_ACTOR")
+    if _configured is None:
+        for argv in (["git", "config", "user.name"], ["jj", "config", "get", "user.name"]):
+            try:
+                result = subprocess.run(argv, capture_output=True, text=True, stdin=subprocess.DEVNULL, check=False, timeout=10)
+            except (OSError, subprocess.TimeoutExpired):
+                continue
+            if result.returncode == 0 and result.stdout.strip():
+                _configured = result.stdout.strip()
+                break
+    if not _configured:
+        raise QewError("no identity: run `git config user.name NAME` (or set QEW_ACTOR); qew never uses the OS login", 2)
+    # A configured display name is routinely "First Last": flatten whitespace and commas, refuse control characters.
+    return _safe("-".join(_configured.replace(",", " ").split()), "git/jj user.name")
 
 
 @dataclass(frozen=True)

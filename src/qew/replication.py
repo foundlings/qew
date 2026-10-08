@@ -35,6 +35,8 @@ def verb_for(arguments) -> Optional[str]:
         return "board"
     if command == "board" and arguments.board_command in ("create", "set"):
         return "view"
+    if command == "forge":
+        return "migrate"
     if command == "pr" and arguments.pr_command in ("open", "ready", "merge"):
         return f"pr-{arguments.pr_command}"
     if command == "land":
@@ -100,6 +102,7 @@ def session(arguments) -> Iterator[None]:
     except QewError:
         yield  # no config yet: the command itself reports it
         return
+    ledger_store.actor()  # refuse before any write when no identity is configured
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
     if not (config.ledger_path / ledger_config.LEDGER_FILE).is_file():
         yield
@@ -108,7 +111,7 @@ def session(arguments) -> Iterator[None]:
     committing = repo.vcs is not None and rep.auto_commit
     replicating = committing and not rep.offline and rep.auto_push and not os.environ.get("QEW_NO_FETCH")
     if verb == "sync":
-        yield from _sync_session(config, repo, committing, replicating)
+        yield from _sync_session(config, repo, committing, replicating, not getattr(arguments, "dry_run", False))
         return
     with _lock(config.ledger_path):
         repo.exclude_cache()
@@ -182,7 +185,7 @@ def _settle_claim(config, repo: LedgerRepo, pending) -> None:
     raise QewError(f"cannot claim {item_id}: the ledger remote kept rejecting the push", 3)
 
 
-def _sync_session(config, repo: LedgerRepo, committing: bool, replicating: bool) -> Iterator[None]:
+def _sync_session(config, repo: LedgerRepo, committing: bool, replicating: bool, push_repos: bool) -> Iterator[None]:
     """Sync takes the lock only to commit: forge calls can be slow and must never block other writers."""
     global _ACTIVE
     rep = config.replication
@@ -204,6 +207,12 @@ def _sync_session(config, repo: LedgerRepo, committing: bool, replicating: bool)
                 _commit(repo, config, "sync", entries, rollback_on_failure=False)
                 if replicating:
                     repo.push(rep.timeout_s)
+        if push_repos:
+            from qew import repo_push
+
+            report = repo_push.push_everywhere(config)
+            if report:
+                print("\n".join(report))
 
 
 def checkpoint() -> None:

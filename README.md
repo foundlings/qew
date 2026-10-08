@@ -41,7 +41,8 @@ boards/<target>.json            board recorded by `qew project ensure`
 views/<name>.json               named offline board (`qew board create`)
 ```
 
-Header keys: `id kind title parent needs labels owner priority created`. Kinds: epic, issue, task. States:
+Header keys: `id kind title parent needs tracks pr labels owner priority created` (`tracks` and `pr` are optional
+ledger ids of the tracking issue or pull request item, never forge numbers or URLs). Kinds: epic, issue, task. States:
 draft, approved, claimed, completed, closed. IDs come from `id_mode` per kind: `time` (default, 9 chars),
 `letters` (A, B .. AA) or `counter`; imports keep their IDs. Details: `docs/specs/ledger.md`.
 
@@ -67,6 +68,8 @@ Tokens come from `GITHUB_TOKEN`, `FORGEJO_TOKEN`/`GITEA_TOKEN`, `GITLAB_TOKEN` o
 `QEW_FORGE_LOGIN` names the forge login pull requests are assigned to when it differs from `QEW_ACTOR`.
 `api = "URL"` overrides the API root for self-hosted installs; `timeout = SECONDS` bounds every request (default 30).
 Repo and API URLs must be http(s) without credentials, query or fragment, and `repo` names `owner/repo`. `qew sync --dry-run` shows the plan offline.
+`git_url` / `ledger_git_url` name the clone URLs `qew sync` pushes the code repo and the ledger repo to (git remote
+`qew-<slug>`); `read_only = true` makes a target one-way.
 
 ## Commands
 
@@ -78,15 +81,15 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew block`, `qew unblock`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr check`, `qew pr ready`, `qew pr merge`, and `qew land` once one merged
-- Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`
-- Setup: `qew --version`, `qew init`, `qew hook install`, `qew hook remove`
+- Mirrors: `qew sync`, `qew mirror` (group), `qew mirror add`, `qew mirror remove`, `qew mirror list`, `qew forge` (group), `qew forge migrate`, `qew status`, `qew accept`, `qew reject`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`, `qew project status`, `qew project prune`
+- Setup: `qew --version`, `qew init`, `qew ledger` (group), `qew ledger fork`, `qew hook install`, `qew hook remove`
 
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`), `qew hook vcs-check`.
 
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--chains`, `--state`, `--change`, `--vcs`,
 `--reason`, `--tree`, `--closed`, `--draft`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
- `--compact`, `--name`, `--columns`, `--sort`, `--group-by`, `--filter`, `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
+`--compact`, `--name`, `--columns`, `--sort`, `--group-by`, `--filter`, `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`, `--read-only`, `--tracks`, `--pr`, `--primary`, `--remove-old`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 
@@ -98,7 +101,7 @@ Search: `qew search TERM...` finds approved work offline by id, title and label.
 
 Review: `qew triage` lists drafts and items missing planning fields with their bodies and text findings; `qew check --json` adds advisory findings.
 
-Board and admin flags: `--edit` (body in `$VISUAL`/`$EDITOR`), `--closed` (`qew set` on closed work); `--login`, `--count` (`qew inbox`); `--json` on `qew check` prints a stable report; `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
+Board and admin flags: `--from` (`qew project prune`); `--edit` (body in `$VISUAL`/`$EDITOR`), `--closed` (`qew set` on closed work); `--login`, `--count` (`qew inbox`); `--json` on `qew check` prints a stable report; `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
 
 Edge edits: `qew block ITEM --on BLOCKER` and `qew unblock ITEM --from BLOCKER` change one need at a time; `qew set` takes `--add-label`, `--remove-label`, `--body-file` and `--kind`.
 

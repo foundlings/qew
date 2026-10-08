@@ -105,7 +105,7 @@ def set_fields(
             kept = [label for label in item.labels if label not in remove_labels]
             wanted["labels"] = " ".join(kept + [label for label in dict.fromkeys(add_labels) if label not in kept])
         for key, value in wanted.items():
-            if key in ("needs", "parent"):
+            if key in ("needs", "parent", "tracks", "pr"):
                 value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())
             old = item.header()[key]
             if old == value:

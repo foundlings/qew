@@ -214,6 +214,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     epic = _epic_facts(snapshot, item_id, kids) if item.kind == Kind.EPIC else {}
     data = read_view.row_data(snapshot, item_id, progress=True)
     data["author"] = ledger_author.author(snapshot, item_id) or "unknown"
+    links = read_view.link_urls(snapshot, item_id)
     data["draft"] = draft
     data.pop("text_findings", None)
     if findings:
@@ -223,8 +224,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
         ("blocking", [read_view.related(snapshot, b) for b in blocks]),
         ("children", [read_view.related(snapshot, k) for k in kids]),
-        ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("body", item.body),
-        ("approvals", show_history.approvals(snapshot.events[item_id])),
+        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("body", item.body),
     )
     for key, value in related:
         if value:
@@ -247,6 +247,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         print(f"owner: {folded.owner}")
     print(f"priority: {item.priority}")
     needs = [n if n in snapshot.items else f"{n} (missing)" for n in item.needs]
+    for link in links:
+        print(" ".join([f"{link['key']}: {link['item']}", *link["urls"]]))
     print(f"author: {data['author']}")
     for key in ("children_open", "children_done", "completable"):
         if key in data:

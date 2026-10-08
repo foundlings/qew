@@ -25,7 +25,12 @@ from qew.forge import (
     RemoteComment,
     RemoteIssue,
     RemotePullRequest,
+    LABEL_COLOR,
+    LABEL_DESCRIPTION,
+    Card,
+    LabelNotPersisted,
     Transport,
+    marker_alone,
 )
 from qew.forge_http import DEFAULT_WAIT, MAX_PAGES, api_base, call_json, resolve_token, split_repo, wait_from
 from qew.ledger_config import Mirror
@@ -90,6 +95,21 @@ query ItemPlacement($contentId: ID!) {
           project { number }
           fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
         }
+      }
+    }
+  }
+}"""
+_PROJECT_CARDS = """
+query ProjectCards($projectId: ID!, $cursor: String) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      items(first: 100, after: $cursor) {
+        nodes {
+          id
+          content { ... on Issue { number repository { nameWithOwner } } }
+          fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+        }
+        pageInfo { hasNextPage endCursor }
       }
     }
   }
@@ -459,6 +479,7 @@ class GitHub(Forge):
         self._wire = _Wire(mirror, transport, env)
         self._nodes: Dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
         self._projects: Dict[int, _Project] = {}  # project number -> structure read this run
+        self._known_labels: set = set()
 
     # issues
 
@@ -473,17 +494,45 @@ class GitHub(Forge):
         return self._nodes[number]
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
+        matches = []
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
             for entry in _array(page, "issue list"):
                 issue = _obj(entry, "issue list entry")
                 if "pull_request" in issue:
                     continue
-                if marker in _nullable_str(issue, "body", "issue"):
-                    return self._remember(parse_issue(issue))
-        return None
+                if marker_alone(_nullable_str(issue, "body", "issue"), marker):
+                    matches.append(self._remember(parse_issue(issue)))
+        return min(matches, key=lambda found: found.number) if matches else None
+
+    def _repo_labels(self) -> set:
+        names = set()
+        for page in self._wire.pages(f"{self._repo_path}/labels?per_page=100"):
+            names.update(_str(_obj(entry, "label"), "name", "label") for entry in _array(page, "label list"))
+        return names
+
+    def _ensure_labels(self, wanted: Tuple[str, ...]) -> None:
+        """Create the labels the repository lacks (neutral, never touching an existing one) and confirm they exist."""
+        missing = [name for name in dict.fromkeys(wanted) if name not in self._known_labels]
+        if not missing:
+            return
+        self._known_labels = self._repo_labels()
+        missing = [name for name in missing if name not in self._known_labels]
+        for name in missing:
+            try:
+                self._wire.rest("POST", f"{self._repo_path}/labels",
+                                {"name": name, "color": LABEL_COLOR, "description": LABEL_DESCRIPTION})
+            except ForgeRejected as error:
+                if error.status != 422:  # 422: it appeared in the meantime, which is fine
+                    raise
+        if missing:
+            self._known_labels = self._repo_labels()
+            absent = [name for name in missing if name not in self._known_labels]
+            if absent:
+                raise LabelNotPersisted(absent)
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)
+        self._ensure_labels(spec.labels)
         payload: Dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": list(spec.labels)}
         if spec.assignee:
             payload["assignees"] = [spec.assignee]
@@ -494,6 +543,7 @@ class GitHub(Forge):
 
     def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)
+        self._ensure_labels(spec.labels)
         payload: Dict[str, Any] = {
             "title": spec.title, "body": spec.body, "labels": list(spec.labels),
             "assignees": [spec.assignee] if spec.assignee else [],
@@ -731,6 +781,36 @@ class GitHub(Forge):
     def read_placement(self, board: Board, number: int) -> Optional[Placement]:
         found = self._placement(board, number)
         return found[1] if found else None
+
+    def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
+        project_id = self._board_project(board).id
+        cards: List[Card] = []
+        cursor: Optional[str] = None
+        for _ in range(MAX_PAGES):
+            data = self._wire.graphql(_PROJECT_CARDS, {"projectId": project_id, "cursor": cursor})
+            listing = _obj(_obj(data.get("node"), "node").get("items"), "items")
+            for entry in _array(listing.get("nodes"), "items.nodes"):
+                entry = _obj(entry, "card")
+                content = _obj(entry.get("content"), "card.content")
+                if not content:  # a pull request or draft card is not an issue of ours
+                    continue
+                values: Dict[str, str] = {}
+                for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
+                    value = _obj(value, "field value")
+                    if value:
+                        values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name", "value")
+                cards.append(Card(
+                    _str(entry, "id", "card"), _str(_obj(content.get("repository"), "card.repository"), "nameWithOwner", "card.repository"),
+                    _int(content, "number", "card.content"), values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""),
+                ))
+            info = _obj(listing.get("pageInfo"), "pageInfo")
+            if not _bool(info, "hasNextPage", "pageInfo"):
+                return tuple(cards)
+            cursor = _str(info, "endCursor", "pageInfo")
+        raise ForgeRejected(200, f"more than {MAX_PAGES} pages of cards; refusing a truncated listing")
+
+    def delete_card(self, board: Board, card_id: str) -> None:
+        self._wire.graphql(_DELETE_ITEM, {"projectId": self._board_project(board).id, "itemId": card_id})
 
     def remove_from_board(self, board: Board, number: int) -> None:
         found = self._placement(board, number)
