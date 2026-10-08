@@ -22,6 +22,8 @@ from tests.fake_github import FakeGitHub
 
 class AdoptContract:
     def populate(self) -> None:
+        for head in ("main", "wip", "wip-two", "gone"):
+            self.fake.add_branch(head)
         for head in ("wip", "wip-two", "gone"):
             self.backend.open_pull_request(PullRequestSpec(head, "main", head, f"body {head}", True))
         self.backend.close_pull_request(3)
