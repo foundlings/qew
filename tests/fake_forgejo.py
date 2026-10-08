@@ -1,12 +1,18 @@
 """An in-memory fake of the Gitea/Forgejo /api/v1 wire format, for exactly the endpoints qew uses."""
 
+from datetime import datetime
+import hashlib
 import json
 import re
+import sys
 import threading
 import time
 from urllib.parse import unquote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+sys.path.insert(0, __file__.rsplit("/tests/", 1)[0] + "/src")
+from qew import instants  # noqa: E402
 
 OWNER = "acme"
 REPO = "widgets"
@@ -39,6 +45,8 @@ class FakeForgejo:
         self.fail: List[Tuple[int, str]] = []  # (status, body) consumed one per request
         self.raw_issue_body: Optional[bytes] = None  # when set, GET issue answers this verbatim
         self.token = TOKEN
+        self.etags = True  # answer issue-list pages with an ETag and honor If-None-Match
+        self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
         self._next_index = 1
         self._next_label = 1
         self._lock = threading.Lock()
@@ -71,6 +79,14 @@ class FakeForgejo:
         """A branch on the forge; `contained_in` names the branches that already hold its tip (it is merged there)."""
         self.branches[name] = sha or f"{len(self.branches) + 1:040x}"
         self.contained_in[name] = list(contained_in)
+
+    def touch(self, number: int) -> None:
+        """Record a modification: edits, comments and label changes all bump updated_at."""
+        self.issues[number]["updated_at"] = instants.format_instant(self.clock())
+
+    def delete_issue(self, number: int) -> None:
+        """An admin deletes the issue; later issues keep their numbers."""
+        del self.issues[number]
 
     def issue_labels(self, number: int) -> List[str]:
         return [self.labels[label_id] for label_id in self.issues[number]["label_ids"]]
@@ -123,6 +139,7 @@ class FakeForgejo:
         discussion = self.issues[number]["discussion"]
         comment["created_at"] = f"2026-01-01T00:{len(discussion):02d}:00Z"
         discussion.append(comment)
+        self.touch(number)
         return comment
 
     def _comment_json(self, comment: Dict[str, Any]) -> Dict[str, Any]:
@@ -199,6 +216,11 @@ def _make_handler(fake: FakeForgejo) -> type:
                     status, body, headers = _route(fake, method, path, _unquote(params), payload)
                 except _Reply as reply:
                     status, body, headers = reply.status, reply.body, {}
+            if fake.etags and method == "GET" and status == 200 and re.fullmatch(_BASE + r"/issues", path) and isinstance(body, list):
+                etag = '"' + hashlib.sha1(json.dumps(body, sort_keys=True).encode("utf-8")).hexdigest() + '"'
+                if self.headers.get("If-None-Match") == etag:
+                    return self._send(304, b"", {**headers, "ETag": etag})
+                headers = {**headers, "ETag": etag}
             if isinstance(body, bytes):
                 encoded = body
             else:
@@ -278,8 +300,10 @@ def _route(
     if method == "GET" and re.match(_BASE + r"/issues$", path):
         query = params.get("q", "")
         state = params.get("state", "open")
+        since = params.get("since", "")
         found = [n for n, i in fake.issues.items()
-                 if (query in (i["body"] or "") or query in i["title"]) and state in ("all", i["state"])]
+                 if (query in (i["body"] or "") or query in i["title"]) and state in ("all", i["state"])
+                 and i.get("updated_at", "") >= since]
         shaped = {n: fake._issue_json(n) for n in found}
         if params.get("type") != "issues":
             shaped.update({n: fake._pull_as_issue_json(n) for n, p in fake.pulls.items() if state in ("all", p["state"])})
@@ -297,6 +321,7 @@ def _route(
             "assignee": assignees[0] if assignees else "",
             "discussion": [],
         }
+        fake.touch(number)
         return ok(fake._issue_json(number), 201)
     match = re.match(_BASE + r"/issues/(\d+)$", path)
     if match:
@@ -314,6 +339,7 @@ def _route(
                     issue[field] = payload[field]
             if "assignees" in payload:
                 issue["assignee"] = payload["assignees"][0] if payload["assignees"] else ""
+            fake.touch(number)
             return ok(fake._issue_json(number))
     match = re.match(_BASE + r"/issues/(\d+)/comments$", path)
     if match:
@@ -333,6 +359,7 @@ def _route(
         if unknown:
             raise _Reply(422, "label does not exist")
         fake.issues[number]["label_ids"] = list(payload["labels"])
+        fake.touch(number)
         return ok([{"id": i, "name": fake.labels[i]} for i in payload["labels"]])
     match = re.match(_BASE + r"/issues/(\d+)/dependencies$", path)
     if match:

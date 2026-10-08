@@ -6,11 +6,16 @@ labels are created on first use, pagination answers `X-Next-Page`, and a duplica
 link answers 409.
 """
 
+from datetime import datetime
 import json
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlsplit
+
+sys.path.insert(0, __file__.rsplit("/tests/", 1)[0] + "/src")
+from qew import instants  # noqa: E402
 
 TOKEN = "glpat-fake"
 
@@ -37,6 +42,7 @@ class FakeGitLab:
         self.auto_merge_ignored = False  # accept the request yet change nothing
         self.search_returns_all = False
         self.malformed_issue_reads = False
+        self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
         self.users = {"alice": 11, "bob": 12}
         self.log: List[Dict[str, Any]] = []
         self.projects: Dict[str, _Project] = {}
@@ -74,12 +80,16 @@ class FakeGitLab:
         """The next request whose path contains `match` is answered 200 with a body that is not JSON."""
         self._garbled.append(match)
 
+    def _touch(self, issue: Dict[str, Any]) -> None:
+        issue["updated_at"] = instants.format_instant(self.clock())
+
     def add_note(self, path: str, iid: int, username: str, body: Optional[str], system: bool = False) -> Dict[str, Any]:
         """A note made on the forge by someone else; `system` notes are GitLab's own activity lines."""
         issue = next(i for i in self.project(path).issues if i["iid"] == iid)
         note = {"id": self._next_id(), "author": username, "body": body, "system": system,
                 "created_at": f"2026-01-01T00:{len(issue['notes']):02d}:00Z"}
         issue["notes"].append(note)
+        self._touch(issue)
         return note
 
     def requests(self, method: str, suffix: str) -> List[Dict[str, Any]]:
@@ -230,6 +240,7 @@ class FakeGitLab:
                          "title": body["title"], "description": body.get("description", ""),
                          "labels": [], "assignees": body.get("assignee_ids", []), "notes": []}
                 self._set_labels(project, issue, body.get("labels", ""))
+                self._touch(issue)
                 project.issues.append(issue)
                 return 201, self._issue_json(path, issue), {}
         issue = next((i for i in project.issues if str(i["iid"]) == tail[0]), None)
@@ -239,6 +250,7 @@ class FakeGitLab:
             return 200, self._issue_json(path, issue), {}
         if len(tail) == 1 and method == "PUT":
             self._apply_issue_update(project, issue, body)
+            self._touch(issue)
             return 200, self._issue_json(path, issue), {}
         if tail[1:] == ["links"] and method == "POST":
             return self._link(project, issue, body)
@@ -255,6 +267,7 @@ class FakeGitLab:
             note = {"id": self._next_id(), "author": "qew-bot", "body": body["body"], "system": False,
                     "created_at": f"2026-01-01T00:{len(issue['notes']):02d}:00Z"}
             issue["notes"].append(note)
+            self._touch(issue)
             return 201, self._note_json(note), {}
         notes = sorted(issue["notes"], key=lambda n: n["id"], reverse=query.get("sort", "desc") != "asc")
         status, chunk, headers = self._page(notes, query)
@@ -264,6 +277,8 @@ class FakeGitLab:
         issues = sorted(project.issues, key=lambda i: i["iid"], reverse=query.get("sort", "desc") != "asc")
         if query.get("state", "all") != "all":
             issues = [i for i in issues if i["state"] == query["state"]]
+        if query.get("updated_after"):
+            issues = [i for i in issues if i.get("updated_at", "") >= query["updated_after"]]
         needle = query.get("search")
         if needle is not None and not self.search_returns_all:
             fields = query.get("in", "title,description").split(",")

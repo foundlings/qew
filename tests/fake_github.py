@@ -4,12 +4,18 @@ Only the endpoints `qew.forge_github` uses. State lives in plain dicts, every
 request is logged, and `fail_next` injects a status for the next matching call.
 """
 
+from datetime import datetime
+import hashlib
 import json
 import re
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
+
+sys.path.insert(0, __file__.rsplit("/tests/", 1)[0] + "/src")
+from qew import instants  # noqa: E402
 
 TOKEN = "test-token"
 OWNER = "acme"
@@ -45,6 +51,8 @@ class FakeGitHub:
         self.cards_endless = False  # every ProjectCards page says another follows
         self.label_store: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
         self.drop_label_creates = False  # accept a label create yet store nothing
+        self.etags = True  # answer issue-list pages with an ETag and honor If-None-Match
+        self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.server.fake = self  # type: ignore[attr-defined]
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
@@ -120,6 +128,14 @@ class FakeGitHub:
 
     # -- test-side mutation of the world ------------------------------------
 
+    def touch(self, issue: Dict[str, Any]) -> None:
+        """Record a modification: edits, comments and label changes all bump updated_at, as on GitHub."""
+        issue["updated_at"] = instants.format_instant(self.clock())
+
+    def delete_issue(self, number: int) -> None:
+        """An admin deletes the issue; later issues keep their numbers."""
+        del self.issues[number]
+
     def push_to_pull(self, number: int, sha: str) -> None:
         self.pulls[number]["head"]["sha"] = sha
 
@@ -140,6 +156,7 @@ class FakeGitHub:
             "state_reason": None, "labels": list(payload.get("labels", [])),
             "assignee": (payload.get("assignees") or [None])[0], "blocked_by": [], "discussion": [],
         }
+        self.touch(issue)
         self.issues[number] = issue
         return issue
 
@@ -168,6 +185,7 @@ class FakeGitHub:
         discussion = self.issues[number]["discussion"]
         comment["created_at"] = f"2026-01-01T00:{len(discussion):02d}:00Z"
         discussion.append(comment)
+        self.touch(self.issues[number])
         return comment
 
     def comment_json(self, comment: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,6 +222,7 @@ class FakeGitHub:
             "body": pull["body"], "state": "open", "state_reason": None, "labels": [],
             "assignee": None, "blocked_by": [], "pull_request": {}, "discussion": [],
         }
+        self.touch(self.issues[number])
         return pull
 
     # -- GraphQL ---------------------------------------------------------------
@@ -515,10 +534,16 @@ class _Handler(BaseHTTPRequestHandler):
         # Like the real API: newest first unless direction=asc, and `state` filters (default open).
         state = query.get("state", ["open"])[0]
         ordered = sorted(self.fake.issues.values(), key=lambda i: i["number"], reverse=query.get("direction", ["desc"])[0] != "asc")
+        since = query.get("since", [""])[0]
         issues = [self.fake.issue_json(i) | ({"pull_request": {}} if "pull_request" in i else {})
-                  for i in ordered if state == "all" or i["state"] == state]
+                  for i in ordered if (state == "all" or i["state"] == state) and i.get("updated_at", "") >= since]
         window, link = self._page(issues, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/issues")
-        self._send(200, window, link)
+        if not self.fake.etags:
+            return self._send(200, window, link)
+        etag = '"' + hashlib.sha1(json.dumps(window, sort_keys=True).encode("utf-8")).hexdigest() + '"'
+        if self.headers.get("If-None-Match") == etag:
+            return self._send(304, b"", link, {"ETag": etag})
+        self._send(200, window, link, {"ETag": etag})
 
     def _get_labels(self, query: Dict[str, List[str]], body: Any) -> None:
         listed = [{"name": n, **v} for n, v in self.fake.label_store.items()]
@@ -577,6 +602,7 @@ class _Handler(BaseHTTPRequestHandler):
                 issue[key] = body[key]
         if "assignees" in body:
             issue["assignee"] = body["assignees"][0] if body["assignees"] else None
+        self.fake.touch(issue)
         self._send(200, self.fake.issue_json(issue))
 
     def _get_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
@@ -670,9 +696,11 @@ class _Handler(BaseHTTPRequestHandler):
             if key in body:
                 pull[key] = body[key]
                 self.fake.issues[pull["number"]][key] = body[key]
+                self.fake.touch(self.fake.issues[pull["number"]])
         if body.get("state") in ("open", "closed") and not pull["merged"]:
             pull["state"] = body["state"]
             self.fake.issues[pull["number"]]["state"] = body["state"]
+            self.fake.touch(self.fake.issues[pull["number"]])
         self._send(200, self.fake.pull_json(pull))
 
     def _get_rules(self, branch: str, query: Dict[str, List[str]], body: Any) -> None:

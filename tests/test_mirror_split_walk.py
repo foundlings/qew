@@ -38,7 +38,7 @@ class MirrorSplitWalk(unittest.TestCase):
         w.run("sync", env=ENV)
         self.assertEqual(json.loads(path.read_text()), committed)
         self.assertEqual(w.ledger_dirty(), [])
-        state = next((w.ledger / ".qew" / "state").rglob("*.json"))
+        state = next((w.ledger / ".qew" / "state").rglob(f"{item}.json"))
         self.assertIn("synced_hash", json.loads(state.read_text()))
 
     def test_two_checkouts_syncing_and_editing_the_same_items_merge_without_conflicts(self) -> None:

@@ -6,7 +6,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 
+from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
+
+from qew import instants
 
 from qew.forge import (
     Milestone,
@@ -75,6 +78,18 @@ class MemoryForge(Forge):
         self.supports_branches = True
         self.deleted_branches: List[str] = []
         self.stubborn_branches: set = set()  # a delete the forge accepts but does not carry out
+        self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
+        self.updated: Dict[int, str] = {}  # issue number -> updated_at, bumped by every edit, comment and label change
+        self.list_requests = 0  # issue listings served
+        self.listed: List[List[int]] = []  # the issue numbers each listing returned
+
+    def _touch(self, number: int) -> None:
+        self.updated[number] = instants.format_instant(self.clock())
+
+    def delete_issue(self, number: int) -> None:
+        """A human deletes the issue on the forge, outside qew."""
+        self.issues.pop(number)
+        self.comments.pop(number, None)
 
     def _live(self, name: str) -> None:
         self.calls.append((name,))
@@ -102,11 +117,13 @@ class MemoryForge(Forge):
             raise ForgeRejected(422, "no")
         number = len(self.issues) + 1
         self.issues[number] = self._issue(number, spec)
+        self._touch(number)
         return self.issues[number]
 
     def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
         self._live("update")
         self.issues[number] = self._issue(number, spec)
+        self._touch(number)
         return self.issues[number]
 
     def link_dependency(self, number: int, blocked_by: int) -> None:
@@ -171,6 +188,7 @@ class MemoryForge(Forge):
         from dataclasses import replace
         self.milestone_of[number] = milestone
         self.issues[number] = replace(self.issues[number], milestone=milestone)
+        self._touch(number)
         return self.issues[number]
 
     def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
@@ -313,9 +331,12 @@ class MemoryForge(Forge):
         return replace(self.pulls[number], **changes)
 
     # -- read side
-    def list_issues(self):
+    def list_issues(self, since: str = ""):
         self._live("list")
-        return [self._counted(i) for _, i in sorted(self.issues.items())]
+        self.list_requests += 1
+        found = [self._counted(i) for n, i in sorted(self.issues.items()) if self.updated.get(n, "") >= since]
+        self.listed.append([i.number for i in found])
+        return found
 
     def _counted(self, issue: RemoteIssue) -> RemoteIssue:
         from dataclasses import replace
@@ -330,6 +351,7 @@ class MemoryForge(Forge):
         self._live("comment")
         comment = RemoteComment(str(len(self.comments.get(number, [])) + 1), "bot", body, "2026-01-01T00:00:00Z")
         self.comments.setdefault(number, []).append(comment)
+        self._touch(number)
         return comment
 
     def edit(self, number: int, **changes) -> None:
@@ -337,13 +359,16 @@ class MemoryForge(Forge):
         from dataclasses import replace
 
         self.issues[number] = replace(self.issues[number], **changes)
+        self._touch(number)
 
     def comment_as_human(self, number: int, text: str, author: str = "alice") -> None:
         comments = self.comments.setdefault(number, [])
         comments.append(RemoteComment(str(len(comments) + 1), author, text, "2026-01-02T00:00:00Z"))
+        self._touch(number)
 
     def add_foreign_issue(self, title: str, body: str = "", labels=("bug",), open: bool = True) -> int:
         number = max(self.issues, default=0) + 1
         self.issues[number] = RemoteIssue(number, f"https://{self.host}/o/r/issues/{number}", f"N{number}", open,
                                           title, body, tuple(labels), "")
+        self._touch(number)
         return number
