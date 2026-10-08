@@ -171,7 +171,11 @@ shape show: author id kind labels priority schema_version state title | children
   accepted for closed foreign issues.
 - `qew restore [--to TARGET | --forge F --repo URL [--api URL]]`: recreate the issues, links and board of a target from the ledger
   alone; mirror files whose remote issue is gone are forgotten first. Idempotent and resumable.
-- `qew project`: the group for `ensure` and `status`.
+- `qew project`: the group for `ensure`, `status` and `prune`.
+- `qew project prune --from OWNER/REPO [--target T]`: delete exactly the cards whose issue is in the named repository
+  (case-insensitive, never a prefix) from a board shared by two targets, then re-read; cards left over are an
+  `indeterminate` error (exit 1). Refused before any call (exit 2): a source that is not `OWNER/REPO` and the
+  target's own repository. Issues are never touched; `removed 0` when nothing matches. Prints `SLUG: removed N`.
 - `qew project status [--target T] [--json]`: read-only drift report of each target's board against the ledger: per
   target `<slug>: in sync`, or the lists `missing` (selected items with no card, or no mirror), `stale_column`,
   `stale_priority` and the fix (`qew sync`). JSON rows: `schema_version`, `target`, `in_sync`, `missing`,
