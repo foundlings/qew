@@ -35,6 +35,7 @@ Pull requests
   qew land        complete the items of a merged pull request
 Mirrors
   qew sync        push the ledger to every mirror target
+  qew mirror      add | remove | list mirror targets
   qew project     ensure the board on each target
   qew status      replication state: uncommitted, unpushed, pending per target, divergences
   qew import      read a forge project into the ledger
@@ -50,7 +51,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_mirror")
 
 
 def _plugins() -> list:

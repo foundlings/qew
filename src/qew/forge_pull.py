@@ -67,7 +67,7 @@ def pull_target(ledger: Ledger, target) -> PullReport:
     try:
         for number, item_id in sorted(mirrored.items()):
             _pull_item(ledger, snapshot, target, report, item_id, by_number.get(number))
-        for issue in remote:
+        for issue in () if target.read_only else remote:
             if issue.number not in mirrored and not issue.body.lstrip().startswith("<!-- qew:"):
                 _import_issue(ledger, snapshot, target, report, issue)
     except Unsupported as error:
@@ -119,6 +119,9 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
     if seen is None:  # a mirror from before pulling existed: adopt what the forge shows as the baseline
         _save(ledger, item_id, target.slug, record, current)
         return
+    if target.read_only:
+        _pull_state_only(ledger, snapshot, target, report, item_id, record, issue, seen, current)
+        return
     changed = False
     title = clean_line(issue.title)
     if title != seen["title"]:
@@ -168,6 +171,16 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
     if changed:
         _save(ledger, item_id, target.slug, record, {**current, "title": title, "body": body, "labels": labels,
                                                       "comments": comment_ids})
+
+
+def _pull_state_only(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, item_id: str, record: dict,
+                     issue: RemoteIssue, seen: dict, current: dict) -> None:
+    """A one-way mirror: edits made there are not imported; only a close or reopen is flagged."""
+    if issue.open == seen["open"]:
+        return
+    _diverge(ledger, snapshot, target, report, item_id, issue.number, "state",
+             "open" if issue.open else "closed", "open" if seen["open"] else "closed")
+    _save(ledger, item_id, target.slug, record, {**seen, "open": issue.open})
 
 
 def _import_issue(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, issue: RemoteIssue) -> None:

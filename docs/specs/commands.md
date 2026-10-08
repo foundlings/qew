@@ -107,6 +107,12 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
   lose their card (`pruned N`); their issues are never closed.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
+- `qew mirror add FORGE REPO [--read-only] [--api URL]`, `qew mirror remove TARGET`, `qew mirror list [--json]`: edit the
+  `[[mirror]]` entries of `.qew/config.toml` line by line; comments and every other table stay byte for byte. `add` refuses
+  an unknown forge, an invalid URL and a repeated target (exit 2). `remove` refuses the primary forge (exit 2) and keeps
+  the target's mirror files. A target is one-way (`read-only`) when marked `read_only = true` or when a primary is set
+  and it is not the primary: pull never imports its content edits, new issues or comments, and only flags a close or
+  reopen as a divergence. `list` prints `SLUG primary|two-way|read-only FORGE REPO`.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused

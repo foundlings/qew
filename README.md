@@ -76,7 +76,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr check`, `qew pr ready`, `qew pr merge`, and `qew land` once one merged
-- Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
+- Mirrors: `qew sync`, `qew mirror` (group), `qew mirror add`, `qew mirror remove`, `qew mirror list`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
 - Setup: `qew --version`, `qew init`, `qew hook install`, `qew hook remove`
 
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`), `qew hook vcs-check`.
@@ -84,7 +84,7 @@ Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--chains`, `--state`, `--change`, `--vcs`,
 `--reason`, `--tree`, `--closed`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
-`--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
+`--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`, `--read-only`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 

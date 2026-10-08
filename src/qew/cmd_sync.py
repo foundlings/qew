@@ -81,7 +81,7 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     lines = []
     failed = False
     for mirror in mirrors:
-        target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror))
+        target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror), ledger_config.is_read_only(config, mirror))
         pulled = pull_target(ledger, target)  # forge-side edits first, so the push cannot overwrite them
         report = sync_target(ledger, target, config, item,
                              deadline=None if budget_s is None else time.monotonic() + budget_s, tick=tick)
