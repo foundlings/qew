@@ -159,7 +159,7 @@ shape prime: additional_context context_bytes schema_version
   a `completed` event may carry `"provenance": "import"` and `original_ids`, the only way to complete
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
-- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N]
+- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N] [--due YYYY-MM-DD]
   [--body TEXT | --edit] [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--closed] [--json]`: edits the header; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
   need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
@@ -217,6 +217,11 @@ shape prime: additional_context context_bytes schema_version
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
   lose their card (`pruned N`); their issues are never closed. `--item ID` also refreshes the mirrored items whose
   card that item moves: its direct dependents and its parent epics (each card written only when it differs).
+  A target with `milestones = true` also mirrors each approved, non-draft epic as a forge milestone (title, `Approved:`
+  plus the approving quote, the epic's `due` date) and assigns its approved children; description and due date are
+  rewritten only on drift, an issue already in another milestone is reported `not moved`, a milestone closes only when
+  its epic is completed and no open issue sits in it (and is reopened if the epic is), every write is read back, and a
+  forge without milestones is `skipped milestones`. Reports `milestones created N updated N unchanged N`.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
   After the ledger commit, `sync` pushes the code repo (`[code] target`) and the ledger repo (`[replication] branch`)
   to every target through a git remote `qew-<slug>` (never forced). The clone URLs are the `[[mirror]]` keys `git_url`

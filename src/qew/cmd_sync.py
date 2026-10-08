@@ -139,6 +139,9 @@ def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[st
                  f" new={pulled.new_items} comments={pulled.comments}")
     if report.pruned:
         head += f" pruned {report.pruned}"
+    if report.milestones_created or report.milestones_updated or report.milestones_unchanged:
+        head += (f" milestones created {report.milestones_created} updated {report.milestones_updated}"
+                 f" unchanged {report.milestones_unchanged}")
     lines = [head]
     lines.extend(f"  warning {warning}" for warning in report.warnings)
     lines.extend(f"  failed {failure}" for failure in report.failures)

@@ -101,7 +101,7 @@ Search: `qew search TERM...` finds approved work offline by id, title and label.
 
 Review: `qew triage` lists drafts and items missing planning fields with their bodies and text findings; `qew check --json` adds advisory findings.
 
-Board and admin flags: `--from` (`qew project prune`); `--edit` (body in `$VISUAL`/`$EDITOR`), `--closed` (`qew set` on closed work); `--login`, `--count` (`qew inbox`); `--json` on `qew check` prints a stable report; `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
+Board and admin flags: `--due` (`qew set`, an epic's milestone due date); `--from` (`qew project prune`); `--edit` (body in `$VISUAL`/`$EDITOR`), `--closed` (`qew set` on closed work); `--login`, `--count` (`qew inbox`); `--json` on `qew check` prints a stable report; `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
 
 Edge edits: `qew block ITEM --on BLOCKER` and `qew unblock ITEM --from BLOCKER` change one need at a time; `qew set` takes `--add-label`, `--remove-label`, `--body-file` and `--kind`.
 

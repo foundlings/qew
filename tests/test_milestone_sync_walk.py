@@ -84,18 +84,19 @@ class MilestoneSyncWalk(unittest.TestCase):
         """Completing the epic closes the milestone, verified by a re-read; an open attached issue keeps it open."""
         w = self.world
         epic, (kid,) = self.epic_with_children(1)
+        stray = w.create("--title", "stray", "--quote", QUOTE)
+        self.sync()
+        number = self.forge_number(stray)
+        self.forge.milestone_of[number] = 1
+        self.forge.issues[number] = replace(self.forge.issues[number], milestone=1)
         w.run("start", epic)
         w.run("start", kid)
         w.run("evidence", kid, "--change", w.commit())
         w.run("complete", kid)
         w.run("complete", epic)
-        stray = w.create("--title", "stray", "--quote", QUOTE)
-        self.sync()
-        self.forge.milestone_of[self.forge_number(stray)] = 1
-        self.forge.issues[self.forge_number(stray)] = replace(self.forge.issues[self.forge_number(stray)], milestone=1)
         self.sync()
         self.assertTrue(self.forge.milestones[1].open, "an open issue still sits in the milestone")
-        self.forge.issues[self.forge_number(stray)] = replace(self.forge.issues[self.forge_number(stray)], open=False)
+        self.forge.issues[number] = replace(self.forge.issues[number], open=False)
         self.sync()
         self.assertFalse(self.forge.milestones[1].open)
 

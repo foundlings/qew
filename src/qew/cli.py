@@ -121,6 +121,7 @@ def _parser() -> argparse.ArgumentParser:
     set_.add_argument("--pr", help="ledger id of the pull request item (empty clears it)")
     set_.add_argument("--labels", nargs="*", help="replace the labels")
     set_.add_argument("--priority", type=int, help="new priority")
+    set_.add_argument("--due", help="due date YYYY-MM-DD (an epic milestone's due date)")
     set_.add_argument("--body", help="replace the body")
     set_.add_argument("--body-file", help="replace the body from a file, or - for stdin")
     set_.add_argument("--kind", choices=["epic", "issue", "task"], help="new kind (children must still nest under it)")
@@ -219,7 +220,7 @@ def _run(arguments: argparse.Namespace) -> None:
         print("\n".join(lines))
     elif command == "set":
         changes = {}
-        for key in ("title", "parent", "priority", "kind", "tracks", "pr"):
+        for key in ("title", "parent", "priority", "kind", "tracks", "pr", "due"):
             value = getattr(arguments, key)
             if value is not None:
                 changes[key] = str(value)

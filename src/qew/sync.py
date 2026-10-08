@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 import time
 from typing import Callable, Dict, List, Optional
 
-from qew import sync_plan
+from qew import sync_milestones, sync_plan
 from qew.forge import (
     COLUMNS, Board, Forge, ForgeError, ForgeRejected, ForgeUnavailable, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for,
 )
@@ -88,6 +88,8 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
             report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
             _stop(report, error)
             break
+    if chosen is None and report.stopped is None and sync_milestones.enabled(target.mirror.options):
+        sync_milestones.sync_milestones(ledger, snapshot, target, report, ids, numbers)
     if board is not None and chosen is None and report.stopped is None:
         _prune(ledger, snapshot, target, report, set(ids), board)
     return report
