@@ -190,3 +190,16 @@ Everything below is best-effort and offline-first: no network failure ever fails
 
 New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence`, `divergence_accepted`,
 `divergence_rejected`; `provenance` may be `import`, `forge-import` or `forge` where the event came from a forge.
+
+### Background sync
+
+- After any write (and when pending work exists at the start of a command) qew starts ONE detached background
+  process that pushes the ledger remote and syncs every mirror target; the foreground command returns at once and
+  prints at most one short line (`sync: queued`), never sync output, so agents spend no tokens on it.
+- The worker takes a lock in the ledger checkout's `.qew/` cache dir (VCS-ignored), writes `.qew/sync.log`
+  (bounded, rotated), and stops after `timeout_s` per target. A second writer finding the lock held does nothing
+  (no double sync); a worker that dies leaves its stale lock, which the next command detects by pid and clears.
+- Offline or failing forges leave the derived pending state; the next command retries silently and
+  `qew status` shows the backlog and the last log line. `[replication] background_sync = true` (default);
+  `QEW_OFFLINE=1` or `background_sync = false` disables it. Tests and `qew sync` run the same worker in the
+  foreground.
