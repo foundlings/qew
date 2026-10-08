@@ -57,6 +57,7 @@ class MemoryForge(Forge):
         self.merge_calls: List[Tuple[int, str, bool]] = []  # (number, sha, bypass_checks)
         self.body_writes: List[str] = []
         self.assign_refused = False  # the forge opens the pull request but will not assign the login
+        self.close_ignored = False  # accept the close yet stay open
         self.ready_ignored = False  # accept mark-ready yet stay a draft
         self.merge_lag_reads = 0  # reads after a merge call that still show the pull request open
         self.merge_lag: Dict[int, int] = {}
@@ -237,6 +238,16 @@ class MemoryForge(Forge):
             self.merge_lag[number] = self.merge_lag_reads
         if number not in self.merge_lag:
             self.pulls[number] = self._with(number, state="merged", merge_sha="m" * 40)
+        return self.pulls[number]
+
+    def find_open_pull_requests(self, head: str) -> List[RemotePullRequest]:
+        self._live("find_pr")
+        return [pull for pull in self.pulls.values() if pull.state == "open" and pull.head_branch == head]
+
+    def close_pull_request(self, number: int) -> RemotePullRequest:
+        self._live("close_pr")
+        if not self.close_ignored:
+            self.pulls[number] = self._with(number, state="closed")
         return self.pulls[number]
 
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:

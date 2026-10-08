@@ -670,6 +670,9 @@ class _Handler(BaseHTTPRequestHandler):
             if key in body:
                 pull[key] = body[key]
                 self.fake.issues[pull["number"]][key] = body[key]
+        if body.get("state") in ("open", "closed") and not pull["merged"]:
+            pull["state"] = body["state"]
+            self.fake.issues[pull["number"]]["state"] = body["state"]
         self._send(200, self.fake.pull_json(pull))
 
     def _get_rules(self, branch: str, query: Dict[str, List[str]], body: Any) -> None:

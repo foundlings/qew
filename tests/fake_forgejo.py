@@ -379,6 +379,8 @@ def _route(
             for field in ("title", "body"):
                 if field in payload:
                     fake.pulls[number][field] = payload[field]
+            if payload.get("state") in ("open", "closed") and not fake.pulls[number]["merged"]:
+                fake.pulls[number]["state"] = payload["state"]
             return ok(fake._pull_json(number))
     match = re.match(_BASE + r"/pulls/(\d+)/merge$", path)
     if match and method == "POST":
