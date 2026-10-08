@@ -71,6 +71,13 @@ shape show: author id kind labels priority schema_version state title | blocks b
   claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
   that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
 
+- `qew export DIRECTORY`: write every item to a new (or empty) directory as `items/ID.md` (the ledger's own file
+  format) and `events.json` (per item: event type, time, actor; import ignores it). Output is deterministic. A
+  non-empty directory, a symbolic link or a ledger with a dangling edge or a cycle is refused before any write.
+- `qew export --json`: print the items as one JSON array that `qew create --from-file` accepts (keys `id kind title
+  parent needs labels priority created body`), each item after the items it references. Exactly one of
+  DIRECTORY and `--json`.
+
 ## Work
 - `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
   [--body-file F | --edit] [--quote Q] [--from-file F]`: a draft unless `--quote` carries a human's words
