@@ -5,9 +5,10 @@ instruction. Inline code spans and fenced blocks (backtick or tilde, indented or
 runs to the end) are code; everything else is scanned. Findings are advisory and never block a write.
 """
 
+from functools import lru_cache
 import re
 import sys
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _INLINE = re.compile(r"(`+).+?\1")
@@ -19,13 +20,14 @@ _GH = ("api", "auth", "issue", "label", "pr", "project", "release", "repo", "run
 _PIPX = ("install", "uninstall", "run", "upgrade", "inject")
 
 
-def _qew_words() -> List[str]:
+@lru_cache(maxsize=1)
+def _qew_words() -> Tuple[str, ...]:
     from qew import cli  # late: cli imports this module
 
-    return sorted(cli.top_level_commands())
+    return tuple(sorted(cli.top_level_commands()))  # built once: the parser is expensive and scanned bodies are many
 
 
-def _invocation(words: List[str]) -> "re.Pattern[str]":
+def _invocation(words: Iterable[str]) -> "re.Pattern[str]":
     return re.compile(r"\b(qew|git|gh|pipx)\s+(" + "|".join(re.escape(w) for w in words) + r")\b")
 
 
