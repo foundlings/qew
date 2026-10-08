@@ -159,7 +159,7 @@ def fingerprint(spec: IssueSpec, extra: object = None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-MANAGED_LABEL_PREFIXES = ("qew:", "kind:", "priority:")
+MANAGED_LABEL_PREFIXES = ("qew:", "kind:", "priority:", "author:")
 
 
 def user_labels(labels) -> list:

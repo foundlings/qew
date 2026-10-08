@@ -149,7 +149,7 @@ class SyncWalk(unittest.TestCase):
     def test_boards_get_the_column_for_the_state_and_unsupported_boards_are_skipped(self) -> None:
         w = self.world
         (w.code / ".qew" / "config.toml").write_text(
-            (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = "1"')
+            (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = 1')
         )
         item = w.create("--kind", "issue", "--title", "E", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
         self.sync("forgejo-git.example-o-r")
