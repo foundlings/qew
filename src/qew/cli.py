@@ -18,6 +18,7 @@ Read
   qew ready       approved, unclaimed, unblocked work
   qew blocked     open work with unmet needs
   qew graph       dependency edges
+  qew plan        status: roll up an epic's children
   qew check       validate the ledger
 Work
   qew create      file an item (a draft unless a human's quote releases it)
@@ -52,7 +53,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_comment", "cmd_block")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_comment", "cmd_block", "cmd_plan")
 
 
 def _plugins() -> list:

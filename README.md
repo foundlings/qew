@@ -70,7 +70,7 @@ Tokens come from `GITHUB_TOKEN`, `FORGEJO_TOKEN`/`GITEA_TOKEN`, `GITLAB_TOKEN` o
 Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the full contract is
 `docs/specs/commands.md`.
 
-- Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`
+- Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew plan status`, `qew check`
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew comment`, `qew block`, `qew unblock`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr ready`, `qew pr merge`

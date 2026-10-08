@@ -41,6 +41,12 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network. `ready` lists by priority, then the
   longest chain it unblocks, then direct dependents, then id.
+- `qew plan status [EPIC] [--json]`: roll up the direct children of one epic (every open epic when none is named)
+  from files: counts `total draft ready blocked claimed closed`, `next` (the lowest priority number then id among
+  ready children, never a draft or blocked child), and `completable` (non-draft epic, at least one child, every
+  child completed or closed) with `complete_command` `qew complete ID`. A draft epic prints `(draft plan)`. Text
+  is `ID state title` then `N/M closed` (`, K drafts` only when K > 0). A non-epic or unknown id is exit 2; a
+  dangling need or illegal event order is exit 1 with no rollup. `--json` has `schema_version` 1.
 - `qew check`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors. Writes nothing; exit 1 on any problem.
 
