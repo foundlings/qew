@@ -41,10 +41,12 @@ boards/<target>.json            board recorded by `qew project ensure`
 views/<name>.json               named offline board (`qew board create`)
 ```
 
-Header keys: `id kind title parent needs tracks pr labels owner priority created` (`tracks` and `pr` are optional
-ledger ids of the tracking issue or pull request item, never forge numbers or URLs). Kinds: epic, issue, task. States:
+Header keys: `id kind title parent needs tracks pr labels owner priority created aliases` (`tracks` and `pr` are optional
+ledger ids of the tracking issue or pull request item, never forge numbers or URLs; `aliases` lists the ids the item had
+before `qew migrate-ids`, and `qew show OLD` still resolves them). Kinds: epic, issue, task. States:
 draft, approved, claimed, completed, closed. IDs come from `id_mode` per kind: `time` (default, 9 chars),
-`letters` (A, B .. AA) or `counter`; imports keep their IDs. Details: `docs/specs/ledger.md`.
+`letters` (A, B .. AA) or `counter`; imports keep their IDs. `qew migrate-ids --to time [--dry-run]` rewrites every
+id that is not a time id (and every reference to it) in one commit, keeping the old id as an alias. Details: `docs/specs/ledger.md`.
 
 ## Mirrors
 

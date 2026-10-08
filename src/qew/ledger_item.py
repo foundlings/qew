@@ -21,8 +21,8 @@ class Kind(str, Enum):
 
 
 # The schema: header keys in file order. Unknown keys are refused, never ignored.
-KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "owner", "priority", "due", "created", "discovered_from")
-LINK_KEYS = ("tracks", "pr", "due", "discovered_from")  # tracking issue / pull request item ids and a YYYY-MM-DD due date; optional, omitted when empty
+KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "owner", "priority", "due", "created", "discovered_from", "aliases")
+LINK_KEYS = ("tracks", "pr", "due", "discovered_from", "aliases")  # tracking issue / pull request item ids and a YYYY-MM-DD due date; optional, omitted when empty
 REQUIRED = ("id", "kind", "title", "created")
 LIST_KEYS = ("needs", "labels")
 DEFAULT_PRIORITY = 2
@@ -45,6 +45,7 @@ class Item:
     pr: str = ""
     due: str = ""
     discovered_from: str = ""  # the item this one was found while working on; never a dependency
+    aliases: Tuple[str, ...] = ()  # ids this item had before `qew migrate-ids`; lookups by them still resolve
 
     def header(self) -> Dict[str, str]:
         return {
@@ -61,6 +62,7 @@ class Item:
             "due": self.due,
             "created": self.created,
             "discovered_from": self.discovered_from,
+            "aliases": " ".join(self.aliases),
         }
 
     def with_value(self, key: str, value: str) -> "Item":
@@ -136,6 +138,10 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
     for need in needs:
         if not valid_id(need):
             raise QewError(f"{where}: `{need}` in needs is not an item id", 1)
+    aliases = tuple(header.get("aliases", "").split())
+    for alias in aliases:
+        if not valid_id(alias):
+            raise QewError(f"{where}: `{alias}` in aliases is not an item id", 1)
     if "\n" in header["title"] or "\r" in header["title"]:  # what the file format cannot hold; other separators are only refused on write
         raise QewError(f"{where}: title must be one line", 1)
     return Item(
@@ -153,6 +159,7 @@ def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> 
         pr=header.get("pr", ""),
         due=header.get("due", ""),
         discovered_from=header.get("discovered_from", ""),
+        aliases=aliases,
     )
 
 
@@ -171,4 +178,6 @@ def check_header_values(item: Item) -> List[str]:
         problems.append("an item cannot be its own parent")
     if item.id in item.needs:
         problems.append("an item cannot need itself")
+    if item.id in item.aliases:
+        problems.append("an item cannot be its own alias")
     return problems

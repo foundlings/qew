@@ -58,6 +58,7 @@ Mirrors
 Setup
   qew init        create the config and the ledger
   qew ledger      fork the ledger into a new identity
+  qew migrate-ids rewrite letter, counter and imported ids to time ids (old ids stay as aliases)
   qew hook        install | remove agent hooks; the events agents call
 
 Exit codes: 0 ok, 1 invalid ledger or forge failure, 2 refusal or usage, 3 ownership conflict or environment,
@@ -73,7 +74,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
-_MODULES += ("cmd_branch",)
+_MODULES += ("cmd_branch", "cmd_migrate")
 
 
 def top_level_commands() -> list:

@@ -34,6 +34,9 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
 - Item and event IDs are ledger-local, globally unique, sortable, never forge counters:
   `<PREFIX>-<ULID>` (e.g. `FND-01JA7…`). A short alias (first 8 chars after prefix) resolves when unique.
 - Forge issue numbers are recorded only in `mirrors/`.
+- `aliases: OLD1 OLD2` (optional header key) lists ids an item had before `qew migrate-ids --to time`. A reference, an
+  event or mirror directory, or a forge marker naming an alias means the item that carries it; a leftover file under an
+  alias is superseded by the renamed one. Reads canonicalise through the alias map, so a half-finished migration is valid.
 
 ## Item file (`items/<ID>.md`)
 Header = first lines, `key: value`, one per line, terminated by a line `---`. Parsers read the
@@ -49,6 +52,7 @@ owner:                         # empty = unclaimed
 priority: 2                    # lower = sooner
 created: 2026-10-08T16:00:00Z
 discovered_from: FND-01JA7P00  # optional: where this was found; never a dependency
+aliases: 42             # optional: ids before a migration (qew migrate-ids)
 ---
 Body…
 ```

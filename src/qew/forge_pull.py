@@ -61,6 +61,7 @@ def pull_target(ledger: Ledger, target) -> PullReport:
         report.retry_after = getattr(error, "retry_after", 0.0)
         return report
     snapshot = ledger.snapshot()
+    aliases = ledger.aliases()
     by_number = {issue.number: issue for issue in remote}
     mirrored: Dict[int, str] = {}
     for item_id in snapshot.items:
@@ -76,8 +77,8 @@ def pull_target(ledger: Ledger, target) -> PullReport:
             marker = _MARKER.search(issue.body)
             if marker is None:
                 _import_issue(ledger, snapshot, target, report, issue)
-            elif marker.group(1) in snapshot.items:
-                _close_duplicate(target, report, issue, marker.group(1), mirrored)
+            elif aliases.canonical(marker.group(1)) in snapshot.items:  # an old marker names the item it was renamed to
+                _close_duplicate(target, report, issue, aliases.canonical(marker.group(1)), mirrored, marker.group(1))
     except Unsupported as error:
         report.skipped.append(error.capability)
     except ForgeError as error:
@@ -89,12 +90,12 @@ def pull_target(ledger: Ledger, target) -> PullReport:
 _MARKER = re.compile(r"<!-- qew:([A-Za-z0-9][A-Za-z0-9._-]*) -->")
 
 
-def _close_duplicate(target, report: PullReport, issue: RemoteIssue, item_id: str, mirrored: Dict[int, str]) -> None:
+def _close_duplicate(target, report: PullReport, issue: RemoteIssue, item_id: str, mirrored: Dict[int, str], named: str = "") -> None:
     """A second issue for an item already mirrored to a lower number (concurrent syncs): close it, drop its marker."""
     keeper = min((n for n, i in mirrored.items() if i == item_id), default=None)
     if keeper is None or keeper >= issue.number or not issue.open:
         return
-    body = issue.body.replace(marker_for(item_id), "<!-- qew-duplicate -->")
+    body = issue.body.replace(marker_for(named or item_id), "<!-- qew-duplicate -->")
     target.forge.update_issue(issue.number, IssueSpec(issue.title, body, tuple(issue.labels), False, "not_planned", ""))
     report.duplicates += 1
 

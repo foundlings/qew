@@ -9,7 +9,7 @@ independently and the report says what happened.
 
 from dataclasses import dataclass, field, replace
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from qew import sync_milestones, sync_plan
 from qew.forge import (
@@ -165,7 +165,7 @@ def _sync_item(
     record = _read_mirror(ledger, item_id, target.slug)
     fingerprint = sync_plan.fingerprint(spec, column if board else None)
     if record is None:
-        remote, adopted = _find_or_create(target.forge, item_id, spec)
+        remote, adopted = _find_or_create(target.forge, item_id, spec, item.aliases)
         numbers[item_id] = remote.number
         # The create carried `spec`, so a created issue is already current; an adopted one is not.
         record = _new_record(target, remote, snapshot, item_id, "" if adopted else fingerprint)
@@ -189,9 +189,10 @@ def _sync_item(
         _place(ledger, snapshot, target, report, item_id, board, column, record, placements)
 
 
-def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec):
+def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[str, ...] = ()):
+    """Adopt the issue carrying the item's marker, or one still carrying the marker of an id it had before a migration."""
     try:
-        found = forge.find_issue(marker_for(item_id))
+        found = next((hit for hit in (forge.find_issue(marker_for(name)) for name in (item_id, *aliases)) if hit is not None), None)
     except Unsupported:
         found = None
     if found is not None:

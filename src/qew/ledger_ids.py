@@ -25,6 +25,10 @@ _TIME_ID = re.compile(r"[0-9a-km-z]{9}")
 _VALID = re.compile(r"[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*")
 
 
+def is_time_id(value: str) -> bool:
+    return bool(_TIME_ID.fullmatch(value))
+
+
 def valid_id(value: str) -> bool:
     return bool(_VALID.fullmatch(value))
 

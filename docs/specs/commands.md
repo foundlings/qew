@@ -403,6 +403,17 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   `--json`: `{merged, number, head_sha, items, schema_version}`. After a landed merge the head branch is deleted on the
   forge, never the base, the configured target branch or a head another open pull request uses (`branch NAME kept: ...`);
   a forge that cannot delete only warns on stderr and the merge still succeeds.
+- `qew migrate-ids --to time [--dry-run]`: rename every item whose id is not a time id (letters, counter, imported) to a
+  new time id, ordered by creation, and carry every reference: item headers (`parent needs tracks pr discovered_from`),
+  event directories and the ids cited in `edge`, `closed` and link `field` events, mirror directories and pull request
+  mirrors' `items`, named board views' `epic:` and `parent:` terms. Event ids, history and forge numbers are never
+  changed. The old id becomes an `aliases:` header value (space separated item ids; an alias may not be an item's own id,
+  another live item's id or another item's alias): `show`, `set` and every item argument resolve an alias, and sync, pull
+  and import treat an issue whose body still carries an old marker as the same item (adopted, never duplicated; the next
+  sync rewrites the marker). One write session, one ledger commit. Refused (exit 3, nothing written) while any item is
+  claimed by another login. Idempotent: a finished ledger prints `nothing to migrate`; a run that stopped midway leaves a
+  ledger `qew check` accepts (aliases resolve what is not yet rewritten) and the rerun finishes it. `--dry-run` lists the
+  items (`would migrate ID`) and writes nothing. `--to` accepts only `time`.
 - `qew branch`: the group for `prune`.
 - `qew branch prune [--target T] [--base BRANCH] [--dry-run]`: per forge target (read-only targets skipped), delete every
   branch whose tip `BRANCH` (default the configured target branch) already holds and that no open pull request uses.

@@ -6,7 +6,7 @@ from pathlib import Path
 import tomllib
 from typing import Dict, List, Tuple
 
-from qew import board_config, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
+from qew import board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.ledger_config import LEDGER_FILE
@@ -37,8 +37,12 @@ def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
     claimed: Dict[str, str] = {}
     folds = {}
     events = {}
+    aliases = ledger.aliases()
+    owners: Dict[str, str] = {}
     for path in sorted(ledger.items_dir.glob("*.md")) if ledger.items_dir.is_dir() else []:
         where = f"items/{path.name}"
+        if path.stem in aliases.superseded:
+            continue  # the renamed copy holds this item; the leftover goes when `qew migrate-ids` finishes
         try:
             item = parse_item(read_item_text(path, where), where)
         except (QewError, OSError, UnicodeError) as error:
@@ -51,6 +55,9 @@ def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
             continue
         claimed[item.id.lower()] = where
         problems.extend(f"{where}: {problem}" for problem in check_header_values(item))
+        for alias in item.aliases:
+            if owners.setdefault(alias, item.id) != item.id:
+                problems.append(f"{where}: alias {alias} is also an alias of {owners[alias]}")
         events[item.id] = _load_events(ledger, item.id, problems)
         items[item.id] = replace(item, needs=needs_after(item.needs, events[item.id]))
         result = fold(events[item.id])
@@ -63,7 +70,11 @@ def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
             for event in events[item.id]
             if not valid_actor(event.actor)
         )
-    _check_orphans(ledger, items, problems)
+    for alias, owner in sorted(owners.items()):
+        if alias in items:
+            problems.append(f"items/{owner}.md: alias {alias} is also the id of another item")
+    items = {item_id: ledger_aliases.canonical_item(item, aliases) for item_id, item in items.items()}
+    _check_orphans(ledger, items, aliases, problems)
     return Snapshot(ledger, items, folds, events), problems
 
 
@@ -134,21 +145,25 @@ def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
 
 
 def _load_events(ledger: Ledger, item_id: str, problems: List[str]) -> list:
-    directory = ledger.events_dir / item_id
     found = []
-    for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
-        try:
-            found.append(parse_event(path.stem, path.read_text(encoding="utf-8"), f"events/{item_id}/{path.name}"))
-        except (QewError, OSError, UnicodeError) as error:
-            problems.append(str(error))
-    return found
+    seen = set()
+    for directory in ledger.events_homes(item_id):
+        for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+            if path.stem in seen:
+                continue  # copied under the new id by a migration that stopped before removing this one
+            seen.add(path.stem)
+            try:
+                found.append(parse_event(path.stem, path.read_text(encoding="utf-8"), f"events/{directory.name}/{path.name}"))
+            except (QewError, OSError, UnicodeError) as error:
+                problems.append(str(error))
+    return sorted(found, key=lambda event: event.id)
 
 
-def _check_orphans(ledger: Ledger, items: Dict[str, Item], problems: List[str]) -> None:
+def _check_orphans(ledger: Ledger, items: Dict[str, Item], aliases: ledger_aliases.Aliases, problems: List[str]) -> None:
     for directory in (ledger.events_dir, ledger.mirrors_dir):
         if directory.is_dir():
             for child in sorted(directory.iterdir()):
-                if child.is_dir() and child.name not in items:
+                if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items:
                     problems.append(f"{directory.name}/{child.name}: belongs to no item")
 
 

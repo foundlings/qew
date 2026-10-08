@@ -20,7 +20,7 @@ from qew.ledger_repo import LedgerRepo
 LOCK_WAIT_SECONDS = 60.0
 CHECKPOINT_EVERY = 25
 # Commands that keep partial work when they fail midway (see module docstring).
-KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land"}
+KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land", "migrate-ids"}
 
 
 _AFTER_SETTLE: List[Callable[[], None]] = []
@@ -49,6 +49,8 @@ def verb_for(arguments) -> Optional[str]:
         return f"pr-{arguments.pr_command}"
     if command == "land":
         return "land"
+    if command == "migrate-ids" and not arguments.dry_run:
+        return command
     return None
 
 
@@ -62,7 +64,7 @@ def _item_ids(relative_paths: List[str]) -> List[str]:
 
 
 def message(verb: str, relative_paths: List[str]) -> str:
-    ids = _item_ids(relative_paths)
+    ids = [] if verb == "migrate-ids" else _item_ids(relative_paths)  # a rename touches the old and the new id
     who = ledger_store.actor()
     if len(ids) == 1:
         return f"qew: {verb} {ids[0]} by {who}"

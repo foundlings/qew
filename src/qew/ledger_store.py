@@ -10,6 +10,7 @@ import tomllib
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from qew import ledger_aliases
 from qew.errors import QewError
 from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import Event, Folded, fold, needs_after, parse_event, valid_actor
@@ -73,7 +74,18 @@ class Ledger:
     def item_ids(self) -> List[str]:
         if not self.items_dir.is_dir():
             return []
-        return sorted(path.stem for path in self.items_dir.glob("*.md"))
+        stale = self.aliases().superseded
+        return sorted(path.stem for path in self.items_dir.glob("*.md") if path.stem not in stale)
+
+    def aliases(self) -> ledger_aliases.Aliases:
+        return ledger_aliases.scan(self.items_dir)
+
+    def events_homes(self, item_id: str) -> List[Path]:
+        return self._homes(self.events_dir, item_id)
+
+    def _homes(self, root: Path, item_id: str) -> List[Path]:
+        """The directories that may hold this item's files: under its id, and under any id it had before a migration."""
+        return [root / name for name in (item_id, *self.aliases().of(item_id))]
 
     def load_item(self, item_id: str) -> Item:
         path = self.items_dir / f"{item_id}.md"
@@ -87,32 +99,36 @@ class Ledger:
         return item
 
     def load_events(self, item_id: str) -> List[Event]:
-        directory = self.events_dir / item_id
-        if not directory.is_dir():
-            return []
         events = []
-        for path in sorted(directory.glob("*.json")):
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeError) as error:
-                raise QewError(f"{path}: {error}", 1) from None
-            events.append(parse_event(path.stem, text, str(path)))
-        return events
+        seen = set()
+        for directory in self._homes(self.events_dir, item_id):
+            for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+                if path.stem in seen:
+                    continue  # a migration copied it under the new id before removing the old file
+                seen.add(path.stem)
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as error:
+                    raise QewError(f"{path}: {error}", 1) from None
+                events.append(parse_event(path.stem, text, str(path)))
+        return sorted(events, key=lambda event: event.id)
 
     def load_mirrors(self, item_id: str) -> List[dict]:
         """Mirror records: the committed identity merged with this machine's local sync state."""
-        directory = self.mirrors_dir / item_id
-        if not directory.is_dir():
-            return []
         mirrors = []
-        for path in sorted(directory.glob("*.json")):
-            try:
-                value = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, ValueError) as error:
-                raise QewError(f"{path}: {error}", 1) from None
-            if not isinstance(value, dict):
-                raise QewError(f"{path}: a mirror is one JSON object", 1)
-            mirrors.append({**value, **self.read_state(item_id, path.stem), "_target": path.stem})
+        seen = set()
+        for directory in self._homes(self.mirrors_dir, item_id):
+            for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+                if path.stem in seen:
+                    continue  # a migration copied it under the new id already
+                seen.add(path.stem)
+                try:
+                    value = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, UnicodeError, ValueError) as error:
+                    raise QewError(f"{path}: {error}", 1) from None
+                if not isinstance(value, dict):
+                    raise QewError(f"{path}: a mirror is one JSON object", 1)
+                mirrors.append({**value, **self.read_state(item_id, path.stem), "_target": path.stem})
         return mirrors
 
     # -- local sync state: what this machine knows about a forge, never committed
@@ -120,8 +136,8 @@ class Ledger:
         return self.path / ".qew" / "state" / target / f"{item_id}.json"
 
     def read_state(self, item_id: str, target: str) -> dict:
-        path = self.state_path(item_id, target)
-        if not path.is_file():
+        path = next((p for p in (self.state_path(name, target) for name in (item_id, *self.aliases().of(item_id))) if p.is_file()), None)
+        if path is None:
             return {}
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
@@ -133,10 +149,11 @@ class Ledger:
         items: Dict[str, Item] = {}
         folds: Dict[str, Folded] = {}
         events: Dict[str, List[Event]] = {}
+        aliases = self.aliases()
         for item_id in self.item_ids():
             events[item_id] = self.load_events(item_id)
             raw = self.load_item(item_id)
-            items[item_id] = replace(raw, needs=needs_after(raw.needs, events[item_id]))
+            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events[item_id])), aliases)
             folds[item_id] = fold(events[item_id])
         return Snapshot(self, items, folds, events)
 
@@ -149,6 +166,9 @@ class Ledger:
             raise QewError("an item id is required", 2)
         if text in known:
             return text
+        renamed = self.aliases().by_alias.get(text)
+        if renamed in known:
+            return renamed
         folded = [item for item in known if item.lower() == text.lower()]
         if len(folded) == 1:
             return folded[0]
@@ -278,6 +298,7 @@ def journal_rollback(entries: List[Tuple[Path, Optional[str]]]) -> None:
             path.unlink(missing_ok=True)
         else:
             path.write_text(previous, encoding="utf-8")
+        ledger_aliases.note_change(path)
 
 
 def discard(path: Path) -> None:
@@ -285,6 +306,7 @@ def discard(path: Path) -> None:
     if JOURNAL is not None:
         JOURNAL.append((path, path.read_text(encoding="utf-8") if path.exists() else None))
     path.unlink(missing_ok=True)
+    ledger_aliases.note_change(path)
 
 
 def _write_local(path: Path, text: str) -> None:
@@ -307,6 +329,7 @@ def _write(path: Path, text: str, exclusive: bool) -> None:
                 raise QewError(f"{path} already exists; ledger files are never overwritten here", 1) from None
         else:
             os.replace(temporary, path)
+        ledger_aliases.note_change(path)
         if JOURNAL is not None:
             JOURNAL.append((path, previous))
     except OSError as error:

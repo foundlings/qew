@@ -70,7 +70,7 @@ def import_target(ledger: Ledger, target, history: bool = False) -> PullReport:
             continue
         marker = _MARKER.search(issue.body)
         footer, parents, needs = _footer(issue.body)
-        if marker and footer and valid_id(marker.group(1)) and marker.group(1) not in snapshot.items:
+        if marker and footer and valid_id(marker.group(1)) and ledger.aliases().canonical(marker.group(1)) not in snapshot.items:
             item_id = _restore_item(ledger, target, report, issue, marker.group(1), footer, history)
             created[issue.number] = item_id
             pending_links.append((item_id, parents, needs))
