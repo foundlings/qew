@@ -78,6 +78,25 @@ class PullWalk(unittest.TestCase):
         self.assertTrue(self.forge.issues[1].open)
         self.assertEqual(self.pull().duplicates, 0)
 
+    def test_a_lower_numbered_open_duplicate_of_a_finished_item_is_closed_too(self) -> None:
+        """Prevents a stale open twin outliving its completed item (#292 seen live): the mirror points at the higher number."""
+        from qew.forge import IssueSpec, marker_for
+
+        first = self.forge.issues[1]
+        self.forge.create_issue(IssueSpec(first.title, first.body, first.labels, True))  # number 2, the same content and marker
+        record = self.ledger.load_mirrors(self.item)[0]
+        slug = record.pop("_target")
+        self.ledger.write_mirror(self.item, slug, {**record, "number": 2, "issue_url": self.forge.issues[2].url})
+        self.assertEqual(self.pull().duplicates, 0)  # a live item: the lowest number stays the rule
+        self.assertTrue(self.forge.issues[1].open)
+        self.world.run("start", self.item)
+        self.world.run("evidence", self.item, "--change", self.world.commit("c"))
+        self.world.run("complete", self.item)
+        report = self.pull()
+        self.assertEqual(report.duplicates, 1)
+        self.assertFalse(self.forge.issues[1].open)
+        self.assertNotIn(marker_for(self.item), self.forge.issues[1].body)
+
     def test_several_divergences_resolve_in_one_command(self) -> None:
         """Prevents 170 divergences needing 170 commits: accept and reject take many ids at once."""
         self.forge.edit(1, open=False)
