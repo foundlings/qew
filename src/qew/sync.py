@@ -27,6 +27,7 @@ class Target:
     mirror: Mirror
     slug: str
     forge: Forge
+    read_only: bool = False  # a one-way mirror: pull never imports its edits
 
 
 @dataclass
