@@ -64,7 +64,7 @@ class FlowWalk(unittest.TestCase):
         w.run("evidence", parent, "--change", sha)
         result = w.run("complete", parent)
         self.assertEqual(result.returncode, 2)
-        self.assertIn(task[:12], result.stderr)
+        self.assertIn(task, result.stderr)
         w.run("start", task)
         w.run("evidence", task, "--change", sha)
         self.assertEqual(w.run("complete", task).returncode, 0)
@@ -101,13 +101,13 @@ class FlowWalk(unittest.TestCase):
         w = self.world
         item = started(w)
         self.assertEqual(w.run("release", item).returncode, 0)
-        self.assertIn(item[:12], w.run("ready").stdout)
+        self.assertIn(item, w.run("ready").stdout)
         bad = w.run("close", item, "--reason", "because")
         self.assertNotEqual(bad.returncode, 0)
         self.assertEqual(w.run("close", item, "--reason", "not_planned").returncode, 0)
         self.assertEqual(w.run("ready").stdout, "")
         self.assertEqual(w.run("reopen", item).returncode, 0)
-        self.assertIn(item[:12], w.run("ready").stdout)
+        self.assertIn(item, w.run("ready").stdout)
 
     def test_draft_revert_returns_unclaimed_work_to_draft_only(self) -> None:
         w = self.world

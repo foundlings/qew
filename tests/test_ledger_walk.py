@@ -20,8 +20,8 @@ class LedgerWalk(unittest.TestCase):
         w = self.world
         first = w.create("--kind", "issue", "--title", "Build parser", "--priority", "1")
         second = w.create("--kind", "issue", "--title", "Use parser", "--needs", first)
-        self.assertTrue(first.startswith("TST-"), first)
-        self.assertEqual(len(first), len("TST-") + 26)
+        self.assertRegex(first, r"^[0-9a-km-z]{9}$")
+        self.assertLess(first, second)
 
         self.assertEqual(w.run("ready").stdout.strip(), "", "drafts are never ready")
         w.approve(first, second)
@@ -34,12 +34,10 @@ class LedgerWalk(unittest.TestCase):
         blocked = w.run("blocked").stdout.splitlines()
         self.assertEqual(len(blocked), 1, blocked)
         self.assertIn("Use parser", blocked[0])
-        self.assertTrue(first.startswith(blocked[0].split("<- ")[1]), blocked[0])
+        self.assertTrue(blocked[0].endswith(f"<- {first}"), blocked[0])
 
         graph = w.run("graph").stdout.splitlines()
-        left, right = graph[0].split(" -> ")
-        self.assertEqual(len(graph), 1)
-        self.assertTrue(second.startswith(left) and first.startswith(right), graph)
+        self.assertEqual(graph, [f"{second} -> {first}"])
 
     def test_item_file_is_a_fixed_header_ending_at_a_rule(self) -> None:
         w = self.world
@@ -56,7 +54,7 @@ class LedgerWalk(unittest.TestCase):
         w = self.world
         first = w.create("--kind", "issue", "--title", "A")
         second = w.create("--kind", "issue", "--title", "B", "--needs", first)
-        shown = w.run("show", first[4:20]).stdout
+        shown = w.run("show", first).stdout
         self.assertIn(first, shown)
         self.assertIn("state: draft", shown)
         self.assertIn(f"blocks: {second}", shown)

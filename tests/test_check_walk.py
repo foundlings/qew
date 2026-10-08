@@ -49,7 +49,7 @@ class CheckWalk(unittest.TestCase):
         w = self.world
         a = w.create("--kind", "issue", "--title", "A")
         path = w.ledger / "items" / f"{a}.md"
-        path.write_text(path.read_text().replace("needs: \n", "needs: TST-01ARZ3NDEKTSV4RRFFQ69G5FAV\n", 1))
+        path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
         self._fails("dangling")
 
     def test_an_illegal_transition_fails(self) -> None:

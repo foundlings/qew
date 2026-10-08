@@ -37,7 +37,7 @@ class SyncCliWalk(unittest.TestCase):
         lines = result.stdout.splitlines()
         self.assertEqual(sum("create" in line for line in lines), 3, lines)
         self.assertFalse((w.ledger / "mirrors").exists())
-        self.assertIn(epic[:12], result.stdout)
+        self.assertIn(epic, result.stdout)
 
     def test_dry_run_target_filter_and_unknown_target(self) -> None:
         w = self.world
