@@ -15,6 +15,7 @@ from qew.forge import (
     ForgeUnavailable,
     IssueSpec,
     PullRequestSpec,
+    RemoteComment,
     RemoteIssue,
     RemotePullRequest,
     Unsupported,
@@ -34,6 +35,7 @@ class MemoryForge(Forge):
         self.reject_title: Optional[str] = None
         self.supports_boards = boards
         self.supports_links = links
+        self.comments: Dict[int, List[RemoteComment]] = {}
         self.pulls: Dict[int, RemotePullRequest] = {}
         self.pull_specs: Dict[int, PullRequestSpec] = {}
         self.merged: List[Tuple[int, str]] = []
@@ -116,3 +118,39 @@ class MemoryForge(Forge):
         from dataclasses import replace
 
         return replace(self.pulls[number], **changes)
+
+    # -- read side
+    def list_issues(self):
+        self._live("list")
+        return [self._counted(i) for _, i in sorted(self.issues.items())]
+
+    def _counted(self, issue: RemoteIssue) -> RemoteIssue:
+        from dataclasses import replace
+
+        return replace(issue, comments=len(self.comments.get(issue.number, [])))
+
+    def list_comments(self, number: int):
+        self._live("comments")
+        return list(self.comments.get(number, []))
+
+    def create_comment(self, number: int, body: str) -> RemoteComment:
+        self._live("comment")
+        comment = RemoteComment(str(len(self.comments.get(number, [])) + 1), "bot", body, "2026-01-01T00:00:00Z")
+        self.comments.setdefault(number, []).append(comment)
+        return comment
+
+    def edit(self, number: int, **changes) -> None:
+        """A human edits the issue on the forge, outside qew."""
+        from dataclasses import replace
+
+        self.issues[number] = replace(self.issues[number], **changes)
+
+    def comment_as_human(self, number: int, text: str, author: str = "alice") -> None:
+        comments = self.comments.setdefault(number, [])
+        comments.append(RemoteComment(str(len(comments) + 1), author, text, "2026-01-02T00:00:00Z"))
+
+    def add_foreign_issue(self, title: str, body: str = "", labels=("bug",), open: bool = True) -> int:
+        number = max(self.issues, default=0) + 1
+        self.issues[number] = RemoteIssue(number, f"https://{self.host}/o/r/issues/{number}", f"N{number}", open,
+                                          title, body, tuple(labels), "")
+        return number
