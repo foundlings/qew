@@ -7,14 +7,7 @@ Adversary: a cycle, self edge, dangling or duplicate reference, or impossible ne
 import unittest
 
 from tests.ledger_harness import World
-
-
-def snapshot(world: World) -> dict:
-    return {
-        str(path.relative_to(world.ledger)): path.read_bytes()
-        for path in sorted(world.ledger.rglob("*"))
-        if path.is_file() and ".qew" not in path.parts
-    }
+from tests.plan_support import snapshot
 
 
 class GraphWriteWalk(unittest.TestCase):
