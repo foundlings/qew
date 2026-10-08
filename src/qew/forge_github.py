@@ -27,6 +27,7 @@ from qew.forge import (
     RemotePullRequest,
     LABEL_COLOR,
     LABEL_DESCRIPTION,
+    Card,
     LabelNotPersisted,
     Transport,
     marker_alone,
@@ -94,6 +95,21 @@ query ItemPlacement($contentId: ID!) {
           project { number }
           fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
         }
+      }
+    }
+  }
+}"""
+_PROJECT_CARDS = """
+query ProjectCards($projectId: ID!, $cursor: String) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      items(first: 100, after: $cursor) {
+        nodes {
+          id
+          content { ... on Issue { number repository { nameWithOwner } } }
+          fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+        }
+        pageInfo { hasNextPage endCursor }
       }
     }
   }
@@ -707,6 +723,36 @@ class GitHub(Forge):
     def read_placement(self, board: Board, number: int) -> Optional[Placement]:
         found = self._placement(board, number)
         return found[1] if found else None
+
+    def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
+        project_id = self._board_project(board).id
+        cards: List[Card] = []
+        cursor: Optional[str] = None
+        for _ in range(MAX_PAGES):
+            data = self._wire.graphql(_PROJECT_CARDS, {"projectId": project_id, "cursor": cursor})
+            listing = _obj(_obj(data.get("node"), "node").get("items"), "items")
+            for entry in _array(listing.get("nodes"), "items.nodes"):
+                entry = _obj(entry, "card")
+                content = _obj(entry.get("content"), "card.content")
+                if not content:  # a pull request or draft card is not an issue of ours
+                    continue
+                values: Dict[str, str] = {}
+                for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
+                    value = _obj(value, "field value")
+                    if value:
+                        values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name", "value")
+                cards.append(Card(
+                    _str(entry, "id", "card"), _str(_obj(content.get("repository"), "card.repository"), "nameWithOwner", "card.repository"),
+                    _int(content, "number", "card.content"), values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""),
+                ))
+            info = _obj(listing.get("pageInfo"), "pageInfo")
+            if not _bool(info, "hasNextPage", "pageInfo"):
+                return tuple(cards)
+            cursor = _str(info, "endCursor", "pageInfo")
+        raise ForgeRejected(200, f"more than {MAX_PAGES} pages of cards; refusing a truncated listing")
+
+    def delete_card(self, board: Board, card_id: str) -> None:
+        self._wire.graphql(_DELETE_ITEM, {"projectId": self._board_project(board).id, "itemId": card_id})
 
     def remove_from_board(self, board: Board, number: int) -> None:
         found = self._placement(board, number)
