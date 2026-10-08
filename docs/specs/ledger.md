@@ -139,7 +139,9 @@ select = "kind:epic"
   pull request mirror), Done (completed or closed).
 - Forge issue bodies start with `<!-- qew:ID -->`; sync adopts an issue found by that marker when a crash lost
   the mirror file. Sync replaces an issue's whole label set with the item's labels plus `qew:STATE`,
-  `kind:KIND`, `priority:N`. Labels may not contain whitespace or commas.
+  `kind:KIND`, `priority:N`, `author:LOGIN`. Labels are one word of at most 50 printable characters, without
+  commas, and never start (casefolded) with `qew:`, `kind:`, `priority:` or `author:`: create, set, imports
+  refuse them (exit 2, "reserved") before any write and `qew check` flags them in files.
 - Sync is push-only; forge numbers are recorded, forge state is never read back as truth.
 - `qew index` (local cache) is not built: reads are fast enough from files.
 - Pull requests never carry a closing keyword.

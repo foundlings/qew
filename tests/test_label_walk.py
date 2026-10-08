@@ -15,7 +15,7 @@ MALFORMED = ["x" * 51, " edge", "edge ", "line\nbreak", "tab\tbreak", "a,b", "",
 
 def snapshot_of(world: World) -> dict:
     return {str(p.relative_to(world.ledger)): p.read_bytes() for p in world.ledger.rglob("*")
-            if p.is_file() and ".git" not in p.parts}
+            if p.is_file() and ".git" not in p.parts and ".qew" not in p.parts}
 
 
 class LabelWalk(unittest.TestCase):
@@ -45,9 +45,11 @@ class LabelWalk(unittest.TestCase):
     def test_import_refuses_a_reserved_label_for_the_whole_file(self) -> None:
         """One bad item in a batch aborts everything: no partial writes, for both --from-file and --import."""
         before = snapshot_of(self.world)
-        batch = json.dumps([{"title": "good", "labels": ["fine"]}, {"title": "bad", "labels": ["qew:approved"]}])
-        for extra in ([], ["--import"]):
-            result = self.world.run("create", "--from-file", "-", *extra, stdin=batch)
+        events = [{"type": "drafted", "at": "2026-01-01T00:00:00Z", "actor": "x"}]
+        plain = [{"title": "good", "labels": ["fine"]}, {"title": "bad", "labels": ["qew:approved"]}]
+        imported = [{**spec, "events": events} for spec in plain]
+        for batch, extra in ((plain, []), (imported, ["--import"])):
+            result = self.world.run("create", "--from-file", "-", *extra, stdin=json.dumps(batch))
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertIn("reserved", result.stderr)
         self.assertEqual(snapshot_of(self.world), before)

@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 from typing import Callable, Dict, List, Optional
 
-from qew import ledger_config, ledger_graph
+from qew import ledger_config, ledger_graph, ledger_labels
 from qew.errors import QewError
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import Event, State, fold, parse_event
@@ -71,9 +71,7 @@ def build_item(ledger: Ledger, spec: dict, resolved: Dict[str, str], known: List
         "priority": str(spec.get("priority", DEFAULT_PRIORITY)),
         "created": str(spec.get("created") or now()),
     }
-    for label in spec.get("labels", []):
-        if not label or any(c.isspace() or c == "," for c in label):
-            raise QewError(f"label `{label}` must be one word without commas", 2)
+    ledger_labels.require_valid(spec.get("labels", []))
     return from_header(header, str(spec.get("body", "")), "new item")
 
 
@@ -131,6 +129,8 @@ def set_fields(config: Config, reference: str, changes: Dict[str, str], body: Op
     snapshot = ledger.snapshot()
     item_id = ledger.resolve(reference, list(snapshot.items))
     item = snapshot.items[item_id]
+    if "labels" in changes:
+        ledger_labels.require_valid(changes["labels"].split())
     lines = []
     for key, value in changes.items():
         if key in ("needs", "parent"):
