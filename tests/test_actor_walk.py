@@ -40,7 +40,7 @@ class ActorWalk(unittest.TestCase):
         """A hand-merged event with an unsafe actor must be found, not trusted."""
         w = self.world
         item = w.create("--title", "Work")
-        planted = {"type": "comment", "at": "2026-01-01T00:00:00Z", "actor": "evil, admin", "body": "x"}
+        planted = {"type": "commented", "at": "2026-01-01T00:00:00Z", "actor": "evil, admin", "text": "x"}
         (w.ledger / "events" / item / ("z" * 26 + ".json")).write_text(json.dumps(planted))
         result = w.run("check")
         self.assertEqual(result.returncode, 1)

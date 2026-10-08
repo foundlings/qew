@@ -33,7 +33,7 @@ class SetWalk(unittest.TestCase):
         self.assertEqual(sorted(c["key"] for c in changed), ["body", "kind", "labels", "parent", "priority", "title"])
         self.assertEqual(sorted(self.fields(item)), ["body", "kind", "labels", "parent", "priority", "title"])
         shown = json.loads(w.run("show", item, "--json").stdout)
-        self.assertEqual((shown["title"], shown["kind"], shown["priority"], shown["parent"]), ("New", "task", 1, epic))
+        self.assertEqual((shown["title"], shown["kind"], shown["priority"], shown["parent"]["id"]), ("New", "task", 1, epic))
         self.assertEqual(sorted(shown["labels"]), ["keep", "y"])
         self.assertEqual(shown["body"].strip(), "New body\nwith two lines")
         self.assertEqual(w.run("check").returncode, 0)

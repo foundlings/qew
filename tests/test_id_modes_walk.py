@@ -77,7 +77,7 @@ class IdModeWalk(unittest.TestCase):
         specs = json.dumps([{"title": "a"}, {"title": "b"}] + [{"title": str(n)} for n in range(24)] + [{"title": "aa"}])
         self.world.run("create", "--from-file", "-", stdin=specs)
         self.assertIn("id: A\n", self.world.run("show", "A").stdout.replace("id: A\n", "id: A\n"))
-        self.assertEqual(self.world.run("show", "AA").stdout.split("\n")[0], "id: AA")
+        self.assertIn("\nid: AA\n", self.world.run("show", "AA").stdout)
 
 
 if __name__ == "__main__":

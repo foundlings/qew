@@ -25,6 +25,7 @@ events/<ID>/<EVENT-ID>.json  # append-only; one tiny file per event, never edite
 mirrors/<ID>/<forge>-<host>-<repo-slug>.json  # one file per (item, mirror target)
 mirrors/<ID>/<target>-pr-<N>.json            # one per pull request opened for the item (kind: pr; opener, covered items, draft, state)
 boards/<target>.json       # board id recorded by `qew project ensure`
+views/<name>.json          # named offline board: name, columns, sort, group_by, filter (`qew board create`)
 ```
 - No shared index file is committed. `qew index` builds a local cache (gitignored) from files.
 - Every write creates a new file or edits only the item's own file → concurrent branches merge cleanly.

@@ -40,12 +40,12 @@ class EpicCompleteWalk(unittest.TestCase):
         before = self.types(self.epic)
         result = self.world.run("complete", self.epic)
         self.assertEqual(result.returncode, 2)
-        self.assertIn("1 child remains open", result.stderr)
+        self.assertIn("1 open child", result.stderr)
         self.assertIn(self.child, result.stderr)
         self.assertEqual(self.types(self.epic), before)
         second = self.world.create("--kind", "issue", "--title", "Second", "--parent", self.epic)
         again = self.world.run("complete", self.epic)
-        self.assertIn("2 children remain open", again.stderr)
+        self.assertIn("2 open children", again.stderr)
         self.assertIn(second, again.stderr)
 
     def test_a_draft_child_blocks_completion_like_any_open_child(self) -> None:
@@ -70,12 +70,12 @@ class EpicCompleteWalk(unittest.TestCase):
         self.assertIn("closed", result.stderr)
 
     def test_completing_twice_writes_one_event_and_the_ledger_stays_valid(self) -> None:
-        """A second `completed` is an illegal transition that would make `qew check` fail."""
+        """A rerun must be an explicit no-op: a second `completed` is an illegal transition that would make `qew check` fail."""
         self.finish(self.child)
         self.assertEqual(self.world.run("complete", self.epic).returncode, 0)
         again = self.world.run("complete", self.epic)
-        self.assertEqual(again.returncode, 2)
-        self.assertIn("completed", again.stderr)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn("completed (unchanged)", again.stdout)
         self.assertEqual(self.types(self.epic).count("completed"), 1)
         self.assertEqual(self.world.run("check").returncode, 0)
 

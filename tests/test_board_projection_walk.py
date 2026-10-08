@@ -4,7 +4,6 @@ Adversary: a card moved by hand, eventual consistency on the forge that hides a 
 and an item leaving the target's select (its card goes, its issue must not close).
 """
 
-import json
 import os
 import sys
 import unittest
@@ -95,7 +94,7 @@ class ProjectionWalk(unittest.TestCase):
         self.fake.lag = 100
         report = self.sync()
         self.assertTrue(any("not visible" in f for f in report.failures))
-        record = json.loads(next((self.world.ledger / "mirrors" / item).glob("github-*.json")).read_text())
+        record = Ledger(self.world.ledger, "TST").load_mirrors(item)[0]
         self.assertEqual(record["column"], "Ready", "the unseen move is not recorded")
         self.fake.lag = 0
         self.assertEqual(self.sync().failures, [])

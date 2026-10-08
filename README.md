@@ -38,6 +38,7 @@ items/<ID>.md                   fixed header ended by `---`, then a Markdown bod
 events/<ID>/<EVENT-ID>.json     append-only facts; state is their fold
 mirrors/<ID>/<target>.json      one file per (item, mirror target)
 boards/<target>.json            board recorded by `qew project ensure`
+views/<name>.json               named offline board (`qew board create`)
 ```
 
 Header keys: `id kind title parent needs labels owner priority created`. Kinds: epic, issue, task. States:
@@ -72,11 +73,12 @@ Repo and API URLs must be http(s) without credentials, query or fragment, and `r
 Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the full contract is
 `docs/specs/commands.md`.
 
-- Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew plan status`, `qew check`, `qew inbox`
-- Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew comment`, `qew block`, `qew unblock`
+- Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew plan status`, `qew check`, `qew export`, `qew inbox`
+- Board (offline kanban): `qew board`, `qew board columns`, `qew board list`, `qew board create`, `qew board set`
+- Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew block`, `qew unblock`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr check`, `qew pr ready`, `qew pr merge`, and `qew land` once one merged
-- Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
+- Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`
 - Setup: `qew --version`, `qew init`, `qew hook install`, `qew hook remove`
 
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`), `qew hook vcs-check`.
@@ -84,15 +86,23 @@ Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--chains`, `--state`, `--change`, `--vcs`,
 `--reason`, `--tree`, `--closed`, `--draft`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
-`--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
+ `--compact`, `--name`, `--columns`, `--sort`, `--group-by`, `--filter`, `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
 
-Read flags: `--limit`, `--owner`, `--author`, `--work-state`.
+Read flags: `--limit`, `--owner`, `--work-state`, `--bodies`, `--search`, `--since`.
+
+Session context: `qew prime` prints what the session-start hook prints, for agents without hooks.
+
+Search: `qew search TERM...` finds approved work offline by id, title and label.
+
+Review: `qew triage` lists drafts and items missing planning fields with their bodies and text findings; `qew check --json` adds advisory findings.
 
 Board and admin flags: `--edit` (body in `$VISUAL`/`$EDITOR`), `--closed` (`qew set` on closed work); `--login`, `--count` (`qew inbox`); `--json` on `qew check` prints a stable report; `--author` (list by the item's first-event actor; sync mirrors it as `author:LOGIN`).
 
 Edge edits: `qew block ITEM --on BLOCKER` and `qew unblock ITEM --from BLOCKER` change one need at a time; `qew set` takes `--add-label`, `--remove-label`, `--body-file` and `--kind`.
+
+Discussion: `qew comment ITEM --body TEXT` (or `--body-file F`) appends a comment to the item's history; `qew show` lists it.
 
 ## Hooks
 

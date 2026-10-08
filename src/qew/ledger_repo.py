@@ -8,7 +8,23 @@ from typing import List, Optional, Sequence
 from qew.errors import QewError
 
 # Directories and files whose changes are qew's own writes (never a human's notes).
-OWNED = ("items", "events", "mirrors", "boards", "proposals")
+OWNED = ("items", "events", "mirrors", "boards", "views", "proposals")
+SHOWN_CONFLICTS = 5
+
+
+def conflict_message(remote: str, files, path) -> str:
+    """One short line: a few conflicting files and the count, never the whole list."""
+    files = list(files)
+    shown = ", ".join(files[:SHOWN_CONFLICTS]) or "unknown files"
+    more = f" and {len(files) - SHOWN_CONFLICTS} more ({len(files)} files)" if len(files) > SHOWN_CONFLICTS else (f" ({len(files)} files)" if len(files) > 1 else "")
+    return (f"ledger conflict while merging {remote}: {shown}{more}; resolve it in {path} "
+            "(a conflict is a ledger bug; qew never resolves it)")
+
+
+def only_mirrors(files) -> bool:
+    """Mirror files hold forge bookkeeping that older clients rewrote everywhere; the remote's copy is as good."""
+    files = list(files)
+    return bool(files) and all(f.startswith("mirrors/") for f in files)
 
 
 class LedgerRepo:
@@ -118,9 +134,13 @@ class LedgerRepo:
         merged = self.run(["git", "merge", "-q", "--no-edit", "-m", "qew: merge", remote], check=False)
         if merged.returncode != 0:
             files = self.run(["git", "diff", "--name-only", "--diff-filter=U"], check=False).stdout.split()
+            if only_mirrors(files):
+                self.run(["git", "checkout", "--theirs", "--", *files])
+                self.run(["git", "add", "--", *files])
+                self.run(["git", "commit", "-q", "--no-edit", "-m", "qew: merge (mirror bookkeeping taken from the remote)"])
+                return "ok"
             self.run(["git", "merge", "--abort"], check=False)
-            raise QewError(f"ledger conflict while merging {remote}: {', '.join(files) or 'unknown files'}; "
-                           f"resolve it in {self.path} (a conflict is a ledger bug; qew never resolves it)", 1)
+            raise QewError(conflict_message(remote, files, self.path), 1)
         return "ok"
 
     def _jj_ids(self, revset: str) -> List[str]:
@@ -154,10 +174,12 @@ class LedgerRepo:
         parents = list(dict.fromkeys([*sides, tip]))
         self.run(["jj", "--no-pager", "new", *parents, "-m", "qew: merge"])
         if self._jj_ids("conflicts()"):
-            files = self.run(["jj", "--no-pager", "resolve", "--list"], check=False).stdout.split()[::2]
-            self.run(["jj", "--no-pager", "undo"], check=False)
-            raise QewError(f"ledger conflict while merging {self.branch}@origin: {', '.join(files) or 'unknown files'}; "
-                           f"resolve it in {self.path} (a conflict is a ledger bug; qew never resolves it)", 1)
+            files = [line.split()[0] for line in self.run(["jj", "--no-pager", "resolve", "--list"], check=False).stdout.splitlines() if line.strip()]
+            if only_mirrors(files):
+                self.run(["jj", "--no-pager", "resolve", "--tool", ":theirs"])
+            else:
+                self.run(["jj", "--no-pager", "undo"], check=False)
+                raise QewError(conflict_message(f"{self.branch}@origin", files, self.path), 1)
         self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@"])
         self.run(["jj", "--no-pager", "new"])
         return "ok"

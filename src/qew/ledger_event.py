@@ -9,6 +9,7 @@ from enum import Enum
 import json
 from typing import Any, Dict, List, Optional, Tuple
 
+from qew import instants
 from qew.errors import QewError
 
 CLOSE_REASONS = ("not_planned", "duplicate", "superseded")
@@ -39,7 +40,6 @@ _RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
     "reopened": ((), (State.COMPLETED, State.CLOSED)),
     "closed": (("reason",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED)),
     "field": (("key",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED, State.CLOSED)),
-    "comment": (("body",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED, State.CLOSED)),
     # Forge replication (docs/specs/ledger.md, Replication): never change state by themselves.
     "commented": (("text",), tuple(State)),
     "forge_divergence": (("target", "field"), tuple(State)),
@@ -95,6 +95,8 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
     for key in ("at", "actor"):
         if not isinstance(value.get(key), str) or not value[key]:
             raise QewError(f"{where}: event is missing `{key}`", 1)
+    if instants.parse_instant(value["at"]) is None:
+        raise QewError(f"{where}: event time `{value['at']}` is not a UTC instant (YYYY-MM-DDTHH:MM:SSZ)", 1)
     for key in _RULES[kind][0]:
         if key not in value or value[key] in ("", None) or (isinstance(value[key], str) and not value[key].strip()):
             raise QewError(f"{where}: `{kind}` event is missing `{key}`", 1)

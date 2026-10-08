@@ -188,6 +188,15 @@ class Ledger:
             raise QewError(f"{path}: a board record needs a string `id`", 1)
         return value
 
+    @property
+    def views_dir(self) -> Path:
+        return self.path / "views"
+
+    def write_view(self, name: str, value: dict, overwrite: bool) -> None:
+        """One file per named board view; a new name never replaces an existing file."""
+        self.views_dir.mkdir(parents=True, exist_ok=True)
+        _write(self.views_dir / f"{name}.json", json.dumps(value, sort_keys=True, indent=2) + "\n", exclusive=not overwrite)
+
     def write_board(self, target: str, value: dict) -> None:
         directory = self.path / "boards"
         directory.mkdir(parents=True, exist_ok=True)
@@ -218,7 +227,7 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
     return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")))
 
 
-MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head")
+MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items")
 JOURNAL: Optional[List[Tuple[Path, Optional[str]]]] = None  # (path, previous text or None) while a session records
 
 

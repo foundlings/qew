@@ -27,7 +27,7 @@ from qew.forge import (
     RemotePullRequest,
     Transport,
 )
-from qew.forge_http import MAX_PAGES, api_base, call_json, resolve_token, split_repo
+from qew.forge_http import DEFAULT_WAIT, MAX_PAGES, api_base, call_json, resolve_token, split_repo, wait_from
 from qew.ledger_config import Mirror
 
 API_VERSION = "2022-11-28"
@@ -89,6 +89,23 @@ query ItemPlacement($contentId: ID!) {
           id
           project { number }
           fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+        }
+      }
+    }
+  }
+}"""
+_BOARD_ITEMS = """
+query BoardItems($owner: String!, $number: Int!, $cursor: String) {
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        items(first: 100, after: $cursor) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            id
+            content { ... on Issue { number repository { nameWithOwner } } }
+            fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+          }
         }
       }
     }
@@ -409,20 +426,20 @@ class _Wire:
             raise ForgeRejected(200, f"more than {MAX_PAGES} pages; refusing a truncated listing")
 
     def graphql(self, query: str, variables: Mapping[str, Any]) -> Dict[str, Any]:
-        data, _ = call_json(self._transport, "POST", self.graphql_url, self._headers(), {"query": query, "variables": dict(variables)})
+        data, headers = call_json(self._transport, "POST", self.graphql_url, self._headers(), {"query": query, "variables": dict(variables)})
         answer = _obj(data, "graphql response")
         errors = answer.get("errors")
         if errors:
-            raise _graphql_error(errors)
+            raise _graphql_error(errors, wait_from(headers))
         return _obj(answer.get("data"), "graphql data")
 
 
-def _graphql_error(errors: Any) -> Exception:
+def _graphql_error(errors: Any, wait: Optional[float] = None) -> Exception:
     entries = [e for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
     kinds = {e.get("type") for e in entries}
     detail = "; ".join(str(e.get("message", "")) for e in entries)[:300] or "unparseable GraphQL errors"
     if "RATE_LIMITED" in kinds:
-        return ForgeUnavailable(f"GraphQL: {detail}")
+        return ForgeUnavailable(f"GraphQL: {detail}", wait if wait is not None else DEFAULT_WAIT)
     if kinds & {"FORBIDDEN", "INSUFFICIENT_SCOPES", "UNAUTHORIZED"}:
         return ForgeAuth(f"GraphQL: {detail}")
     return ForgeRejected(200, f"GraphQL: {detail}")
@@ -440,8 +457,20 @@ class GitHub(Forge):
         self._repo = repo
         self._repo_path = f"/repos/{quote(namespace, safe='')}/{quote(repo, safe='')}"
         self._wire = _Wire(mirror, transport, env)
+        self._nodes: Dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
+        self._projects: Dict[int, _Project] = {}  # project number -> structure read this run
 
     # issues
+
+    def _remember(self, issue: RemoteIssue) -> RemoteIssue:
+        if issue.node_id:
+            self._nodes[issue.number] = issue.node_id
+        return issue
+
+    def _node_id(self, number: int) -> str:
+        if number not in self._nodes:
+            self.read_issue(number)
+        return self._nodes[number]
 
     def find_issue(self, marker: str) -> Optional[RemoteIssue]:
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
@@ -450,7 +479,7 @@ class GitHub(Forge):
                 if "pull_request" in issue:
                     continue
                 if marker in _nullable_str(issue, "body", "issue"):
-                    return parse_issue(issue)
+                    return self._remember(parse_issue(issue))
         return None
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
@@ -458,7 +487,7 @@ class GitHub(Forge):
         payload: Dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": list(spec.labels)}
         if spec.assignee:
             payload["assignees"] = [spec.assignee]
-        created = parse_issue(self._wire.rest("POST", f"{self._repo_path}/issues", payload))
+        created = self._remember(parse_issue(self._wire.rest("POST", f"{self._repo_path}/issues", payload)))
         if spec.open:
             return created
         return self.update_issue(created.number, spec)
@@ -472,17 +501,17 @@ class GitHub(Forge):
         }
         if not spec.open and spec.close_reason:
             payload["state_reason"] = spec.close_reason
-        return parse_issue(self._wire.rest("PATCH", f"{self._repo_path}/issues/{number}", payload))
+        return self._remember(parse_issue(self._wire.rest("PATCH", f"{self._repo_path}/issues/{number}", payload)))
 
     def read_issue(self, number: int) -> RemoteIssue:
-        return parse_issue(self._wire.rest("GET", f"{self._repo_path}/issues/{number}"))
+        return self._remember(parse_issue(self._wire.rest("GET", f"{self._repo_path}/issues/{number}")))
 
     def list_issues(self) -> List[RemoteIssue]:
         found: List[RemoteIssue] = []
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&sort=created&direction=asc&per_page=100"):
             for entry in _array(page, "issue list"):
                 if "pull_request" not in _obj(entry, "issue list entry"):
-                    found.append(parse_issue(entry))
+                    found.append(self._remember(parse_issue(entry)))
         return found
 
     def list_comments(self, number: int) -> List[RemoteComment]:
@@ -584,6 +613,7 @@ class GitHub(Forge):
 
     def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
         project, fresh = self._find_or_create_project()
+        self._projects.pop(project.number, None)
         notes: List[str] = []
         status = _status_options(columns)
         self._ensure_select(project, STATUS_FIELD, status, LEGACY_STATUS, notes, fresh)
@@ -623,26 +653,31 @@ class GitHub(Forge):
                 self._wire.graphql(_UPDATE_VIEW, {"viewId": view.id, "name": name, "layout": layout, "filter": wanted})
                 notes.append(f"view {name} corrected: was {view.layout} `{view.filter}`, now {layout} `{wanted}`")
 
-    def _board_project(self, board: Board) -> _Project:
+    def _board_project(self, board: Board, fresh: bool = False) -> _Project:
+        """The project's structure, read once per backend instance (`fresh` forces a re-read)."""
         wanted = _project_number(board.id)
-        _, projects = self._owner_projects()
-        project = next((p for p in projects if p.number == wanted), None)
-        if project is None:
-            raise ForgeRejected(404, f"project number {wanted} not found for {self._owner}")
-        return project
+        if fresh or wanted not in self._projects:
+            _, projects = self._owner_projects()
+            project = next((p for p in projects if p.number == wanted), None)
+            if project is None:
+                raise ForgeRejected(404, f"project number {wanted} not found for {self._owner}")
+            self._projects[wanted] = project
+        return self._projects[wanted]
 
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
-        issue = self.read_issue(number)
+        node_id = self._node_id(number)
         project = self._board_project(board)
+        if not _has_options(project, column, priority):
+            project = self._board_project(board, fresh=True)  # the cached structure may predate a human's edit
         status = project.fields.get(STATUS_FIELD)
         options = {o.name: o.id for o in status.options} if status else {}
         if status is None or column not in options:
-            raise ForgeRejected(400, f"board has no `{column}` column in its {STATUS_FIELD} field")
+            raise ForgeRejected(400, f"board has no `{column}` column in its {STATUS_FIELD} field; run `qew project ensure`")
         urgency = project.fields.get(PRIORITY_FIELD)
         urgent = {o.name: o.id for o in urgency.options} if urgency else {}
         if priority and priority not in urgent:
-            raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field")
-        added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": issue.node_id})
+            raise ForgeRejected(400, f"board has no `{priority}` option in its {PRIORITY_FIELD} field; run `qew project ensure`")
+        added = self._wire.graphql(_ADD_ITEM, {"projectId": project.id, "contentId": node_id})
         item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
         item_id = _str(item, "id", "item")
         self._wire.graphql(_SET_STATUS, {
@@ -653,20 +688,43 @@ class GitHub(Forge):
                 "projectId": project.id, "itemId": item_id, "fieldId": urgency.id, "optionId": urgent[priority],
             })
 
+    def read_board_placements(self, board: Board) -> Dict[int, Placement]:
+        """One paged listing of the board: this repository's issues and the Status and Priority each shows."""
+        wanted = _project_number(board.id)
+        found: Dict[int, Placement] = {}
+        cursor: Optional[str] = None
+        for _ in range(MAX_PAGES):
+            data = self._wire.graphql(_BOARD_ITEMS, {"owner": self._owner, "number": wanted, "cursor": cursor})
+            owner = _obj(data.get("repositoryOwner"), "repositoryOwner")
+            project = owner.get("projectV2")
+            if project is None:
+                raise ForgeRejected(404, f"project number {wanted} not found for {self._owner}")
+            listing = _obj(_obj(project, "projectV2").get("items"), "items")
+            for entry in _array(listing.get("nodes"), "items.nodes"):
+                entry = _obj(entry, "board item")
+                content = entry.get("content")
+                if not isinstance(content, dict) or not content:
+                    continue  # a draft item, pull request or redacted card
+                repository = _obj(content.get("repository"), "item.repository")
+                if _str(repository, "nameWithOwner", "item.repository") != f"{self._owner}/{self._repo}":
+                    continue
+                values = _field_values(entry)
+                found[_int(content, "number", "item.content")] = Placement(values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""))
+            info = _obj(listing.get("pageInfo"), "pageInfo")
+            if not _bool(info, "hasNextPage", "pageInfo"):
+                return found
+            cursor = _str(info, "endCursor", "pageInfo")
+        raise ForgeRejected(200, f"more than {MAX_PAGES} pages of board items; refusing a truncated listing")
+
     def _placement(self, board: Board, number: int) -> Optional[Tuple[str, Placement]]:
-        issue = self.read_issue(number)
-        data = self._wire.graphql(_ITEM_PLACEMENT, {"contentId": issue.node_id})
+        data = self._wire.graphql(_ITEM_PLACEMENT, {"contentId": self._node_id(number)})
         node = _obj(data.get("node"), "node")
         wanted = _project_number(board.id)
         for entry in _array(_obj(node.get("projectItems"), "projectItems").get("nodes"), "projectItems.nodes"):
             entry = _obj(entry, "project item")
             if _int(_obj(entry.get("project"), "item.project"), "number", "item.project") != wanted:
                 continue
-            values: Dict[str, str] = {}
-            for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
-                value = _obj(value, "field value")
-                if value:  # other field kinds match no fragment and arrive as {}
-                    values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name", "value")
+            values = _field_values(entry)
             return _str(entry, "id", "item"), Placement(values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""))
         return None
 
@@ -723,6 +781,24 @@ class GitHub(Forge):
 def _check_reason(spec: IssueSpec) -> None:
     if spec.close_reason not in CLOSE_REASONS:
         raise ForgeRejected(422, f"close_reason must be one of {CLOSE_REASONS}, got {spec.close_reason!r}")
+
+
+def _field_values(entry: Dict[str, Any]) -> Dict[str, str]:
+    """Field name -> chosen option name for the single-select values of a project item."""
+    values: Dict[str, str] = {}
+    for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
+        value = _obj(value, "field value")
+        if value:  # other field kinds match no fragment and arrive as {}
+            values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name", "value")
+    return values
+
+
+def _has_options(project: _Project, column: str, priority: str) -> bool:
+    status, urgency = project.fields.get(STATUS_FIELD), project.fields.get(PRIORITY_FIELD)
+    return (
+        status is not None and any(o.name == column for o in status.options)
+        and (not priority or (urgency is not None and any(o.name == priority for o in urgency.options)))
+    )
 
 
 def _status_options(columns: Tuple[str, ...]) -> Tuple[Tuple[str, str, str], ...]:

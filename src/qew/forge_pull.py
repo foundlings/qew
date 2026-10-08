@@ -31,6 +31,7 @@ class PullReport:
     comments: int = 0
     skipped: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
+    retry_after: float = 0.0  # seconds a rate-limited forge asked us to wait
 
 
 def clean_line(text: str) -> str:
@@ -56,6 +57,7 @@ def pull_target(ledger: Ledger, target) -> PullReport:
         return report
     except ForgeError as error:
         report.failures.append(error.detail)
+        report.retry_after = getattr(error, "retry_after", 0.0)
         return report
     snapshot = ledger.snapshot()
     by_number = {issue.number: issue for issue in remote}
@@ -74,6 +76,7 @@ def pull_target(ledger: Ledger, target) -> PullReport:
         report.skipped.append(error.capability)
     except ForgeError as error:
         report.failures.append(error.detail)
+        report.retry_after = getattr(error, "retry_after", 0.0)
     return report
 
 

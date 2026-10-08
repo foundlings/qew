@@ -3,7 +3,7 @@
 import time
 from typing import Optional
 
-from qew import forge_registry, ledger_config
+from qew import cmd_transfer, forge_registry, ledger_config
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import choose, mirrors_with_boards, render
 from qew.errors import QewError
@@ -16,6 +16,8 @@ from qew.sync import Target
 def register(commands) -> None:
     imported = commands.add_parser("import", help="read a forge project into the ledger (items, mirrors, drafts)")
     _target_flags(imported, "--from")
+    imported.add_argument("directory", nargs="?", help="instead of a forge: a tree written by `qew export` (items/ID.md files)")
+    imported.add_argument("--quote", help="with a directory: a human's words, \"Name: 'their words'\"; releases the items")
     imported.add_argument("--history", action="store_true", help="import closed foreign issues as closed work, not drafts")
     restore = commands.add_parser("restore", help="recreate a forge project from the ledger alone")
     _target_flags(restore, "--to")
@@ -32,6 +34,11 @@ def run(arguments) -> bool:
     if arguments.command not in ("import", "restore"):
         return False
     config = ledger_config.load()
+    if arguments.command == "import" and arguments.directory is not None:
+        if arguments.target or arguments.forge or arguments.repo or arguments.history:
+            raise QewError("import reads a directory or a forge, not both", 2)
+        print("\n".join(cmd_transfer.import_directory(config, arguments.directory, arguments.quote)))
+        return True
     target = build_target(config, arguments)
     ledger = ledger_for(config)
     if arguments.command == "import":

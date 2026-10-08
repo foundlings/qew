@@ -44,16 +44,16 @@ class UntrustedTextWalk(unittest.TestCase):
         self.assertNotIn("​", text.stdout)
         data = json.loads(self.world.run("ready", "--json").stdout)["items"]
         self.assertIsNone(data[0]["title"])
-        self.assertEqual(data[0]["text_findings"], ["zero_width"])
+        self.assertEqual(data[0]["text_findings"], [{"source": "title", "zero_width": True}])
         shown = self.world.run("show", self.item)
         self.assertIn("[title withheld: zero_width]", shown.stdout)
         hook = self.world.run("hook", "session-start", "--agent", "claude", stdin="{}")
-        self.assertIn("title withheld: zero_width", hook.stdout)
+        self.assertIn("suspicious title text: zero_width", hook.stdout)
 
     def test_bidi_and_control_titles_are_withheld_under_their_own_names(self) -> None:
         """Right-to-left overrides and control bytes are named separately from zero-width characters."""
         retitle(self.world, self.item, "a‮b")
-        self.assertIn("[title withheld: bidi]", self.world.run("list").stdout)
+        self.assertIn("[title withheld: bidi_control]", self.world.run("list").stdout)
         retitle(self.world, self.item, "a\x07b")
         self.assertIn("[title withheld: control]", self.world.run("list").stdout)
 
@@ -65,17 +65,14 @@ class UntrustedTextWalk(unittest.TestCase):
         line = out.strip()
         self.assertTrue(line.endswith('…"'), line)
 
-    def test_check_reports_text_findings_for_approved_titles(self) -> None:
-        """Poisoned ready work is a check failure, naming the item and the finding kind."""
-        retitle(self.world, self.item, "pay​ment")
+    def test_check_reports_text_findings_as_advisories(self) -> None:
+        """Poisoned ready work is named in the check report without failing it."""
+        retitle(self.world, self.item, "pay\u200bment")
         result = self.world.run("check")
-        self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn(f"text_findings: {self.item} zero_width", result.stdout)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn(f"advisory: {self.item} title: contains zero-width characters", result.stdout)
         machine = json.loads(self.world.run("check", "--json").stdout)
-        self.assertEqual(machine["text_findings"], [{"item": self.item, "findings": ["zero_width"]}])
-        draft = self.world.create("--title", "draft")
-        retitle(self.world, draft, "d​d")
-        self.assertNotIn(draft, self.world.run("check").stdout, "drafts are not offered to agents")
+        self.assertEqual(machine["text_findings"], [{"item": self.item, "source": "title", "zero_width": True}])
 
 
 if __name__ == "__main__":

@@ -127,5 +127,6 @@ class CheckReportWalk(unittest.TestCase):
         w.approve(epic)
         event = w.ledger / "events" / epic / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json"
         event.write_text(json.dumps({"type": "claimed", "owner": "x", "at": "2026-01-01T00:00:00Z", "actor": "x"}))
-        data = self.report(1)
+        data = self.report(0)
         self.assertEqual(data["contradictions"], [{"item": epic, "kind": "claimed_epic"}])
+        self.assertTrue(data["valid"], "a contradiction is advisory: claiming an epic is how its pull request opens")

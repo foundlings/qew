@@ -14,18 +14,6 @@ def _safe(text: str, keep_lines: bool = False) -> str:
     return text.rstrip() if keep_lines else " ".join(text.split())
 
 
-def comments(events: List[Event]) -> List[dict]:
-    return [{"at": e.at, "actor": e.actor, "body": e.get("body")} for e in sorted(events, key=lambda e: e.id) if e.type == "comment"]
-
-
-def comment_lines(events: List[Event]) -> List[str]:
-    lines: List[str] = []
-    for entry in comments(events):
-        lines.append(f"comment: {entry['actor']} {entry['at']}")
-        lines.extend(f"  {line}" for line in _safe(entry["body"], True).splitlines())
-    return lines
-
-
 def approvals(events: List[Event]) -> List[dict]:
     """Every release and withdrawal in order: {type, at, actor, quote, reason}."""
     return [
