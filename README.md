@@ -67,6 +67,8 @@ Tokens come from `GITHUB_TOKEN`, `FORGEJO_TOKEN`/`GITEA_TOKEN`, `GITLAB_TOKEN` o
 `QEW_FORGE_LOGIN` names the forge login pull requests are assigned to when it differs from `QEW_ACTOR`.
 `api = "URL"` overrides the API root for self-hosted installs; `timeout = SECONDS` bounds every request (default 30).
 Repo and API URLs must be http(s) without credentials, query or fragment, and `repo` names `owner/repo`. `qew sync --dry-run` shows the plan offline.
+`git_url` / `ledger_git_url` name the clone URLs `qew sync` pushes the code repo and the ledger repo to (git remote
+`qew-<slug>`); `read_only = true` makes a target one-way.
 
 ## Commands
 
