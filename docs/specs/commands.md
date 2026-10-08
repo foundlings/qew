@@ -1,8 +1,28 @@
 # Commands
 
-Output is terse and fixed-format: `ID STATE pN kind title [@owner]`. `--json` gives machine output.
+Output is terse and fixed-format: `ID STATE pN kind title [@owner]`, ordered by priority then sortable id
+(counter ids numerically) the same way in `ready`, `list` and `blocked`. Titles are flattened, bounded and
+quoted or withheld (see security.md). `--json` gives machine output (see Machine output).
 An item reference is a full ID, the same ignoring case, or a unique prefix. Exit codes: 0 ok, 1 invalid
 ledger or forge failure, 2 refusal or usage, 3 environment.
+
+## Machine output
+Bounded answers (`ready`, `blocked`) print one envelope object; open-ended lists (`list`, `graph`,
+`draft list`) print one object per line (NDJSON) with `schema_version` on each row; `show` prints one
+object. Keys are sorted and separators compact, so output on the same ledger is byte-identical. Optional
+data that is absent (owner, parent, needs, body) is omitted, never null. A read that cannot answer
+(unreadable ledger, bad usage) prints nothing on stdout and one reason line on stderr. A ledger with an
+unparseable item or event file, a duplicate id, history for no item or an illegal transition is not
+readable: every read refuses it (exit 1) and names the file instead of listing what parsed. Dangling
+needs and cycles do not stop a read; `ready` and `blocked` treat a dangling need as unmet.
+Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
+```
+shape row: id kind labels priority state title | needs owner parent schema_version text_findings
+shape envelope: items schema_version total truncated
+shape blocked_row: blocked_by id kind labels priority state title | needs owner parent text_findings
+shape edge: item needs schema_version
+shape show: id kind labels priority schema_version state title | blocks body children evidence mirrors needs owner parent text_findings
+```
 
 ## Setup
 - `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml`.

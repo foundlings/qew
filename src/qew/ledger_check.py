@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 import tomllib
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from qew import ledger_graph, untrusted_text
 from qew.errors import QewError
@@ -21,8 +21,12 @@ def check(ledger: Ledger) -> List[str]:
     return check_report(ledger)[0]
 
 
-def check_report(ledger: Ledger):
-    """(problems, notes): problems fail the check, notes are counts that are reported and not fatal."""
+def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
+    """Parse every file of the ledger: the snapshot of what parsed and the structural problems.
+
+    Structural problems (unreadable or malformed files, duplicate ids, orphaned history, illegal
+    transitions, bad metadata) make a ledger unreadable; edge and mirror problems are `check`'s own.
+    """
     problems: List[str] = []
     _check_metadata(ledger, problems)
     items: Dict[str, Item] = {}
@@ -51,7 +55,22 @@ def check_report(ledger: Ledger):
             problems.append(f"{where}: no events (an item starts with `drafted` or `approved`)")
         problems.extend(f"events/{item.id}: {error}" for error in result.errors)
     _check_orphans(ledger, items, problems)
-    snapshot = Snapshot(ledger, items, folds, events)
+    return Snapshot(ledger, items, folds, events), problems
+
+
+def read_snapshot(ledger: Ledger) -> Snapshot:
+    """The snapshot every read command answers from; an unreadable ledger is refused, never listed in part."""
+    snapshot, problems = load(ledger)
+    if problems:
+        more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
+        raise QewError(f"the ledger is not readable: {problems[0]}{more}; run `qew check`", 1)
+    return snapshot
+
+
+def check_report(ledger: Ledger):
+    """(problems, notes): problems fail the check, notes are counts that are reported and not fatal."""
+    snapshot, problems = load(ledger)
+    items = snapshot.items
     _check_edges(snapshot, problems)
     imported = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)

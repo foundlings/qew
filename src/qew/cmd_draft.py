@@ -4,8 +4,8 @@ from collections import deque
 import json
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from qew import ledger_graph
-from qew.cmd_items import emit, ledger_for, row
+from qew import cmd_read, ledger_graph, read_view
+from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_event import State, fold
@@ -17,17 +17,17 @@ TREE_LIMIT = 1000  # items one `--tree` may visit; a runaway or cyclic tree is r
 
 def list_drafts(config: Config, parent: Optional[str], as_json: bool) -> None:
     ledger = ledger_for(config)
-    snapshot = ledger.snapshot()
+    snapshot = cmd_read.snapshot_for(config)
     ids = [i for i in ledger_graph.ordered(snapshot, list(snapshot.items)) if snapshot.folds[i].state == State.DRAFT]
     if parent:
         parent_id = ledger.resolve(parent, list(snapshot.items))
         ids = [i for i in ids if snapshot.items[i].parent == parent_id]
     if as_json:
-        emit(snapshot, ids, True)
+        cmd_read.print_rows(snapshot, ids, True)
         return
     for item_id in ids:
         owner = snapshot.items[item_id].parent
-        print(f"{row(snapshot, item_id)}{f' (under {owner})' if owner else ''}")
+        print(f"{read_view.text_row(snapshot, item_id)}{f' (under {owner})' if owner else ''}")
 
 
 def _roots(ledger: Ledger, snapshot: Snapshot, references: Sequence[str]) -> List[str]:

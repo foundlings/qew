@@ -7,7 +7,7 @@ import sys
 from typing import List, Optional, Tuple
 
 from qew import (
-    claude_hook, cmd_items, codex_hook, cursor_hook, hook_guard, ledger_config, ledger_graph,
+    claude_hook, cmd_items, codex_hook, read_view, cursor_hook, hook_guard, ledger_config, ledger_graph,
     opencode_hook,
 )
 from qew.errors import QewError
@@ -163,7 +163,7 @@ def _prime(cwd: Optional[Path]) -> Optional[str]:
     budget = _PRIME_LIMIT - len((header + "\n" + _PRIME_COMMANDS + "\nReady, by priority:\n").encode("utf-8")) - 40
     rows: List[str] = []
     for item_id in ready[:_PRIME_READY]:
-        row = cmd_items.row(snapshot, item_id)
+        row = read_view.text_row(snapshot, item_id)
         row = row if len(row) <= _ROW_LIMIT else row[: _ROW_LIMIT - 3] + "..."
         budget -= len(row.encode("utf-8")) + 1
         if budget < 0:
