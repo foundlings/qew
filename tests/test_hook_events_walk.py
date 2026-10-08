@@ -14,9 +14,9 @@ import sys
 import unittest
 from unittest import mock
 
+from tests.ledger_harness import QUOTE, World  # first: puts src on sys.path
 from qew import cmd_hook
 from qew.errors import QewError
-from tests.ledger_harness import QUOTE, World
 from tests.test_hook_v1_walk import feed, outside
 
 AGENTS = ("claude", "codex", "cursor", "opencode")
