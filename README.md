@@ -76,7 +76,7 @@ Repo and API URLs must be http(s) without credentials, query or fragment, and `r
 Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the full contract is
 `docs/specs/commands.md`.
 
-- Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`, `qew inbox`
+- Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`, `qew export`, `qew inbox`
 - Board (offline kanban): `qew board`, `qew board columns`, `qew board list`, `qew board create`, `qew board set`
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`

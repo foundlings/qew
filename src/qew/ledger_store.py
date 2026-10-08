@@ -222,7 +222,7 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
     return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")))
 
 
-MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head")
+MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items")
 JOURNAL: Optional[List[Tuple[Path, Optional[str]]]] = None  # (path, previous text or None) while a session records
 
 

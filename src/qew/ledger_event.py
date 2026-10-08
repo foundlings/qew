@@ -135,9 +135,8 @@ def fold(events: List[Event]) -> Folded:
     for event in sorted(events, key=lambda item: item.id):
         if event.type == "claimed" and event.id in lost:
             continue  # this claim lost arbitration: it never owned the item
-        if event.type == "claimed" and state == State.CLAIMED:
-            if event.get("owner") != owner:
-                contested.append(event)  # two effective claims: a contradiction for accept/reject, not an illegal transition
+        if event.type == "claimed" and state == State.CLAIMED and event.get("owner") != owner:
+            contested.append(event)  # a second owner: a contradiction for accept/reject, not an illegal transition
             continue
         _, sources = _RULES[event.type]
         if event.type == "completed" and event.get("provenance") in ("import", "forge-import"):
