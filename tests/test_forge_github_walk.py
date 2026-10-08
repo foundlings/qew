@@ -339,6 +339,101 @@ class WireWalk(GitHubWalk):
         self.assertLessEqual(len(transport.sent), 60)
 
 
+class ReadSideWalk(GitHubWalk):
+    def test_listing_pages_oldest_first_with_closed_issues_and_without_pull_requests(self) -> None:
+        """An import must see every issue, closed ones included, and never mistake a pull request for one."""
+        fake = FakeGitHub(page_size=2).start()
+        self.addCleanup(fake.stop)
+        backend = GitHub(mirror_for(fake), urllib_transport(), ENV)
+        first = backend.create_issue(replace(SPEC, title="one", labels=("a",), assignee="octo"))
+        backend.open_pull_request(PullRequestSpec("topic", "main", "T", "pr body", False))
+        backend.create_issue(replace(SPEC, title="two", open=False, close_reason="completed"))
+        for n in range(3, 6):
+            backend.create_issue(replace(SPEC, title=f"n{n}"))
+        listed = backend.list_issues()
+        self.assertEqual([i.title for i in listed], ["one", "two", "n3", "n4", "n5"])
+        self.assertEqual([i.open for i in listed], [True, False, True, True, True])
+        self.assertEqual((listed[0].labels, listed[0].assignee, listed[0].body), (("a",), "octo", SPEC.body))
+        self.assertEqual(listed[0], backend.read_issue(first.number))
+        self.assertGreaterEqual(len(fake.calls("GET", "state=all")), 3)
+
+    def test_comments_come_back_in_creation_order_and_create_round_trips(self) -> None:
+        """Pull must replay a thread in order, and a posted comment must read back as the same comment."""
+        issue = self.backend.create_issue(SPEC)
+        self.fake.add_comment(issue.number, "alice", "first")
+        posted = self.backend.create_comment(issue.number, "second")
+        self.fake.add_comment(issue.number, "bob", "third")
+        comments = self.backend.list_comments(issue.number)
+        self.assertEqual([c.body for c in comments], ["first", "second", "third"])
+        self.assertEqual([c.author for c in comments], ["alice", "qew-bot", "bob"])
+        self.assertEqual(comments[1], posted)
+        self.assertTrue(all(c.id and c.created for c in comments))
+
+    def test_comment_listing_pages(self) -> None:
+        """A long thread must not be cut at the first page."""
+        fake = FakeGitHub(page_size=2).start()
+        self.addCleanup(fake.stop)
+        backend = GitHub(mirror_for(fake), urllib_transport(), ENV)
+        issue = backend.create_issue(SPEC)
+        for n in range(5):
+            fake.add_comment(issue.number, "alice", f"c{n}")
+        self.assertEqual([c.body for c in backend.list_comments(issue.number)], [f"c{n}" for n in range(5)])
+
+    def test_comment_count_follows_create_comment_on_every_read_path(self) -> None:
+        """Incremental pull relies on the count moving whenever a comment is posted."""
+        issue = self.backend.create_issue(SPEC)
+        self.assertEqual(issue.comments, 0)
+        self.backend.create_comment(issue.number, "hello")
+        self.assertEqual(self.backend.read_issue(issue.number).comments, 1)
+        self.assertEqual(self.backend.list_issues()[0].comments, 1)
+        self.assertEqual(self.backend.update_issue(issue.number, SPEC).comments, 1)
+
+    def test_null_bodies_read_as_empty(self) -> None:
+        """A forge sends null for an empty body; that is empty text, not a rejected listing."""
+        issue = self.backend.create_issue(SPEC)
+        self.fake.issues[issue.number]["body"] = None
+        self.fake.add_comment(issue.number, "alice", None)
+        self.assertEqual(self.backend.list_issues()[0].body, "")
+        self.assertEqual(self.backend.list_comments(issue.number)[0].body, "")
+
+    def test_listing_longer_than_the_page_bound_is_rejected_not_truncated(self) -> None:
+        """A silently truncated import would drop issues without anyone noticing."""
+        link = f'<{self.fake.api}/repos/{OWNER}/{REPO}/issues?page=2>; rel="next"'
+        backend = GitHub(mirror_for(self.fake), RecordingTransport(link), ENV)
+        with self.assertRaises(ForgeRejected):
+            backend.list_issues()
+        comment_link = f'<{self.fake.api}/repos/{OWNER}/{REPO}/issues/1/comments?page=2>; rel="next"'
+        self.backend.create_issue(SPEC)
+        endless = GitHub(mirror_for(self.fake), RecordingTransport(comment_link), ENV)
+        with self.assertRaises(ForgeRejected):
+            endless.list_comments(1)
+
+    def test_malformed_json_is_rejected(self) -> None:
+        """Garbage from the forge must stop the import, never become an empty listing."""
+        issue = self.backend.create_issue(SPEC)
+        self.fake.fail_next(200, "/issues?", body=b"<html>not json")
+        with self.assertRaises(ForgeRejected):
+            self.backend.list_issues()
+        self.fake.fail_next(200, "/comments", body=b"{broken")
+        with self.assertRaises(ForgeRejected):
+            self.backend.list_comments(issue.number)
+        self.fake.fail_next(200, "/comments", body={"id": "x"})
+        with self.assertRaises(ForgeRejected):
+            self.backend.create_comment(issue.number, "hi")
+
+    def test_server_errors_are_unavailable(self) -> None:
+        """An outage must read as retry-later, not as an empty forge."""
+        issue = self.backend.create_issue(SPEC)
+        for call in (
+            lambda: self.backend.list_issues(),
+            lambda: self.backend.list_comments(issue.number),
+            lambda: self.backend.create_comment(issue.number, "x"),
+        ):
+            self.fake.fail_next(503, "/issues")
+            with self.assertRaises(ForgeUnavailable):
+                call()
+
+
 class ApiRootWalk(unittest.TestCase):
     def roots(self, repo: str, **options: object) -> tuple:
         return api_roots(Mirror("github", repo, None, "", dict(options)))

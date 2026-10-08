@@ -9,7 +9,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 TOKEN = "test-token"
 OWNER = "acme"
@@ -81,7 +81,7 @@ class FakeGitHub:
             "id": self.next_id, "node_id": f"I_{number}", "number": number,
             "title": payload["title"], "body": payload.get("body"), "state": "open",
             "state_reason": None, "labels": list(payload.get("labels", [])),
-            "assignee": (payload.get("assignees") or [None])[0], "blocked_by": [],
+            "assignee": (payload.get("assignees") or [None])[0], "blocked_by": [], "discussion": [],
         }
         self.issues[number] = issue
         return issue
@@ -93,6 +93,22 @@ class FakeGitHub:
             "state": issue["state"], "state_reason": issue["state_reason"], "title": issue["title"],
             "body": issue["body"], "labels": [{"name": name} for name in issue["labels"]],
             "assignee": None if not issue["assignee"] else {"login": issue["assignee"]},
+            "comments": len(issue["discussion"]),
+        }
+
+    def add_comment(self, number: int, login: str, body: Optional[str]) -> Dict[str, Any]:
+        """A comment made on the forge by someone else; ids rise and timestamps are in creation order."""
+        self.next_id += 1
+        comment = {"id": self.next_id, "login": login, "body": body}
+        discussion = self.issues[number]["discussion"]
+        comment["created_at"] = f"2026-01-01T00:{len(discussion):02d}:00Z"
+        discussion.append(comment)
+        return comment
+
+    def comment_json(self, comment: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": comment["id"], "user": {"login": comment["login"]}, "body": comment["body"],
+            "created_at": comment["created_at"],
         }
 
     def pull_json(self, pull: Dict[str, Any]) -> Dict[str, Any]:
@@ -117,7 +133,7 @@ class FakeGitHub:
         self.issues[number] = {
             "id": number + 5000, "node_id": f"PRI_{number}", "number": number, "title": pull["title"],
             "body": pull["body"], "state": "open", "state_reason": None, "labels": [],
-            "assignee": None, "blocked_by": [], "pull_request": {},
+            "assignee": None, "blocked_by": [], "pull_request": {}, "discussion": [],
         }
         return pull
 
@@ -279,7 +295,7 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(404, {"message": "Not Found"})
 
     def _send(self, status: int, payload: Any, link: str = "") -> None:
-        data = json.dumps(payload).encode("utf-8")
+        data = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
@@ -294,14 +310,18 @@ class _Handler(BaseHTTPRequestHandler):
         window = items[(page - 1) * size: page * size]
         link = ""
         if page * size < len(items):
-            link = f'<{self.fake.base}{path}?per_page=100&page={page + 1}>; rel="next"'
+            kept = {k: v[0] for k, v in query.items() if k != "page"}
+            link = f'<{self.fake.base}{path}?{urlencode({**kept, "page": page + 1})}>; rel="next"'
         return window, link
 
     # -- issues ------------------------------------------------------------
 
     def _get_issues(self, query: Dict[str, List[str]], body: Any) -> None:
+        # Like the real API: newest first unless direction=asc, and `state` filters (default open).
+        state = query.get("state", ["open"])[0]
+        ordered = sorted(self.fake.issues.values(), key=lambda i: i["number"], reverse=query.get("direction", ["desc"])[0] != "asc")
         issues = [self.fake.issue_json(i) | ({"pull_request": {}} if "pull_request" in i else {})
-                  for i in self.fake.issues.values()]
+                  for i in ordered if state == "all" or i["state"] == state]
         window, link = self._page(issues, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/issues")
         self._send(200, window, link)
 
@@ -322,6 +342,19 @@ class _Handler(BaseHTTPRequestHandler):
         if "assignees" in body:
             issue["assignee"] = body["assignees"][0] if body["assignees"] else None
         self._send(200, self.fake.issue_json(issue))
+
+    def _get_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        issue = self.fake.issues.get(int(number))
+        if issue is None:
+            return self._send(404, {"message": "Not Found"})
+        comments = [self.fake.comment_json(c) for c in issue["discussion"]]
+        window, link = self._page(comments, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{number}/comments")
+        self._send(200, window, link)
+
+    def _post_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        if int(number) not in self.fake.issues:
+            return self._send(404, {"message": "Not Found"})
+        self._send(201, self.fake.comment_json(self.fake.add_comment(int(number), "qew-bot", body["body"])))
 
     def _get_blocked_by(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
         issue = self.fake.issues.get(int(number))
@@ -375,6 +408,7 @@ class _Handler(BaseHTTPRequestHandler):
 _ROUTES = (
     (r"/issues", "issues"),
     (r"/issues/(\d+)", "issue"),
+    (r"/issues/(\d+)/comments", "comments"),
     (r"/issues/(\d+)/dependencies/blocked_by", "blocked_by"),
     (r"/pulls", "pulls"),
     (r"/pulls/(\d+)", "pull"),
