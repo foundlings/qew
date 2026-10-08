@@ -16,7 +16,7 @@ from qew.ledger_store import Snapshot
 READY_LIMIT = 30
 
 
-def _limit(value: str) -> int:
+def limit_type(value: str) -> int:
     try:
         number = int(value)
     except ValueError:
@@ -39,12 +39,12 @@ def register(commands) -> None:
     list_.add_argument("--owner", help="only items this person currently holds")
     list_.add_argument("--author", help="only items this person created")
     list_.add_argument("--parent", help="only children of this item")
-    list_.add_argument("--limit", type=_limit, default=0, help="at most N items (0 = all)")
+    list_.add_argument("--limit", type=limit_type, default=0, help="at most N items (0 = all)")
     list_.add_argument("--bodies", action="store_true", help="also print the body of each approved item (explicit inspection)")
     list_.add_argument("--json", action="store_true", help="machine-readable output")
 
     ready = commands.add_parser("ready", help="approved, unclaimed work with every need completed")
-    ready.add_argument("--limit", type=_limit, default=READY_LIMIT, help=f"at most N items, default {READY_LIMIT} (0 = all)")
+    ready.add_argument("--limit", type=limit_type, default=READY_LIMIT, help=f"at most N items, default {READY_LIMIT} (0 = all)")
     ready.add_argument("--json", action="store_true", help="machine-readable output")
     blocked = commands.add_parser("blocked", help="open work with unmet needs")
     blocked.add_argument("--json", action="store_true", help="machine-readable output")

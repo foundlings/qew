@@ -88,6 +88,11 @@ shape check: contradictions cycles problems schema_version text_findings valid
 - `qew inbox [--login L] [--count] [--json]`: `waiting` (drafts whose author is L) and `assigned` (items L has
   claimed), from the ledger only. `--count` prints `inbox: N waiting, M assigned`; with `--json` exit 2; a login
   that is not `[A-Za-z0-9][A-Za-z0-9_.-]{0,49}` exit 2. Login defaults to the configured actor.
+- `qew search TERM... [--limit N] [--json]`: offline search of ids, titles and labels of non-draft items; every
+  term must match (ASCII case folded). Best match first (exact title, then whole words, then substring), then
+  priority, then id; at most 30 by default (`--limit 0` for all) with `search results capped` on stderr. Bodies
+  and comments are never searched or printed; an empty result prints a stderr hint to use `qew triage --search`.
+  Terms are data, never evaluated; put `--` before a term that starts with a dash. JSON is an envelope.
 - `qew triage [--search TERM...] [--json]`: the explicit read of unapproved text: drafts, and open approved
   items missing a planning field, with title and body as they are and the `missing` list (sorted: `body`,
   `label:PREFIX` for each prefix of `[triage] label_groups` in `.qew/config.toml` that no label has, `parent`
