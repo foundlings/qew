@@ -81,11 +81,11 @@ class ApproveWalk(ReleaseBase):
         self.assertEqual(types(w, epic), ["drafted", "approved"])
 
     def test_a_lone_item_that_is_not_a_draft_is_refused_with_nothing_written(self) -> None:
-        """Approving live work again must fail loudly and leave no event."""
+        """Releasing live work again, with other words than released it, must fail loudly and leave no event."""
         w = self.world
         item = self.draft("Work")
         w.approve(item)
-        result = w.run("draft", "approve", item, "--quote", QUOTE)
+        result = w.run("draft", "approve", item, "--quote", "Alexander: 'a second, different release'")
         self.assertEqual(result.returncode, 2)
         self.assertIn(f"nothing to approve: {item} is not a draft", result.stderr)
         self.assertEqual(types(w, item), ["drafted", "approved"])
@@ -105,14 +105,17 @@ class ApproveWalk(ReleaseBase):
         self.assertEqual(data, {"approved": [third], "skipped": [fourth]})
 
     def test_a_tree_whose_subtree_is_already_released_is_not_a_silent_success(self) -> None:
-        """A no-op that exits 0 with no output looks exactly like a release that worked."""
+        """A no-op must say so: another person's words are refused, the same words are reported as unchanged."""
         w = self.world
         epic = self.draft("Plan", "epic")
         child = self.draft("Child", parent=epic)
         w.approve(epic, child)
-        result = w.run("draft", "approve", epic, "--tree", "--quote", QUOTE)
+        result = w.run("draft", "approve", epic, "--tree", "--quote", "Alexander: 'a second, different release'")
         self.assertEqual(result.returncode, 2)
         self.assertIn("nothing to approve", result.stderr)
+        replay = w.run("draft", "approve", epic, "--tree", "--quote", QUOTE)
+        self.assertEqual(replay.returncode, 0, replay.stderr)
+        self.assertIn(f"{epic} unchanged", replay.stdout)
 
     def test_duplicate_references_collapse_to_one_event(self) -> None:
         """Two events from one stale snapshot make an illegal transition and an invalid ledger."""

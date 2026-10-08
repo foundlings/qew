@@ -72,6 +72,12 @@ def _refuse_closed_roots(snapshot: Snapshot, roots: List[str]) -> None:
             raise QewError(f"{item_id} is closed; reopen it first, nothing was changed", 2)
 
 
+def _approved_with(snapshot: Snapshot, item_id: str, quote: str) -> bool:
+    """True when the item was released by exactly these words: a retried approval, not a second release."""
+    quotes = [e.get("quote") for e in snapshot.events[item_id] if e.type == "approved"]
+    return bool(quotes) and quotes[-1] == quote
+
+
 def _apply(ledger: Ledger, targets: List[str], event_type: str, expected: State, past: str, **data: str) -> None:
     """Append one event per target and read each back; on a failure say exactly what was and was not moved."""
     done: List[str] = []
@@ -111,6 +117,9 @@ def approve(config: Config, references: List[str], tree: bool, quote: str, as_js
     visited = _visit(snapshot, roots) if tree else roots
     targets = [i for i in visited if _state(snapshot, i) == State.DRAFT]
     skipped = [(i, f"already {_state(snapshot, i).value}") for i in visited if i not in targets]
+    if not targets and all(_approved_with(snapshot, i, verified) for i in roots):
+        return _render("approved", [], [(i, "unchanged: already approved with these words") for i in roots], "approved", as_json) \
+            if as_json else [f"{i} unchanged (already approved)" for i in roots]
     if not targets:
         named = " ".join(roots)
         raise QewError(

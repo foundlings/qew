@@ -15,6 +15,7 @@ def register(commands) -> None:
     comment.add_argument("item", help="item id or alias")
     comment.add_argument("--body", help="the comment text")
     comment.add_argument("--body-file", help="read the comment from a file, or - for stdin")
+    comment.add_argument("--key", help="idempotency key (one word): a retry with the same key and text posts nothing new")
 
 
 def run(arguments: argparse.Namespace) -> bool:
@@ -23,7 +24,17 @@ def run(arguments: argparse.Namespace) -> bool:
     text = _text(arguments)
     ledger = cmd_items.ledger_for(ledger_config.load())
     item_id = ledger.resolve(arguments.item, ledger.item_ids())
-    ledger.append_event(item_id, "commented", text=text, author=actor())
+    key = arguments.key
+    if key is not None:
+        if not key.strip() or any(c.isspace() for c in key) or key.startswith("@"):
+            raise QewError("--key must be one word without a leading @", 2)
+        earlier = [e for e in ledger.load_events(item_id) if e.type == "commented" and e.get("key") == key]
+        if earlier:
+            if earlier[0].get("text") != text:
+                raise QewError(f"key `{key}` already posted a different comment on {item_id}; use another key", 2)
+            print(f"commented on {item_id} (unchanged)")
+            return True
+    ledger.append_event(item_id, "commented", text=text, author=actor(), **({"key": key} if key is not None else {}))
     for line in code_text.warnings(text):
         print(line, file=sys.stderr)
     print(f"commented on {item_id}")

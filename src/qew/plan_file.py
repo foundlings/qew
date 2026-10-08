@@ -140,7 +140,15 @@ def _references(spec: dict) -> List[str]:
     return list(spec.get("needs", [])) + ([parent] if parent else [])
 
 
-def single(spec: dict) -> Plan:
-    """A one-entry plan for an item given on the command line."""
+KEY_SOURCE = "--key"
+
+
+def single(spec: dict, key: Optional[str] = None) -> Plan:
+    """A one-entry plan for an item given on the command line; with a key, a retry of the same intent adopts the first run."""
     checked = _checked(spec, "entry 1")
-    return Plan((Entry(1, "entry 1", "line-1", checked),), hashlib.sha256(json.dumps(checked, sort_keys=True).encode()).hexdigest(), "-")
+    digest = hashlib.sha256(json.dumps(checked, sort_keys=True).encode()).hexdigest()
+    if key is None:
+        return Plan((Entry(1, "entry 1", "line-1", checked),), digest, "-")
+    if not key.strip() or any(c.isspace() for c in key) or key.startswith("@"):
+        raise QewError("--key must be one word without a leading @", 2)
+    return Plan((Entry(1, "entry 1", key, checked),), digest, KEY_SOURCE)

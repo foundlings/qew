@@ -221,9 +221,14 @@ def release(config: Config, reference: str, reason: str, force: bool = False, la
     snapshot = ledger.snapshot()
     item_id = ledger.resolve(reference, list(snapshot.items))
     folded = snapshot.folds[item_id]
+    me = actor()
+    if folded.state == State.APPROVED:
+        last = snapshot.events[item_id][-1] if snapshot.events[item_id] else None
+        if last is not None and last.type == "released" and last.actor == me:  # a retry of a release that already landed
+            return {"line": f"{item_id} released (unchanged)", "id": item_id, "state": "released", "previous_owner": last.get("previous_owner", ""),
+                    "released": [], "by": me, "lane": last.get("previous_lane") or None}
     if folded.state != State.CLAIMED:
         raise QewError(f"cannot release {item_id}: it is not claimed", 2)
-    me = actor()
     held_lane = _lane_of(folded)
     overrides = folded.owner != me or lane != held_lane  # a lane-scoped claim is released by naming its lane
     if overrides and not force:

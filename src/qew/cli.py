@@ -114,6 +114,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--kind", choices=["epic", "issue", "task"], default="issue", help="item kind")
     create.add_argument("--title", help="short imperative title")
     create.add_argument("--parent", help="parent item")
+    create.add_argument("--key", help="idempotency key (one word): a retry with the same key and content returns the first item")
     create.add_argument("--needs", nargs="*", default=[], help="items this one is blocked by")
     create.add_argument("--label", action="append", default=[], help="label, repeatable")
     create.add_argument("--priority", type=int, default=2, help="lower is sooner")
@@ -179,6 +180,8 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _plan(arguments: argparse.Namespace) -> plan_file.Plan:
+    if arguments.key is not None and arguments.from_file:
+        raise QewError("--key names one item; a plan file has its own `ref` per entry", 2)
     if arguments.from_file:
         return plan_file.parse(plan_file.read_bytes(arguments.from_file), os.path.basename(arguments.from_file))
     if not arguments.title:
@@ -206,7 +209,8 @@ def _plan(arguments: argparse.Namespace) -> plan_file.Plan:
             "priority": arguments.priority,
             "body": body or "",
             **({"discovered_from": arguments.discovered_from} if arguments.discovered_from else {}),
-        }
+        },
+        arguments.key,
     )
 
 
@@ -234,7 +238,7 @@ def _run(arguments: argparse.Namespace) -> None:
         code_prose.warn(str(entry.spec.get("body", "")) for entry in plan.entries)
         lines = plan_apply.apply(
             config, plan, arguments.quote, arguments.draft, arguments.import_events,
-            mark=bool(arguments.from_file), as_json=arguments.json, dry_run=arguments.dry_run,
+            mark=bool(arguments.from_file) or arguments.key is not None, as_json=arguments.json, dry_run=arguments.dry_run,
         )
         print("\n".join(lines))
     elif command == "set":

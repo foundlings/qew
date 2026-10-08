@@ -130,6 +130,10 @@ def evidence(config: Config, reference: str, changes: List[str], vcs: Optional[s
     for change in cited:
         if not code_vcs.valid_change(kind, change):
             raise QewError(f"`{change}` is not a {kind} change id", 2)
+    recorded = {c for e in snapshot.events[item_id] if e.type == "evidence" and e.get("vcs") == kind
+                for c in e.get("change_ids", [])}
+    if set(cited) <= recorded:  # a retry of evidence that already landed
+        return f"{item_id} evidence {kind} {' '.join(cited)} (unchanged)"
     ledger.append_event(
         item_id, "evidence", vcs=kind, change_ids=cited, repo=code_vcs.repository_url(config.root)
     )
@@ -296,6 +300,9 @@ def close(config: Config, reference: str, reason: Optional[str] = None, of: Opti
     ledger, snapshot, item_id = _load(config, reference)
     link = _disposition(ledger, snapshot, item_id, reason, of, by)
     if snapshot.folds[item_id].state == State.CLOSED:
+        last = [e for e in snapshot.events[item_id] if e.type == "closed"][-1:]
+        if last and last[0].get("reason") == reason and all(last[0].get(k) == v for k, v in link.items()):
+            return {"line": f"{item_id} closed ({reason}) (unchanged)", "id": item_id, "state": "closed"}  # a retry
         raise QewError(f"{item_id} is already closed", 2)
     data: Dict[str, object] = {"reason": reason, **link}
     if note is not None:

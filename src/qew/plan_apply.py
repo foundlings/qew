@@ -19,7 +19,7 @@ from qew.ledger_event import Event, State, fold, parse_event
 from qew.ledger_ids import valid_id
 from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
 from qew.ledger_store import Ledger, now
-from qew.plan_file import Entry, Plan
+from qew.plan_file import KEY_SOURCE, Entry, Plan
 from qew.requester import require_quote
 
 SCHEMA_VERSION = 1
@@ -84,6 +84,9 @@ def _adoptions(ledger: Ledger, plan: Plan) -> Dict[str, str]:
     for key, ids in same.items():
         if len(ids) > 1:
             raise QewError(f"ambiguous: entry `{key}` of this plan already exists as {' and '.join(sorted(ids))}", 2)
+    if revised and plan.source == KEY_SOURCE:
+        raise QewError(f"key `{next(iter(keys))}` already filed {' '.join(sorted(revised))} with different content; "
+                       "use another key for different work", 2)
     if revised:
         raise QewError(
             f"plan revision mismatch: {plan.source} changed since it created {' '.join(sorted(revised))}; "

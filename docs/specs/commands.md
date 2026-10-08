@@ -144,7 +144,7 @@ shape prime: additional_context context_bytes schema_version
   DIRECTORY and `--json`.
 
 ## Work
-- `qew create [--kind K] --title T [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
+- `qew create [--kind K] --title T [--key KEY] [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
   [--body-file F | --edit] [--quote Q] [--from-file F [--draft] [--dry-run]] [--json]`: a draft unless `--quote` carries a human's words
   (`"Name: 'their words'"`), which files it approved. `--from-file` takes a plan: JSON Lines, one JSON object or an array (or `-`
   for stdin). The whole plan is validated before the first write (exit 2, naming the line): regular UTF-8
@@ -224,9 +224,10 @@ shape prime: additional_context context_bytes schema_version
   its lane (`--lane`); without it the release needs `--force` too. The event records `lane` (the releasing lane) and
   `previous_lane`; the release is re-read and a claim still in force is exit 3. `--json` adds `by` and `lane`.
   Unclaimed or closed work is exit 2.
-- `qew comment ITEM (--body TEXT | --body-file F)`: append a `commented` event (text kept verbatim, `-` reads
+- `qew comment ITEM (--body TEXT | --body-file F) [--key KEY]`: append a `commented` event (text kept verbatim, `-` reads
   stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
-  Comment text is data and never a state change; unmarked code-shaped text warns on stderr.
+  Comment text is data and never a state change; unmarked code-shaped text warns on stderr. `--key KEY` (one word) makes a
+  retry safe: the same key with the same text posts nothing and prints `(unchanged)`, the same key with other text is exit 2.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: prints
   `ID completed` plus `; ready: ID...` (up to 5 items the completion released; `--json` has `released`). refused (exit 3
