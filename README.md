@@ -85,7 +85,7 @@ Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`,
 `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 
-Edge edits: `qew block ITEM --on BLOCKER` and `qew unblock ITEM --from BLOCKER` change one need at a time.
+Edge edits: `qew block ITEM --on BLOCKER` and `qew unblock ITEM --from BLOCKER` change one need at a time; `qew set` takes `--add-label`, `--remove-label`, `--body-file` and `--kind`.
 
 ## Hooks
 

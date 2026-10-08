@@ -66,11 +66,14 @@ shape show: id kind labels priority schema_version state title | blocks body chi
   without evidence. `qew complete` never writes it. `qew check` reports such items as
   `imported without evidence: N` (non-fatal).
 - `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--labels L...] [--priority N] [--body TEXT]
-  [--closed]`: edits the header; each change appends a `field` audit event. The whole result is validated
+  [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--closed] [--json]`: edits the header; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
   need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
   `--closed`. Several items may share parent, needs, labels or priority; `--title` and `--body` take one item.
+  `--add-label`/`--remove-label` are additive and idempotent (never with `--labels`); `--kind` is revalidated
+  against the nesting rules; one `field` event per changed key, and the item is re-read and compared (exit 3
+  on a mismatch).
   `qew create` applies the same edge rules before writing.
 - `qew start ITEM`: claim approved work whose needs are completed. `qew release ITEM` gives it up.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.

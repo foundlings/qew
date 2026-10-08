@@ -103,6 +103,11 @@ def _parser() -> argparse.ArgumentParser:
     set_.add_argument("--labels", nargs="*", help="replace the labels")
     set_.add_argument("--priority", type=int, help="new priority")
     set_.add_argument("--body", help="replace the body")
+    set_.add_argument("--body-file", help="replace the body from a file, or - for stdin")
+    set_.add_argument("--kind", choices=["epic", "issue", "task"], help="new kind (children must still nest under it)")
+    set_.add_argument("--add-label", action="append", default=[], help="add one label, repeatable")
+    set_.add_argument("--remove-label", action="append", default=[], help="remove one label, repeatable")
+    set_.add_argument("--json", action="store_true", help="machine-readable output")
     set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
 
     for name, text in (("start", "claim approved, unblocked work"), ("release", "give up a claim"),
@@ -188,7 +193,7 @@ def _run(arguments: argparse.Namespace) -> None:
         print("\n".join(lines))
     elif command == "set":
         changes = {}
-        for key in ("title", "parent", "priority"):
+        for key in ("title", "parent", "priority", "kind"):
             value = getattr(arguments, key)
             if value is not None:
                 changes[key] = str(value)
@@ -196,7 +201,19 @@ def _run(arguments: argparse.Namespace) -> None:
             value = getattr(arguments, key)
             if value is not None:
                 changes[key] = " ".join(value)
-        print("\n".join(cmd_items.set_fields(config, arguments.items, changes, arguments.body, arguments.closed)))
+        body = arguments.body
+        if arguments.body_file:
+            if body is not None:
+                raise QewError("give --body or --body-file, not both", 2)
+            body = sys.stdin.read() if arguments.body_file == "-" else _read(arguments.body_file)
+        changed = cmd_items.set_fields(
+            config, arguments.items, changes, body, arguments.closed, arguments.add_label, arguments.remove_label
+        )
+        if arguments.json:
+            print(json.dumps({"changed": [{"item": i, "key": k, "old": o, "new": n} for i, k, o, n in changed]}))
+        else:
+            print("\n".join(f"{i} {k}: {o} -> {n}" if k != "body" else f"{i} body changed" for i, k, o, n in changed)
+                  or f"{' '.join(arguments.items)} unchanged")
     elif command in ("start", "release", "complete", "reopen"):
         print(getattr(cmd_flow, command)(config, arguments.item))
     elif command == "evidence":

@@ -3,7 +3,8 @@
 import json
 from pathlib import Path
 import sys
-from typing import Callable, Dict, List, Optional
+from dataclasses import replace
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from qew import graph_rules, ledger_config, ledger_labels
 from qew.errors import QewError
@@ -42,13 +43,24 @@ def init(ledger: Optional[str]) -> str:
     return "\n".join(f"created {path}" for path in created) or "already initialized"
 
 
+Change = Tuple[str, str, str, str]  # item id, key, old, new
+
+
 def set_fields(
-    config: Config, references: List[str], changes: Dict[str, str], body: Optional[str], allow_closed: bool = False
-) -> List[str]:
+    config: Config,
+    references: List[str],
+    changes: Dict[str, str],
+    body: Optional[str],
+    allow_closed: bool = False,
+    add_labels: Sequence[str] = (),
+    remove_labels: Sequence[str] = (),
+) -> List[Change]:
+    """Change header fields and the body of one or more items; every change is audited and read back."""
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
-    if "labels" in changes:
-        ledger_labels.require_valid(changes["labels"].split())
+    if "labels" in changes and (add_labels or remove_labels):
+        raise QewError("--labels replaces the labels; use it alone or use --add-label and --remove-label", 2)
+    ledger_labels.require_valid(changes["labels"].split() if "labels" in changes else add_labels)
     ids = list(dict.fromkeys(ledger.resolve(reference, list(snapshot.items)) for reference in references))
     if len(ids) > 1 and (body is not None or "title" in changes):
         raise QewError("--title and --body name one item; several items may share parent, needs, labels or priority", 2)
@@ -57,10 +69,14 @@ def set_fields(
         if state in (State.COMPLETED, State.CLOSED) and not allow_closed:
             raise QewError(f"{item_id} is {state.value}; pass --closed to edit finished work", 2)
     proposed = dict(snapshot.items)
-    audit = []  # (id, key, old, new) in write order
+    audit: List[Change] = []  # in write order
     for item_id in ids:
         item = proposed[item_id]
-        for key, value in changes.items():
+        wanted = dict(changes)
+        if add_labels or remove_labels:
+            kept = [label for label in item.labels if label not in remove_labels]
+            wanted["labels"] = " ".join(kept + [label for label in dict.fromkeys(add_labels) if label not in kept])
+        for key, value in wanted.items():
             if key in ("needs", "parent"):
                 value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())
             old = item.header()[key]
@@ -71,18 +87,17 @@ def set_fields(
             except QewError as error:
                 raise QewError(str(error).split(": ", 1)[-1], 2) from None
             audit.append((item_id, key, old, value))
+        if body is not None and body.rstrip("\n") != item.body.rstrip("\n"):
+            item = replace(item, body=body)
+            audit.append((item_id, "body", "", "(changed)"))
         proposed[item_id] = item
     graph_rules.validate_edges(proposed, ids)
-    lines = []
     for item_id in ids:
-        original = snapshot.items[item_id]
-        if proposed[item_id] != original:
+        if any(entry[0] == item_id for entry in audit):
             ledger.write_item(proposed[item_id], overwrite=True)
-        for _, key, old, new in (entry for entry in audit if entry[0] == item_id):
-            ledger.append_event(item_id, "field", key=key, old=old, new=new)
-            lines.append(f"{item_id} {key}: {old} -> {new}")
-        if body is not None and body != original.body:
-            ledger.write_item(Item(**{**proposed[item_id].__dict__, "body": body}), overwrite=True)
-            ledger.append_event(item_id, "field", key="body", old="", new="(changed)")
-            lines.append(f"{item_id} body changed")
-    return lines or [f"{' '.join(ids)} unchanged"]
+            for _, key, old, new in (entry for entry in audit if entry[0] == item_id):
+                ledger.append_event(item_id, "field", key=key, old=old, new=new)
+            stored = ledger.load_item(item_id)
+            if stored != proposed[item_id] or stored.body.rstrip("\n") != proposed[item_id].body.rstrip("\n"):
+                raise QewError(f"{item_id}: the item did not read back as written", 3)
+    return audit
