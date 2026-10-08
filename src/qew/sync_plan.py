@@ -9,7 +9,7 @@ from qew import ledger_graph
 from qew.errors import QewError
 from qew.forge import COLUMNS, IssueSpec, marker_for
 from qew.ledger_event import State
-from qew.ledger_item import Item
+from qew.ledger_item import Item, Kind
 from qew.ledger_store import Snapshot
 
 _CLOSE_REASON = {"completed": "completed", "not_planned": "not_planned", "duplicate": "not_planned", "superseded": "not_planned"}
@@ -62,20 +62,43 @@ def topological(snapshot: Snapshot, ids: List[str]) -> List[str]:
     return order
 
 
+DRAFT, BACKLOG, READY, NEEDS_APPROVAL, IN_PROGRESS, IN_REVIEW, DONE = COLUMNS
+
+
 def column(snapshot: Snapshot, item_id: str) -> str:
-    """Draft = not startable (draft or blocked), Ready = startable, then progress, then Done."""
+    """The Status of an item, first match wins; the one derivation shared by sync, the board and `ready`."""
+    item = snapshot.items[item_id]
     state = snapshot.folds[item_id].state
     if state in (State.COMPLETED, State.CLOSED):
-        return COLUMNS[4]
+        return DONE
+    if state == State.DRAFT or state is None:
+        return DRAFT
+    if item.kind == Kind.EPIC:
+        return IN_PROGRESS if _child_claimed(snapshot, item_id) else BACKLOG
+    if ledger_graph.APPROVAL_LABEL in item.labels:
+        return NEEDS_APPROVAL
+    if _has_open_pull_request(snapshot, item_id):
+        return IN_REVIEW
     if state == State.CLAIMED:
-        return COLUMNS[3] if _has_pull_request(snapshot, item_id) else COLUMNS[2]
-    if state == State.APPROVED and not ledger_graph.blockers(snapshot, item_id):
-        return COLUMNS[1]
-    return COLUMNS[0]
+        return IN_PROGRESS
+    if not ledger_graph.blockers(snapshot, item_id):
+        return READY
+    return BACKLOG
 
 
-def _has_pull_request(snapshot: Snapshot, item_id: str) -> bool:
-    return any(m.get("kind") == "pr" for m in snapshot.ledger.load_mirrors(item_id))
+def _child_claimed(snapshot: Snapshot, item_id: str) -> bool:
+    return any(
+        snapshot.folds[child].state == State.CLAIMED
+        for child in ledger_graph.children(snapshot).get(item_id, ())
+    )
+
+
+def _has_open_pull_request(snapshot: Snapshot, item_id: str) -> bool:
+    """A recorded pull request counts until its recorded state says merged or closed."""
+    return any(
+        m.get("kind") == "pr" and m.get("state", "open") not in ("merged", "closed")
+        for m in snapshot.ledger.load_mirrors(item_id)
+    )
 
 
 def labels(snapshot: Snapshot, item: Item) -> Tuple[str, ...]:

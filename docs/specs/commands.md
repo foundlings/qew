@@ -49,7 +49,7 @@ ledger or forge failure, 2 refusal or usage, 3 environment.
   Refuses an invalid ledger. A mirror file is written only after the forge accepted the call.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never` line per target, `divergences=N`. Read-only: it never fetches, pushes or recovers.
 - `qew project`: the group for `ensure`.
-- `qew project ensure [--target T]`: create the Draft / Ready / In progress / In review / Done board where
+- `qew project ensure [--target T]`: create the seven-status board where
   the forge has boards; the board id is recorded in `boards/` in the ledger.
 
 ## Pull requests

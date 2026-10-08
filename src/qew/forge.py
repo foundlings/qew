@@ -9,7 +9,25 @@ from abc import ABC
 from dataclasses import dataclass
 from typing import Callable, List, Mapping, Optional, Tuple
 
-COLUMNS = ("Draft", "Ready", "In progress", "In review", "Done")
+# (name, GitHub color, description): the seven Status values, in board order.
+STATUS_OPTIONS = (
+    ("Draft", "GRAY", "Not workable yet: drafts, and work missing approval, a type or a priority"),
+    ("Backlog", "GREEN", "Approved but blocked, deferred, or a planning container"),
+    ("Ready", "BLUE", "Qew reports this work as actionable now"),
+    ("Needs approval", "PINK", "Waiting for a human to authorize the work before it may start"),
+    ("In progress", "YELLOW", "Claimed and actively being implemented"),
+    ("In review", "PURPLE", "Implementation has an open linked pull request"),
+    ("Done", "ORANGE", "Closed and completed"),
+)
+COLUMNS = tuple(name for name, _color, _description in STATUS_OPTIONS)
+# Priority P0..P4 (index = item priority); larger priorities clamp to the last.
+PRIORITY_OPTIONS = (
+    ("P0", "RED", "Critical priority"),
+    ("P1", "ORANGE", "High priority"),
+    ("P2", "YELLOW", "Normal priority"),
+    ("P3", "GREEN", "Low priority"),
+    ("P4", "GRAY", "Backlog priority"),
+)
 MARKER_PREFIX = "qew:"
 
 

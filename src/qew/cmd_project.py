@@ -1,4 +1,4 @@
-"""`qew project ensure`: create the Draft / Ready / In progress / In review / Done board per target."""
+"""`qew project ensure`: create the seven-status board per target."""
 
 from typing import Callable
 
@@ -13,7 +13,7 @@ from qew.ledger_config import Config, Mirror
 def register(commands) -> None:
     project = commands.add_parser("project", help="mirror boards")
     sub = project.add_subparsers(dest="project_command", required=True)
-    ensure = sub.add_parser("ensure", help="create the Draft / Ready / In progress / In review / Done board on each target")
+    ensure = sub.add_parser("ensure", help="create the seven-status board on each target")
     ensure.add_argument("--target", help="only this target (slug or unique part of it)")
 
 

@@ -22,7 +22,13 @@ Backends know nothing about ledgers: they turn `IssueSpec`, `PullRequestSpec` an
 - Repo URLs name the project: `https://host/owner/repo`; GitLab namespaces may nest (`group/sub/repo`).
 
 ## Board columns
-`Draft`, `Ready`, `In progress`, `In review`, `Done` (`forge.COLUMNS`).
+The seven Status values (`forge.COLUMNS`): `Draft`, `Backlog`, `Ready`, `Needs approval`, `In progress`,
+`In review`, `Done`, derived by `sync_plan.column`, first match wins: completed or closed -> Done; draft -> Draft;
+epic -> In progress while a direct child is claimed, else Backlog; label `needs:approval` -> Needs approval (outranks
+claim, review and blockers); open linked pull request mirror (recorded state not merged or closed) -> In review;
+claimed -> In progress; approved with every need completed -> Ready; else Backlog. Items always carry a kind and a
+priority, so the "not triaged" Draft case cannot arise. `qew ready` never offers a `needs:approval` item, so Ready on
+the board is exactly what it lists. Colors and descriptions: `forge.STATUS_OPTIONS`; Priority P0-P4: `forge.PRIORITY_OPTIONS`.
 - GitHub: Projects v2 (GraphQL). `ensure_board` finds the project by the mirror's `project` number, or
   creates one (titled by the mirror option `project_title`, default the repo name) with a `Status`
   single-select field holding exactly these options; `place_on_board` adds the issue (by `node_id`) and sets Status.

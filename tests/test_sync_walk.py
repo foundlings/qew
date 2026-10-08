@@ -151,10 +151,10 @@ class SyncWalk(unittest.TestCase):
         (w.code / ".qew" / "config.toml").write_text(
             (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = "1"')
         )
-        item = w.create("--kind", "epic", "--title", "E", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        item = w.create("--kind", "issue", "--title", "E", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
         self.sync("forgejo-git.example-o-r")
         self.assertEqual(self.a.columns[1], "Ready")
-        self.assertEqual(COLUMNS[1], "Ready")
+        self.assertEqual(COLUMNS[2], "Ready")
         w.run("start", item)
         self.sync("forgejo-git.example-o-r")
         self.assertEqual(self.a.columns[1], "In progress")

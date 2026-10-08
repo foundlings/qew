@@ -8,6 +8,10 @@ from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
 
 
+# A human gate: work carrying this label is never offered as ready, whatever else is true of it.
+APPROVAL_LABEL = "needs:approval"
+
+
 def state_of(snapshot: Snapshot, item_id: str) -> Optional[State]:
     return snapshot.folds[item_id].state
 
@@ -42,13 +46,14 @@ def ordered(snapshot: Snapshot, ids: List[str]) -> List[str]:
 
 
 def ready(snapshot: Snapshot) -> List[str]:
-    """Approved, unclaimed, not an epic, every need completed."""
+    """Approved, unclaimed, not an epic, not awaiting a human gate, every need completed."""
     return ordered(
         snapshot,
         [
             item_id
             for item_id, item in snapshot.items.items()
             if item.kind != Kind.EPIC
+            and APPROVAL_LABEL not in item.labels
             and state_of(snapshot, item_id) == State.APPROVED
             and not blockers(snapshot, item_id)
         ],
