@@ -167,6 +167,10 @@ def _sync_item(
             record = _push(ledger, target, record, item_id, spec, fingerprint)
         else:
             report.created += 1
+    elif record.get("baselined") and not record.get("synced_hash"):
+        # First contact from this machine: the pull took the forge's state as the baseline; do not push over it.
+        ledger.write_mirror(item_id, target.slug, {**{k: v for k, v in record.items() if k != "_target"}, "synced_hash": fingerprint, "baselined": False})
+        report.unchanged += 1
     elif record.get("synced_hash") != fingerprint:
         _push(ledger, target, record, item_id, spec, fingerprint)
         report.updated += 1

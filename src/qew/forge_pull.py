@@ -121,8 +121,16 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
         _diverge(ledger, snapshot, target, report, item_id, record["number"], "exists", "missing", "present")
         return
     current = sync_plan.seen_of(issue, (seen or {}).get("comments", []))
-    if seen is None:  # a mirror from before pulling existed: adopt what the forge shows as the baseline
-        _save(ledger, item_id, target.slug, record, current)
+    if seen is None:
+        # No baseline on this machine (new checkout, or a mirror from before pulling existed): we cannot tell who changed
+        # what, so a difference is a divergence for a human to settle, never something a later push overwrites.
+        title = clean_line(issue.title)
+        if title != item.title:
+            _diverge(ledger, snapshot, target, report, item_id, issue.number, "title", title, item.title)
+        labels = clean_labels(current["labels"])
+        if labels != sorted(item.labels):
+            _diverge(ledger, snapshot, target, report, item_id, issue.number, "labels", " ".join(labels), " ".join(item.labels))
+        _save(ledger, item_id, target.slug, {**record, "baselined": True}, current)
         return
     changed = False
     title = clean_line(issue.title)
