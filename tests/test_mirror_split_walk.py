@@ -5,6 +5,7 @@ Each test is a scenario; its docstring names the failure it prevents.
 
 import json
 import os
+import shutil
 import sys
 import unittest
 
@@ -67,6 +68,7 @@ class MirrorSplitWalk(unittest.TestCase):
         path = next((w.ledger / "mirrors" / item).glob("*.json"))
         old = {**json.loads(path.read_text()), "synced_hash": "abc", "synced_event": "zzzzzzzzz", "linked": []}
         path.write_text(json.dumps(old))
+        shutil.rmtree(w.ledger / ".qew" / "state")  # a ledger from before the split has no local state
         self.assertEqual(w.run("check").returncode, 1)  # a future synced_event is still caught
         old["synced_event"] = ""
         path.write_text(json.dumps(old))
