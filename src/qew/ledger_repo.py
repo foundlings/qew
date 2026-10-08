@@ -174,7 +174,7 @@ class LedgerRepo:
         parents = list(dict.fromkeys([*sides, tip]))
         self.run(["jj", "--no-pager", "new", *parents, "-m", "qew: merge"])
         if self._jj_ids("conflicts()"):
-            files = self.run(["jj", "--no-pager", "resolve", "--list"], check=False).stdout.split()[::2]
+            files = [line.split()[0] for line in self.run(["jj", "--no-pager", "resolve", "--list"], check=False).stdout.splitlines() if line.strip()]
             if only_mirrors(files):
                 self.run(["jj", "--no-pager", "resolve", "--tool", ":theirs"])
             else:
