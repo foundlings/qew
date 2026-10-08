@@ -5,7 +5,6 @@ Pending work is derived (see sync_plan), so a failed or killed worker needs no o
 `.qew/sync.pending` marker and the next command starts another.
 """
 
-import fcntl
 import os
 from pathlib import Path
 import subprocess
@@ -13,7 +12,7 @@ import sys
 import time
 from typing import Optional
 
-from qew import trace
+from qew import filelock, trace
 from qew.ledger_config import Config
 
 _backoff = 0.0  # seconds a rate-limited forge asked this process to wait; the worker records it
@@ -28,14 +27,7 @@ def cache_dir(config: Config) -> Path:
 
 
 def worker_running(config: Config) -> bool:
-    handle = open(cache_dir(config) / "sync.lock", "a+")
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return True
-    finally:
-        handle.close()
-    return False
+    return filelock.is_held(cache_dir(config) / "sync.lock")
 
 
 def _trim_log(log: Path) -> None:
@@ -137,12 +129,18 @@ def newest_event(config: Config) -> str:
 
 def run_worker(config: Config, run_once) -> None:
     """Hold the worker lock, sync until nothing new arrived meanwhile (at most 3 rounds), keep the marker honest."""
-    handle = open(cache_dir(config) / "sync.lock", "a+")
+    lock = filelock.hold(cache_dir(config) / "sync.lock", verb="sync worker", wait_s=0, what="the sync worker")
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        handle.close()
-        return
+        lock.__enter__()
+    except filelock.LockTimeout:
+        return  # another worker is running: it will pick the pending work up
+    try:
+        _run_locked(config, run_once)
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def _run_locked(config: Config, run_once) -> None:
     global _backoff
     _backoff = 0.0
     if trace.enabled():
@@ -151,13 +149,10 @@ def run_worker(config: Config, run_once) -> None:
             trace.note("worker start lag since spawn", time.time() - spawned)
         except (OSError, ValueError):
             pass
-    try:
-        failed = False
-        for _ in range(3):
-            before = newest_event(config)
-            failed = not run_once()
-            if failed or _backoff > 0 or newest_event(config) == before:
-                break
-        mark(config, failed)
-    finally:
-        handle.close()
+    failed = False
+    for _ in range(3):
+        before = newest_event(config)
+        failed = not run_once()
+        if failed or _backoff > 0 or newest_event(config) == before:
+            break
+    mark(config, failed)
