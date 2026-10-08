@@ -6,7 +6,7 @@ import json
 import os
 import tomllib
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from qew.errors import QewError
 from qew.ledger_config import LEDGER_FILE
@@ -176,8 +176,33 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
     return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")))
 
 
+JOURNAL: Optional[List[Tuple[Path, Optional[str]]]] = None  # (path, previous text or None) while a session records
+
+
+def journal_start() -> None:
+    global JOURNAL
+    JOURNAL = []
+
+
+def journal_take() -> List[Tuple[Path, Optional[str]]]:
+    global JOURNAL
+    taken, JOURNAL = JOURNAL or [], None
+    return taken
+
+
+def journal_rollback(entries: List[Tuple[Path, Optional[str]]]) -> None:
+    """Undo recorded writes, newest first: restore previous text or delete a new file."""
+    for path, previous in reversed(entries):
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            path.write_text(previous, encoding="utf-8")
+
+
 def _write(path: Path, text: str, exclusive: bool) -> None:
     """Write whole or not at all: a temporary file then an atomic link or rename."""
+    if JOURNAL is not None:
+        JOURNAL.append((path, path.read_text(encoding="utf-8") if path.exists() else None))
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
         temporary.write_text(text, encoding="utf-8")

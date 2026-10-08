@@ -6,7 +6,7 @@ import json
 import sys
 from typing import List, Optional, Sequence
 
-from qew import cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
+from qew import replication, cmd_draft, cmd_flow, cmd_items, ledger_check, ledger_config
 from qew.errors import QewError
 
 
@@ -232,7 +232,8 @@ def _run(arguments: argparse.Namespace) -> None:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
-        _run(arguments)
+        with replication.session(arguments):
+            _run(arguments)
     except QewError as error:
         print(f"qew: {error}", file=sys.stderr)
         return error.exit_code

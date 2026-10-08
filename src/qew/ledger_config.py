@@ -23,12 +23,49 @@ class Mirror:
 
 
 @dataclass(frozen=True)
+class Replication:
+    """How a write replicates itself; see docs/specs/ledger.md, Replication."""
+
+    auto_commit: bool = True
+    auto_push: bool = True
+    auto_forge_sync: bool = True
+    background_sync: bool = True
+    timeout_s: float = 5.0
+    branch: str = "main"
+
+    @property
+    def offline(self) -> bool:
+        return os.environ.get("QEW_OFFLINE", "") not in ("", "0")
+
+
+_REPLICATION_KEYS = {
+    "auto_commit": bool, "auto_push": bool, "auto_forge_sync": bool, "background_sync": bool,
+    "timeout_s": (int, float), "branch": str,
+}
+
+
+def _replication(section: object) -> Replication:
+    if section is None:
+        return Replication()
+    if not isinstance(section, dict):
+        raise QewError("[replication] must be a table", 1)
+    for key, value in section.items():
+        kind = _REPLICATION_KEYS.get(key)
+        if kind is None:
+            raise QewError(f"[replication] has an unknown key `{key}`", 1)
+        if not isinstance(value, kind) or (kind is bool and not isinstance(value, bool)) or isinstance(value, bool) != (kind is bool):
+            raise QewError(f"[replication] {key} has the wrong type", 1)
+    return Replication(**section)
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     ledger_path: Path
     prefix: str
     target: str
     mirrors: Tuple[Mirror, ...]
+    replication: Replication = Replication()
 
 
 def find_root(start: Optional[Path] = None) -> Optional[Path]:
@@ -59,7 +96,8 @@ def load(start: Optional[Path] = None) -> Config:
     prefix = section.get("prefix") or _ledger_prefix(ledger_path.resolve())
     code = data.get("code", {})
     mirrors = tuple(_mirror(entry) for entry in data.get("mirror", []))
-    return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors)
+    return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors,
+                  _replication(data.get("replication")))
 
 
 def _mirror(entry: object) -> Mirror:
