@@ -16,6 +16,8 @@ from tests.fake_github import FakeGitHub, TOKEN
 from tests.ledger_harness import World
 from tests.memory_forge import MemoryForge
 
+from qew.forge import IssueSpec
+
 from qew import cmd_project, ledger_config
 from qew.forge import COLUMNS, PRIORITY_OPTIONS, STATUS_OPTIONS
 from qew.forge_github import GitHub
@@ -23,6 +25,7 @@ from qew.forge_http import urllib_transport
 from qew.ledger_config import Mirror
 
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
+SPEC = IssueSpec(title="T", body="B <!-- qew:TST-1 -->", labels=(), open=True)
 VIEWS = [
     ("Kanban", "BOARD_LAYOUT", ""),
     ("Table", "TABLE_LAYOUT", ""),
@@ -35,7 +38,7 @@ VIEWS = [
 ]
 
 
-class BoardEnsureWalk(unittest.TestCase):
+class BoardFixture:
     def setUp(self) -> None:
         self.fake = FakeGitHub().start()
         self.addCleanup(self.fake.stop)
@@ -56,6 +59,8 @@ class BoardEnsureWalk(unittest.TestCase):
     def mutations(self, word=""):
         return [b for _m, _p, b in self.fake.requests if b and "mutation" in b.get("query", "") and word in b["query"]]
 
+
+class BoardEnsureWalk(BoardFixture, unittest.TestCase):
     def test_golden_full_board_is_built_once_and_a_rerun_changes_nothing(self) -> None:
         """Prevents duplicate fields or views, and a board missing its colors, priorities or views."""
         board = self.backend().ensure_board(COLUMNS)
@@ -120,6 +125,44 @@ class BoardEnsureWalk(unittest.TestCase):
         self.assertEqual(len(self.fake.projects), 1)
         record = json.loads(next((world.ledger / "boards").glob("*.json")).read_text())
         self.assertEqual(record["id"], "1")
+
+
+class LegacyMigrationWalk(BoardFixture, unittest.TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.board = self.backend().ensure_board(COLUMNS)
+        self.status = self.field(self.board, "Status")
+
+    def option(self, name):
+        return next((o for o in self.status["options"] if o["name"] == name), None)
+
+    def test_legacy_option_is_renamed_in_place_and_cards_stay(self) -> None:
+        """Prevents the old To triage cards being orphaned when the column becomes Draft."""
+        draft = self.option("Draft")
+        draft["name"] = "To triage"
+        issue = self.backend().create_issue(SPEC)
+        self.backend().place_on_board(self.board, issue.number, "To triage")
+        notes = self.backend(project=self.board.id).ensure_board(COLUMNS).notes
+        self.assertEqual(self.option("Draft")["id"], draft["id"])
+        self.assertIsNone(self.option("To triage"))
+        self.assertEqual(self.fake.item_status(self.board.id, issue.node_id), "Draft")
+        self.assertTrue(any("To triage" in n for n in notes))
+
+    def test_legacy_next_to_the_new_option_is_dropped(self) -> None:
+        """Prevents two Draft-like columns after a half-finished manual migration."""
+        self.status["options"].append({"id": "old", "name": "To triage", "color": "GRAY", "description": ""})
+        self.backend(project=self.board.id).ensure_board(COLUMNS)
+        self.assertIsNone(self.option("To triage"))
+        self.assertEqual(len([o for o in self.status["options"] if o["name"] == "Draft"]), 1)
+
+    def test_a_foreign_option_is_kept_untouched_and_reported(self) -> None:
+        """Prevents ensure deleting a column a human added and the cards on it."""
+        self.status["options"].append({"id": "mine", "name": "Blocked", "color": "PINK", "description": "human"})
+        notes = self.backend(project=self.board.id).ensure_board(COLUMNS).notes
+        kept = self.option("Blocked")
+        self.assertEqual((kept["id"], kept["color"], kept["description"]), ("mine", "PINK", "human"))
+        self.assertTrue(any("Blocked" in n for n in notes))
+        self.assertEqual([o["name"] for o in self.status["options"]][: len(COLUMNS)], list(COLUMNS))
 
 
 if __name__ == "__main__":
