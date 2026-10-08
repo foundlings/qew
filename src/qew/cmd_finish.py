@@ -8,7 +8,7 @@ shipped without a claim is closed with `close --delivered-by`, under the same la
 import sys
 from typing import Dict, List, Optional
 
-from qew import code_vcs, ledger_graph, outcome
+from qew import claim_reconcile, code_vcs, ledger_graph, outcome
 from qew.cmd_claim import holding
 from qew.cmd_items import ledger_for
 from qew.code_vcs import Landing
@@ -200,6 +200,9 @@ def complete(config: Config, reference: str, reason: Optional[str] = None, take_
         data["reason"] = reason
     if previous is not None:
         data["taken_over_from"] = previous
+    provisional = claim_reconcile.provisional_claim_of(snapshot, item_id, actor())
+    if provisional is not None:
+        data["provisional_claim"] = provisional  # sync settles the claim; the completion stands whatever the arbiter says
     ledger.append_event(item_id, "completed", **data)
     result: Dict[str, object] = {"line": f"{item_id} completed", "id": item_id, "state": "completed"}
     result.update(_finish_parent(ledger, item_id))

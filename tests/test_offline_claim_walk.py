@@ -97,6 +97,8 @@ class OverrideFlagWalk(OfflineClaimWalk):
         self.assertEqual(lost[0]["winner"], "second")
         shown = self.a.run("show", self.item, "--json", env=ENV)
         self.assertEqual(json.loads(shown.stdout)["state"], "approved")
+        status = self.a.run("status", env=ENV).stdout
+        self.assertIn(f"claim {self.item} lost winner=second", status)
         again = self.a.run("sync", env=ENV)
         self.assertEqual(again.returncode, 0, again.stderr)
 
