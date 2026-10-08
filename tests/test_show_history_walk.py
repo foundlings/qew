@@ -47,7 +47,7 @@ class ShowHistoryWalk(unittest.TestCase):
         self.assertIn("state: draft", text)
         self.assertNotIn("released:", text)
         self.assertNotIn("withdrawn:", text)
-        self.assertEqual(json.loads(w.run("show", item, "--json").stdout)["approvals"], [])
+        self.assertEqual(json.loads(w.run("show", item, "--json").stdout).get("approvals", []), [])
 
 
 if __name__ == "__main__":

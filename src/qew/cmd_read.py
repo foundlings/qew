@@ -112,6 +112,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     evidence = [event.data for event in folded.evidence]
     data = read_view.row_data(snapshot, item_id)
     for key, value in (("children", kids), ("blocks", blocks), ("evidence", evidence), ("mirrors", mirrors), ("body", item.body),
+                       ("approvals", show_history.approvals(snapshot.events[item_id])),
                        ("comments", show_history.comments(snapshot.events[item_id]))):
         if value:
             data[key] = value
@@ -122,6 +123,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     print(f"kind: {item.kind.value}")
     print(f"title: {untrusted_text.show(item.title).text}")
     print(f"state: {data['state']}")
+    for line in show_history.release_lines(snapshot.events[item_id]):
+        print(line)
     if folded.owner:
         print(f"owner: {folded.owner}")
     print(f"priority: {item.priority}")
