@@ -20,6 +20,7 @@ from qew.forge import (
     ForgeUnavailable,
     IssueSpec,
     PullRequestSpec,
+    Placement,
     Unsupported,
     marker_for,
 )
@@ -163,6 +164,21 @@ class GitLabWalk(GitLabBase):
         writes = len(self.fake.requests("PUT", "/issues/1"))
         self.forge.place_on_board(board, issue.number, "In progress")
         self.assertEqual(len(self.fake.requests("PUT", "/issues/1")), writes)
+
+    def test_board_lists_are_the_seven_statuses_and_priority_is_a_scoped_label(self):
+        """Prevents a GitLab board that lacks a status column or loses the priority when a card moves."""
+        board = self.forge.ensure_board(COLUMNS)
+        names = [x["label"]["name"] for x in self.project().boards[0]["lists"]]
+        self.assertEqual(names, [f"board::{c}" for c in ("Draft", "Backlog", "Ready", "Needs approval", "In progress", "In review", "Done")])
+        issue = self.issue_with(labels=("kind:task",))
+        self.forge.place_on_board(board, issue.number, "Ready", "P1")
+        self.assertEqual(sorted(self.forge.read_issue(1).labels), ["board::Ready", "kind:task", "priority::P1"])
+        self.forge.place_on_board(board, issue.number, "Done", "P0")
+        self.assertEqual(sorted(self.forge.read_issue(1).labels), ["board::Done", "kind:task", "priority::P0"])
+        self.assertEqual(self.forge.read_placement(board, 1), Placement("Done", "P0"))
+        self.forge.remove_from_board(board, 1)
+        self.assertEqual(self.forge.read_issue(1).labels, ("kind:task",))
+        self.assertIsNone(self.forge.read_placement(board, 1))
 
     def test_board_is_named_by_the_mirror_project_option(self):
         self.backend(project="Roadmap").ensure_board(COLUMNS)
