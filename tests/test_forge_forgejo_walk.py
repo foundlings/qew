@@ -188,6 +188,7 @@ class ForgejoWalk(unittest.TestCase):
     def test_endless_pagination_is_bounded(self) -> None:
         self.backend.create_issue(spec(labels=("only",)))
         self.fake.endless = True
+        self.fake.requests.clear()
         with self.assertRaises(ForgeRejected):
             self.backend.create_issue(spec(labels=("another",)))
         label_pages = [path for _, path, _ in self.fake.requests if "/labels?" in path]

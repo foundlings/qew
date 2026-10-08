@@ -52,3 +52,14 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
 - A `null` issue body reads as empty; any other null or mistyped field raises `ForgeRejected`. GraphQL `errors`
   map `RATE_LIMITED` to `ForgeUnavailable`, `FORBIDDEN`/`INSUFFICIENT_SCOPES`/`UNAUTHORIZED` to `ForgeAuth`, else `ForgeRejected`.
 - The token is resolved on the first request, not at construction.
+
+## Forgejo notes
+- One backend (`forge_forgejo.py`) serves Forgejo and Gitea; both mirror kinds map to it.
+- Token is resolved per request, so a missing token raises `ForgeAuth` on first use (boards raise `Unsupported` without one).
+- Labels are ids on the wire: names are resolved (and created, color `#ededed`) before each write, then the full set is replaced with `PUT /issues/{n}/labels`.
+- There is no close reason on this API: `close_reason` is accepted and not sent.
+- No draft field: a draft pull request has the title prefix `WIP:`; `mark_pull_request_ready` strips `WIP:` / `[WIP]`.
+- `checks` come from the combined commit status of the head: no statuses -> `none`; `warning` is treated as `failing` (fail closed).
+- Dependencies are listed first, so `link_dependency` is idempotent without relying on a 409.
+- Pagination ends on `X-Total-Count`, an empty page, or a short page with no `rel="next"` Link; more than `MAX_PAGES` raises `ForgeRejected`.
+- Merge sends `Do=merge` and `head_commit_id`; a moved head is the forge's 409, surfaced as `ForgeRejected(409)`.

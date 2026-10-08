@@ -24,7 +24,7 @@ class FakeForgejo:
         self.dependencies: Dict[int, List[int]] = {}  # issue -> issues blocking it
         self.requests: List[Tuple[str, str, Optional[Any]]] = []
         self.max_limit = 50
-        self.endless = False  # lists answer a full page forever, with no total header
+        self.endless = False  # lists answer a full page forever, with a next link and no total header
         self.fail: List[Tuple[int, str]] = []  # (status, body) consumed one per request
         self.raw_issue_body: Optional[bytes] = None  # when set, GET issue answers this verbatim
         self.token = TOKEN
@@ -32,7 +32,7 @@ class FakeForgejo:
         self._next_label = 1
         self._lock = threading.Lock()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _make_handler(self))
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(target=lambda: self._server.serve_forever(poll_interval=0.01), daemon=True)
 
     @property
     def api(self) -> str:
@@ -174,7 +174,7 @@ def _page(fake: FakeForgejo, items: List[Any], params: Dict[str, str]) -> Tuple[
     page = int(params.get("page", "1"))
     limit = min(int(params.get("limit", "30")), fake.max_limit)
     if fake.endless:
-        return 200, items[:limit], {}
+        return 200, items[:limit], {"Link": f'<{fake.api}?page={page + 1}>; rel="next"'}
     chunk = items[(page - 1) * limit : page * limit]
     headers = {"X-Total-Count": str(len(items))}
     if page * limit < len(items):
