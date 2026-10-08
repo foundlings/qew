@@ -10,6 +10,7 @@ import json
 import re
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
@@ -33,6 +34,7 @@ class FakeGitHub:
         self.check_runs: Dict[str, List[Dict[str, Any]]] = {}
         self.projects: Dict[str, Dict[str, Any]] = {}
         self.requests: List[Tuple[str, str, Any]] = []
+        self.request_times: List[float] = []  # time.time() of each request, parallel to `requests`
         self.endless_check_runs = False  # check-run pages never end
         self.auto_merge_ignored = False  # accept the enable call yet change nothing
         self.rules: Dict[str, List[Dict[str, Any]]] = {}  # branch -> active ruleset rules
@@ -396,6 +398,15 @@ class FakeGitHub:
                 return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": item["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "item not found"}]}
 
+    def gql_SetCard(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """Status and Priority of one card in a single request (two aliased updateProjectV2ItemFieldValue fields)."""
+        for field, option in (("statusField", "statusOption"), ("priorityField", "priorityOption")):
+            answer = self.gql_SetStatus({"projectId": variables["projectId"], "itemId": variables["itemId"],
+                                         "fieldId": variables[field], "optionId": variables[option]})
+            if "errors" in answer:
+                return answer
+        return {"data": {"status": {"projectV2Item": {"id": variables["itemId"]}}, "priority": {"projectV2Item": {"id": variables["itemId"]}}}}
+
     def gql_EnableAutoMerge(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         for pull in self.pulls.values():
             if pull["node_id"] == variables["id"]:
@@ -472,6 +483,7 @@ class _Handler(BaseHTTPRequestHandler):
         body = json.loads(raw) if raw else None
         url = urlsplit(self.path)
         self.fake.requests.append((method, self.path, body))
+        self.fake.request_times.append(time.time())
         if self.headers.get("Authorization") != f"Bearer {TOKEN}":
             return self._send(401, {"message": "Bad credentials"})
         injected = self._injected()
