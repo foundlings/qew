@@ -111,7 +111,7 @@ def session(arguments) -> Iterator[None]:
         if committing:
             _recover(repo)
         if replicating:
-            repo.fetch_merge(rep.timeout_s)
+            _note(config, repo.fetch_merge(rep.timeout_s))
             (config.ledger_path / ".qew" / "last-fetch").touch()
         ledger_store.journal_start()
         try:
@@ -129,7 +129,7 @@ def session(arguments) -> Iterator[None]:
         if committing and entries:
             _commit(repo, config, verb, entries, rollback_on_failure=True)
         if replicating:
-            repo.push(rep.timeout_s)
+            _note(config, repo.push(rep.timeout_s))
     if entries and verb != "board":
         _after_write(config)
 
@@ -193,9 +193,16 @@ def _after_write(config) -> None:
         syncworker.mark(config, True)  # failures stay pending; the next command retries
 
 
+def _note(config, result: str) -> None:
+    """Remember the last remote attempt so `qew status` can show an outage without a network call."""
+    if result in ("ok", "offline"):
+        (config.ledger_path / ".qew").mkdir(exist_ok=True)
+        (config.ledger_path / ".qew" / "remote-state").write_text(result, encoding="utf-8")
+
+
 def _pull_for_read(arguments) -> None:
     """Reads see other agents' work: fetch and merge the ledger remote, at most every fetch_interval_s."""
-    if arguments.command in ("init", "hook"):
+    if arguments.command in ("init", "hook", "status"):
         return
     try:
         config = ledger_config.load()
@@ -211,8 +218,10 @@ def _pull_for_read(arguments) -> None:
     with _lock(config.ledger_path):
         repo.exclude_cache()
         _recover(repo) if rep.auto_commit else None
-        if repo.fetch_merge(rep.timeout_s) == "ok":
-            repo.push(rep.timeout_s)  # catch up commits made while the remote was unreachable
+        fetched = repo.fetch_merge(rep.timeout_s)
+        _note(config, fetched)
+        if fetched == "ok":
+            _note(config, repo.push(rep.timeout_s))  # catch up commits made while the remote was unreachable
         stamp.touch()
     if config.mirrors and rep.auto_forge_sync and not rep.offline:
         from qew import syncworker

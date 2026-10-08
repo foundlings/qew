@@ -74,7 +74,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 - Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr ready`, `qew pr merge`
-- Mirrors: `qew sync`, `qew project` (group), `qew project ensure`
+- Mirrors: `qew sync`, `qew status`, `qew project` (group), `qew project ensure`
 - Setup: `qew init`, `qew hook install`, `qew hook remove`
 
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`).

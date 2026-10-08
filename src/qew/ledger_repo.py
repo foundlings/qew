@@ -58,6 +58,19 @@ class LedgerRepo:
             return sorted(p for p in paths if p.split("/", 1)[0] in OWNED)
         return []
 
+    def unpushed(self) -> int:
+        """Commits on the branch the remote does not have (0 without a remote)."""
+        if not self.has_remote():
+            return 0
+        if self.vcs == "git":
+            ref = f"origin/{self.branch}"
+            if self.run(["git", "rev-parse", "--verify", "-q", ref], check=False).returncode != 0:
+                return int(self.run(["git", "rev-list", "--count", "HEAD"]).stdout.strip() or 0)
+            return int(self.run(["git", "rev-list", "--count", f"{ref}..HEAD"]).stdout.strip() or 0)
+        remote = f'remote_bookmarks(exact:"{self.branch}", exact:"origin")'
+        return len(self._jj_ids(f'bookmarks(exact:"{self.branch}") ~ ::({remote})')) and len(
+            self._jj_ids(f'::bookmarks(exact:"{self.branch}") ~ ::({remote}) ~ empty()'))
+
     def has_remote(self) -> bool:
         if self.vcs is None:
             return False

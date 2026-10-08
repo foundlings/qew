@@ -39,8 +39,9 @@ class StatusWalk(unittest.TestCase):
 
     def test_every_problem_class_appears_with_its_count(self) -> None:
         """Prevents hidden backlog: offline commits, stray files and unsynced items each show up."""
-        self.w.run("create", "--kind", "issue", "--title", "Offline", env=OFFLINE)
-        (self.w.ledger / "items" / "stray.md").write_text("not committed")
+        item = self.w.run("create", "--kind", "issue", "--title", "Offline", env=OFFLINE).stdout.split()[0]
+        (self.w.ledger / "events" / item / "ZZZZZZZZZ.json").write_text(
+            '{"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "x"}\n')
         text = self.status()
         self.assertIn("unpushed=1", text)
         self.assertIn("uncommitted=1", text)
@@ -50,6 +51,14 @@ class StatusWalk(unittest.TestCase):
     def test_offline_mode_is_reported_without_touching_the_network(self) -> None:
         """Prevents status lying about connectivity: QEW_OFFLINE shows mode=offline."""
         self.assertIn("mode=offline", self.status(env=OFFLINE))
+
+    def test_an_unreachable_remote_shows_as_offline_after_the_attempt(self) -> None:
+        """Prevents an outage looking like a healthy ledger: the failed push is remembered and shown."""
+        self.w.remote.rename(self.w.remote.with_name("away.git"))
+        self.w.run("create", "--kind", "issue", "--title", "While away")
+        text = self.status()
+        self.assertIn("remote=offline", text)
+        self.assertIn("unpushed=1", text)
 
     def test_the_default_output_is_short(self) -> None:
         """Prevents status costing agent tokens: three lines for one target."""

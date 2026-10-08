@@ -91,21 +91,30 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     return output
 
 
-def plan(ledger: Ledger, mirrors: List[Mirror], item: Optional[str]) -> str:
+def pending_by_target(ledger: Ledger, mirrors: List[Mirror], only: Optional[str] = None) -> dict:
+    """slug -> [(action, item id)]: derived from event ids and mirror files, never queued."""
     snapshot = ledger.snapshot()
-    only = ledger.resolve(item, list(snapshot.items)) if item else None
-    lines = []
+    chosen = ledger.resolve(only, list(snapshot.items)) if only else None
+    result = {}
     for mirror in mirrors:
         slug = ledger_config.mirror_slug(mirror)
+        rows = []
         for item_id in sync_plan.topological(snapshot, sync_plan.selected(snapshot, mirror.select)):
-            if only and item_id != only:
+            if chosen and item_id != chosen:
                 continue
             record = next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug), None)
             events = snapshot.events[item_id]
             if record is None:
-                lines.append(f"create {snapshot.short(item_id)} {slug}")
+                rows.append(("create", item_id))
             elif events and record.get("synced_event") != events[-1].id:
-                lines.append(f"update {snapshot.short(item_id)} {slug}")
+                rows.append(("update", item_id))
+        result[slug] = rows
+    return result
+
+
+def plan(ledger: Ledger, mirrors: List[Mirror], item: Optional[str]) -> str:
+    lines = [f"{action} {item_id} {slug}" for slug, rows in pending_by_target(ledger, mirrors, item).items()
+             for action, item_id in rows]
     return "\n".join(lines) or "nothing to sync"
 
 

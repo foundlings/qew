@@ -34,6 +34,7 @@ Pull requests
 Mirrors
   qew sync        push the ledger to every mirror target
   qew project     ensure the board on each target
+  qew status      replication state: uncommitted, unpushed, pending per target
 Setup
   qew init        create the config and the ledger
   qew hook        install | remove agent hooks; the events agents call
@@ -43,7 +44,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_hook", "cmd_sync", "cmd_project", "cmd_pr")
+_MODULES = ("cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status")
 
 
 def _plugins() -> list:
