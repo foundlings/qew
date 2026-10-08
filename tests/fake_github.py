@@ -35,6 +35,9 @@ class FakeGitHub:
         self.next_number = 1
         self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
         self.next_id = 1000
+        self.cards_page_size = 100  # cards per ProjectCards page
+        self.cards_overlap = False  # each later page repeats the previous page's last card (cards added meanwhile)
+        self.cards_endless = False  # every ProjectCards page says another follows
         self.label_store: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
         self.drop_label_creates = False  # accept a label create yet store nothing
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
@@ -267,6 +270,33 @@ class FakeGitHub:
             self.lag -= 1
             nodes = []
         return {"data": {"node": {"projectItems": {"nodes": nodes}}}}
+
+    def gql_ProjectCards(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """The project's cards: items on issues of any repository, with their single-select values."""
+        project = self.projects[variables["projectId"]]
+        cards = []
+        for content_id, item in project["items"].items():
+            issue = next((i for i in self.issues.values() if i["node_id"] == content_id), None)
+            number = item.get("number", issue["number"] if issue else 0)
+            values = []
+            for field in project["fields"]:
+                chosen = item.get("values", {}).get(field["id"])
+                for option in field["options"]:
+                    if option["id"] == chosen:
+                        values.append({"name": option["name"], "field": {"name": field["name"]}})
+            cards.append({
+                "id": item["id"],
+                "content": {"number": number, "repository": {"nameWithOwner": item.get("repo", f"{OWNER}/{REPO}")}},
+                "fieldValues": {"nodes": values},
+            })
+        start = int(variables["cursor"] or 0)
+        size = self.cards_page_size
+        window = cards[start:start + size]
+        more = self.cards_endless or start + size < len(cards)
+        next_start = start + size - (1 if self.cards_overlap and start + size < len(cards) else 0)
+        return {"data": {"node": {"items": {
+            "nodes": window, "pageInfo": {"hasNextPage": more, "endCursor": str(next_start)},
+        }}}}
 
     def gql_DeleteItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         project = self.projects[variables["projectId"]]

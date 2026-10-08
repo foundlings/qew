@@ -187,6 +187,17 @@ class Placement:
     priority: str
 
 
+@dataclass(frozen=True)
+class Card:
+    """One card on a board: its id, the repository and number of its issue, and its Status and Priority names."""
+
+    id: str
+    repository: str  # OWNER/REPO of the card's issue; a shared board holds several
+    number: int
+    column: str
+    priority: str
+
+
 class Forge(ABC):
     """Implement what the forge can do; leave the rest raising `Unsupported`.
 
@@ -243,6 +254,14 @@ class Forge(ABC):
     def read_placement(self, board: Board, number: int) -> Optional[Placement]:
         """What the forge shows now for the issue on the board, or None when it is not on it."""
         raise Unsupported("read_placement")
+
+    def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
+        """Every card on the board (all repositories), or `Unsupported`; a truncated listing raises, never returns."""
+        raise Unsupported("read_board_cards")
+
+    def delete_card(self, board: Board, card_id: str) -> None:
+        """Remove one card from the board without touching its issue."""
+        raise Unsupported("delete_card")
 
     def remove_from_board(self, board: Board, number: int) -> None:
         """Take the issue's card off the board; the issue itself is never touched."""
