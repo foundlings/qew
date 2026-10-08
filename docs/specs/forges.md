@@ -19,7 +19,7 @@ feature needs no GitLab scenario. `tests/test_forge_priority_walk.py` holds the 
 - Tokens come from the environment only (`forge_http.resolve_token`); never read from or written to files.
 - `IssueSpec.labels` replaces the issue's label set. A backend that implements boards with labels (GitLab
   `board::<Column>`) must leave its own board labels untouched on `update_issue`.
-- `create_issue` is not idempotent; the caller first calls `find_issue(marker)` (the marker is a whole line of the body: a marker merely quoted in text, blockquoted, recased or of another id never matches; pull requests are skipped; several matches resolve to the lowest number, which is how a race between two creators ends).
+- `create_issue` is not idempotent; the caller first calls `find_issue(marker)` (the marker is a whole line of the body: a marker merely quoted in text, blockquoted, recased or of another id never matches; pull requests are skipped; several matches resolve to the lowest number, which is how a race between two creators ends). Pull closes an open unmirrored twin and strips its marker: the higher number while the item is live, any number once it is finished.
 - `merge_pull_request(number, expected_head_sha)` merges exactly that head (merge commit, no squash) and
   raises `ForgeRejected` if the head moved. `open_pull_request` honors `draft`.
 - Branches: `list_branches()` (name, default, protected; a truncated listing raises), `branch_is_merged(name, base)`
@@ -153,4 +153,4 @@ A pull never lists the whole forge when it can avoid it. The fakes bump `updated
 `Forge` has three calls for `qew sync --prune-labels`: `list_repo_labels()` (every definition), `labels_in_use()` (names carried by any
 issue or pull request, open or closed; GitHub and Forgejo list pull requests among issues, GitLab reads issues and merge requests) and
 `delete_label(name)` (a missing label is fine). Deleting a label also removes it from whatever carried it, so the command only deletes
-names `labels_in_use()` did not return.
+names `labels_in_use()` did not return. A closed issue whose body carries `<!-- qew-duplicate -->` (a retired twin) does not count as carrying anything.

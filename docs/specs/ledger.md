@@ -261,12 +261,26 @@ offline work never produces two owners. GitHub and Forgejo/Gitea are first-class
     there: qew posts a claim comment `<!-- qew:claim ITEM OWNER NONCE -->` on the mirrored issue and re-reads the
     comments; the earliest claim comment (forge order, not timestamps) wins. A lost race writes nothing and refuses.
     On success the ledger gets `claimed` plus `claim_confirmed`. Release posts `<!-- qew:release ITEM -->`.
-    No offline claims: an unreachable primary refuses `start`.
+    An unreachable primary refuses `start` unless the offline override is used (see Offline claims).
   - `primary = "none"`: the LEDGER REMOTE arbitrates. `start` writes `claimed`, pushes, and the claim counts once the
     push lands (`claim_confirmed`). A rejected push fetches and merges; if another claim for the item is already
     there, qew writes `claim_lost` (`ref` = the lost claim event, `winner`) and the caller does not own the item. A
     ledger without a remote is single-writer: the claim confirms at once. A configured but unreachable remote
-    refuses `start` (no offline claims).
+    refuses `start` unless the offline override is used (see Offline claims).
+- **Offline claims (explicit override).** For private repositories worked offline and settled later. `qew start ITEM
+  --offline` skips the arbiter and writes `claimed` with `provisional: true`; `[authority] offline_claims = "allow"`
+  (default `"refuse"`) makes a plain `start` do the same, only when the arbiter is unreachable or the primary has no
+  issue for the item yet. A provisional claim is an ordinary claim for working offline: evidence, comments and
+  `complete` work. `qew complete` under one records `provisional_claim` (the claimed event id) on `completed`; the
+  fold lets such a completion stand even if the claim is later lost. Every `qew sync` (and the background worker)
+  settles each provisional claim, whatever `--target`/`--item` it was given aside: with a primary forge by reading the
+  claim comments of the item's issue (none in force: post the owner's claim comment; the holder is the owner: confirm;
+  another holder: lose); with the ledger remote by comparing against other owners' claims in the same claim period
+  (a rival that is confirmed, or older, wins); a ledger without a remote confirms at once. Confirmed: `claim_confirmed`.
+  Lost: `claim_lost` with `winner`, `provisional: true` and a reason; `qew sync` prints `claim lost: ITEM is held by
+  WINNER` and exits 3, and `qew status` keeps a `claim ITEM lost winner=WINNER` line until the item is re-claimed,
+  completed or closed. An arbiter that is still unreachable leaves the claim provisional (`claim provisional:` line,
+  exit 0). `--offline` cannot be combined with `--take-over`.
 - **Scope.** Claiming an epic claims its open descendants in one operation (all-or-nothing with rollback). Holding an
   item or its epic allows working it offline: evidence, comments, progress, complete (needs evidence only; syncs
   later). Evidence and completion by someone who does not hold the item or an ancestor are refused.

@@ -26,9 +26,9 @@ class GitHubSide:
     def seed(self, name: str) -> None:
         self.fake.label_store[name] = {"color": "ededed", "description": ""}
 
-    def carry(self, name: str, state: str = "closed") -> None:
+    def carry(self, name: str, state: str = "closed", body: str = "") -> None:
         self.seed(name)
-        issue = self.fake.new_issue({"title": "Foreign", "body": "", "labels": [name]})
+        issue = self.fake.new_issue({"title": "Foreign", "body": body, "labels": [name]})
         issue["state"] = state
 
     def labels(self) -> set:
@@ -44,9 +44,9 @@ class ForgejoSide:
     def seed(self, name: str) -> None:
         self.fake._label_id(name)
 
-    def carry(self, name: str, state: str = "closed") -> None:
+    def carry(self, name: str, state: str = "closed", body: str = "") -> None:
         number = self.fake._index()
-        self.fake.issues[number] = {"title": "Foreign", "body": "", "state": state, "label_ids": [self.fake._label_id(name)],
+        self.fake.issues[number] = {"title": "Foreign", "body": body, "state": state, "label_ids": [self.fake._label_id(name)],
                                     "assignee": "", "discussion": []}
         self.fake.touch(number)
 
@@ -92,6 +92,14 @@ class PruneLabelsWalk:
         again = self.w.run("sync", "--prune-labels", env=self.env)
         self.assertEqual(again.returncode, 0)
         self.assertIn("no unused", again.stdout)
+
+    def test_a_closed_duplicate_twin_does_not_keep_a_label_alive(self) -> None:
+        """Prevents a dead twin (closed, marker replaced by qew-duplicate) pinning a label forever; an open twin still does."""
+        self.side.carry("qew:managed", "closed", "<!-- qew-duplicate -->\n\nbody")
+        self.side.carry("author:pinned", "open", "<!-- qew-duplicate -->\n\nbody")
+        self.assertEqual(self.w.run("sync", "--prune-labels", env=self.env).returncode, 0)
+        self.assertNotIn("qew:managed", self.side.labels())
+        self.assertIn("author:pinned", self.side.labels())
 
     def test_a_label_the_ledger_still_wants_is_kept(self) -> None:
         """Prevents deleting a label sync would recreate: the live label set of every item is wanted."""
@@ -150,6 +158,10 @@ class ReadOnlyPrune(PruneLabelsWalk, unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("read-only", result.stdout + result.stderr)
         self.assertEqual(self.side.labels(), before)
+
+    def test_a_closed_duplicate_twin_does_not_keep_a_label_alive(self) -> None:
+        """Prevents read-only mirrors being pruned through a twin-labelled issue: still refused."""
+        self.assertEqual(self.w.run("sync", "--prune-labels", env=self.env).returncode, 2)
 
     def test_a_label_the_ledger_still_wants_is_kept(self) -> None:
         """Prevents the read-only refusal depending on item state: it also refuses an empty ledger run."""

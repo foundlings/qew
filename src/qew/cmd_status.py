@@ -4,7 +4,7 @@ import json
 import time
 from typing import Optional
 
-from qew import instants, ledger_config, pull_cursor, syncworker
+from qew import claim_reconcile, instants, ledger_config, pull_cursor, syncworker
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.ledger_config import Config
@@ -87,6 +87,10 @@ def collect(config: Config) -> dict:
              **pull_state(ledger, slug)}
             for slug, rows in pending.items()
         ],
+        "claims": {
+            "provisional": [{"item": item_id, "owner": event.get("owner")} for item_id, event in claim_reconcile.provisional_claims(snapshot)],
+            "lost": [{"item": item_id, "winner": winner} for item_id, winner in claim_reconcile.lost_provisional_claims(snapshot)],
+        },
         "divergences": divergences,
         "sync": {"retry_after": max(0, int(syncworker.retry_at(config) - time.time()))},
     }
@@ -102,6 +106,10 @@ def render(data: dict) -> str:
                      f" pulled={target['last_pull'] or 'never'} next_pull={target['next_pull']} full_set={target['last_full'] or 'never'}")
     if data["sync"]["retry_after"]:
         lines.append(f"sync retry_after={data['sync']['retry_after']}")
+    for claim in data["claims"]["provisional"]:
+        lines.append(f"claim {claim['item']} provisional owner={claim['owner']} (offline; `qew sync` settles it)")
+    for claim in data["claims"]["lost"]:
+        lines.append(f"claim {claim['item']} lost winner={claim['winner']} (offline claim dropped; talk to the holder)")
     lines.append(f"divergences={len(data['divergences'])}")
     shown = data["divergences"][:SHOWN_DIVERGENCES]
     for d in shown:

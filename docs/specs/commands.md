@@ -197,7 +197,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew block ITEM --on ITEM [--closed] [--json]`, `qew unblock ITEM --from ITEM [--closed] [--json]`: add or remove one
   needs edge as an `edge` event; repeating is `unchanged`; a self edge, unknown item or cycle is exit 2, completed or
   closed items need `--closed`.
-- `qew start ITEM [--take-over --reason TEXT] [--lane ID [--workspace PATH] [--kind compute|token]] [--json]`:
+- `qew start ITEM [--take-over --reason TEXT | --offline] [--lane ID [--workspace PATH] [--kind compute|token]] [--json]`:
   claim approved work whose needs are completed. Another actor's claim is exit 3 naming the holder and
   `--take-over`; your own claim is exit 5 (no event) when the lane matches, exit 3 naming the lane when it does
   not; draft, blocked, completed or closed work is exit 2. `--take-over` writes a forced `released` event naming the
@@ -205,6 +205,11 @@ shape prime: additional_context context_bytes schema_version
   A lane (`A-Za-z0-9._-`, 1 to 64, no `--`) tells lanes of one actor apart; `--workspace` (absolute path) and
   `--kind` need `--lane`. The lane guards `start` and `release` only, as good-faith tooling, not access control.
   After the write is merged with the ledger remote, a claim that lost to an older one exits 3 naming the winner.
+  `--offline` takes a PROVISIONAL claim without asking the arbiter (primary forge or ledger remote): a `claimed` event
+  with `provisional: true`, output and `--json` (`provisional: true`) say so; it cannot combine with `--take-over`
+  (exit 2). `[authority] offline_claims = "allow"` makes a plain `start` fall back to the same provisional claim, but
+  only when the arbiter is unreachable (or the primary has no issue for the item yet); the default `refuse` keeps
+  exit 3 and the message names `--offline`. `qew sync` settles every provisional claim (see ledger.md, Offline claims).
   `[claims] max_active_claims` in the config caps the caller's active claims (exit 6, take-over included); a
   malformed cap is exit 2 naming the key. `qew show` prints the current claim as `claim: {by, kind, lane, workspace}`.
 - Starting an epic claims the epic and its open descendants that can start (drafts, work with unmet needs and finished
@@ -333,7 +338,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew board list`: one line per board file. `qew board set NAME [same options]`: change that file's defaults.
   `qew check` fails a board file whose name differs from its file name or whose columns are unknown or repeated.
 - `qew board columns`: one `Column N` line per column.
-- `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never repos=on|off pulled=ISO|never next_pull=conditional|incremental|full full_set=ISO|never` line per target (`repos=off`: no git_url/ledger_git_url, so sync does not push the repositories; JSON: `last_pull`, `next_pull`, `last_full`), `divergences=N`, and `sync retry_after=N` (seconds) while a forge rate limit pause is recorded. Read-only: it never fetches, pushes or recovers.
+- `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never repos=on|off pulled=ISO|never next_pull=conditional|incremental|full full_set=ISO|never` line per target (`repos=off`: no git_url/ledger_git_url, so sync does not push the repositories; JSON: `last_pull`, `next_pull`, `last_full`), `divergences=N`, a `claim ITEM provisional owner=X` line per unsettled offline claim and a `claim ITEM lost winner=Y` line per dropped one (JSON: `claims.provisional`, `claims.lost`), and `sync retry_after=N` (seconds) while a forge rate limit pause is recorded. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
   becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the

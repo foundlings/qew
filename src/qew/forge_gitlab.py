@@ -10,6 +10,7 @@ from urllib.parse import quote, urlencode
 
 from qew import forge_http, label_style
 from qew.forge import (
+    is_dead_twin,
     LABEL_DESCRIPTION,
     LabelNotPersisted,
     Milestone,
@@ -394,7 +395,10 @@ class GitLab(Forge):
         used: Set[str] = set()
         for resource in ("issues", "merge_requests"):
             for raw in self._pages(f"{self._project}/{resource}", {"state": "all"}):
-                used.update(_field({"label": item}, "label", str) for item in _list(_object(raw, resource).get("labels"), "labels"))
+                entry = _object(raw, resource)
+                if is_dead_twin(entry.get("description") or "", entry.get("state") == "opened"):
+                    continue
+                used.update(_field({"label": item}, "label", str) for item in _list(entry.get("labels"), "labels"))
         return used
 
     def delete_label(self, name: str) -> None:

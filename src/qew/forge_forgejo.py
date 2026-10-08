@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 from qew import label_style
 from qew.forge import (
+    is_dead_twin,
+    LABEL_DESCRIPTION,
     CachedPage,
     LabelNotPersisted,
     PageListing,
@@ -277,7 +279,10 @@ class Forgejo(Forge):
     def labels_in_use(self) -> Set[str]:
         used: Set[str] = set()
         for entry in self._list("/issues", {"state": "all"}):  # pull requests are listed among issues
-            for label in _typed(_object(entry, "issue"), "labels", list, "issue"):
+            issue = _object(entry, "issue")
+            if is_dead_twin(issue.get("body") or "", issue.get("state") == "open"):
+                continue
+            for label in _typed(issue, "labels", list, "issue"):
                 used.add(_typed(_object(label, "label"), "name", str, "label"))
         return used
 
