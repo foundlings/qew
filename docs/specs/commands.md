@@ -80,6 +80,10 @@ shape show: id kind labels priority schema_version state title | blocks body chi
 - `qew close ITEM --reason not_planned|duplicate|superseded`, `qew reopen ITEM`.
 - `qew release ITEM`: give up a claim (listed under start).
 
+- `qew block ITEM --on BLOCKER [--closed] [--json]`, `qew unblock ITEM --from BLOCKER [--closed] [--json]`: add or
+  remove one need, validated like `set` (cycle, self edge), a no-op (`unchanged`, no event) when the edge already
+  is or is not there, one `field` audit event otherwise, read back after the write (mismatch is exit 3).
+  Completed or closed items need `--closed`.
 - `qew comment ITEM (--body TEXT | --body-file F)`: append a `comment` event to any item in any state (`-`
   reads stdin); the body is stored verbatim as data, must not be blank, and never changes state. `qew show` lists
   comments in order with actor and time.

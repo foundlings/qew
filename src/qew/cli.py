@@ -28,6 +28,8 @@ Work
   qew complete    finish claimed work once the gate passes
   qew close       close work that will not be completed
   qew comment     discuss any item without changing it
+  qew block       make an item wait for another
+  qew unblock     stop an item waiting for another
   qew reopen      reopen completed or closed work
 Drafts (only a human's quoted words release work)
   qew draft       list | approve | revert
@@ -50,7 +52,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_comment")
+_MODULES = ("cmd_read", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_comment", "cmd_block")
 
 
 def _plugins() -> list:

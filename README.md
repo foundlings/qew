@@ -71,7 +71,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 `docs/specs/commands.md`.
 
 - Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew check`
-- Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew comment`
+- Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew comment`, `qew block`, `qew unblock`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open`, `qew pr ready`, `qew pr merge`
 - Mirrors: `qew sync`, `qew status`, `qew accept`, `qew reject`, `qew import`, `qew restore`, `qew project` (group), `qew project ensure`
@@ -84,6 +84,8 @@ Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`,
 `--reason`, `--tree`, `--closed`, `--draft`, `--target`, `--item`, `--dry-run`, `--head`, `--base`, `--ready`, `--claude`, `--codex`,
 `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
+
+Edge edits: `qew block ITEM --on BLOCKER` and `qew unblock ITEM --from BLOCKER` change one need at a time.
 
 ## Hooks
 
