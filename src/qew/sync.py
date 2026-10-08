@@ -9,7 +9,7 @@ independently and the report says what happened.
 
 from dataclasses import dataclass, field, replace
 import time
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from qew import sync_milestones, sync_plan
 from qew.forge import (
@@ -51,26 +51,30 @@ class TargetReport:
     retry_after: float = 0.0  # seconds the forge asked to wait (rate limit), 0 when it named none
 
 
-def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[str] = None,
+def sync_target(ledger: Ledger, target: Target, config: Config, only: Union[None, str, Sequence[str]] = None,
                 deadline: Optional[float] = None, tick: Optional[Callable[[], None]] = None) -> TargetReport:
     snapshot = ledger.snapshot()
     report = TargetReport(target.slug)
     assignees = {str(k): str(v) for k, v in dict(target.mirror.options.get("assignees", {})).items()}
     ids = sync_plan.topological(snapshot, sync_plan.selected(snapshot, target.mirror.select))
-    chosen = ledger.resolve(only, ids) if only else None
+    wanted = [only] if isinstance(only, str) else list(only or ())
+    # an item this mirror's `select` leaves out has nothing to sync here
+    chosen = [one for one in (ledger.resolve(w, list(snapshot.items)) for w in wanted) if one in ids] if wanted else None
     numbers: Dict[str, int] = {}
     for item_id in ids:
         record = _read_mirror(ledger, item_id, target.slug)
         if record:
             numbers[item_id] = record["number"]
-    board = _board(target, report) if target.mirror.project is not None else None
+    # a targeted sync reuses the board `project ensure` recorded and reads cards one by one: its cost follows the
+    # items it touches, never the size of the board
+    board = (_recorded_board(ledger, target) if chosen is not None else None) or (_board(target, report) if target.mirror.project is not None else None)
     if report.stopped:
         return report
-    placements = _listing(target, report, board) if board is not None else None
+    placements = _listing(target, report, board) if board is not None and chosen is None else None
     if report.stopped:
         return report
     # a targeted sync also refreshes the mirrored items whose card the change moves (dependents, parent epics)
-    refresh = {chosen, *(i for i in sync_plan.moved_by(snapshot, chosen) if i in numbers)} if chosen else None
+    refresh = {*chosen, *(i for one in chosen for i in sync_plan.moved_by(snapshot, one) if i in numbers)} if chosen is not None else None
     for item_id in ids:
         if refresh is not None and item_id not in refresh:
             continue
@@ -78,7 +82,7 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Optional[s
             report.stopped = "time budget used; the rest stays pending"
             break
         try:
-            _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board, placements)
+            _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board, placements, chosen is not None)
             if tick is not None:
                 tick()
         except sync_plan.InvalidAuthor as error:
@@ -137,6 +141,16 @@ def _read_mirror(ledger: Ledger, item_id: str, slug: str) -> Optional[dict]:
     return next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug), None)
 
 
+def _recorded_board(ledger: Ledger, target: Target) -> Optional[Board]:
+    """The board `project ensure` recorded for this target, without asking the forge to ensure it again."""
+    if target.mirror.project is None:
+        return None
+    record = ledger.read_board(target.slug)
+    if record is None:
+        return None
+    return Board(id=record["id"], url=record.get("url", ""), columns=tuple(COLUMNS), title=record.get("title", ""))
+
+
 def _board(target: Target, report: TargetReport) -> Optional[Board]:
     try:
         return target.forge.ensure_board(COLUMNS, sync_plan.managed_filter(target.mirror.mode))
@@ -159,6 +173,7 @@ def _sync_item(
     assignees: Dict[str, str],
     board: Optional[Board],
     placements: Optional[Dict[int, Placement]] = None,
+    recent: bool = False,
 ) -> None:
     item = snapshot.items[item_id]
     spec = sync_plan.issue_spec(snapshot, item, numbers, assignees, target.mirror.mode == "overlay")
@@ -166,7 +181,7 @@ def _sync_item(
     record = _read_mirror(ledger, item_id, target.slug)
     fingerprint = sync_plan.fingerprint(spec, column if board else None)
     if record is None:
-        remote, adopted = _find_or_create(target.forge, item_id, spec, item.aliases)
+        remote, adopted = _find_or_create(target.forge, item_id, spec, item.aliases, recent)
         numbers[item_id] = remote.number
         # The create carried `spec`, so a created issue is already current; an adopted one is not.
         record = _new_record(target, remote, snapshot, item_id, "" if adopted else fingerprint)
@@ -190,17 +205,17 @@ def _sync_item(
         _place(ledger, snapshot, target, report, item_id, board, column, record, placements)
 
 
-def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[str, ...] = ()):
+def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[str, ...] = (), recent: bool = False):
     """Adopt the issue carrying the item's marker, or one still carrying the marker of an id it had before a migration."""
     try:
-        found = next((hit for hit in (forge.find_issue(marker_for(name)) for name in (item_id, *aliases)) if hit is not None), None)
+        found = next((hit for hit in (forge.find_issue(marker_for(name), recent) for name in (item_id, *aliases)) if hit is not None), None)
     except Unsupported:
         found = None
     if found is not None:
         return found, True
     created = forge.create_issue(spec)
     try:
-        winner = forge.find_issue(marker_for(item_id))
+        winner = forge.find_issue(marker_for(item_id), recent)
     except Unsupported:
         return created, False
     if winner is not None and winner.number < created.number:

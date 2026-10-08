@@ -264,8 +264,10 @@ class Forge(ABC):
 
     name = ""
 
-    def find_issue(self, marker: str) -> Optional[RemoteIssue]:
-        """The issue whose body carries `marker` (the crash-recovery lookup), else None."""
+    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
+        """The issue whose body carries `marker` (the crash-recovery lookup), else None.
+
+        `recent` lets a backend that must scan look only at the newest issues (the cheap lookup after a write)."""
         raise Unsupported("find_issue")
 
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:

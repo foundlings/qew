@@ -158,7 +158,7 @@ def session(arguments) -> Iterator[None]:
         # Outside the write lock: a slow remote must not queue every other writer behind this one.
         _note(config, repo.push(rep.timeout_s))
     if entries and verb != "board":
-        _after_write(config)
+        _after_write(config, _item_ids(_relative(config, entries)))
 
 
 def _write_claim_event(config, repo: LedgerRepo, ledger_path, item_id: str, event_type: str, **data) -> None:
@@ -252,23 +252,23 @@ def checkpoint() -> None:
         ledger_store.JOURNAL.extend(entries)
 
 
-def _after_write(config) -> None:
-    """Opportunistic forge sync of the pending items: detached and silent, or inline within a budget."""
+def _after_write(config, item_ids) -> None:
+    """Sync the items this write touched (and what their change moves): detached and silent, or inline within a budget."""
     rep = config.replication
     if not config.mirrors or not rep.auto_forge_sync or rep.offline or os.environ.get("QEW_BACKGROUND"):
         return
     from qew import syncworker
 
     if rep.background_sync:
-        print(syncworker.queue(config))
+        syncworker.queue(config, item_ids)
         return
     import argparse
     from qew import cmd_sync
 
-    arguments = argparse.Namespace(command="sync", target=None, item=None, dry_run=False)
+    arguments = argparse.Namespace(command="sync", target=None, item=list(item_ids) or None, dry_run=False)
     try:
         with session(arguments):
-            cmd_sync.sync_command(config, None, None, False, budget_s=rep.sync_budget_s, tick=checkpoint)
+            cmd_sync.sync_command(config, None, list(item_ids) or None, False, budget_s=rep.sync_budget_s, tick=checkpoint)
     except QewError:
         syncworker.mark(config, True)  # failures stay pending; the next command retries
 

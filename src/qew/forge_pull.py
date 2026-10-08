@@ -14,7 +14,7 @@ import unicodedata
 from typing import Callable, Dict, List, Optional, Tuple
 
 from qew import instants, page_cache, pull_cursor, sync_plan
-from qew.forge import DUPLICATE_MARKER, ForgeError, IssueSpec, RemoteIssue, Unsupported, marker_for
+from qew.forge import DUPLICATE_MARKER, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_event import State
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
@@ -116,6 +116,33 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
         ledger.write_cursor(target.slug, pull_cursor.after_pull(cursor, started, report.mode).to_json())
     if full:
         report.mode = "full"
+    return report
+
+
+def pull_items(ledger: Ledger, target, item_ids) -> PullReport:
+    """Pull only the named items' issues (one read each): forge-side edits land before the push can overwrite them.
+
+    New issues and deletions are the full pull's job; this is the cheap pass that follows a write.
+    """
+    report = PullReport(target.slug)
+    report.mode = "items"
+    snapshot = ledger.snapshot()
+    try:
+        for item_id in sorted(set(item_ids) & set(snapshot.items)):
+            for record in ledger.load_mirrors(item_id):
+                if record["_target"] == target.slug and record.get("kind") == "issue":
+                    try:
+                        issue = target.forge.read_issue(record["number"])
+                    except ForgeRejected as error:
+                        if error.status != 404:
+                            raise
+                        continue  # a vanished issue is reported by the next full pull
+                    _pull_item(ledger, snapshot, target, report, item_id, issue)
+    except Unsupported as error:
+        report.skipped.append(error.capability)
+    except ForgeError as error:
+        report.failures.append(error.detail)
+        report.retry_after = getattr(error, "retry_after", 0.0)
     return report
 
 

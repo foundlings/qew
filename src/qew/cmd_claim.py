@@ -120,9 +120,13 @@ def start(config: Config, reference: str, take_over: bool = False, reason: Optio
         claim_authority.release(config, ledger, item_id)
         ledger.append_event(item_id, "released", reason=reason.strip(), previous_owner=holder, forced=True)
     claimed = claim_authority.claim(config, ledger, item_id, me, mode, **fields)
-    return {"line": f"{item_id} claimed by {me}" + _PROVISIONAL_NOTE[claimed], "id": item_id, "state": "started",
+    title = snapshot.items[item_id].title
+    short = title if len(title) <= TITLE_SHOWN else title[:TITLE_SHOWN - 1] + "…"
+    return {"line": f"{item_id} claimed by {me}: {short}" + _PROVISIONAL_NOTE[claimed], "id": item_id, "state": "started",
             "actor": me, **_provisional_field(claimed), **fields}
 
+
+TITLE_SHOWN = 60  # the claim line names the work so the agent needs no `qew show` to start
 
 _PROVISIONAL_NOTE = {
     claim_authority.Claimed.CONFIRMED: "",

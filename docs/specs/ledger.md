@@ -226,9 +226,19 @@ New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence
 
 ### Background sync
 
-- After any write (and when pending work exists at the start of a command) qew starts ONE detached background
-  process that pushes the ledger remote and syncs every mirror target; the foreground command returns at once and
-  prints at most one short line (`sync: queued`), never sync output, so agents spend no tokens on it.
+- **Offline first, forge second (decision).** A write is complete when the ledger commit lands: local, conflict-free
+  (time ids), never waiting for a forge. The issue and its board card are step two, derived and idempotent, moved by
+  qew itself with no board workflow and no `qew sync` or `qew project sync` to run by hand. The forge or board is
+  never written first. Only a claim under a primary forge arbitrates remotely (see Authority).
+- After any write qew queues the ids the write touched in `.qew/sync.queue` (a union, each id once) and starts ONE
+  detached worker unless one runs. The worker drains the queue and syncs only those items plus the cards their
+  change moves (dependents, parent epics): it reads each item's issue and card one by one, reuses the recorded
+  board, looks for an existing issue only among the newest page, and never lists every issue or every card, so a
+  create, start or complete reaches the board in seconds whatever the ledger size. Ten quick writes make one run.
+  After a failed pass, or with an empty queue, the worker syncs the whole target (`qew sync`, `qew sync --full`);
+  a human-filed issue is imported and gets its card (Draft: it is not approved) on that full pull.
+- Write verbs answer in ONE compact line and print nothing about syncing: `ID claimed by OWNER: TITLE`,
+  `ID completed; ready: ID...` (the work the completion released), `ID approved`. The backlog is in `qew status`.
 - The worker takes a lock in the ledger checkout's `.qew/` cache dir (VCS-ignored), writes `.qew/sync.log`
   (bounded, rotated), and stops after `timeout_s` per target. A second writer finding the lock held does nothing
   (no double sync); a worker that dies leaves its stale lock, which the next command detects by pid and clears.

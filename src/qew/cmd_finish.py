@@ -18,6 +18,7 @@ from qew.ledger_event import CLOSE_REASONS, State
 from qew.ledger_item import Kind
 from qew.ledger_store import Ledger, Snapshot, actor
 
+RELEASED_SHOWN = 5  # work a completion released, named in its one line
 _FINISHED_WORK = "finished work: qew complete ITEM, or qew close ITEM --delivered-by SHA --landed-on BRANCH"
 
 
@@ -204,7 +205,9 @@ def complete(config: Config, reference: str, reason: Optional[str] = None, take_
     if provisional is not None:
         data["provisional_claim"] = provisional  # sync settles the claim; the completion stands whatever the arbiter says
     ledger.append_event(item_id, "completed", **data)
-    result: Dict[str, object] = {"line": f"{item_id} completed", "id": item_id, "state": "completed"}
+    released = sorted(set(ledger_graph.ready(ledger.snapshot())) - set(ledger_graph.ready(snapshot)))
+    line = f"{item_id} completed" + (f"; ready: {' '.join(released[:RELEASED_SHOWN])}" if released else "")
+    result: Dict[str, object] = {"line": line, "id": item_id, "state": "completed", "released": released}
     result.update(_finish_parent(ledger, item_id))
     return result
 

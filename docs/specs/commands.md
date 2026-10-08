@@ -198,7 +198,8 @@ shape prime: additional_context context_bytes schema_version
   needs edge as an `edge` event; repeating is `unchanged`; a self edge, unknown item or cycle is exit 2, completed or
   closed items need `--closed`.
 - `qew start ITEM [--take-over --reason TEXT | --offline] [--lane ID [--workspace PATH] [--kind compute|token]] [--json]`:
-  claim approved work whose needs are completed. Another actor's claim is exit 3 naming the holder and
+  claim approved work whose needs are completed; prints `ID claimed by OWNER: TITLE` (title cut at 60 characters), so
+  no `qew show` is needed to begin. Another actor's claim is exit 3 naming the holder and
   `--take-over`; your own claim is exit 5 (no event) when the lane matches, exit 3 naming the lane when it does
   not; draft, blocked, completed or closed work is exit 2. `--take-over` writes a forced `released` event naming the
   previous owner and a `claimed` event in one command, only for work that may start and is held by another actor.
@@ -227,7 +228,8 @@ shape prime: additional_context context_bytes schema_version
   stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
   Comment text is data and never a state change; unmarked code-shaped text warns on stderr.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
-- `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: refused (exit 3
+- `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: prints
+  `ID completed` plus `; ready: ID...` (up to 5 items the completion released; `--json` has `released`). refused (exit 3
   naming the holder) unless the caller holds the claim; an already completed item is a quiet no-op (`completed (unchanged)`, no second event);
   every child must be completed or closed; and (not for epics) an evidence event whose change IDs all landed on the
   target branch (`--landed-on` overrides the configured one for stacked branches) must exist. The `completed` event
@@ -278,11 +280,13 @@ shape prime: additional_context context_bytes schema_version
   read back; a state other than the intended one is exit 3, never success. Written events stay (no rollback).
 
 ## Mirrors
-- `qew sync [--target T] [--item ID] [--full] [--dry-run] [--prune-labels]`: pull forge-side changes, then push to every `[[mirror]]` target independently. The pull asks only for what changed (conditional pages or `since`; see forges.md, Incremental pull); `--full` ignores the pull cursor and cached pages and re-reads every issue. On a target with a
+- `qew sync [--target T] [--item ID]... [--full] [--dry-run] [--prune-labels]`: pull forge-side changes, then push to every `[[mirror]]` target independently. The pull asks only for what changed (conditional pages or `since`; see forges.md, Incremental pull); `--full` ignores the pull cursor and cached pages and re-reads every issue. On a target with a
   board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
   warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`
-  lose their card (`pruned N`); their issues are never closed. `--item ID` also refreshes the mirrored items whose
+  lose their card (`pruned N`); their issues are never closed. `--item ID` (repeatable; the pass the background worker runs after
+  writes) syncs only those items: it reads their issues and cards one by one against the recorded board, looks for an
+  existing issue only among the newest page, and skips the full pull, milestones and prune. It also refreshes the mirrored items whose
   card that item moves: its direct dependents and its parent epics (each card written only when it differs).
   A target with `milestones = true` also mirrors each approved, non-draft epic as a forge milestone (title, `Approved:`
   plus the approving quote, the epic's `due` date) and assigns its approved children; description and due date are

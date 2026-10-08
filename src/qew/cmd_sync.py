@@ -4,7 +4,7 @@ import os
 import time
 from dataclasses import replace
 from datetime import datetime
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Sequence, Union
 
 from qew import claim_reconcile, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
 from qew.cmd_items import ledger_for
@@ -12,14 +12,14 @@ from qew.errors import QewError
 from qew.forge import Forge
 from qew.ledger_config import Config, Mirror
 from qew.ledger_store import Ledger
-from qew.forge_pull import PullReport, pull_target
+from qew.forge_pull import PullReport, pull_items, pull_target
 from qew.sync import Target, TargetReport, sync_target
 
 
 def register(commands) -> None:
     sync = commands.add_parser("sync", help="push ledger state to every mirror target")
     sync.add_argument("--target", help="only this target (slug or unique part of it)")
-    sync.add_argument("--item", help="only this item")
+    sync.add_argument("--item", action="append", help="only this item (repeatable): the cheap pass the background worker runs after writes")
     sync.add_argument("--full", action="store_true", help="re-read every issue from the forge, ignoring the pull cursor and cached pages")
     sync.add_argument("--dry-run", action="store_true", help="show what would change without calling any forge (with --prune-labels: reads the forge, deletes nothing)")
     sync.add_argument("--prune-labels", action="store_true",
@@ -45,9 +45,15 @@ def run(arguments) -> bool:
 
 
 def _worker_round(config: Config, arguments) -> bool:
-    """One background pass; its output goes to the log. True when every target synced cleanly."""
+    """One background pass; its output goes to the log. True when every target synced cleanly.
+
+    The ids the writes queued are synced alone (a few forge calls each); with no queue, or after a failed pass left
+    the catch-up marker, the whole target is synced.
+    """
+    queued = syncworker.take_queue(config)
+    items = arguments.item or ([] if syncworker.catch_up_pending(config) else queued)
     try:
-        print(sync_command(config, arguments.target, arguments.item, False, tick=replication.checkpoint, full=arguments.full))
+        print(sync_command(config, arguments.target, items or None, False, tick=replication.checkpoint, full=arguments.full))
         return True
     except QewError as error:
         print(f"qew: {error}")
@@ -77,11 +83,12 @@ def choose(mirrors: List[Mirror], wanted: Optional[str]) -> List[Mirror]:
     return found
 
 
-def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry_run: bool,
+def sync_command(config: Config, wanted: Optional[str], item: Union[None, str, Sequence[str]], dry_run: bool,
                  build: Callable[[Mirror], Forge] = forge_registry.build, budget_s: Optional[float] = None,
                  tick: Optional[Callable[[], None]] = None, full: bool = False,
                  clock: Callable[[], datetime] = instants.now) -> str:
     ledger = ledger_for(config)
+    items = [item] if isinstance(item, str) else list(item or ())
     # Contradictions and unsafe actor names are reported by `qew check` but must never stop mirroring.
     problems = [p for p in ledger_check.check(ledger) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
     if problems:
@@ -89,7 +96,7 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     mirrors = choose(mirrors_with_boards(ledger, config), wanted)
     if not mirrors:
         if not dry_run and wanted is None:
-            settled = claim_reconcile.reconcile(config, ledger, build, item)
+            settled = claim_reconcile.reconcile(config, ledger, build, items[0] if len(items) == 1 else None)
             lost = claim_reconcile.lost_message(settled)
             if settled:
                 output = "\n".join(s.line() for s in settled)
@@ -99,24 +106,26 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
                 return output
         return "no mirror targets configured"
     if dry_run:
-        return plan(ledger, mirrors, item)
+        return plan(ledger, mirrors, items)
     lines = []
     failed = False
     for mirror in mirrors:
         target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror), ledger_config.is_read_only(config, mirror))
-        pulled = pull_target(ledger, target, full=full, clock=clock)  # forge-side edits first, so the push cannot overwrite them
+        # forge-side edits first, so the push cannot overwrite them; an item sync reads only those items' issues
+        pulled = (pull_items(ledger, target, _touched(ledger, items)) if items and not full
+                  else pull_target(ledger, target, full=full, clock=clock))
         if pulled.retry_after:  # rate limited while reading: pushing would only hit the same wall
             syncworker.set_backoff(pulled.retry_after)
             failed = True
             lines.append(f"{target.slug}: rate limited; retry after {int(pulled.retry_after)}s")
             continue
-        report = sync_target(ledger, target, config, item,
+        report = sync_target(ledger, target, config, items or None,
                              deadline=None if budget_s is None else time.monotonic() + budget_s, tick=tick)
         if report.retry_after:
             syncworker.set_backoff(report.retry_after)
         failed = failed or bool(report.failures)
         lines.extend(render(report, pulled))
-    settled = claim_reconcile.reconcile(config, ledger, build, item) if wanted is None else []
+    settled = claim_reconcile.reconcile(config, ledger, build, items[0] if len(items) == 1 else None) if wanted is None else []
     lines.extend(s.line() for s in settled)
     output = "\n".join(lines)
     if failed:
@@ -129,16 +138,24 @@ def sync_command(config: Config, wanted: Optional[str], item: Optional[str], dry
     return output
 
 
-def pending_by_target(ledger: Ledger, mirrors: List[Mirror], only: Optional[str] = None) -> dict:
+def _touched(ledger: Ledger, items: Sequence[str]) -> List[str]:
+    """The named items and the ones their change moves (dependents, parent epics)."""
+    snapshot = ledger.snapshot()
+    chosen = [ledger.resolve(one, list(snapshot.items)) for one in items]
+    return sorted({*chosen, *(i for one in chosen for i in sync_plan.moved_by(snapshot, one))})
+
+
+def pending_by_target(ledger: Ledger, mirrors: List[Mirror], only: Union[None, str, Sequence[str]] = None) -> dict:
     """slug -> [(action, item id)]: derived from event ids and mirror files, never queued."""
     snapshot = ledger.snapshot()
-    chosen = ledger.resolve(only, list(snapshot.items)) if only else None
+    wanted = [only] if isinstance(only, str) else list(only or ())
+    chosen = {ledger.resolve(one, list(snapshot.items)) for one in wanted}
     result = {}
     for mirror in mirrors:
         slug = ledger_config.mirror_slug(mirror)
         rows = []
         for item_id in sync_plan.topological(snapshot, sync_plan.selected(snapshot, mirror.select)):
-            if chosen and item_id != chosen:
+            if chosen and item_id not in chosen:
                 continue
             record = next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug), None)
             events = snapshot.events[item_id]
@@ -150,7 +167,7 @@ def pending_by_target(ledger: Ledger, mirrors: List[Mirror], only: Optional[str]
     return result
 
 
-def plan(ledger: Ledger, mirrors: List[Mirror], item: Optional[str]) -> str:
+def plan(ledger: Ledger, mirrors: List[Mirror], item: Union[None, str, Sequence[str]]) -> str:
     lines = [f"{action} {item_id} {slug}" for slug, rows in pending_by_target(ledger, mirrors, item).items()
              for action, item_id in rows]
     return "\n".join(lines) or "nothing to sync"

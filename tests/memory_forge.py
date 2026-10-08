@@ -105,7 +105,7 @@ class MemoryForge(Forge):
             spec.title, spec.body, spec.labels, spec.assignee, milestone=self.milestone_of.get(number, 0),
         )
 
-    def find_issue(self, marker: str) -> Optional[RemoteIssue]:
+    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
         self._live("find")
         if self.hide_next_find:  # a concurrent creator the first lookup could not see yet
             self.hide_next_find = False

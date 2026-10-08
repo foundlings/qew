@@ -280,7 +280,7 @@ class Forgejo(Forge):
 
     # -- issues --
 
-    def find_issue(self, marker: str) -> Optional[RemoteIssue]:
+    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:  # server-side search: recent changes nothing
         hits = self._list("/issues", {"q": marker, "type": "issues", "state": "all"})
         matches = [issue for issue in map(_parse_issue, hits) if marker_alone(issue.body, marker)]
         return min(matches, key=lambda issue: issue.number) if matches else None

@@ -515,15 +515,18 @@ class GitHub(Forge):
             self.read_issue(number)
         return self._nodes[number]
 
-    def find_issue(self, marker: str) -> Optional[RemoteIssue]:
+    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
         matches = []
-        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
+        order = "sort=created&direction=desc&" if recent else ""
+        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&{order}per_page=100"):
             for entry in _array(page, "issue list"):
                 issue = _obj(entry, "issue list entry")
                 if "pull_request" in issue:
                     continue
                 if marker_alone(_nullable_str(issue, "body", "issue"), marker):
                     matches.append(self._remember(parse_issue(issue)))
+            if recent:
+                break  # one page of the newest issues: the lookup after a write must not grow with the repository
         return min(matches, key=lambda found: found.number) if matches else None
 
     def _repo_labels(self) -> set:

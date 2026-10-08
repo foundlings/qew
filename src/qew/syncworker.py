@@ -62,11 +62,39 @@ def retry_at(config: Config) -> float:
     return 0.0
 
 
-def queue(config: Config) -> str:
-    """Start one detached worker unless one is running or the forge asked for a pause; returns the one line the foreground may print."""
+def enqueue(config: Config, item_ids) -> None:
+    """Remember which items a write touched: the worker syncs exactly those (a union, so bursts cost one run)."""
+    ids = sorted(set(item_ids))
+    if not ids:
+        return
+    with open(cache_dir(config) / "sync.queue", "a", encoding="utf-8") as handle:
+        handle.write("".join(f"{item_id}\n" for item_id in ids))
+
+
+def take_queue(config: Config) -> list:
+    """Drain the queued item ids (each once); ids queued while this runs land in a fresh file for the next round."""
+    path = cache_dir(config) / "sync.queue"
+    taken = path.with_name("sync.queue.taking")
+    try:
+        os.replace(path, taken)
+    except FileNotFoundError:
+        return []
+    ids = sorted(set(taken.read_text(encoding="utf-8").split()))
+    taken.unlink(missing_ok=True)
+    return ids
+
+
+def catch_up_pending(config: Config) -> bool:
+    """A failed pass left the marker: the next pass syncs the whole target, not only the queued items."""
+    return (cache_dir(config) / "sync.pending").exists()
+
+
+def queue(config: Config, item_ids=()) -> None:
+    """Queue the touched items and start one detached worker unless one is running or the forge asked for a pause."""
     cache = cache_dir(config)
+    enqueue(config, item_ids)
     if retry_at(config) > time.time():
-        return "sync: queued (paused until the forge's rate limit resets)"
+        return
     if not worker_running(config):
         log = cache / "sync.log"
         _trim_log(log)
@@ -77,7 +105,6 @@ def queue(config: Config) -> str:
                 env={**os.environ, "QEW_BACKGROUND": "1", "QEW_NO_FETCH": "1"},
             )
         (cache / "sync.spawned").write_text(str(time.time()), encoding="utf-8")
-    return "sync: queued"
 
 
 def retry_if_pending(config: Config) -> None:

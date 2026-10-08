@@ -37,6 +37,7 @@ class ImplicitBoardWalk(unittest.TestCase):
         handle = open(w.ledger / ".qew" / "sync.lock", "a+")
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.addCleanup(handle.close)
+        return handle
 
     def column(self, number: int) -> str:
         return self.fake.item_value("1", self.fake.issues[number]["node_id"], "Status")
@@ -59,14 +60,16 @@ class ImplicitBoardWalk(unittest.TestCase):
         made = fake.requests[before:]
         number = max(fake.issues)
         self.assertEqual(fake.item_value("1", fake.issues[number]["node_id"], "Status"), "Ready")
-        return len(made), [path for method, path, _ in made if method == "GET" and re.search(r"/issues\?", path)], \
+        listings = [path for method, path, _ in made if method == "GET" and re.search(r"/issues\?", path)]
+        newest_only = [path for path in listings if "sort=created&direction=desc" in path]
+        return len(made), listings == newest_only, \
             [op for op in fake.graphql_operations()[-len(made):] if op in ("BoardItems", "ProjectCards")]
 
     def test_a_scoped_sync_costs_the_same_for_a_small_and_a_large_ledger(self) -> None:
         """Prevents the card landing a minute after the write: the item sync never lists every issue or every card."""
         small, small_lists, small_boards = self.scoped_cost(3)
         large, large_lists, large_boards = self.scoped_cost(18)
-        self.assertEqual((small_lists, small_boards, large_lists, large_boards), ([], [], [], []))
+        self.assertEqual((small_lists, small_boards, large_lists, large_boards), (True, [], True, []))
         self.assertEqual(small, large)
         self.assertLessEqual(large, 16)
 
@@ -74,13 +77,14 @@ class ImplicitBoardWalk(unittest.TestCase):
         """Prevents ten writes starting ten whole-target syncs: the queue is a union of item ids drained by one run."""
         w = self.world(BACKGROUND)
         self.assertEqual(w.run("project", "ensure", env=ENV).returncode, 0)
-        self.hold_worker_lock(w)
+        lock = self.hold_worker_lock(w)
         first = w.run("create", "--title", "First", "--quote", QUOTE, env=ENV).stdout.split()[0]
         second = w.run("create", "--title", "Second", "--quote", QUOTE, env=ENV).stdout.split()[0]
         self.assertEqual(w.run("set", first, "--title", "First again", env=ENV).returncode, 0)
         queued = (w.ledger / ".qew" / "sync.queue").read_text(encoding="utf-8").split()
         self.assertEqual(sorted(set(queued)), sorted([first, second]))
         self.assertEqual(len(self.fake.issues), 0)
+        lock.close()  # the held lock stood in for a running worker; now one runs
         before = len(self.fake.requests)
         worker = w.run("sync", env={**ENV, "QEW_BACKGROUND": "1"})
         self.assertEqual(worker.returncode, 0, worker.stdout + worker.stderr)
@@ -88,19 +92,19 @@ class ImplicitBoardWalk(unittest.TestCase):
         self.assertEqual([self.column(n) for n in sorted(self.fake.issues)], ["Ready", "Ready"])
         self.assertFalse((w.ledger / ".qew" / "sync.queue").exists() and (w.ledger / ".qew" / "sync.queue").read_text().strip())
         lists = [p for m, p, _ in self.fake.requests[before:] if m == "GET" and re.search(r"/issues\?", p)]
-        self.assertEqual(lists, [])
+        self.assertTrue(all("sort=created&direction=desc" in path for path in lists), lists)  # newest-page lookups only
 
     def test_an_issue_filed_on_the_forge_gets_a_backlog_card_and_stays_a_non_startable_draft(self) -> None:
-        """Prevents a human-filed issue sitting off the board or being moved to Draft: qew imports and places it in Backlog."""
+        """Prevents a human-filed issue sitting off the board or being moved to Draft: qew imports it and places its card itself, in Draft (not approved)."""
         w = self.world()
         self.assertEqual(w.run("project", "ensure", env=ENV).returncode, 0)
         filed = self.fake.new_issue({"title": "Filed by a human", "body": "please look"})["number"]
         for _ in range(2):  # the second pass proves sync never fights its own placement
             self.assertEqual(w.run("sync", env=ENV).returncode, 0)
-            self.assertEqual(self.column(filed), "Backlog")
+            self.assertEqual(self.column(filed), "Draft")
         row = next(line for line in w.run("list", "--json").stdout.splitlines() if "Filed by a human" in line)
-        self.assertIn('"state": "draft"', row)
-        item = row.split('"id": "')[1].split('"')[0]
+        self.assertIn('"state":"draft"', row)
+        item = row.split('"id":"')[1].split('"')[0]
         self.assertNotEqual(w.run("start", item).returncode, 0)
 
     def test_write_verbs_answer_in_one_compact_line_and_name_what_the_agent_needs_next(self) -> None:

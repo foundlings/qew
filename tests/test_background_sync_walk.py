@@ -37,14 +37,13 @@ class BackgroundSyncWalk(unittest.TestCase):
         return w
 
     def test_a_write_returns_before_the_sync_finishes_and_prints_one_short_line(self) -> None:
-        """Prevents agents waiting on forges or reading sync chatter: the command returns at once with `sync: queued`."""
+        """Prevents agents waiting on forges or reading sync chatter: the command returns at once with its one result line and no sync banner."""
         self.fake.delay = 1.0
         w = self.world()
         result = w.run("create", "--title", "Live", env=ENV)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.strip().splitlines()
-        self.assertEqual(len(lines), 2, lines)
-        self.assertEqual(lines[1], "sync: queued")
+        self.assertEqual(len(lines), 1, lines)
         self.assertEqual(self.fake.issues, {})
         self.assertTrue(wait_for(lambda: len(self.fake.issues) == 1), "the background worker never created the issue")
 

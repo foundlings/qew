@@ -19,6 +19,7 @@ feature needs no GitLab scenario. `tests/test_forge_priority_walk.py` holds the 
 - Tokens come from the environment only (`forge_http.resolve_token`); never read from or written to files.
 - `IssueSpec.labels` replaces the issue's label set. A backend that implements boards with labels (GitLab
   `board::<Column>`) must leave its own board labels untouched on `update_issue`.
+- `find_issue(marker, recent=False)`: `recent` limits a scanning backend (GitHub) to the newest page, which is all the lookup after a write needs; Forgejo and GitLab search server-side and ignore it. Item syncs use it so their cost does not grow with the repository; a full `qew sync` scans everything.
 - `create_issue` is not idempotent; the caller first calls `find_issue(marker)` (the marker is a whole line of the body: a marker merely quoted in text, blockquoted, recased or of another id never matches; pull requests are skipped; several matches resolve to the lowest number, which is how a race between two creators ends). Pull closes an open unmirrored twin and strips its marker: the higher number while the item is live, any number once it is finished.
 - `merge_pull_request(number, expected_head_sha)` merges exactly that head (merge commit, no squash) and
   raises `ForgeRejected` if the head moved. `open_pull_request` honors `draft`.

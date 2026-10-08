@@ -242,7 +242,7 @@ class GitLab(Forge):
 
     # ----- issues -----
 
-    def find_issue(self, marker: str) -> Optional[RemoteIssue]:
+    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:  # server-side search: recent changes nothing
         query = {"search": marker, "in": "description", "state": "all"}
         matches = [issue for issue in map(_parse_issue, self._pages(f"{self._project}/issues", query))
                    if marker_alone(issue.body, marker)]
