@@ -1,18 +1,10 @@
 # Releases
 
-- Publishing a GitHub release for `vVERSION` builds that exact tag. The tag must
-  equal Qew's package version or the job refuses to publish artifacts.
-- The job checks out the release event commit (`GITHUB_SHA`, not the movable
-  tag name) and fails if the checked out HEAD differs from it, so the build and
-  the SBOM source describe the same commit.
-- The release contains the wheel, source archive, SPDX 2.3 SBOM, and
-  `SHA256SUMS` covering both distributions and the SBOM. The metadata generator
-  refuses SBOM and checksum outputs inside the distribution directory.
-- GitHub artifact attestations bind the distributions to the workflow and
-  source revision. A second attestation binds the SPDX SBOM.
-- Release actions are pinned by commit digest. The metadata generator uses only
-  Python's standard library and refuses non-regular distribution files.
-- Qew has no Python runtime dependencies. Build tools are release inputs, not
-  runtime components, and remain visible in the workflow and provenance.
-- Pull requests and main run the complete behavioral suite on Python 3.11 and
-  3.12. Dependabot proposes cooled updates for action and Python build pins.
+- No GitHub workflows: there is no CI and no release automation on the forge. Verification is local:
+  `python3 -m unittest discover -s tests` must pass before any push or release.
+- A release is cut locally from a clean checkout whose package version equals the tag `vVERSION`:
+  build the wheel and source archive with the pinned tools in `requirements/build.txt`, run
+  `scripts/release_metadata.py` (SPDX 2.3 SBOM and `SHA256SUMS`; it refuses outputs inside the
+  distribution directory and non-regular files), then publish with `scripts/upload_release.py`.
+- Qew has no Python runtime dependencies; build tools are release inputs only.
+- A single local release script that runs these steps is tracked as ledger work.
