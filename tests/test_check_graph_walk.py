@@ -55,13 +55,18 @@ class CheckGraphWalk(unittest.TestCase):
         )
         self.failing("items/C.md: area b differs from parent E (area a)", counts(c=1))
 
-    def test_a_needs_chain_deeper_than_the_limit_is_reported_once_at_its_deepest_item(self) -> None:
-        """Twenty edges pass; the twenty-first fails, so the limit is exact and the report is one line."""
-        chain = [spec("N0")] + [spec(f"N{i}", needs=[f"N{i - 1}"]) for i in range(1, 21)]
+    def test_a_needs_chain_deeper_than_the_limit_is_a_warning_reported_once_at_its_deepest_item(self) -> None:
+        """Thirty edges pass silently; the thirty-first warns on one line and never fails the check (real corpora chain this deep)."""
+        chain = [spec("N0")] + [spec(f"N{i}", needs=[f"N{i - 1}"]) for i in range(1, 31)]
         load(self.world, *chain)
-        self.assertEqual(self.world.run("check").returncode, 0)
-        load(self.world, spec("N21", needs=["N20"]))
-        self.failing("items/N21.md: needs chain of 21 edges exceeds the limit of 20", counts(d=1))
+        quiet = self.world.run("check")
+        self.assertEqual(quiet.returncode, 0, quiet.stdout + quiet.stderr)
+        self.assertNotIn("exceeds", quiet.stdout)
+        load(self.world, spec("N31", needs=["N30"]))
+        warned = self.world.run("check")
+        self.assertEqual(warned.returncode, 0, warned.stdout + warned.stderr)
+        self.assertIn("items/N31.md: needs chain of 31 edges exceeds the limit of 30", warned.stdout)
+        self.assertIn(counts(d=1), warned.stdout)
 
     def test_work_waiting_on_a_closed_item_is_reported_as_unreachable(self) -> None:
         """P can never become ready because X is closed; completed dependents of closed work are history."""
