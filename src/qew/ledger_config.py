@@ -47,6 +47,7 @@ class Replication:
     fetch_interval_s: float = 2.0
     sync_retry_s: float = 10.0
     sync_budget_s: float = 20.0
+    forge_concurrency: int = 4  # forge writes in flight at once during a sync (1: one at a time)
     branch: str = "main"
 
     @property
@@ -56,7 +57,7 @@ class Replication:
 
 _REPLICATION_KEYS = {
     "auto_commit": bool, "auto_push": bool, "auto_forge_sync": bool, "background_sync": bool,
-    "timeout_s": (int, float), "fetch_interval_s": (int, float), "sync_retry_s": (int, float), "sync_budget_s": (int, float), "branch": str,
+    "timeout_s": (int, float), "fetch_interval_s": (int, float), "sync_retry_s": (int, float), "sync_budget_s": (int, float), "forge_concurrency": int, "branch": str,
 }
 
 
@@ -71,6 +72,8 @@ def _replication(section: object) -> Replication:
             raise QewError(f"[replication] has an unknown key `{key}`", 1)
         if not isinstance(value, kind) or (kind is bool and not isinstance(value, bool)) or isinstance(value, bool) != (kind is bool):
             raise QewError(f"[replication] {key} has the wrong type", 1)
+    if "forge_concurrency" in section and not 1 <= section["forge_concurrency"] <= 32:
+        raise QewError("[replication] forge_concurrency must be between 1 and 32", 1)
     return Replication(**section)
 
 

@@ -53,6 +53,10 @@ class FakeGitHub:
         self.cards_endless = False  # every ProjectCards page says another follows
         self.label_store: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
         self.drop_label_creates = False  # accept a label create yet store nothing
+        self.delay = 0.0  # seconds every request takes, so concurrent requests overlap
+        self.inflight = 0  # requests being served now
+        self.max_inflight = 0  # the most requests served at once
+        self.lock = threading.RLock()  # serializes the fake's own state; the delay happens outside it
         self.etags = True  # answer issue-list pages with an ETag and honor If-None-Match
         self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
@@ -495,6 +499,20 @@ class _Handler(BaseHTTPRequestHandler):
         self._serve("DELETE")
 
     def _serve(self, method: str) -> None:
+        fake = self.fake
+        with fake.lock:
+            fake.inflight += 1
+            fake.max_inflight = max(fake.max_inflight, fake.inflight)
+        try:
+            if fake.delay:
+                time.sleep(fake.delay)
+            with fake.lock:
+                self._serve_locked(method)
+        finally:
+            with fake.lock:
+                fake.inflight -= 1
+
+    def _serve_locked(self, method: str) -> None:
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
         body = json.loads(raw) if raw else None
