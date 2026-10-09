@@ -238,6 +238,9 @@ class Ledger:
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_local(path, json.dumps(value, sort_keys=True, indent=2) + "\n")
 
+    def pace_dir(self, target: str) -> Path:
+        return self.path / ".qew" / "state" / target
+
     def intent_path(self, target: str) -> Path:
         return self.path / ".qew" / "state" / target / "creating.json"
 

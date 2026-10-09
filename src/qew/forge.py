@@ -53,6 +53,10 @@ class ForgeUnavailable(ForgeError):
         self.retry_after = retry_after
 
 
+class ForgeSecondaryLimit(ForgeUnavailable):
+    """The forge blocked content creation for a while (GitHub's secondary rate limit): the pace was too fast."""
+
+
 class ForgeAuth(ForgeError):
     """No token, or 401/403: fix credentials, retrying will not help."""
 
