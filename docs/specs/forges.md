@@ -154,6 +154,13 @@ A pull never lists the whole forge when it can avoid it. The fakes bump `updated
   `.qew/state/TARGET/pages/N.json` (ETag and parsed issues). Both change only after a pull whose requests all succeeded; damaged
   files cost one unconditional full listing. `qew status` shows the last pull, the last complete set and the next pull's mode.
 
+## Crash orphans and twins
+A create whose response was lost leaves an orphan; the sync keeps a local intent (`ledger.md`, Background sync) so the
+next sync of that item searches every issue for its marker before creating. In pull the mirror decides which issue of an
+item stays open: other open issues with its marker are closed (a lower-numbered one after a 10 minute grace), and an
+item with no mirror adopts its lowest-numbered marker issue. GitLab and Forgejo search by marker on the server, so their
+lookup was never limited to the newest issues.
+
 ## Label pruning
 `Forge` has three calls for `qew sync --prune-labels`: `list_repo_labels()` (every definition), `labels_in_use()` (names carried by any
 issue or pull request, open or closed; GitHub and Forgejo list pull requests among issues, GitLab reads issues and merge requests) and

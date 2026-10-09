@@ -18,6 +18,7 @@ from qew.forge import DUPLICATE_MARKER, ForgeError, ForgeRejected, IssueSpec, Re
 from qew.ledger_event import State
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
+from qew.sync import new_record
 
 TITLE_LIMIT = 200
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -99,6 +100,7 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
             if issue is None and not complete:
                 continue  # unchanged since the cursor; only the complete set can show a deletion
             _pull_item(ledger, snapshot, target, report, item_id, issue)
+        twins: Dict[str, List[Tuple[RemoteIssue, str]]] = {}
         for issue in () if target.read_only else remote:
             if issue.number in mirrored:
                 continue
@@ -106,7 +108,9 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
             if marker is None:
                 _import_issue(ledger, snapshot, target, report, issue)
             elif aliases.canonical(marker.group(1)) in snapshot.items:  # an old marker names the item it was renamed to
-                _close_duplicate(target, report, issue, aliases.canonical(marker.group(1)), mirrored, snapshot, marker.group(1))
+                twins.setdefault(aliases.canonical(marker.group(1)), []).append((issue, marker.group(1)))
+        for item_id, found in sorted(twins.items()):
+            _settle_twins(ledger, target, report, item_id, found, mirrored, snapshot, started, complete)
     except Unsupported as error:
         report.skipped.append(error.capability)
     except ForgeError as error:
@@ -149,20 +153,44 @@ def pull_items(ledger: Ledger, target, item_ids) -> PullReport:
 _MARKER = re.compile(r"<!-- qew:([A-Za-z0-9][A-Za-z0-9._-]*) -->")
 
 
-def _close_duplicate(target, report: PullReport, issue: RemoteIssue, item_id: str, mirrored: Dict[int, str],
-                     snapshot: Snapshot, named: str = "") -> None:
-    """A second issue for an item already mirrored (concurrent syncs): close it, drop its marker.
+DUPLICATE_GRACE_SECONDS = 600
 
-    While the item is live the lowest number is kept; a finished item has nothing to keep apart, so an open twin is
-    closed whichever number the mirror points at.
+
+def _settle_twins(ledger: Ledger, target, report: PullReport, item_id: str, found: List[Tuple[RemoteIssue, str]],
+                  mirrored: Dict[int, str], snapshot: Snapshot, started: datetime, complete: bool) -> None:
+    """Issues carrying the marker of an item but not mirrored for it (a crash orphan, another checkout's create).
+
+    The mirror is the authority: an open twin above the mirrored issue closes at once. One below it closes too, but only
+    once the mirror is old enough that no merge of a rival checkout's mirror can still be in flight (two checkouts that
+    each closed the other's issue would close both). An item with no mirror adopts its lowest-numbered open marker
+    issue (when the listing is complete) and closes the rest; sync then brings the adopted issue up to date.
     """
     keeper = min((n for n, i in mirrored.items() if i == item_id), default=None)
     finished = snapshot.folds[item_id].state in (State.COMPLETED, State.CLOSED)
-    if keeper is None or not issue.open or (keeper >= issue.number and not finished):
-        return
-    body = issue.body.replace(marker_for(named or item_id), DUPLICATE_MARKER)
-    target.forge.update_issue(issue.number, IssueSpec(issue.title, body, tuple(issue.labels), False, "not_planned", ""))
-    report.duplicates += 1
+    open_twins = sorted(((i, named) for i, named in found if i.open), key=lambda pair: pair[0].number)
+    if keeper is None:
+        if not complete or not open_twins:
+            return
+        winner = open_twins[0][0]
+        ledger.write_mirror(item_id, target.slug, new_record(target, winner, snapshot, item_id, ""))
+        mirrored[winner.number] = item_id
+        open_twins = open_twins[1:]
+        keeper = winner.number
+        settled = True
+    else:
+        settled = _mirror_is_settled(ledger, item_id, target.slug, started)
+    for issue, named in open_twins:
+        if issue.number > keeper or finished or settled:
+            body = issue.body.replace(marker_for(named), DUPLICATE_MARKER)
+            target.forge.update_issue(issue.number, IssueSpec(issue.title, body, tuple(issue.labels), False, "not_planned", ""))
+            report.duplicates += 1
+
+
+def _mirror_is_settled(ledger: Ledger, item_id: str, slug: str, started: datetime) -> bool:
+    """True once the recorded mirror is older than the grace; a mirror without a local sync time (a fresh clone) is settled."""
+    record = next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug and m.get("kind") == "issue"), None)
+    at = instants.parse_instant(str((record or {}).get("synced_at") or ""))
+    return at is None or (started - at).total_seconds() > DUPLICATE_GRACE_SECONDS
 
 
 def _record(ledger: Ledger, item_id: str, slug: str) -> dict:

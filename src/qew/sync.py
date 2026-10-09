@@ -188,11 +188,15 @@ def _sync_item(
     fingerprint = sync_plan.fingerprint(spec, column if board else None)
     unchecked = False  # a scoped create whose duplicate guard runs after the card is placed
     if record is None:
-        remote, adopted, unchecked = _find_or_create(target.forge, item_id, spec, item.aliases, recent)
+        # A create this machine started and never recorded may have been applied: look for it among ALL issues first.
+        interrupted = item_id in ledger.creating_intents(target.slug)
+        ledger.record_creating(target.slug, item_id)
+        remote, adopted, unchecked = _find_or_create(target.forge, item_id, spec, item.aliases, recent and not interrupted)
         numbers[item_id] = remote.number
         # The create carried `spec`, so a created issue is already current; an adopted one is not.
-        record = _new_record(target, remote, snapshot, item_id, "" if adopted else fingerprint)
+        record = new_record(target, remote, snapshot, item_id, "" if adopted else fingerprint)
         ledger.write_mirror(item_id, target.slug, record)
+        ledger.clear_creating(target.slug, item_id)
         if adopted:
             report.adopted += 1
             record = _push(ledger, target, record, item_id, spec, fingerprint)
@@ -257,7 +261,7 @@ def _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assign
         except Unsupported:
             pass
     numbers[item_id] = winner.number
-    adopted = _new_record(target, winner, snapshot, item_id, "")
+    adopted = new_record(target, winner, snapshot, item_id, "")
     ledger.write_mirror(item_id, target.slug, {**adopted, "column": None, "priority": None})
     report.created -= 1
     report.adopted += 1
@@ -267,7 +271,7 @@ def _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assign
         _place(ledger, snapshot, target, report, item_id, board, column, adopted, placements)
 
 
-def _new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id: str, fingerprint: str) -> dict:
+def new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id: str, fingerprint: str) -> dict:
     events = snapshot.events[item_id]
     return {
         "forge": target.mirror.forge,
