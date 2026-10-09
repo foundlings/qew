@@ -69,7 +69,7 @@ class AdaptiveWalk(unittest.TestCase):
         mirror = self.config.mirrors[0]
         self.slug = ledger_config.mirror_slug(mirror)
         self.target = Target(mirror, self.slug, GitHub(mirror, urllib_transport(), ENV))
-        for n in range(10):
+        for n in range(40):
             self.world.create("--kind", "issue", "--title", f"Item {n}", "--quote", QUOTE)
 
     def state(self) -> dict:
@@ -77,11 +77,11 @@ class AdaptiveWalk(unittest.TestCase):
         return json.loads(path.read_text()) if path.is_file() else {}
 
     def test_a_block_records_the_budget_and_the_next_run_paces_under_it(self) -> None:
-        """Prevents re-hitting the wall every round: the block after 6 creates makes the next run stop at 4 per window."""
-        self.fake.secondary_after = 6
+        """Prevents re-hitting the wall every round: the block after 22 creates makes the next run stop at 17 per window."""
+        self.fake.secondary_after = 22
         first = sync_target(self.ledger, self.target, self.config)
-        self.assertEqual(first.created, 6, first)
-        self.assertEqual(self.state().get("budget"), 6)
+        self.assertEqual(first.created, 22, first)
+        self.assertEqual(self.state().get("budget"), 22)
         again = Target(self.target.mirror, self.slug, GitHub(self.target.mirror, urllib_transport(), ENV))
         second = sync_target(self.ledger, again, self.config, deadline=time.monotonic() + 2)
         self.assertEqual(second.created, 0, second)
@@ -92,9 +92,46 @@ class AdaptiveWalk(unittest.TestCase):
         """Prevents a one-off block capping the account's pace forever."""
         path = self.world.ledger / ".qew" / "state" / self.slug
         path.mkdir(parents=True, exist_ok=True)
-        (path / "pace.json").write_text(json.dumps({"budget": 4, "span": 1800}))
+        (path / "pace.json").write_text(json.dumps({"budget": 4, "span": 1800, "at": time.time()}))
         sync_target(self.ledger, self.target, self.config, deadline=time.monotonic() + 2)
         self.assertGreater(self.state()["budget"], 4)
+
+    def teach(self, **learned: float) -> None:
+        path = self.world.ledger / ".qew" / "state" / self.slug
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "pace.json").write_text(json.dumps({"span": 1800, **learned}))
+
+    def test_a_block_after_too_few_creates_teaches_nothing(self) -> None:
+        """Prevents a block caused by something else (another machine, a burst elsewhere) crippling the pace for good."""
+        self.fake.secondary_after = 5
+        report = sync_target(self.ledger, self.target, self.config)
+        self.assertEqual(report.created, 5, report)
+        self.assertEqual(self.state(), {})
+
+    def test_a_learned_budget_expires(self) -> None:
+        """Prevents a stale budget outliving a change in GitHub's rates: after 6 hours the documented default applies again."""
+        self.teach(budget=4, at=time.time() - 7 * 3600)
+        report = sync_target(self.ledger, self.target, self.config, deadline=time.monotonic() + 20)
+        self.assertEqual(report.created, 40, report)
+
+    def test_a_later_block_with_more_creates_replaces_a_lower_budget(self) -> None:
+        """Prevents the budget only ever shrinking: when GitHub loosens its rates the next block shows the new, higher budget."""
+        self.teach(budget=4, at=time.time())
+        self.fake.secondary_after = 25
+        path = self.world.ledger / ".qew" / "state" / self.slug / "creates.json"
+        path.write_text(json.dumps([time.time() - 5] * 3))  # three recent creates already counted against the window of 3
+        first = sync_target(self.ledger, self.target, self.config, deadline=time.monotonic() + 1)
+        self.assertEqual(first.created, 0, first)
+        self.teach(budget=4, at=time.time() - 7 * 3600)  # the old budget has expired: the default lets 25 through, then a block
+        sync_target(self.ledger, self.target, self.config, deadline=time.monotonic() + 20)  # a hang here would be pacing at the stale 4
+        self.assertEqual(self.state().get("budget"), 28)  # the 3 earlier creates plus the 25 that went through
+
+    def test_status_shows_the_learned_pace(self) -> None:
+        """Prevents an invisible limit: a person must see the learned pace and how to reset it."""
+        self.teach(budget=25, at=time.time())
+        status = self.world.run("status")
+        self.assertIn("pace", status.stdout)
+        self.assertIn("limit=20", status.stdout)
 
 
 if __name__ == "__main__":
