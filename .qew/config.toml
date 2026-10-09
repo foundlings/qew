@@ -5,7 +5,7 @@ minimum_version = "3.0.0"
 path = "../qew-ledger"
 
 [code]
-target = "v1-ledger"
+target = "main"
 
 [[mirror]]
 forge = "github"
