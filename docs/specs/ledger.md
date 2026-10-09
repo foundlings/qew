@@ -31,8 +31,15 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
 - Every write creates a new file or edits only the item's own file → concurrent branches merge cleanly.
 
 ## IDs
-- Item and event IDs are ledger-local, globally unique, sortable, never forge counters:
-  `<PREFIX>-<ULID>` (e.g. `FND-01JA7…`). A short alias (first 8 chars after prefix) resolves when unique.
+- Item and event IDs are ledger-local, globally unique, sortable, never forge counters. They are bare (the configured
+  `prefix` names the ledger; it is not part of an ID).
+- `id_mode` in `qew-ledger.toml` picks the mode per kind (`epic`, `issue`, `task`), either one name for every kind or a
+  table; a kind left out is `time`:
+  - `time` (the default): 9 characters, seconds since 2020 in base 35 plus two more, so IDs sort by creation and
+    concurrent writers rarely collide (`qew check` refuses duplicates). Example `042fcpx9w`.
+  - `letters`: A, B .. Z, AA, AB .. for a handful of long-lived items (foundlings uses it for epics, so phases read `ADA`).
+  - `counter`: integers; safe for one writer only.
+  Imported items keep the IDs they already have. A short unique prefix of an ID resolves.
 - Forge issue numbers are recorded only in `mirrors/`.
 - `aliases: OLD1 OLD2` (optional header key) lists ids an item had before `qew migrate-ids --to time`. A reference, an
   event or mirror directory, or a forge marker naming an alias means the item that carries it; a leftover file under an
@@ -42,16 +49,16 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
 Header = first lines, `key: value`, one per line, terminated by a line `---`. Parsers read the
 header only and stop at `---` (bounded bytes). Body after `---` is free Markdown for humans.
 ```
-id: FND-01JA7Q3M
+id: 042fcpx9w
 kind: epic | issue | task
 title: Short imperative title
-parent: FND-01JA7P00          # optional; epic of an issue, issue of a task
-needs: FND-01JA7Q1A FND-01JA7Q2B   # dependencies (blocked-by); space-separated IDs
+parent: 042f0gp5t             # optional; epic of an issue, issue of a task
+needs: 042f0m67k 042f0ip9w     # dependencies (blocked-by); space-separated IDs
 labels: area:erp phase:ADA
 owner:                         # empty = unclaimed
 priority: 2                    # lower = sooner
 created: 2026-10-08T16:00:00Z
-discovered_from: FND-01JA7P00  # optional: where this was found; never a dependency
+discovered_from: 042f0gp5t    # optional: where this was found; never a dependency
 aliases: 42             # optional: ids before a migration (qew migrate-ids)
 ---
 Body…
