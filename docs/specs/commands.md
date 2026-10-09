@@ -229,6 +229,12 @@ shape prime: additional_context context_bytes schema_version
   stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
   Comment text is data and never a state change; unmarked code-shaped text warns on stderr. `--key KEY` (one word) makes a
   retry safe: the same key with the same text posts nothing and prints `(unchanged)`, the same key with other text is exit 2.
+- `qew unlock --stale --quote Q [--dry-run] [--json]`: remove the stale git locks (`*.lock` files anywhere inside the ledger's
+  `.git`, such as `index.lock` and ref locks) a crashed git left behind, only on a human's quoted approval and only when every
+  one is at least 60 s old and open in no process (`lsof`; without it, only when no git process runs). Refuses (exit 3, nothing
+  removed) a younger or open lock, and while any qew process holds a ledger lock. Each removal is first appended to the
+  ledger's local `.qew/unlock.log` (time, actor, the approving words, each path and age). Never run by qew itself.
+  `--stale` is required; no lock is `no stale lock found`, exit 0.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: prints
   `ID completed` plus `; ready: ID...` (up to 5 items the completion released; `--json` has `released`). refused (exit 3

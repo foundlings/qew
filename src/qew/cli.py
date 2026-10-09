@@ -57,6 +57,7 @@ Mirrors
   qew reject      keep the ledger value; the next push restores the forge
   qew conflicts   list every open sync conflict with both sides and how to settle it
   qew resolve     settle a sync conflict by taking one side, with a recorded reason
+  qew unlock      remove a stale repository lock a crashed git left, with a human's quoted approval
 Setup
   qew init        create the config and the ledger
   qew ledger      fork the ledger into a new identity
@@ -76,7 +77,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
-_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts")
+_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock")
 
 
 def top_level_commands() -> list:

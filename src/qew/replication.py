@@ -293,7 +293,7 @@ def _note(config, result: str, reason: str = "") -> None:
 
 def _pull_for_read(arguments) -> None:
     """Reads see other agents' work: fetch and merge the ledger remote, at most every fetch_interval_s."""
-    if arguments.command in ("init", "hook", "status", "conflicts"):
+    if arguments.command in ("init", "hook", "status", "conflicts", "unlock"):
         return
     try:
         config = ledger_config.load()

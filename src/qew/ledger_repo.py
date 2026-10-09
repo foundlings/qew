@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import random
 import re
+import shutil
 import subprocess
 import time
 from typing import Dict, List, Optional, Sequence
@@ -44,6 +45,26 @@ def git_is_running() -> bool:
     return any(name in ("git", "git.exe") for name in names)
 
 
+def lock_in_use(path: str) -> Optional[bool]:
+    """Whether some process has this lock file open right now (git holds index.lock open while it works); None when unknown."""
+    lsof = shutil.which("lsof")
+    if lsof is None:
+        return None
+    try:
+        found = subprocess.run([lsof, "-t", "--", path], capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return bool(found.stdout.strip())
+
+
+def lock_is_dead(path: str, age: float) -> bool:
+    """Old enough, and provably unused: no process has it open (lsof), or, without lsof, no git process runs at all."""
+    if age < STALE_AFTER_S:
+        return False
+    open_now = lock_in_use(path)
+    return (not git_is_running()) if open_now is None else not open_now
+
+
 def lock_age(stderr: str) -> Optional[tuple]:
     """(path, seconds old) of the lock file a git error names, when it can be read."""
     found = LOCK_ERROR.search(stderr)
@@ -65,11 +86,11 @@ class RepoLocked(QewError):
 def stale_lock_error(stderr: str, waited: float) -> Optional[RepoLocked]:
     """The error for a lock that looks dead (old, and no git process anywhere); None while it may still be live."""
     named = lock_age(stderr)
-    if named is None or named[1] < STALE_AFTER_S or git_is_running():
+    if named is None or not lock_is_dead(named[0], named[1]):
         return None
-    return RepoLocked(f"git cannot proceed: {named[0]} is {named[1]:.0f}s old and no git process is running, so the lock looks "
-                      f"stale; it was not removed (qew never deletes a repository lock). If nothing uses that repository, "
-                      f"delete the file yourself and rerun")
+    return RepoLocked(f"git cannot proceed: {named[0]} is {named[1]:.0f}s old and no process has it open, so the lock looks "
+                      f"stale; it was not removed (qew never deletes a repository lock on its own). To remove it with a "
+                      f"human's approval: qew unlock --stale --quote \"Name: 'their words'\"")
 
 
 def held_lock_error(stderr: str, waited: float) -> RepoLocked:

@@ -253,9 +253,11 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
   Events are appended under the write lock with the next id after the newest, created exclusively (`os.link`), so a replay
   never overwrites one.
 - **Repository locks.** git keeps `index.lock` and ref locks as sentinel files, so a crashed git leaves one behind. qew's
-  git/jj calls retry on a lock error with backoff up to `QEW_REPO_LOCK_WAIT_S` (default 20). A lock older than 60 s while no
-  git process runs on the machine is reported as stale (exit 3, file named and age) and left in place; a lock still
-  held after the wait is reported as held. qew never deletes a repository lock; the person removes it. jj's working-copy
+  git/jj calls retry on a lock error with backoff up to `QEW_REPO_LOCK_WAIT_S` (default 20). A lock older than 60 s that no
+  process has open (`lsof`; without it, no git process on the machine) is reported as stale (exit 3, file named and age) and
+  left in place; a lock still held after the wait is reported as held. qew never deletes a repository lock on its own:
+  `qew unlock --stale --quote Q` removes the dead ones on a human's approval, logs each removal to `.qew/unlock.log`, and
+  refuses young or open locks and any running qew writer. jj's working-copy
   and operation locks are kernel locks held for one command, so a dead jj frees them and jj itself waits.
 - **Remote refs.** A fetch and a push of one checkout both rewrite `refs/remotes/origin/*`; run together they fail with
   `Failed to update refs` and the claim arbiter would read that as an unreachable remote. Every fetch and push takes the
