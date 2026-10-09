@@ -1,269 +1,121 @@
-"""Command walks for dependency-aware plan rollups."""
+"""Walks of `qew plan status`: a deterministic rollup of one epic's direct children, from files only.
+
+Adversary: derived state living in prose, drafts offered as next work, an agent guessing the closing
+step, and a rollup guessed from partial or malformed data.
+"""
 
 import json
 import unittest
 
-from tests.command_harness import run_qew
-from tests.command_harness import project_reconciliation
-from tests.test_lifecycle_walk import issue as lifecycle_issue
-from tests.test_lifecycle_walk import response as lifecycle_response
+from tests.ledger_harness import QUOTE, World
 
 
 class PlanStatusWalk(unittest.TestCase):
-    def test_plan_complete_golden_walk_verifies_all_children_then_closes(self) -> None:
-        result, calls = run_qew(
-            [
-                lifecycle_response(lifecycle_issue(labels=["P2", "epic", "qew:approved"])),
-                pages(
-                    plan_page(
-                        plan(
-                            15,
-                            child(20, "Done", "CLOSED", ["P2", "task", "qew:approved"]),
-                        )
-                    )
-                ),
-                {"stdout": "closed\n"},
-                {"stdout": "released\n"},
-                lifecycle_response(
-                    lifecycle_issue(
-                        state="CLOSED",
-                        state_reason="COMPLETED",
-                        labels=["P2", "epic", "qew:approved"],
-                    )
-                ),
-            ],
-            [
-                "plan",
-                "complete",
-                "15",
-                "--reason",
-                "Every child landed.",
-                "--repo",
-                "acme/widgets",
-                "--json",
-            ],
-        )
+    def setUp(self) -> None:
+        self.world = World()
+        self.addCleanup(self.world.close)
 
+    def child(self, epic: str, title: str, *extra: str, release: bool = True) -> str:
+        return self.world.create("--title", title, "--parent", epic, *extra, *(["--quote", QUOTE] if release else []))
+
+    def finish(self, item: str) -> None:
+        w = self.world
+        self.assertEqual(w.run("start", item).returncode, 0)
+        w.run("evidence", item, "--change", w.commit())
+        self.assertEqual(w.run("complete", item).returncode, 0)
+
+    def status(self, *arguments: str) -> dict:
+        result = self.world.run("plan", "status", *arguments, "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            json.loads(result.stdout),
-            {
-                "changed": True,
-                "next_command": "qew campaign status",
-                "issue": 15,
-                "project_reconciliation": project_reconciliation(),
-                "schema_version": 1,
-                "state": "completed",
-            },
-        )
-        self.assertEqual(calls[2][:3], ["issue", "close", "15"])
+        return json.loads(result.stdout)
 
-    def test_plan_complete_refuses_an_open_child_without_writing(self) -> None:
-        result, calls = run_qew(
-            [
-                lifecycle_response(lifecycle_issue(labels=["P2", "epic", "qew:approved"])),
-                pages(
-                    plan_page(
-                        plan(
-                            15,
-                            child(20, "Still open", "OPEN", ["P2", "task", "qew:approved"]),
-                        )
-                    )
-                ),
-            ],
-            [
-                "plan",
-                "complete",
-                "15",
-                "--reason",
-                "Too soon.",
-                "--repo",
-                "acme/widgets",
-            ],
-        )
+    def plan(self) -> str:
+        epic = self.world.create("--kind", "epic", "--title", "Plan", "--quote", QUOTE)
+        self.epic = epic
+        return epic
 
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("1 child remains open", result.stderr)
-        self.assertEqual(len(calls), 2)
-    def test_golden_walk_rolls_up_children_and_selects_next_ready_work(self) -> None:
-        response = pages(
-            plan_page(
-                plan(
-                    1,
-                    child(5, "Closed", "CLOSED", ["P0", "task", "qew:approved"]),
-                    child(6, "Claimed", "OPEN", ["P0", "task", "qew:approved"], assignees=1),
-                    child(7, "Blocked", "OPEN", ["P0", "task", "qew:approved"], blockers=[9]),
-                    child(8, "Next", "OPEN", ["P1", "task", "qew:approved"]),
-                    child(9, "Later", "OPEN", ["P2", "task", "qew:approved"]),
-                    child(10, "Needs triage", "OPEN", ["qew:approved"]),
-                )
-            )
-        )
+    def test_golden_rollup_counts_every_class_and_names_the_best_ready_child(self) -> None:
+        """Counts and the next child must come from files, not from anyone's summary."""
+        w, epic = self.world, self.plan()
+        done = self.child(epic, "Done")
+        self.finish(done)
+        held = self.child(epic, "Held")
+        w.run("start", held)
+        gate = self.child(epic, "Gate")
+        waits = self.child(epic, "Waits", "--needs", gate)
+        second = self.child(epic, "Second", "--priority", "2")
+        first = self.child(epic, "First", "--priority", "1")
+        self.child(epic, "Unreleased", release=False)
+        plan = self.status(epic)["plans"][0]
+        self.assertEqual(self.status(epic)["schema_version"], 1)
+        self.assertEqual(plan["counts"], {"total": 7, "draft": 1, "ready": 3, "blocked": 1, "claimed": 1, "closed": 1})
+        self.assertEqual(plan["next"], {"id": first, "title": "First", "reason": "highest-priority ready child"})
+        self.assertFalse(plan["completable"])
+        self.assertIsNone(plan["complete_command"])
+        self.assertIn(second, w.run("ready").stdout)
+        self.assertNotIn(waits, w.run("ready").stdout)
 
-        result, calls = run_qew(
-            [response],
-            ["plan", "status", "1", "--repo", "acme/widgets", "--json"],
-        )
+    def test_a_draft_child_with_the_best_priority_is_counted_and_never_selected(self) -> None:
+        """Drafts leaking into next-work advice would start unapproved work."""
+        epic = self.plan()
+        draft = self.child(epic, "Draft", "--priority", "0", release=False)
+        live = self.child(epic, "Live", "--priority", "3")
+        plan = self.status(epic)["plans"][0]
+        self.assertEqual(plan["counts"]["draft"], 1)
+        self.assertEqual(plan["next"]["id"], live)
+        self.assertNotEqual(plan["next"]["id"], draft)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            json.loads(result.stdout),
-            {
-                "children": {
-                    "blocked": 1,
-                    "claimed": 1,
-                    "closed": 1,
-                    "draft": 0,
-                    "needs_approval": 0,
-                    "ready": 2,
-                    "total": 6,
-                    "untriaged": 1,
-                },
-                "completable": False,
-                "draft": False,
-                "complete_command": None,
-                "next": {
-                    "number": 8,
-                    "priority": "P1",
-                    "reason": "highest-priority ready child",
-                    "title": "Next",
-                    "type": "task",
-                    "url": "https://example.test/acme/widgets/issues/8",
-                },
-                "number": 1,
-                "schema_version": 1,
-                "state": "open",
-                "title": "Plan",
-                "url": "https://example.test/acme/widgets/issues/1",
-            },
-        )
-        self.assertEqual(len(calls), 1)
+    def test_completable_names_the_ledger_command_once_every_child_is_closed(self) -> None:
+        """Agents must not guess the closing step."""
+        epic = self.plan()
+        self.finish(self.child(epic, "Only"))
+        plan = self.status(epic)["plans"][0]
+        self.assertTrue(plan["completable"])
+        self.assertEqual(plan["complete_command"], f"qew complete {epic}")
+        self.assertIsNone(plan["next"])
 
-    def test_plan_status_counts_approval_gated_children_and_never_selects_them(self) -> None:
-        response = pages(
-            plan_page(
-                plan(
-                    1,
-                    child(5, "Gate", "OPEN", ["P0", "task", "qew:approved", "needs:approval"]),
-                    child(6, "Next", "OPEN", ["P1", "task", "qew:approved"]),
-                )
-            )
-        )
+    def test_a_draft_epic_is_never_completable_and_says_draft_plan(self) -> None:
+        """Offering a command that will refuse wastes the agent's turn."""
+        w = self.world
+        epic = w.create("--kind", "epic", "--title", "Plan")
+        child = self.child(epic, "Done early")
+        self.finish(child)
+        plan = self.status(epic)["plans"][0]
+        self.assertTrue(plan["draft"])
+        self.assertFalse(plan["completable"])
+        text = w.run("plan", "status", epic).stdout
+        self.assertIn("(draft plan)", text)
 
-        result, _ = run_qew(
-            [response],
-            ["plan", "status", "1", "--repo", "acme/widgets", "--json"],
-        )
+    def test_text_output_counts_drafts_only_when_there_are_some(self) -> None:
+        """A reader must not mistake drafts for live work, and unchanged output must stay unchanged."""
+        w, epic = self.world, self.plan()
+        self.child(epic, "A")
+        self.assertEqual(w.run("plan", "status", epic).stdout.splitlines()[1], "0/1 closed")
+        self.child(epic, "B", release=False)
+        self.child(epic, "C", release=False)
+        lines = w.run("plan", "status", epic).stdout.splitlines()
+        self.assertEqual(lines[1], "0/3 closed, 2 drafts")
+        self.assertEqual(lines[0].split()[0], epic)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)
-        self.assertEqual(output["children"]["needs_approval"], 1)
-        self.assertEqual(output["children"]["ready"], 1)
-        self.assertEqual(output["next"]["number"], 6)
+    def test_a_dangling_need_or_illegal_event_order_fails_loudly_without_a_rollup(self) -> None:
+        """A ready state guessed from partial data is worse than an error."""
+        w, epic = self.world, self.plan()
+        child = self.child(epic, "Child")
+        path = w.ledger / "items" / f"{child}.md"
+        path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
+        result = w.run("plan", "status", epic)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
 
-    def test_plan_status_names_completion_command_when_every_child_is_closed(self) -> None:
-        result, _ = run_qew(
-            [
-                pages(
-                    plan_page(
-                        plan(
-                            1,
-                            child(5, "Closed", "CLOSED", ["P1", "task", "qew:approved"]),
-                        )
-                    )
-                )
-            ],
-            ["plan", "status", "1", "--repo", "acme/widgets", "--json"],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)
-        self.assertTrue(output["completable"])
-        self.assertEqual(
-            output["complete_command"],
-            "qew plan complete 1 --reason TEXT",
-        )
-
-    def test_seam_walk_refuses_incomplete_child_dependencies(self) -> None:
-        blocked_child = child(
-            7,
-            "Maybe blocked",
-            "OPEN",
-            ["P1", "task", "qew:approved"],
-            blockers=[9],
-        )
-        blocked_child["blockedBy"]["pageInfo"]["hasNextPage"] = True
-
-        result, _ = run_qew(
-            [pages(plan_page(plan(1, blocked_child)))],
-            ["plan", "status", "1", "--repo", "acme/widgets", "--json"],
-        )
-
-        self.assertEqual(result.returncode, 4)
-        self.assertIn("indeterminate", result.stderr)
-
-
-def child(
-    number: int,
-    title: str,
-    state: str,
-    labels: list,
-    *,
-    assignees: int = 0,
-    blockers: list = None,
-) -> dict:
-    return {
-        "number": number,
-        "title": title,
-        "state": state,
-        "url": f"https://example.test/acme/widgets/issues/{number}",
-        "assignees": {"totalCount": assignees},
-        "labels": {
-            "nodes": [{"name": label} for label in labels],
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-        },
-        "blockedBy": {
-            "nodes": [
-                {"number": blocker, "state": "OPEN", "stateReason": None}
-                for blocker in blockers or []
-            ],
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-        },
-    }
-
-
-def plan(number: int, *children: dict) -> dict:
-    return {
-        "number": number,
-        "title": "Plan",
-        "state": "OPEN",
-        "url": f"https://example.test/acme/widgets/issues/{number}",
-        "labels": {
-            "nodes": [{"name": "P1"}, {"name": "epic"}],
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-        },
-        "subIssues": {
-            "nodes": list(children),
-            "pageInfo": {"hasNextPage": False, "endCursor": None},
-        },
-    }
-
-
-def plan_page(*plans: dict) -> dict:
-    return {
-        "data": {
-            "repository": {
-                "issues": {
-                    "nodes": list(plans),
-                    "pageInfo": {"hasNextPage": False, "endCursor": None},
-                }
-            }
-        }
-    }
-
-
-def pages(*values: dict) -> dict:
-    return {"stdout": json.dumps(list(values))}
+    def test_no_argument_lists_every_open_epic_and_a_non_epic_or_unknown_id_is_refused(self) -> None:
+        """A task must not be rolled up as if it were a plan."""
+        w, epic = self.world, self.plan()
+        other = w.create("--kind", "epic", "--title", "Other")
+        task = self.child(epic, "Task")
+        listed = self.status()["plans"]
+        self.assertEqual(sorted(p["id"] for p in listed), sorted([epic, other]))
+        self.assertEqual(w.run("plan", "status", task).returncode, 2)
+        self.assertEqual(w.run("plan", "status", "nothere").returncode, 2)
 
 
 if __name__ == "__main__":

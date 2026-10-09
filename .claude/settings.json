@@ -2,35 +2,34 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
         "hooks": [
           {
-            "args": [
-              "hook",
-              "pre-shell",
-              "--agent",
-              "claude"
-            ],
-            "command": "qew",
+            "command": "command -v qew >/dev/null 2>&1 || { echo '{\"systemMessage\":\"qew is not on PATH; qew hooks skipped\"}'; exit 0; }; exec qew hook pre-tool --agent claude",
             "timeout": 10,
             "type": "command"
           }
-        ]
+        ],
+        "matcher": "Bash"
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
         "hooks": [
           {
-            "args": [
-              "hook",
-              "post-shell",
-              "--agent",
-              "claude"
-            ],
-            "command": "qew",
-            "timeout": 60,
+            "command": "command -v qew >/dev/null 2>&1 || { echo '{\"systemMessage\":\"qew is not on PATH; qew hooks skipped\"}'; exit 0; }; exec qew hook post-tool --agent claude",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "command -v qew >/dev/null 2>&1 || { echo '{\"systemMessage\":\"qew is not on PATH; qew hooks skipped\"}'; exit 0; }; exec qew hook session-start --agent claude",
+            "timeout": 10,
             "type": "command"
           }
         ]

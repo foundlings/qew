@@ -1,11 +1,7 @@
-"""Command-level walks for installing Qew's shell-command hooks into every agent.
+"""Walks of `qew hook install|remove`: ownership, repository roots, malformed config.
 
-Behavior: `qew hooks install` wires `qew hook pre-shell|post-shell` into each
-agent, adds nothing at session start (it costs context in every session), and
-removes only Qew's own earlier `qew prime` session-start entry.
-
-Adversary: clobbering a teammate's hooks, leaving the old session-start prime
-behind, rewriting an unchanged file, or overwriting an unowned plugin.
+Adversary: an install that clobbers a teammate's hooks, a remove that litters a clean checkout,
+a root resolved to the wrong directory, and a half-valid config repaired destructively.
 """
 
 import json
@@ -16,440 +12,198 @@ import sys
 import tempfile
 import unittest
 
+from tests.ledger_harness import PROJECT_ROOT, World
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-CLAUDE_LEGACY = {
-    "hooks": [{"args": ["prime"], "command": "qew", "timeout": 10, "type": "command"}]
+AGENTS = ("claude", "codex", "cursor", "opencode")
+FILES = {
+    "claude": ".claude/settings.json",
+    "codex": ".codex/hooks.json",
+    "cursor": ".cursor/hooks.json",
+    "opencode": ".opencode/plugins/qew-hooks.js",
 }
-CODEX_LEGACY = {
-    "hooks": [
-        {
-            "command": "qew prime",
-            "statusMessage": "Loading Qew work context",
-            "timeout": 10,
-            "type": "command",
-        }
-    ]
-}
-CURSOR_LEGACY = {"command": "qew prime --json"}
-OLD_PLUGIN_MARKER = "// Managed by Qew: opencode-prime-v1"
+FOREIGN = {"matcher": "Bash", "hooks": [{"type": "command", "command": "audit-tool"}]}
+FOREIGN_SESSION = {"hooks": [{"type": "command", "command": "greet"}]}
 
 
-def claude_group(event: str, timeout: int) -> dict:
-    return {
-        "matcher": "Bash",
-        "hooks": [
-            {
-                "args": ["hook", event, "--agent", "claude"],
-                "command": "qew",
-                "timeout": timeout,
-                "type": "command",
-            }
-        ],
-    }
+def run_in(directory: Path, *arguments: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "qew.cli", *arguments], cwd=directory, capture_output=True, text=True,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src"), "QEW_ACTOR": "tester"}, check=False, timeout=60,
+    )
 
 
-def codex_group(event: str, timeout: int) -> dict:
-    return {
-        "matcher": "Bash",
-        "hooks": [
-            {"command": f"qew hook {event} --agent codex", "timeout": timeout, "type": "command"}
-        ],
-    }
+def listing(root: Path) -> list:
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*"))
 
 
-class HookInstallWalk(unittest.TestCase):
-    def test_claude_installs_shell_hooks_keeps_others_and_drops_only_the_old_prime(self) -> None:
-        with repository() as root:
-            settings = root / ".claude" / "settings.json"
-            settings.parent.mkdir()
-            unrelated = {"matcher": "Bash", "hooks": [{"type": "command", "command": "audit-tool"}]}
-            other_session = {"hooks": [{"type": "command", "command": "other-start"}]}
-            settings.write_text(
-                json.dumps(
-                    {
-                        "hooks": {
-                            "PreToolUse": [unrelated],
-                            "SessionStart": [CLAUDE_LEGACY, other_session],
-                        },
-                        "permissions": {"allow": ["Read"]},
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            installed = run_qew(root, "hooks", "install", "claude")
-
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            self.assertEqual(installed.stdout, "installed claude hook\n")
-            configured = json.loads(settings.read_text(encoding="utf-8"))
-            self.assertEqual(configured["permissions"], {"allow": ["Read"]})
-            self.assertEqual(
-                configured["hooks"]["PreToolUse"], [unrelated, claude_group("pre-shell", 10)]
-            )
-            self.assertEqual(configured["hooks"]["PostToolUse"], [claude_group("post-shell", 60)])
-            self.assertEqual(configured["hooks"]["SessionStart"], [other_session])
-
-            unchanged = run_qew(root, "hooks", "install", "claude")
-            self.assertEqual(unchanged.stdout, "unchanged claude hook\n")
-
-            removed = run_qew(root, "hooks", "remove", "claude")
-            self.assertEqual(removed.stdout, "removed claude hook\n")
-            self.assertEqual(
-                json.loads(settings.read_text(encoding="utf-8")),
-                {
-                    "hooks": {"PreToolUse": [unrelated], "SessionStart": [other_session]},
-                    "permissions": {"allow": ["Read"]},
-                },
-            )
-            self.assertEqual(run_qew(root, "hooks", "remove", "claude").stdout, "unchanged claude hook\n")
-
-    def test_claude_installs_without_any_session_start_entry(self) -> None:
-        with repository() as root:
-            run_qew(root, "hooks", "install", "claude")
-
-            configured = json.loads((root / ".claude" / "settings.json").read_text(encoding="utf-8"))
-            self.assertNotIn("SessionStart", configured["hooks"])
-
-    def test_claude_remove_also_deletes_a_leftover_prime_entry(self) -> None:
-        with repository() as root:
-            settings = root / ".claude" / "settings.json"
-            settings.parent.mkdir()
-            settings.write_text(json.dumps({"hooks": {"SessionStart": [CLAUDE_LEGACY]}}), encoding="utf-8")
-
-            removed = run_qew(root, "hooks", "remove", "claude")
-
-            self.assertEqual(removed.stdout, "removed claude hook\n")
-            self.assertEqual(json.loads(settings.read_text(encoding="utf-8")), {})
-
-    def test_the_claude_hook_command_runs_qew_in_exec_form(self) -> None:
-        with repository() as root:
-            run_qew(root, "hooks", "install", "claude")
-            group = json.loads((root / ".claude" / "settings.json").read_text())["hooks"]["PostToolUse"][0]
-            entry = group["hooks"][0]
-            fake_bin = root / "fake-bin"
-            fake_bin.mkdir()
-            fake = fake_bin / "qew"
-            fake.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\"\n", encoding="utf-8")
-            fake.chmod(0o755)
-            environment = os.environ.copy()
-            environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
-
-            run = subprocess.run(
-                [entry["command"], *entry["args"]],
-                cwd=root, env=environment, input="{}", capture_output=True, text=True, check=False,
-            )
-
-            self.assertEqual(run.stdout, "hook post-shell --agent claude\n")
-
-    def test_claude_refuses_a_malformed_event_list_without_rewriting(self) -> None:
-        with repository() as root:
-            settings = root / ".claude" / "settings.json"
-            settings.parent.mkdir()
-            original = '{"hooks":{"PreToolUse":"not-a-list"}}\n'
-            settings.write_text(original, encoding="utf-8")
-
-            result = run_qew(root, "hooks", "install", "claude")
-
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("PreToolUse must be a list", result.stderr)
-            self.assertEqual(settings.read_text(encoding="utf-8"), original)
-
-    def test_codex_installs_shell_hooks_and_asks_for_trust(self) -> None:
-        with repository() as root:
-            target = root / ".codex" / "hooks.json"
-            target.parent.mkdir()
-            unrelated = {"matcher": "Bash", "hooks": [{"type": "command", "command": "audit-tool"}]}
-            target.write_text(
-                json.dumps({"hooks": {"PreToolUse": [unrelated], "SessionStart": [CODEX_LEGACY]}}),
-                encoding="utf-8",
-            )
-
-            installed = run_qew(root, "hooks", "install", "codex")
-
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            self.assertEqual(
-                installed.stdout,
-                "installed codex hook\nreview and trust it with /hooks before it will run\n",
-            )
-            hooks = json.loads(target.read_text(encoding="utf-8"))["hooks"]
-            self.assertEqual(hooks["PreToolUse"], [unrelated, codex_group("pre-shell", 10)])
-            self.assertEqual(hooks["PostToolUse"], [codex_group("post-shell", 60)])
-            self.assertNotIn("SessionStart", hooks)
-            self.assertEqual(run_qew(root, "hooks", "install", "codex").stdout.splitlines()[0], "unchanged codex hook")
-
-            run_qew(root, "hooks", "remove", "codex")
-            self.assertEqual(
-                json.loads(target.read_text(encoding="utf-8")), {"hooks": {"PreToolUse": [unrelated]}}
-            )
-
-    def test_codex_refuses_a_malformed_hooks_object(self) -> None:
-        with repository() as root:
-            target = root / ".codex" / "hooks.json"
-            target.parent.mkdir()
-            original = '{"hooks":[]}\n'
-            target.write_text(original, encoding="utf-8")
-
-            result = run_qew(root, "hooks", "install", "codex")
-
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("Codex hooks must be an object", result.stderr)
-            self.assertEqual(target.read_text(encoding="utf-8"), original)
-
-    def test_codex_install_supports_versioned_machine_output(self) -> None:
-        with repository() as root:
-            result = run_qew(root, "hooks", "install", "codex", "--json")
-
-            self.assertEqual(
-                json.loads(result.stdout),
-                {"action": "installed", "agent": "codex", "schema_version": 1, "trust_required": True},
-            )
-
-    def test_cursor_installs_shell_hooks_and_drops_the_old_session_start(self) -> None:
-        with repository() as root:
-            target = root / ".cursor" / "hooks.json"
-            target.parent.mkdir()
-            unrelated = {"command": ".cursor/hooks/audit.sh"}
-            target.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "hooks": {"afterFileEdit": [unrelated], "sessionStart": [CURSOR_LEGACY]},
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            installed = run_qew(root, "hooks", "install", "cursor")
-
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            hooks = json.loads(target.read_text(encoding="utf-8"))["hooks"]
-            self.assertEqual(hooks["afterFileEdit"], [unrelated])
-            self.assertEqual(
-                hooks["beforeShellExecution"],
-                [{"command": "qew hook pre-shell --agent cursor", "timeout": 10}],
-            )
-            self.assertEqual(
-                hooks["afterShellExecution"],
-                [{"command": "qew hook post-shell --agent cursor", "timeout": 60}],
-            )
-            self.assertNotIn("sessionStart", hooks)
-            self.assertEqual(run_qew(root, "hooks", "install", "cursor").stdout, "unchanged cursor hook\n")
-
-            run_qew(root, "hooks", "remove", "cursor")
-            self.assertEqual(
-                json.loads(target.read_text(encoding="utf-8")),
-                {"version": 1, "hooks": {"afterFileEdit": [unrelated]}},
-            )
-
-    def test_cursor_refuses_an_unsupported_schema_version(self) -> None:
-        with repository() as root:
-            target = root / ".cursor" / "hooks.json"
-            target.parent.mkdir()
-            original = '{"version":2,"hooks":{}}\n'
-            target.write_text(original, encoding="utf-8")
-
-            result = run_qew(root, "hooks", "install", "cursor")
-
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("unsupported Cursor hooks version", result.stderr)
-            self.assertEqual(target.read_text(encoding="utf-8"), original)
-
-    def test_opencode_installs_a_plugin_replacing_only_an_owned_prime_plugin(self) -> None:
-        with repository() as root:
-            plugins = root / ".opencode" / "plugins"
-            plugins.mkdir(parents=True)
-            unrelated = plugins / "keep.js"
-            unrelated.write_text("export const keep = true\n", encoding="utf-8")
-            old = plugins / "qew-prime.js"
-            old.write_text(OLD_PLUGIN_MARKER + "\nexport const Old = {}\n", encoding="utf-8")
-
-            installed = run_qew(root, "hooks", "install", "opencode")
-
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            self.assertEqual(installed.stdout, "installed opencode hook\n")
-            self.assertTrue((plugins / "qew-hooks.js").is_file())
-            self.assertFalse(old.exists())
-            self.assertTrue(unrelated.is_file())
-            self.assertEqual(run_qew(root, "hooks", "install", "opencode").stdout, "unchanged opencode hook\n")
-
-            removed = run_qew(root, "hooks", "remove", "opencode")
-            self.assertEqual(removed.stdout, "removed opencode hook\n")
-            self.assertFalse((plugins / "qew-hooks.js").exists())
-            self.assertTrue(unrelated.is_file())
-
-    def test_opencode_leaves_an_unowned_prime_plugin_and_refuses_an_unowned_target(self) -> None:
-        with repository() as root:
-            plugins = root / ".opencode" / "plugins"
-            plugins.mkdir(parents=True)
-            mine = plugins / "qew-prime.js"
-            mine.write_text("export const userPlugin = true\n", encoding="utf-8")
-
-            installed = run_qew(root, "hooks", "install", "opencode")
-
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            self.assertEqual(mine.read_text(encoding="utf-8"), "export const userPlugin = true\n")
-
-        with repository() as root:
-            target = root / ".opencode" / "plugins" / "qew-hooks.js"
-            target.parent.mkdir(parents=True)
-            original = "export const userPlugin = true\n"
-            target.write_text(original, encoding="utf-8")
-
-            result = run_qew(root, "hooks", "install", "opencode")
-
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("not managed by Qew", result.stderr)
-            self.assertEqual(target.read_text(encoding="utf-8"), original)
-
-    def test_the_opencode_plugin_pipes_bash_commands_to_qew_and_never_throws(self) -> None:
-        with repository() as root:
-            run_qew(root, "hooks", "install", "opencode")
-            fake_bin = root / "fake-bin"
-            fake_bin.mkdir()
-            fake = fake_bin / "qew"
-            fake.write_text(
-                "#!/bin/sh\n"
-                'if [ "$(cat "$QEW_MODE")" = fail ]; then exit 3; fi\n'
-                "cat >> \"$QEW_STDIN\"; printf '\\n' >> \"$QEW_STDIN\"\n"
-                'printf "%s\\n" "$*" >> "$QEW_CALLS"\n'
-                'case "$2" in pre-shell) printf "WARN\\n";; post-shell) printf "LANDED\\n";; esac\n',
-                encoding="utf-8",
-            )
-            fake.chmod(0o755)
-            (root / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
-            (root / "run.mjs").write_text(
-                "import { writeFileSync } from 'node:fs'\n"
-                "import { QewHooksPlugin } from './.opencode/plugins/qew-hooks.js'\n"
-                "const hooks = await QewHooksPlugin({ directory: process.cwd() })\n"
-                "const results = []\n"
-                "for (const [mode, tool] of [['ok', 'bash'], ['ok', 'read'], ['fail', 'bash']]) {\n"
-                "  writeFileSync(process.env.QEW_MODE, mode)\n"
-                "  const output = { args: { command: 'gh issue edit 1' } }\n"
-                "  const after = { title: 't', output: 'result', metadata: {} }\n"
-                "  try {\n"
-                "    await hooks['tool.execute.before']({ tool, sessionID: 's', callID: tool + mode }, output)\n"
-                "    await hooks['tool.execute.after']({ tool, sessionID: 's', callID: tool + mode, args: output.args }, after)\n"
-                "    results.push(after.output)\n"
-                "  } catch (error) { results.push('threw: ' + error.message) }\n"
-                "}\n"
-                "process.stdout.write(JSON.stringify(results))\n",
-                encoding="utf-8",
-            )
-            environment = os.environ.copy()
-            environment["QEW_MODE"] = str(root / "mode")
-            environment["QEW_CALLS"] = str(root / "calls")
-            environment["QEW_STDIN"] = str(root / "stdin")
-            environment["PATH"] = str(fake_bin) + os.pathsep + environment["PATH"]
-
-            run = subprocess.run(
-                ["node", str(root / "run.mjs")],
-                cwd=root, env=environment, capture_output=True, text=True, check=False,
-            )
-
-            self.assertEqual(run.returncode, 0, run.stderr)
-            self.assertEqual(json.loads(run.stdout), ["result\n\nWARN\n\nLANDED", "result", "result"])
-            self.assertEqual(
-                (root / "calls").read_text(encoding="utf-8"),
-                "hook pre-shell --agent opencode\nhook post-shell --agent opencode\n",
-            )
-            first = json.loads((root / "stdin").read_text(encoding="utf-8").splitlines()[0])
-            self.assertEqual(first["tool_input"]["command"], "gh issue edit 1")
-
-    def test_install_all_covers_every_agent_and_remove_all_undoes_it(self) -> None:
-        with repository() as root:
-            installed = run_qew(root, "hooks", "install", "all")
-
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            self.assertEqual(
-                installed.stdout.splitlines()[:4],
-                [
-                    "installed claude hook",
-                    "installed codex hook",
-                    "installed cursor hook",
-                    "installed opencode hook",
-                ],
-            )
-            for path in (
-                ".claude/settings.json",
-                ".codex/hooks.json",
-                ".cursor/hooks.json",
-                ".opencode/plugins/qew-hooks.js",
-            ):
-                self.assertTrue((root / path).is_file(), path)
-            as_json = run_qew(root, "hooks", "install", "all", "--json")
-            self.assertEqual(
-                [(item["agent"], item["action"]) for item in json.loads(as_json.stdout)["agents"]],
-                [("claude", "unchanged"), ("codex", "unchanged"), ("cursor", "unchanged"), ("opencode", "unchanged")],
-            )
-
-            removed = run_qew(root, "hooks", "remove", "all")
-            self.assertEqual(removed.stdout.splitlines()[0], "removed claude hook")
-            self.assertFalse((root / ".opencode" / "plugins" / "qew-hooks.js").exists())
+def read(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-class JujutsuWorkspaceWalk(unittest.TestCase):
-    def test_install_and_remove_work_in_a_workspace_with_no_git_directory(self) -> None:
-        # Adversary: hooks could not be installed in a jj-only checkout, and the
-        # workaround (a private .git) is forbidden there.
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / ".jj").mkdir()
-            nested = root / "apps" / "web"
-            nested.mkdir(parents=True)
+class RemoveOnCleanCheckoutWalk(unittest.TestCase):
+    def test_remove_writes_nothing_and_says_unchanged_for_every_agent(self) -> None:
+        """A no-op removal must not litter a clean checkout with empty agent directories."""
+        world = World()
+        self.addCleanup(world.close)
+        for agent in AGENTS:
+            with self.subTest(agent=agent):
+                before = listing(world.code)
+                result = world.run("hook", "remove", f"--{agent}")
+                self.assertEqual((result.returncode, result.stdout), (0, f"unchanged {agent} hook\n"), result.stderr)
+                self.assertEqual(listing(world.code), before)
+        everything = world.run("hook", "remove")
+        self.assertEqual(everything.stdout, "".join(f"unchanged {a} hook\n" for a in AGENTS))
+        self.assertEqual(listing(world.code), before)
 
-            installed = run_qew(nested, "hooks", "install", "all")
 
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            self.assertTrue((root / ".claude" / "settings.json").is_file())
-            self.assertTrue((root / ".opencode" / "plugins" / "qew-hooks.js").is_file())
-            self.assertFalse((nested / ".claude").exists())
-            self.assertFalse((root / ".git").exists())
-            removed = run_qew(nested, "hooks", "remove", "claude")
-            self.assertEqual(removed.stdout, "removed claude hook\n")
+class OwnershipWalk(unittest.TestCase):
+    """Install and remove touch only Qew-owned entries, per agent."""
 
-    def test_a_colocated_checkout_still_uses_its_root(self) -> None:
-        with repository() as root:
-            (root / ".jj").mkdir()
-            nested = root / "crates"
-            nested.mkdir()
+    def setUp(self) -> None:
+        self.world = World()
+        self.addCleanup(self.world.close)
+        self.root = self.world.code
 
-            installed = run_qew(nested, "hooks", "install", "claude")
+    def seed(self, relative: str, value) -> Path:
+        path = self.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value), encoding="utf-8")
+        return path
 
-            self.assertEqual(installed.returncode, 0, installed.stderr)
-            self.assertTrue((root / ".claude" / "settings.json").is_file())
+    def test_claude_foreign_groups_survive_install_rerun_and_remove(self) -> None:
+        """A teammate's PreToolUse and SessionStart hooks must survive a Qew install and remove."""
+        old = {"matcher": "Bash", "hooks": [{"args": ["hook", "pre-shell", "--agent", "claude"], "command": "qew", "timeout": 10, "type": "command"}]}
+        original = {"theme": "dark", "hooks": {"PreToolUse": [FOREIGN], "SessionStart": [FOREIGN_SESSION]}}
+        path = self.seed(".claude/settings.json", {**original, "hooks": {"PreToolUse": [FOREIGN, old], "SessionStart": [FOREIGN_SESSION]}})
+        self.assertEqual(self.world.run("hook", "install", "--claude").stdout, "installed claude hook\n")
+        installed = read(path)
+        self.assertEqual(installed["hooks"]["PreToolUse"][0], FOREIGN)
+        self.assertEqual(len(installed["hooks"]["PreToolUse"]), 2)
+        self.assertEqual(installed["hooks"]["SessionStart"][0], FOREIGN_SESSION)
+        self.assertEqual(self.world.run("hook", "install", "--claude").stdout, "unchanged claude hook\n")
+        self.assertEqual(self.world.run("hook", "remove", "--claude").stdout, "removed claude hook\n")
+        self.assertEqual(read(path), original)
 
-    def test_outside_any_repository_the_install_is_refused(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            result = run_qew(Path(directory), "hooks", "install", "claude")
+    def test_codex_remove_prunes_to_the_foreign_entry_only(self) -> None:
+        """Remove must leave `{hooks: {PreToolUse: [foreign]}}` and no empty containers behind."""
+        path = self.seed(".codex/hooks.json", {"hooks": {"PreToolUse": [FOREIGN]}})
+        self.assertEqual(self.world.run("hook", "install", "--codex").returncode, 0)
+        self.assertEqual(len(read(path)["hooks"]["PreToolUse"]), 2)
+        self.assertEqual(self.world.run("hook", "remove", "--codex").stdout, "removed codex hook\n")
+        self.assertEqual(read(path), {"hooks": {"PreToolUse": [FOREIGN]}})
 
+    def test_cursor_keeps_foreign_entry_and_version_one(self) -> None:
+        """Remove must keep a foreign afterFileEdit entry and `version: 1` while dropping old Qew entries."""
+        path = self.seed(".cursor/hooks.json", {"version": 1, "hooks": {
+            "afterFileEdit": [{"command": "fmt"}], "sessionStart": [{"command": "qew prime --json"}]}})
+        self.assertEqual(self.world.run("hook", "install", "--cursor").returncode, 0)
+        installed = read(path)["hooks"]
+        self.assertEqual(installed["afterFileEdit"], [{"command": "fmt"}])
+        self.assertEqual(installed["sessionStart"], [{"command": "qew hook session-start --agent cursor", "timeout": 10}])
+        self.assertEqual(self.world.run("hook", "remove", "--cursor").returncode, 0)
+        self.assertEqual(read(path), {"version": 1, "hooks": {"afterFileEdit": [{"command": "fmt"}]}})
+
+    def test_opencode_old_plugin_dropped_only_when_marked_and_unrelated_file_untouched(self) -> None:
+        """An unmarked file with Qew's old name is someone else's; install still succeeds and leaves it."""
+        plugins = self.root / ".opencode" / "plugins"
+        plugins.mkdir(parents=True)
+        (plugins / "keep.js").write_text("// keep\n", encoding="utf-8")
+        old = plugins / "qew-prime.js"
+        old.write_text("// Managed by Qew: opencode-prime-v1\n", encoding="utf-8")
+        self.assertEqual(self.world.run("hook", "install", "--opencode").returncode, 0)
+        self.assertFalse(old.exists())
+        self.assertEqual((plugins / "keep.js").read_text(encoding="utf-8"), "// keep\n")
+        old.write_text("// mine, not Qew's\n", encoding="utf-8")
+        again = self.world.run("hook", "install", "--opencode")
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(old.read_text(encoding="utf-8"), "// mine, not Qew's\n")
+        self.assertEqual(self.world.run("hook", "remove", "--opencode").returncode, 0)
+        self.assertTrue(old.exists() and (plugins / "keep.js").exists())
+
+    def test_remove_of_a_file_holding_only_a_leftover_qew_entry_leaves_an_empty_object(self) -> None:
+        """A stale Qew entry must not survive remove."""
+        old = {"hooks": [{"args": ["prime"], "command": "qew", "timeout": 10, "type": "command"}]}
+        path = self.seed(".claude/settings.json", {"hooks": {"SessionStart": [old]}})
+        self.assertEqual(self.world.run("hook", "remove", "--claude").stdout, "removed claude hook\n")
+        self.assertEqual(read(path), {})
+
+
+class MalformedConfigWalk(unittest.TestCase):
+    """A half-valid config is refused with exit 2 and a named reason, byte-identical afterwards."""
+
+    def setUp(self) -> None:
+        self.world = World()
+        self.addCleanup(self.world.close)
+
+    def refuse(self, relative: str, original: str, agent: str, reason: str, verb: str = "install") -> None:
+        path = self.world.code / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(original, encoding="utf-8")
+        result = self.world.run("hook", verb, f"--{agent}")
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertIn(reason, result.stderr)
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_claude_event_node_not_a_list(self) -> None:
+        for event in ("PreToolUse", "SessionStart", "PostToolUse"):
+            with self.subTest(event=event):
+                self.refuse(".claude/settings.json", json.dumps({"hooks": {event: {}}}), "claude", f"{event} must be a list")
+
+    def test_codex_hooks_not_an_object(self) -> None:
+        self.refuse(".codex/hooks.json", '{"hooks": []}', "codex", "hooks must be an object")
+
+    def test_cursor_unsupported_version(self) -> None:
+        self.refuse(".cursor/hooks.json", '{"version": 2, "hooks": {}}', "cursor", "unsupported Cursor hooks version")
+        self.refuse(".cursor/hooks.json", '{"version": 2, "hooks": {}}', "cursor", "unsupported Cursor hooks version", "remove")
+
+    def test_unparseable_json_names_the_file(self) -> None:
+        self.refuse(".claude/settings.json", "{not json", "claude", "settings.json")
+
+    def test_opencode_target_without_the_marker_is_not_touched(self) -> None:
+        self.refuse(".opencode/plugins/qew-hooks.js", "// mine\n", "opencode", "not managed by Qew")
+
+
+class RepositoryRootWalk(unittest.TestCase):
+    """The root is the nearest ancestor holding `.git` or `.jj`, never a private `.git`."""
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.base = Path(self.temporary.name).resolve()
+
+    def test_jj_only_checkout_installs_at_the_root_from_a_subdirectory(self) -> None:
+        """Hooks must be possible in a jj-only checkout without a forbidden private `.git`."""
+        (self.base / ".jj").mkdir()
+        sub = self.base / "apps" / "web"
+        sub.mkdir(parents=True)
+        result = run_in(sub, "hook", "install")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for relative in FILES.values():
+            self.assertTrue((self.base / relative).is_file(), relative)
+        self.assertEqual(sorted(p.name for p in sub.iterdir()), [])
+        self.assertFalse((self.base / ".git").exists())
+        removed = run_in(sub, "hook", "remove")
+        self.assertEqual(removed.returncode, 0, removed.stderr)
+        self.assertFalse((self.base / FILES["opencode"]).exists())
+        self.assertEqual(read(self.base / FILES["claude"]), {})
+
+    def test_colocated_checkout_root_wins_over_nested_directories(self) -> None:
+        """Config must not split between nested directories."""
+        (self.base / ".git").mkdir()
+        (self.base / ".jj").mkdir()
+        sub = self.base / "crates"
+        sub.mkdir()
+        self.assertEqual(run_in(sub, "hook", "install", "--claude").returncode, 0)
+        self.assertTrue((self.base / FILES["claude"]).is_file())
+        self.assertFalse((sub / ".claude").exists())
+
+    def test_outside_any_repository_creates_nothing(self) -> None:
+        """Refuse with exit 2 and leave the directory empty."""
+        for verb in ("install", "remove"):
+            result = run_in(self.base, "hook", verb)
             self.assertEqual(result.returncode, 2)
             self.assertIn("not inside a Git or jj repository", result.stderr)
-            self.assertEqual(list(Path(directory).iterdir()), [])
-
-
-class repository:
-    def __enter__(self) -> Path:
-        self._directory = tempfile.TemporaryDirectory()
-        root = Path(self._directory.name)
-        result = subprocess.run(
-            ["git", "init", "--quiet"], cwd=root, capture_output=True, text=True, check=False
-        )
-        assert result.returncode == 0, result.stderr
-        return root
-
-    def __exit__(self, *exception) -> None:
-        self._directory.cleanup()
-
-
-def run_qew(root: Path, *arguments: str) -> subprocess.CompletedProcess:
-    environment = os.environ.copy()
-    environment["PYTHONPATH"] = str(PROJECT_ROOT / "src")
-    return subprocess.run(
-        [sys.executable, "-m", "qew", *arguments],
-        cwd=root, env=environment, capture_output=True, text=True, check=False,
-    )
+        self.assertEqual(listing(self.base), [])
 
 
 if __name__ == "__main__":

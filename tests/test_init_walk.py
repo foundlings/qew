@@ -1,185 +1,109 @@
-"""Command walks for idempotent repository bootstrap."""
+"""Walks of `qew init`: created once, rooted at the repository, refusing links, atomic.
 
-import json
+Adversary: a second config in a subdirectory, a rerun clobbering a hand-edited
+mirror, a write through a symlink, and a half-written config after a failed rename.
+"""
+
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
 import unittest
+from unittest import mock
 
-from tests.command_harness import run_qew
+from tests.ledger_harness import PROJECT_ROOT, git
 
 
-LABELS = [
-    ("P0", "B60205", "Critical priority"),
-    ("P1", "D93F0B", "High priority"),
-    ("P2", "FBCA04", "Normal priority"),
-    ("P3", "0E8A16", "Low priority"),
-    ("P4", "C5DEF5", "Backlog priority"),
-    ("bug", "D73A4A", "Defect work package"),
-    ("enhancement", "A2EEEF", "Capability work package"),
-    ("task", "5319E7", "Implementation work package"),
-    ("epic", "3E4B9E", "Parent plan issue"),
-    ("qew:approved", "1D76DB", "Approved for routine agent context"),
-    ("qew:managed", "0E8A16", "Issue belongs to the Qew work graph"),
-    ("qew:draft", "C2E0C6", "Filed for discussion; not workable until approved"),
-    ("needs:approval", "D93F0B", "Waiting on a human's authorization before work starts"),
-    ("in-progress", "0052CC", "Claimed work in progress"),
-]
+def init(cwd: Path, *arguments: str) -> subprocess.CompletedProcess:
+    env = {**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src"), "QEW_OFFLINE": "1"}
+    env.pop("QEW_LEDGER", None)
+    return subprocess.run([sys.executable, "-m", "qew.cli", "init", *arguments], cwd=cwd, env=env,
+                          capture_output=True, text=True, timeout=60)
 
 
 class InitWalk(unittest.TestCase):
-    def test_refusal_walk_requires_an_explicit_mode(self) -> None:
-        result, calls = run_qew(
-            [],
-            ["init", "--repo", "acme/widgets"],
-            uninitialized=True,
-        )
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name).resolve()
+        self.repo = self.base / "code"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "main")
+        self.config = self.repo / ".qew" / "config.toml"
+        self.marker = self.base / "ledger" / "qew-ledger.toml"
 
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("--mode overlay or --mode repository", result.stderr)
-        self.assertEqual(calls, [])
+    def test_golden_init_creates_config_and_ledger_then_rerun_is_a_no_op(self) -> None:
+        """A rerun prints `already initialized` and leaves every byte alone; the guidance names the trust rule."""
+        first = init(self.repo, "--ledger", "../ledger")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn("created", first.stdout)
+        self.assertIn("untrusted", first.stdout)
+        self.assertIn("qew complete", first.stdout)
+        before = (self.config.read_bytes(), self.marker.read_bytes())
+        again = init(self.repo, "--ledger", "../ledger")
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertIn("already initialized", again.stdout)
+        self.assertEqual((self.config.read_bytes(), self.marker.read_bytes()), before)
 
-    def test_golden_walk_is_idempotent_and_prints_security_guidance(self) -> None:
-        result, calls = run_qew(
-            [pages(label_page(LABELS))],
-            ["init", "--mode", "repository", "--repo", "acme/widgets", "--json"],
-            uninitialized=True,
-        )
-
+    def test_init_from_a_subdirectory_configures_the_repository_root(self) -> None:
+        """No stray .qew appears in the subdirectory."""
+        sub = self.repo / "src" / "deep"
+        sub.mkdir(parents=True)
+        result = init(sub, "--ledger", "../ledger")
         self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)
-        self.assertEqual(output["changed"], [])
-        self.assertEqual(output["repository"], "acme/widgets")
-        self.assertEqual(output["schema_version"], 1)
-        self.assertEqual(output["mode"], "repository")
-        self.assertIn("untrusted", output["guidance"])
-        self.assertIn("qew:approved", output["guidance"])
-        self.assertEqual(len(calls), 1)
+        self.assertTrue(self.config.exists())
+        self.assertFalse((sub / ".qew").exists())
 
-    def test_init_links_a_project_and_later_runs_preserve_it(self) -> None:
-        # Adversary: re-running init without --project silently unlinks the board.
-        linked, _ = run_qew(
-            [pages(label_page(LABELS))],
-            ["init", "--mode", "repository", "--project", "31", "--repo", "acme/widgets", "--json"],
-            uninitialized=True,
-        )
-        rerun, _ = run_qew(
-            [pages(label_page(LABELS))],
-            ["init", "--mode", "repository", "--repo", "acme/widgets", "--json"],
-            project=31,
-        )
+    def test_init_outside_a_repository_is_refused(self) -> None:
+        """Without a .git or .jj above, nothing is written and the exit code is 2."""
+        loose = self.base / "loose"
+        loose.mkdir()
+        result = init(loose)
+        self.assertEqual(result.returncode, 2, result.stdout)
+        self.assertEqual(list(loose.iterdir()), [])
 
-        self.assertEqual(linked.returncode, 0, linked.stderr)
-        self.assertEqual(
-            linked.config,
-            {"mode": "repository", "project": 31, "schema_version": 1},
-        )
-        self.assertEqual(json.loads(linked.stdout)["project"], 31)
-        self.assertEqual(rerun.returncode, 0, rerun.stderr)
-        self.assertEqual(rerun.config["project"], 31)
+    def test_init_refuses_a_symlinked_config_or_directory(self) -> None:
+        """Writing through a link could land anywhere."""
+        target = self.base / "elsewhere"
+        target.mkdir()
+        (self.repo / ".qew").symlink_to(target)
+        self.assertEqual(init(self.repo, "--ledger", "../ledger").returncode, 2)
+        self.assertEqual(list(target.iterdir()), [])
+        (self.repo / ".qew").unlink()
+        (self.repo / ".qew").mkdir()
+        (target / "real.toml").write_text("x")
+        (self.repo / ".qew" / "config.toml").symlink_to(target / "real.toml")
+        self.assertEqual(init(self.repo, "--ledger", "../ledger").returncode, 2)
+        self.assertEqual((target / "real.toml").read_text(), "x")
 
-    def test_seam_walk_repairs_only_missing_or_drifted_qew_labels(self) -> None:
-        before = [label for label in LABELS if label[0] != "P4"]
-        before = [
-            (name, "FFFFFF", "wrong") if name == "task" else (name, color, description)
-            for name, color, description in before
-        ]
-        result, calls = run_qew(
-            [
-                pages(label_page(before)),
-                response(""),
-                response(""),
-                pages(label_page(LABELS)),
-            ],
-            ["init", "--mode", "repository", "--repo", "acme/widgets", "--json"],
-            uninitialized=True,
-        )
+    def test_init_keeps_hand_edited_mirrors_and_unknown_fields(self) -> None:
+        """A rerun after editing the config must not unlink a board or drop a field."""
+        init(self.repo, "--ledger", "../ledger")
+        edited = self.config.read_text() + '\n[future]\nkey = 1\n[[mirror]]\nforge = "github"\nrepo = "https://github.com/o/r"\nproject = 3\n'
+        self.config.write_text(edited)
+        self.assertIn("already initialized", init(self.repo).stdout)
+        self.assertEqual(self.config.read_text(), edited)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["changed"], ["P4", "task"])
-        self.assertEqual(len(calls), 4)
-        writes = [call for call in calls if call[:2] == ["label", "create"]]
-        self.assertEqual(len(writes), 2)
-        self.assertTrue(all("--force" in call for call in writes))
-        self.assertTrue(all("unrelated" not in call for call in writes))
+    def test_an_existing_ledger_file_is_never_overwritten(self) -> None:
+        """qew-ledger.toml may carry id modes and a prefix chosen by a human."""
+        self.marker.parent.mkdir()
+        self.marker.write_text('name = "mine"\nprefix = "ZZ"\nschema_version = 1\n')
+        init(self.repo, "--ledger", "../ledger")
+        self.assertIn('prefix = "ZZ"', self.marker.read_text())
 
-    def test_init_creates_the_needs_approval_gate_label(self) -> None:
-        # Adversary: a repository bootstrapped by Qew lacks the label every
-        # default create applies, so gh refuses every create.
-        before = [label for label in LABELS if label[0] != "needs:approval"]
-        result, calls = run_qew(
-            [pages(label_page(before)), response(""), pages(label_page(LABELS))],
-            ["init", "--mode", "repository", "--repo", "acme/widgets", "--json"],
-            uninitialized=True,
-        )
+    def test_failed_atomic_replace_leaves_no_config_and_no_temp_files(self) -> None:
+        """A rename that fails must not leave a half-written config or a stray temp file."""
+        from qew import cmd_items
+        from qew.errors import QewError
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["changed"], ["needs:approval"])
-        writes = [call for call in calls if call[:2] == ["label", "create"]]
-        self.assertEqual(len(writes), 1)
-        self.assertIn("needs:approval", writes[0])
-
-    def test_refusal_walk_rejects_incomplete_label_inventory(self) -> None:
-        result, calls = run_qew(
-            [pages(label_page(LABELS, has_next=True, cursor="next"))],
-            ["init", "--mode", "repository", "--repo", "acme/widgets", "--json"],
-            uninitialized=True,
-        )
-
-        self.assertEqual(result.returncode, 4)
-        self.assertEqual(result.stdout, "")
-        self.assertIn("incomplete pagination", result.stderr)
-        self.assertEqual(len(calls), 1)
-
-    def test_overlay_preserves_existing_label_definitions(self) -> None:
-        existing = [
-            ("task", "1D76DB", "Actionable work item / ticket"),
-            ("bug", "D73A4A", "Something isn't working"),
-            ("enhancement", "A2EEEF", "New feature or request"),
-            ("EPIC", "F16825", ""),
-        ]
-        created = [
-            label
-            for label in LABELS
-            if label[0] not in {"task", "bug", "enhancement", "epic"}
-        ]
-        result, calls = run_qew(
-            [
-                pages(label_page(existing)),
-                *[response("") for _ in created],
-                pages(label_page([*existing, *created])),
-            ],
-            ["init", "--mode", "overlay", "--repo", "acme/widgets", "--json"],
-            uninitialized=True,
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["mode"], "overlay")
-        writes = [call for call in calls if call[:2] == ["label", "create"]]
-        self.assertEqual(len(writes), len(created))
-        self.assertTrue(all("--force" not in call for call in writes))
-        self.assertTrue(all("Actionable work item / ticket" not in call for call in writes))
-
-
-def response(stdout: str) -> dict:
-    return {"stdout": stdout}
-
-
-def pages(*payloads: dict) -> dict:
-    return response(json.dumps(list(payloads)))
-
-
-def label_page(labels: list, *, has_next: bool = False, cursor=None) -> dict:
-    return {
-        "data": {
-            "repository": {
-                "labels": {
-                    "nodes": [
-                        {"name": name, "color": color, "description": description}
-                        for name, color, description in labels
-                    ],
-                    "pageInfo": {"hasNextPage": has_next, "endCursor": cursor},
-                }
-            }
-        }
-    }
+        os.chdir(self.repo)
+        self.addCleanup(os.chdir, PROJECT_ROOT)
+        with mock.patch("os.replace", side_effect=OSError("boom")):
+            with self.assertRaises(QewError):
+                cmd_items.init("../ledger")
+        self.assertFalse(self.config.exists())
+        self.assertEqual(list((self.repo / ".qew").iterdir()) if (self.repo / ".qew").exists() else [], [])
 
 
 if __name__ == "__main__":

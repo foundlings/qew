@@ -1,45 +1,45 @@
 # Plan files
 
-`qew apply` accepts one JSON object per line. It rejects the whole plan before
-writing on unknown fields, invalid values, dangling local references, or cycles.
+Decision: there is one path, `qew create --from-file FILE` (`-` for standard input). A separate `qew apply`
+would repeat the same flags for no new capability, so it is not built.
+
+A plan is JSON Lines (one object per line), one JSON object, or one JSON array of objects. Blank lines are
+ignored. The whole plan is validated before the first write; a refusal is exit 2 and names the line (JSON Lines)
+or entry (array).
 
 ```jsonl
-{"id":"plan","title":"Plan: Example","type":"epic","priority":"P1","campaign":{"title":"Example v1","due-on":"2027-03-31"},"project":"Example Factory","quote":"Sam: 'we need the example release tracked as a plan'"}
-{"id":"first","title":"Build foundation","type":"task","parent":"plan","goal":"Provide the base.","done-when":["Golden walk passes."],"quote":"Sam: 'we need the example release tracked as a plan'","approved":true}
-{"id":"second","title":"Use foundation","type":"task","parent":"plan","blocked-by":["first",42],"quote":"Sam: 'we need the example release tracked as a plan'"}
+{"ref": "plan", "kind": "epic", "title": "Ship the importer", "priority": 1}
+{"ref": "parse", "kind": "issue", "title": "Parse the export", "parent": "@plan", "labels": ["area:import"], "quote": "Alexander: 'yes, build the importer first'"}
+{"ref": "write", "kind": "issue", "title": "Write the items", "parent": "@plan", "needs": ["@parse"], "body": "Uses the parsed rows."}
+{"kind": "task", "title": "Document the format", "parent": "@write"}
 ```
 
-- `type`: `bug`, `enhancement`, `task`, or `epic`.
-- `quote`: required on every line, `Name: 'their words'`, validated like
-  `create --quote` before any write (including `--dry-run`). It is written into
-  the body under `## Requested by`.
-- `approved`: optional boolean, default false. Work packages carry
-  `needs:approval` unless it is true; an epic with `approved` is refused.
-- `priority`: `P0` through `P4`; default `P2`.
-- `id`: optional and unique. Entries without one are keyed `line-N` (their
-  line number); an explicit `id` equal to any other entry's key, generated or
-  explicit, is refused.
-- `parent` and `blocked-by`: local IDs or existing issue numbers.
-- `areas`: list of existing area labels. Labels reserved by Qew (`qew:*`,
-  `author:*`, priority, type, `epic`, `in-progress`) are refused with exit 2.
-- Body: raw `body`, or structured `where`, `problem`/`goal`,
-  `fix`/`approach`, and `done-when` fields.
-- `discovered-from`: existing issue number recorded as provenance.
-- An epic may declare `campaign` with `title` plus optional `description` and
-  `due-on` (`YYYY-MM-DD`). The created plan issue is assigned to that milestone.
-- An epic may declare a `project` title. Apply reconciles that organization
-  Project after the graph and campaign exist. Repeated titles reconcile once.
+## Fields
+`title` (required, one line), `kind` (`epic`, `issue` default, `task`), `parent`, `needs` (list), `labels`
+(list), `priority` (non-negative integer, default 2), `body`, `ref`, `id`, `created`, `quote`, `approved`,
+`events`. Any other field is refused. Names follow the item header keys.
 
-`--dry-run` performs no writes. A real run checkpoints after every successful
-creation, edge, campaign, or Project reconciliation. Resume requires the same
-repository and exact plan digest and verifies Qew provenance on every issue
-already recorded in the state file. Resume also verifies every checkpointed
-parent, blocker, campaign assignment, Project identity, and created-work Project
-membership against GitHub. Campaign and Project reconcilers are internally
-idempotent, so interruption before their checkpoint is safe to retry.
+- `ref` names an entry; `@ref` in `parent` or `needs` points at it, in any order. An entry without a `ref` is
+  `line-N`. Keys are unique: a `ref` equal to another entry's key is refused. Other references are item ids or
+  aliases already in the ledger.
+- `id` keeps an explicit id (imports); an existing id is refused. `events` is accepted only with `--import`.
+- `quote` releases the entry (filed approved with those words); without one the entry is a draft. `--quote` is
+  the default for entries without their own. `approved: true` needs a quote; `approved: false` files a draft.
+- Edges are checked against the whole graph: no self edge, unknown or duplicate need, `needs` cycle (new items
+  and existing ones), or nesting other than epic > issue > task (a task may sit under an epic). Checks are
+  iterative; a 3000-link chain is fine.
+- The file must be a regular UTF-8 file, not a symbolic link, and name at least one entry.
 
-Before each creation, apply searches the repository (all states) for the
-entry's provenance marker. Exactly one issue with that marker and the entry's
-title is adopted instead of creating a duplicate, recovering a creation lost
-between GitHub and the checkpoint. More than one match is refused as ambiguous
-(exit 2) before any creation; a malformed or truncated search fails loudly.
+## Flags
+- `--draft`: file every entry as a draft; refuses `approved: true` lines and `--quote`.
+- `--dry-run`: validate and print the operations without writing: `create` (with `draft`), `adopt`, `parent`,
+  `need`. `--json` adds `schema_version` and `plan_sha256`.
+- `--json`: `{"created": {key: id}, "adopted": [key]}`.
+
+## Re-running
+The first event of every created item carries `plan` (sha256 of the file bytes), `key` and `source` (file
+name). The event is written before the item file, so a run killed in between leaves an orphan event. Running the
+same file again adopts items by `(plan, key)`, writes the missing item files and creates the rest. Two items with
+one marker are `ambiguous`; items of an earlier revision of the same file name are `plan revision mismatch`
+(both exit 2, nothing written). Only the canonical event fields count as provenance; text in a body or title never
+does. Plans read from standard input carry the source `-` and are not checked for revisions.

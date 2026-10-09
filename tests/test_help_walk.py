@@ -1,125 +1,95 @@
-"""Command walks for discovering Qew from its own help.
+"""Discoverability gates: help, README and the command spec agree on every command and flag.
 
-Adversary: a command exists that `qew --help` never mentions, so a user without
-prior knowledge cannot find it; a command group (drafts, pull requests) whose
-subcommands are invisible; and a new command added later with no group.
+Adversary: a command missing from `qew --help`, a flag with no help line, and a command or
+flag that exists in code but is absent from the README or docs/specs/commands.md.
 """
 
 import argparse
 import os
+from pathlib import Path
 import re
 import sys
 import unittest
 
-from tests.command_harness import run_qew
-
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-GROUPS = ("Read", "Work", "Drafts", "Pull requests", "Plans and graph", "Board and repository", "Hooks")
+from qew import cli
+from tests.ledger_harness import World
+
+ROOT = Path(__file__).resolve().parents[1]
+GROUPS = ("Read", "Work", "Drafts", "Pull requests", "Mirrors", "Setup")
 
 
-def top_level_commands(help_text: str) -> list:
-    match = re.search(r"\{([a-z,-]+)\}", help_text)
-    return match.group(1).split(",")
+def walk(parser, path=()):
+    """Yield (command path, parser) for every subcommand, depth first."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            helps = {choice.dest: choice.help for choice in action._choices_actions}
+            for name, sub in action.choices.items():
+                yield path + (name,), sub, helps.get(name)
+                yield from walk(sub, path + (name,))
 
 
 class HelpWalk(unittest.TestCase):
-    def test_every_command_is_listed_under_a_workflow_group(self) -> None:
-        result, _ = run_qew([], ["--help"])
+    def setUp(self) -> None:
+        self.parser = cli._parser()
+        self.commands = list(walk(self.parser))
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        text = result.stdout
+    def test_every_command_is_listed_under_a_workflow_group(self) -> None:
+        world = World()
+        self.addCleanup(world.close)
+        text = world.run("--help").stdout
         self.assertIn("Commands by workflow", text)
-        listing = text[text.index("Commands by workflow") :]
+        listing = text[text.index("Commands by workflow"):]
         for group in GROUPS:
             self.assertIn(group, listing)
-        for command in top_level_commands(text):
-            self.assertRegex(listing, rf"(?m)^\s+qew {command}\b", f"{command} is in no group")
+        for path, _, _ in self.commands:
+            if len(path) == 1:
+                self.assertRegex(listing, rf"(?m)^\s+qew {path[0]}\b", f"{path[0]} is in no group")
 
-    def test_help_points_at_per_command_help_and_the_drafts_flow(self) -> None:
-        result, _ = run_qew([], ["--help"])
+    def test_every_command_and_flag_has_a_help_line(self) -> None:
+        for path, sub, help_text in self.commands:
+            self.assertTrue(help_text, f"qew {' '.join(path)} has no help line")
+            for action in sub._actions:
+                if action.option_strings and "-h" not in action.option_strings:
+                    self.assertTrue(action.help, f"qew {' '.join(path)} {action.option_strings} has no help")
 
-        self.assertIn("qew COMMAND --help", result.stdout)
-        self.assertIn("qew draft approve", result.stdout)
-        self.assertIn("qew draft revert", result.stdout)
+    def test_readme_and_command_spec_name_every_command_and_flag(self) -> None:
+        for name in ("README.md", "docs/specs/commands.md"):
+            text = (ROOT / name).read_text(encoding="utf-8")
+            for path, sub, _ in self.commands:
+                self.assertIn(f"qew {' '.join(path)}", text, f"{name} lacks `qew {' '.join(path)}`")
+                for action in sub._actions:
+                    for flag in action.option_strings:
+                        if flag.startswith("--") and flag != "--help":
+                            self.assertIn(flag, text, f"{name} lacks {flag} (qew {' '.join(path)})")
 
-    def test_subcommand_groups_list_their_subcommands(self) -> None:
-        for command, names in (
-            ("draft", ("list", "approve", "revert")),
-            ("pr", ("ready", "check", "merge")),
-            ("plan", ("create", "status", "complete")),
-        ):
-            with self.subTest(command=command):
-                result, _ = run_qew([], [command, "--help"])
+    def test_rendered_group_help_lists_every_subcommand_with_its_help_line(self) -> None:
+        """A subcommand that is only in the parser, not in the rendered text, is invisible to users."""
+        world = World()
+        self.addCleanup(world.close)
+        groups = [(path, sub) for path, sub, _ in self.commands
+                  if any(isinstance(a, argparse._SubParsersAction) for a in sub._actions)]
+        self.assertTrue({("draft",), ("pr",), ("hook",), ("project",)} <= {path for path, _ in groups})
+        for path, sub in groups:
+            rendered = " ".join(world.run(*path, "--help").stdout.split())
+            for child_path, _, help_text in self.commands:
+                if child_path[:-1] == path:
+                    with self.subTest(command=" ".join(child_path)):
+                        self.assertIn(f"{child_path[-1]} {' '.join(help_text.split())}", rendered)
 
-                self.assertEqual(result.returncode, 0, result.stderr)
-                listed = result.stdout.split("positional arguments:")[1].split("options:")[0]
-                for name in names:
-                    self.assertRegex(listed, rf"(?m)^\s{{4}}{name}\s+\S", f"{command} {name} has no help line")
+    def test_top_level_help_points_at_command_help_and_the_drafts_flow(self) -> None:
+        """A newcomer must find per-command help and how work is released."""
+        world = World()
+        self.addCleanup(world.close)
+        text = " ".join(world.run("--help").stdout.split())
+        self.assertIn("qew COMMAND --help", text)
+        self.assertIn("qew draft list | approve | revert", text)
+        self.assertIn("only a human's quoted words release work", text)
 
-    def test_every_top_level_command_has_a_help_line(self) -> None:
-        result, _ = run_qew([], ["--help"])
-
-        listed = result.stdout.split("positional arguments:")[1].split("options:")[0]
-        for command in top_level_commands(result.stdout):
-            self.assertRegex(listed, rf"(?m)^\s{{4}}{command}\s+\S", f"{command} has no help line")
-
-
-def undocumented(parser: argparse.ArgumentParser, path: tuple = ()) -> list:
-    found = []
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            for name, sub in action.choices.items():
-                found.extend(undocumented(sub, (*path, name)))
-        elif not action.help and action.dest not in ("help", "command") and action.option_strings != ["--version"]:
-            shown = ", ".join(action.option_strings) or action.dest
-            found.append(f"qew {' '.join(path)} {shown}".replace("  ", " "))
-    return found
-
-
-class HelpTextWalk(unittest.TestCase):
-    def test_every_option_and_argument_has_a_help_line(self) -> None:
-        # Adversary: a flag that --help shows with no description, so the user
-        # has to read the source to learn what `create --where` or `pr --testing` means.
-        from qew.__main__ import _parser
-
-        self.assertEqual(undocumented(_parser()), [])
-
-
-def flags(parser: argparse.ArgumentParser, path: tuple = ()) -> list:
-    found = []
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            for name, sub in action.choices.items():
-                found.extend(flags(sub, (*path, name)))
-        else:
-            found.extend(
-                (f"qew {' '.join(path)}".strip(), flag)
-                for flag in action.option_strings
-                if flag.startswith("--") and flag not in ("--help", "--version")
-            )
-    return found
-
-
-class DocumentedFlagsWalk(unittest.TestCase):
-    def test_every_flag_is_named_in_the_readme_and_the_command_spec(self) -> None:
-        # Adversary: a flag that exists and --help describes, but the README and
-        # the spec never mention, so a reader of either does not know it is there.
-        from qew.__main__ import _parser
-
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        readme = open(os.path.join(root, "README.md"), encoding="utf-8").read()
-        spec = open(os.path.join(root, "docs", "specs", "commands.md"), encoding="utf-8").read()
-        missing = sorted(
-            {
-                f"{where}: {command} {flag}"
-                for command, flag in flags(_parser())
-                for where, text in (("README.md", readme), ("docs/specs/commands.md", spec))
-                if flag not in text
-            }
-        )
-
-        self.assertEqual(missing, [])
+    def test_no_section_sign_appears_in_the_documents(self) -> None:
+        for name in ("README.md", "CLAUDE.md", *(str(p.relative_to(ROOT)) for p in (ROOT / "docs").rglob("*.md"))):
+            self.assertNotIn("§", (ROOT / name).read_text(encoding="utf-8"), name)
 
 
 if __name__ == "__main__":

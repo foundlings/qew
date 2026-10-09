@@ -1,262 +1,130 @@
-"""Command walks for ticking a pull request's checklist.
+"""Walks of `qew pr check`: tick progress items in a pull request body, in place and verified.
 
-`qew pr` opens a draft with a checklist, and ticking it needed `gh pr edit`,
-whose --body-file rebuild once dropped the closing trailers. Qew edits the live
-body in place.
-
-Adversary: ticking an item nobody named, ticking inside a code block, losing a
-concurrent human edit, rewriting the rest of the body, touching another login's
-pull request, and reporting success when the write did not stick.
+Adversary: a rebuilt body that drops text, a teammate's concurrent edit overwritten, a write the forge
+accepted but did not keep, and a hidden open box (inside a code fence, or never addressable) that lets
+`qew pr merge` pass.
 """
 
-import json
+import os
+import sys
 import unittest
 
-from tests.command_harness import run_qew
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-REPO = ["--repo", "acme/widgets"]
-MARKED = (
-    "## Progress\n\n"
-    "- [ ] RED test <!-- pr-progress:red -->\n"
-    "- [ ] Implementation <!-- pr-progress:impl -->\n"
-    "- [x] Docs <!-- pr-progress:docs -->\n\n"
-    "Fixes #7\nPart of #3"
-)
-PLAIN = "## Progress\n\n- [ ] first\n- [ ] second\n\nFixes #7"
+from tests.pr_harness import PrWorld
+
+MARKED = "## Progress\n\n- [ ] RED test <!-- pr-progress:red -->\n- [ ] implementation <!-- pr-progress:green -->\n\nTrailer: kept as is.\n"
 
 
-def pull_request(body: str, *, state="OPEN", author="alexander", claims=None) -> dict:
-    return {
-        "stdout": json.dumps(
-            {
-                "data": {
-                    "viewer": {"login": "alexander"},
-                    "repository": {
-                        "pullRequest": {
-                            "number": 42,
-                            "state": state,
-                            "isDraft": True,
-                            "author": {"login": author},
-                            "body": body,
-                            "closingIssuesReferences": {
-                                "nodes": [
-                                    {
-                                        "number": number,
-                                        "assignees": {
-                                            "totalCount": len(logins),
-                                            "nodes": [{"login": login} for login in logins],
-                                        },
-                                    }
-                                    for number, logins in (claims or [])
-                                ],
-                                "pageInfo": {"hasNextPage": False},
-                            },
-                        }
-                    },
-                }
-            }
+class CheckWalk(unittest.TestCase):
+    def setUp(self) -> None:
+        self.w = PrWorld()
+        self.addCleanup(self.w.close)
+        self.item = self.w.item()
+        self.assertEqual(self.w.open(self.item).code, 0)
+
+    def body(self, text: str) -> None:
+        self.w.forge.edit_pull(1, body=text)
+
+    def forge_body(self) -> str:
+        return self.w.forge.pulls[1].body
+
+    def test_ticking_one_marked_item_changes_only_that_box_and_is_read_back(self) -> None:
+        """Prevents a rebuilt body that drops trailers or text."""
+        self.body(MARKED)
+        run = self.w.qew("pr", "check", "1", "red")
+        self.assertEqual(run.code, 0, run.err)
+        self.assertEqual(self.forge_body(), MARKED.replace("- [ ] RED test", "- [x] RED test"))
+        self.assertIn("red", run.out)
+
+    def test_position_addressing_and_the_at_form_when_a_marker_already_uses_the_number(self) -> None:
+        """Prevents ambiguous or unreadable bodies."""
+        self.body("- [ ] one <!-- pr-progress:2 -->\n- [ ] two\n")
+        listing = self.w.qew("pr", "check", "1", "--list").out.splitlines()
+        self.assertEqual(listing, ["[ ] 2 one", "[ ] @2 two"])
+        self.assertEqual(self.w.qew("pr", "check", "1", "@2").code, 0)
+        self.assertEqual(self.forge_body(), "- [ ] one <!-- pr-progress:2 -->\n- [x] two\n")
+        self.body("- [ ] plain a\n- [ ] plain b\n")
+        self.assertEqual(self.w.qew("pr", "check", "1", "2").code, 0)
+        self.assertEqual(self.forge_body(), "- [ ] plain a\n- [x] plain b\n")
+
+    def test_all_ticks_every_open_item_and_an_already_ticked_item_writes_nothing(self) -> None:
+        """Prevents spurious edits."""
+        self.body("- [x] done <!-- pr-progress:a -->\n- [ ] open <!-- pr-progress:b -->\n")
+        self.assertEqual(self.w.qew("pr", "check", "1", "--all").code, 0)
+        self.assertEqual(self.forge_body(), "- [x] done <!-- pr-progress:a -->\n- [x] open <!-- pr-progress:b -->\n")
+        writes = len(self.w.forge.body_writes)
+        again = self.w.qew("pr", "check", "1", "--all")
+        named = self.w.qew("pr", "check", "1", "a")
+        self.assertEqual((again.code, named.code), (0, 0))
+        self.assertIn("nothing to tick", again.out)
+        self.assertEqual(len(self.w.forge.body_writes), writes)
+
+    def test_an_unknown_or_repeated_item_is_refused_with_zero_writes(self) -> None:
+        """Prevents partial ticking."""
+        self.body(MARKED)
+        for names in (["red", "nope"], ["red", "red"]):
+            with self.subTest(names=names):
+                run = self.w.qew("pr", "check", "1", *names)
+                self.assertEqual(run.code, 2)
+        self.assertEqual(self.w.forge.body_writes, [])
+
+    def test_boxes_inside_code_fences_do_not_count(self) -> None:
+        """Prevents a hidden open box letting `qew pr merge` pass (or a hidden box being ticked)."""
+        self.body(
+            "- [ ] real one\n```\n- [ ] hidden in backticks\n```\n~~~\n- [ ] hidden in tildes\n~~~\n"
+            "```x``` is not a fence\n- [ ] real two\n````\n- [ ] still hidden\n```\n- [ ] still hidden\n````\n- [ ] real three\n"
         )
-    }
+        listing = self.w.qew("pr", "check", "1", "--list").out.splitlines()
+        self.assertEqual(listing, ["[ ] 1 real one", "[ ] 2 real two", "[ ] 3 real three"])
 
+    def test_a_crlf_body_keeps_its_line_endings(self) -> None:
+        """Prevents whole-body diffs."""
+        self.body("- [ ] a <!-- pr-progress:a -->\r\n- [ ] b <!-- pr-progress:b -->\r\n")
+        self.assertEqual(self.w.qew("pr", "check", "1", "a").code, 0)
+        self.assertEqual(self.forge_body(), "- [x] a <!-- pr-progress:a -->\r\n- [ ] b <!-- pr-progress:b -->\r\n")
 
-def edits(calls):
-    return [call for call in calls if call[:2] == ["pr", "edit"]]
+    def test_a_teammates_edit_between_read_and_write_is_not_overwritten(self) -> None:
+        """Prevents losing a teammate's edit."""
+        self.body(MARKED)
+        self.w.forge.after_read.append(lambda forge: forge.edit_pull(1, body=MARKED + "A teammate added this.\n"))
+        run = self.w.qew("pr", "check", "1", "red")
+        self.assertEqual(run.code, 3)
+        self.assertIn("changed", run.err)
+        self.assertEqual(self.w.forge.body_writes, [])
+        self.assertIn("A teammate added this.", self.forge_body())
 
+    def test_a_write_the_forge_did_not_keep_is_reported_not_celebrated(self) -> None:
+        """Prevents reporting success for a failed write."""
+        self.body(MARKED)
+        self.w.forge.body_write_ignored = True
+        run = self.w.qew("pr", "check", "1", "red")
+        self.assertEqual(run.code, 3)
+        self.assertNotIn("checked: red", run.out)
 
-def tick(body: str, *needles: str) -> str:
-    for needle in needles:
-        body = body.replace(f"- [ ] {needle}", f"- [x] {needle}")
-    return body
+    def test_list_shows_state_and_writes_nothing_and_a_body_without_a_checklist_says_so(self) -> None:
+        self.body("- [x] done <!-- pr-progress:a -->\n- [ ] open <!-- pr-progress:b -->\n")
+        self.assertEqual(self.w.qew("pr", "check", "1", "--list").out.splitlines(), ["[x] a done", "[ ] b open"])
+        self.body("Just prose.\n")
+        self.assertIn("no checklist", self.w.qew("pr", "check", "1", "--list").out)
+        self.assertEqual(self.w.forge.body_writes, [])
 
+    def test_naming_items_with_all_or_list_or_with_nothing_is_refused_before_any_forge_call(self) -> None:
+        """Prevents ambiguous intent."""
+        reads = self.w.forge.count("read_pr")
+        for argv in (["red", "--all"], ["red", "--list"], ["--all", "--list"], []):
+            with self.subTest(argv=argv):
+                self.assertEqual(self.w.qew("pr", "check", "1", *argv).code, 2)
+        self.assertEqual(self.w.forge.count("read_pr"), reads)
 
-class PullRequestCheckWalk(unittest.TestCase):
-    def test_ticks_a_marked_item_in_place_and_verifies(self) -> None:
-        after = tick(MARKED, "RED test")
-        result, calls = run_qew(
-            [pull_request(MARKED), pull_request(MARKED), {"stdout": "edited\n"}, pull_request(after)],
-            ["pr", "check", "42", "red", *REPO, "--json"],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            json.loads(result.stdout),
-            {"changed": ["red"], "open": ["impl"], "pull_request": 42, "schema_version": 1},
-        )
-        (edit,) = edits(calls)
-        self.assertEqual(edit[edit.index("--body") + 1], after)
-        self.assertIn("Fixes #7\nPart of #3", edit[edit.index("--body") + 1])
-
-    def test_an_item_without_a_marker_is_addressed_by_its_position(self) -> None:
-        after = tick(PLAIN, "second")
-        result, calls = run_qew(
-            [pull_request(PLAIN), pull_request(PLAIN), {"stdout": "edited\n"}, pull_request(after)],
-            ["pr", "check", "42", "2", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(edits(calls)[0][edits(calls)[0].index("--body") + 1], after)
-
-    def test_all_ticks_every_open_item(self) -> None:
-        after = tick(MARKED, "RED test", "Implementation")
-        result, _ = run_qew(
-            [pull_request(MARKED), pull_request(MARKED), {"stdout": "edited\n"}, pull_request(after)],
-            ["pr", "check", "42", "--all", *REPO, "--json"],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["open"], [])
-
-    def test_an_already_ticked_item_writes_nothing(self) -> None:
-        result, calls = run_qew([pull_request(MARKED)], ["pr", "check", "42", "docs", *REPO, "--json"])
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["changed"], [])
-        self.assertEqual(edits(calls), [])
-
-    def test_an_unknown_item_is_refused_before_any_write(self) -> None:
-        result, calls = run_qew([pull_request(MARKED)], ["pr", "check", "42", "red", "nope", *REPO])
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("nope", result.stderr)
-        self.assertEqual(edits(calls), [])
-
-    def test_items_inside_a_code_block_do_not_count(self) -> None:
-        body = "```\n- [ ] fake <!-- pr-progress:fake -->\n```\n\n- [ ] real <!-- pr-progress:real -->"
-        result, calls = run_qew([pull_request(body)], ["pr", "check", "42", "fake", *REPO])
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertEqual(edits(calls), [])
-
-    def test_fences_follow_the_markdown_rules(self) -> None:
-        # Adversary: a one-line fence or a shorter closing fence flips the fence
-        # state, hiding later open boxes so pr merge merges past them.
-        bodies = {
-            "one-line fence": "```x```\n- [ ] real <!-- pr-progress:real -->",
-            "tilde inside a backtick fence": "```\n~~~\n- [ ] fake <!-- pr-progress:fake -->\n```\n- [ ] real <!-- pr-progress:real -->",
-            "short fence inside a long one": "````\n```\n- [ ] fake <!-- pr-progress:fake -->\n````\n- [ ] real <!-- pr-progress:real -->",
-        }
-        for name, body in bodies.items():
-            with self.subTest(name):
-                result, _ = run_qew([pull_request(body)], ["pr", "check", "42", "--list", *REPO, "--json"])
-
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual([item["id"] for item in json.loads(result.stdout)["items"]], ["real"])
-
-    def test_a_crlf_body_is_ticked_without_changing_its_line_endings(self) -> None:
-        body = "- [ ] a <!-- pr-progress:a -->\r\n- [ ] b <!-- pr-progress:b -->\r\nFixes #7"
-        after = body.replace("- [ ] a", "- [x] a")
-        result, calls = run_qew(
-            [pull_request(body), pull_request(body), {"stdout": "edited\n"}, pull_request(after)],
-            ["pr", "check", "42", "a", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(edits(calls)[0][edits(calls)[0].index("--body") + 1], after)
-
-    def test_a_marker_id_that_equals_a_position_does_not_make_the_body_unreadable(self) -> None:
-        # Adversary: marker "2" on item 1 and a markerless item 2 both claimed id 2.
-        body = "- [ ] a <!-- pr-progress:2 -->\n- [ ] b"
-        result, _ = run_qew([pull_request(body)], ["pr", "check", "42", "--list", *REPO, "--json"])
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual([item["id"] for item in json.loads(result.stdout)["items"]], ["2", "@2"])
-
-    def test_a_duplicate_item_id_is_refused(self) -> None:
-        body = "- [ ] a <!-- pr-progress:x -->\n- [ ] b <!-- pr-progress:x -->"
-        result, calls = run_qew([pull_request(body)], ["pr", "check", "42", "x", *REPO])
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("duplicate", result.stderr)
-        self.assertEqual(edits(calls), [])
-
-    def test_a_body_edited_meanwhile_is_not_overwritten(self) -> None:
-        changed = MARKED + "\n\nA reviewer's note."
-        result, calls = run_qew(
-            [pull_request(MARKED), pull_request(changed)], ["pr", "check", "42", "red", *REPO]
-        )
-
-        self.assertEqual(result.returncode, 3, result.stderr)
-        self.assertEqual(edits(calls), [])
-
-    def test_a_teammates_pull_request_is_ticked_by_the_login_that_holds_every_claim(self) -> None:
-        # The factory lane holds the integration issue; the planner opened the PR.
-        claims = [(7, ["alexander"])]
-        after = tick(MARKED, "RED test")
-        result, calls = run_qew(
-            [
-                pull_request(MARKED, author="peter", claims=claims),
-                pull_request(MARKED, author="peter", claims=claims),
-                {"stdout": "edited\n"},
-                pull_request(after, author="peter", claims=claims),
-            ],
-            ["pr", "check", "42", "red", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(edits(calls)), 1)
-
-    def test_a_teammates_pull_request_is_refused_when_a_claim_is_missing_and_names_the_take_over(self) -> None:
-        for claims in ([], [(7, [])], [(7, ["mallory"])], [(7, ["alexander"]), (8, [])]):
-            with self.subTest(claims=claims):
-                result, calls = run_qew(
-                    [pull_request(MARKED, author="peter", claims=claims)], ["pr", "check", "42", "red", *REPO]
-                )
-
-                self.assertEqual(result.returncode, 3, result.stderr)
-                self.assertIn("--take-over", result.stderr)
-                self.assertEqual(edits(calls), [])
-
-    def test_another_logins_pull_request_is_refused(self) -> None:
-        result, calls = run_qew(
-            [pull_request(MARKED, author="mallory")], ["pr", "check", "42", "red", *REPO]
-        )
-
-        self.assertEqual(result.returncode, 3, result.stderr)
-        self.assertEqual(edits(calls), [])
-
-    def test_a_merged_pull_request_is_refused(self) -> None:
-        result, calls = run_qew(
-            [pull_request(MARKED, state="MERGED")], ["pr", "check", "42", "red", *REPO]
-        )
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertEqual(edits(calls), [])
-
-    def test_a_write_that_did_not_stick_is_reported(self) -> None:
-        result, _ = run_qew(
-            [pull_request(MARKED), pull_request(MARKED), {"stdout": "edited\n"}, pull_request(MARKED)],
-            ["pr", "check", "42", "red", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 3, result.stderr)
-
-    def test_list_shows_each_item_and_whether_it_is_ticked(self) -> None:
-        result, calls = run_qew([pull_request(MARKED)], ["pr", "check", "42", "--list", *REPO, "--json"])
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            json.loads(result.stdout)["items"],
-            [
-                {"checked": False, "id": "red", "text": "RED test"},
-                {"checked": False, "id": "impl", "text": "Implementation"},
-                {"checked": True, "id": "docs", "text": "Docs"},
-            ],
-        )
-        self.assertEqual(edits(calls), [])
-
-    def test_a_body_without_a_checklist_says_so(self) -> None:
-        result, _ = run_qew([pull_request("No boxes.")], ["pr", "check", "42", "--list", *REPO])
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("no checklist", result.stdout)
-
-    def test_naming_items_and_all_or_nothing_is_refused_before_any_call(self) -> None:
-        for extra in ([], ["--all", "red"], ["--list", "red"]):
-            with self.subTest(extra=extra):
-                result, calls = run_qew([], ["pr", "check", "42", *extra, *REPO])
-
-                self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertEqual(calls, [])
+    def test_a_merged_or_closed_pull_request_is_not_edited(self) -> None:
+        """Prevents editing history."""
+        self.body(MARKED)
+        for state in ("merged", "closed"):
+            with self.subTest(state=state):
+                self.w.forge.edit_pull(1, state=state)
+                self.assertEqual(self.w.qew("pr", "check", "1", "red").code, 2)
+        self.assertEqual(self.w.forge.body_writes, [])
 
 
 if __name__ == "__main__":

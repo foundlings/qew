@@ -1,108 +1,115 @@
-"""A person's inbox: replies to them, approvals they wait on, and work assigned to them."""
+"""What waits on one person, derived from the ledger alone: replies, drafts they authored, work they hold.
 
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+A reply is a comment by someone else (not a bot, not a machine marker) at or after the window start,
+on an item the person created, claimed or commented on. Every event of every candidate item is scanned.
+"""
 
-from qew.claims import is_marker_comment
-from qew.github import fetch_inbox_assigned, fetch_inbox_replies, fetch_inbox_waiting, fetch_viewer_login
-from qew.moments import format_instant, parse_since
+from dataclasses import dataclass
+from datetime import datetime
+import re
+from typing import List, Optional
 
-EXCERPT_LIMIT = 100
-DEFAULT_WINDOW = timedelta(days=7)
+from qew import instants, ledger_author, ledger_graph, read_view
+from qew.errors import QewError
+from qew.ledger_event import State
+from qew.ledger_store import Snapshot
 
-
-def since_or_default(text: Optional[str]) -> datetime:
-    """The --since instant, or seven days before now (UTC); no state is kept."""
-    if text is None:
-        return datetime.now(timezone.utc).replace(microsecond=0) - DEFAULT_WINDOW
-    return parse_since(text)
-
-
-def build(repository: str, login: Optional[str], since: datetime) -> Dict[str, Any]:
-    login = login if login is not None else fetch_viewer_login()
-    replies = _reply_items(fetch_inbox_replies(repository, login, since), login, since)
-    waiting = fetch_inbox_waiting(repository, login)
-    assigned = fetch_inbox_assigned(repository, login)
-    return {
-        "assigned": assigned,
-        "login": login,
-        "replies": replies,
-        "since": format_instant(since),
-        "waiting": waiting,
-    }
+# Letters, digits, `-`, `_`, `.` and an optional `[bot]`: no whitespace, colon or quote can ride along.
+_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,49}(\[bot\])?")
+EXCERPT = 100
+MARKER = "<!-- qew:"
+WINDOW_DAYS = 7
+COUNT_LISTED = 5
 
 
-def rows(inbox: Dict[str, Any]) -> List[Dict[str, Any]]:
-    result = [
-        {"schema_version": 1, "section": "reply", **item} for item in inbox["replies"]
-    ]
-    for section in ("waiting", "assigned"):
-        result.extend({"schema_version": 1, "section": section, **item} for item in inbox[section])
-    return result
+def require_login(text: str) -> str:
+    if not _LOGIN.fullmatch(text):
+        raise QewError(f"`{text}` is not a valid login (letters, digits, `-`, `_`, `.`)", 2)
+    return text
 
 
-def count_line(inbox: Dict[str, Any]) -> str:
-    replies = inbox["replies"]
-    line = f"qew inbox ({inbox['login']}): {len(replies)} issue(s) with replies since {inbox['since']}"
-    if replies:
-        shown = ", ".join(f"#{item['number']} ({item['replies'][-1]['author']})" for item in replies)
-        line += f": {shown}"
-    return f"{line}; {len(inbox['waiting'])} waiting for a human; {len(inbox['assigned'])} assigned."
+@dataclass(frozen=True)
+class Reply:
+    item: str
+    author: str
+    at: str
+    excerpt: str
 
 
-def text_lines(inbox: Dict[str, Any]) -> List[str]:
-    lines = [f"Replies since {inbox['since']} ({len(inbox['replies'])})"]
-    for item in inbox["replies"]:
-        lines.append(f"#{item['number']} {_printable(item['title'])}")
-        for reply in item["replies"]:
-            lines.append(f"  {reply['author']} {reply['created_at']}  {reply['excerpt']}")
-    for heading, key in (("Waiting for a human", "waiting"), ("Assigned", "assigned")):
-        lines.append(f"{heading} ({len(inbox[key])})")
-        lines.extend(f"#{item['number']} {_printable(item['title'])}" for item in inbox[key])
-    return lines
+def excerpt(text: str) -> str:
+    """The first line, control characters as spaces, cut to 100 characters with an ellipsis."""
+    lines = text.strip().splitlines()
+    line = read_view.plain(lines[0]) if lines else ""
+    return line if len(line) <= EXCERPT else line[: EXCERPT - 1] + "…"
 
 
-def _reply_items(issues: List[Dict[str, Any]], login: str, since: datetime) -> List[Dict[str, Any]]:
-    items = []
-    for issue in sorted(issues, key=lambda value: value["number"]):
-        replies = [
-            {
-                "author": comment["author"] or "ghost",
-                "created_at": format_instant(comment["created_at"]),
-                "excerpt": _excerpt(comment["body"]),
-            }
-            for comment in issue["comments"]
-            if comment["created_at"] >= since and _is_reply(comment, login)
-        ]
-        if replies:
-            items.append(
-                {
-                    "number": issue["number"],
-                    "replies": replies,
-                    "title": issue["title"],
-                    "url": issue["url"],
-                }
-            )
-    return items
+def _is_machine(author: str, text: str) -> bool:
+    return author.lower().endswith("[bot]") or text.lstrip().startswith(MARKER)
 
 
-def _is_reply(comment: Dict[str, Any], login: str) -> bool:
-    author = comment["author"]
-    if author is not None:
-        if author.casefold() == login.casefold():
-            return False
-        if comment["author_type"] == "Bot" or author.endswith("[bot]"):
-            return False
-    return not is_marker_comment(comment["body"])
+def _involved(snapshot: Snapshot, item_id: str, me: str) -> bool:
+    if ledger_author.author(snapshot, item_id).casefold() == me:
+        return True
+    return any(
+        (e.type == "claimed" and str(e.get("owner")).casefold() == me)
+        or (e.type == "commented" and (e.get("author") or e.actor).casefold() == me)
+        for e in snapshot.events[item_id]
+    )
 
 
-def _excerpt(body: str) -> str:
-    first = _printable(body.strip().splitlines()[0]) if body.strip() else ""
-    if len(first) > EXCERPT_LIMIT:
-        return first[: EXCERPT_LIMIT - 1] + "…"
-    return first
+def replies(snapshot: Snapshot, login: str, since: datetime) -> List[Reply]:
+    me = login.casefold()
+    found = []
+    for item_id in snapshot.items:
+        if not _involved(snapshot, item_id, me):
+            continue
+        for event in snapshot.events[item_id]:
+            if event.type != "commented":
+                continue
+            author = str(event.get("author") or event.actor)
+            moment = instants.parse_instant(event.at)
+            if moment is None:
+                raise QewError(f"events/{item_id}/{event.id}: event time `{event.at}` is not a UTC instant", 1)
+            text = str(event.get("text"))
+            if author.casefold() == me or _is_machine(author, text) or moment < since:
+                continue
+            found.append((event.at, item_id, Reply(item_id, author, event.at, excerpt(text))))
+    return [reply for *_, reply in sorted(found, key=lambda entry: entry[:2])]
 
 
-def _printable(text: str) -> str:
-    """GitHub text is data: control characters never reach the terminal."""
-    return "".join(character if character.isprintable() else " " for character in text)
+def waiting(snapshot: Snapshot, login: str) -> List[str]:
+    me = login.casefold()
+    return [i for i in ledger_graph.ordered(snapshot, list(snapshot.items))
+            if snapshot.folds[i].state == State.DRAFT and ledger_author.author(snapshot, i).casefold() == me]
+
+
+def assigned(snapshot: Snapshot, login: str) -> List[str]:
+    me = login.casefold()
+    return [i for i in ledger_graph.ordered(snapshot, list(snapshot.items))
+            if snapshot.folds[i].state == State.CLAIMED and snapshot.folds[i].owner.casefold() == me]
+
+
+def count_line(snapshot: Snapshot, login: str, since: datetime, listed: int = COUNT_LISTED) -> str:
+    """`qew inbox (NAME): N issue(s) with replies since T: ID (author), ...; M waiting for a human; K assigned.`"""
+    found = replies(snapshot, login, since)
+    latest = {}
+    for reply in found:  # oldest first, so the last write per item is its latest author
+        latest[reply.item] = reply.author
+    items = list(reversed(list(latest.items())))
+    head = f"qew inbox ({login}): {len(items)} issue(s) with replies since {instants.format_instant(since)}"
+    if items and listed:
+        shown = ", ".join(f"{item} ({author})" for item, author in items[:listed])
+        head += f": {shown}" + (f" +{len(items) - listed} more" if len(items) > listed else "")
+    return f"{head}; {len(waiting(snapshot, login))} waiting for a human; {len(assigned(snapshot, login))} assigned."
+
+
+def hook_line(snapshot: Snapshot, login: str, room: int) -> Optional[str]:
+    """The count line for the session-start context when something waits and it fits in `room` bytes."""
+    since = instants.days_ago(WINDOW_DAYS)
+    if not (replies(snapshot, login, since) or waiting(snapshot, login) or assigned(snapshot, login)):
+        return None
+    for listed in (COUNT_LISTED, 2, 0):
+        line = count_line(snapshot, login, since, listed)
+        if len(line.encode("utf-8")) + 1 <= room:
+            return line
+    return None

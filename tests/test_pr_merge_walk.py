@@ -1,394 +1,324 @@
-"""Command walks for merging a ready pull request.
+"""Walks of `qew pr merge`: every unready pull request is refused and nothing is written.
 
-Adversary: merging a draft, a pull request with open checklist items, red or
-pending checks, a conflicting or foreign pull request, or one that closes a
-draft issue; `--auto` on a base branch that requires no checks (GitHub then
-merges at once, as PR 307 did with CI still running); a merge of a head that
-moved; and a merge that lands nothing or whose landing failure is hidden.
+Adversary: a draft, conflicted, red or unchecked pull request merged, a head that moved after the check
+merged anyway, a merge reported that never landed, an override used as a master key, and half-done or
+unproven work shipped through the forge.
 """
 
 import json
+import os
+import sys
 import unittest
 
-from tests.command_harness import PROJECT_HINT, run_qew
-from tests.test_land_walk import CLEAN, STALE, pull_request as land_response
-from tests.test_lifecycle_walk import FULL_SHA, compare_response, issue, pulls_response, response
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-REPO = ["--repo", "acme/widgets"]
-HEAD = "a" * 40
-READY_BODY = "## Progress\n\n- [x] done\n\nFixes #15"
+from qew.forge import ForgeAuth
+from tests.pr_harness import PrWorld
+
+BASE = dict(state="open", draft=False, mergeable=True, checks="passing", body="")
 
 
-def pull(
-    *,
-    state="OPEN",
-    draft=False,
-    author="alexander",
-    body=READY_BODY,
-    checks="SUCCESS",
-    mergeable="MERGEABLE",
-    protected=False,
-    auto=False,
-    closing=((15, ("task", "qew:approved")),),
-    base="main",
-    labels=(),
-) -> dict:
-    return {
-        "stdout": json.dumps(
-            {
-                "data": {
-                    "viewer": {"login": "alexander"},
-                    "repository": {
-                        "pullRequest": {
-                            "number": 42,
-                            "state": state,
-                            "isDraft": draft,
-                            "author": {"login": author},
-                            "body": body,
-                            "labels": {"nodes": [{"name": name} for name in labels], "pageInfo": {"hasNextPage": False}},
-                            "headRefOid": HEAD,
-                            "baseRefName": base,
-                            "mergeable": mergeable,
-                            "autoMergeRequest": {"enabledAt": "2026-10-07T10:00:00Z"} if auto else None,
-                            "commits": {
-                                "nodes": [
-                                    {"commit": {"statusCheckRollup": None if checks is None else {"state": checks}}}
-                                ]
-                            },
-                            "closingIssuesReferences": {
-                                "nodes": [
-                                    {
-                                        "number": entry[0],
-                                        "labels": {
-                                            "nodes": [{"name": name} for name in entry[1]],
-                                            "pageInfo": {"hasNextPage": False},
-                                        },
-                                        "assignees": {
-                                            "totalCount": len(entry[2]) if len(entry) > 2 else 0,
-                                            "nodes": [{"login": login} for login in (entry[2] if len(entry) > 2 else ())],
-                                        },
-                                    }
-                                    for entry in closing
-                                ],
-                                "pageInfo": {"hasNextPage": False},
-                            },
-                            "baseRef": {
-                                "branchProtectionRule": {"requiresStatusChecks": True} if protected else None
-                            },
-                        },
-                    },
-                }
-            }
+class MergeBase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.w = PrWorld()
+        self.addCleanup(self.w.close)
+        self.item = self.w.item("Work")
+        self.assertEqual(self.w.open(self.item).code, 0)
+        self.sha = self.w.commit("work")
+        self.w.forge.edit_pull(1, head_sha=self.sha)
+        self.assertEqual(self.w.qew("evidence", self.item, "--change", self.sha).code, 0)
+        self.assertEqual(self.w.qew("pr", "ready", "1").code, 0)
+
+    def merge(self, *extra: str, **kwargs):
+        return self.w.qew("pr", "merge", "1", *extra, **kwargs)
+
+    def nothing_merged(self) -> None:
+        self.assertEqual(self.w.forge.merged, [])
+        self.assertEqual(self.w.forge.count("merge_pr"), 0)
+
+
+class RefusalWalk(MergeBase):
+    def test_every_unready_pull_request_is_refused_with_its_own_message_and_nothing_is_written(self) -> None:
+        """Prevents any unready merge, and checks the refusals can be told apart."""
+        table = (
+            ("draft", dict(draft=True), 2, "qew pr ready 1"),
+            ("open checklist item", dict(body="- [ ] RED test <!-- pr-progress:red -->\n"), 2, "unticked"),
+            ("conflict", dict(mergeable=False), 2, "conflicts"),
+            ("unknown merge state", dict(mergeable=None), 2, "unknown, retry"),
+            ("closed", dict(state="closed"), 2, "is closed"),
+            ("merged", dict(state="merged"), 2, "is merged"),
+            ("failing checks", dict(checks="failing"), 3, "are failing"),
+            ("pending checks", dict(checks="pending"), 3, "are pending"),
         )
-    }
+        for name, change, code, fragment in table:
+            with self.subTest(name):
+                self.w.forge.edit_pull(1, **{**BASE, **change})
+                run = self.merge()
+                self.assertEqual(run.code, code, run)
+                self.assertIn(fragment, run.err)
+                self.nothing_merged()
+
+    def test_a_pull_request_with_no_checks_at_all_may_merge(self) -> None:
+        """Prevents a deadlock on repositories without CI."""
+        self.w.forge.edit_pull(1, checks="none")
+        self.assertEqual(self.merge().code, 0)
+
+    def test_the_golden_merge_pins_the_checked_head_and_points_at_the_next_step(self) -> None:
+        run = self.merge()
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.w.forge.merged, [(1, self.sha)])
+        self.assertIn(f"merged at {self.sha[:12]}", run.out)
+        self.assertIn(f"{self.item}: evidence recorded; qew complete {self.item}", run.out)
+        self.assertIn("qew land 1", run.out)
+
+    def test_a_head_that_moved_after_the_check_is_refused_by_the_forge(self) -> None:
+        """Prevents merging unreviewed commits."""
+        self.w.forge.after_read.append(lambda forge: forge.edit_pull(1, head_sha="moved"))
+        run = self.merge()
+        self.assertEqual(run.code, 1)
+        self.assertEqual(self.w.forge.merged, [])
+
+    def test_a_check_state_the_client_does_not_know_is_indeterminate(self) -> None:
+        """Prevents guessing readiness."""
+        self.w.forge.edit_pull(1, checks="mystery")
+        self.assertEqual(self.merge().code, 4)
+        self.nothing_merged()
+
+    def test_an_unconfigured_target_is_one_line_not_a_traceback(self) -> None:
+        path = next((self.w.world.ledger / "mirrors" / self.item).glob("*-pr-1.json"))
+        path.rename(path.with_name("forgejo-gone.example-o-r-pr-1.json"))
+        run = self.merge()
+        self.assertEqual(run.code, 2)
+        self.assertIn("is not configured", run.err)
+        self.assertNotIn("Traceback", run.err)
 
 
-MERGED = {"stdout": "merged\n"}
+class VerifyWalk(MergeBase):
+    def test_a_merge_the_forge_shows_late_is_still_a_success(self) -> None:
+        """Prevents a false failure when the forge lags."""
+        self.w.forge.merge_lag_reads = 1
+        slept = []
+        run = self.merge(sleep=slept.append)
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(slept, [1.0])
 
+    def test_a_merge_that_never_lands_is_reported_not_celebrated(self) -> None:
+        """Prevents telling the user work merged when it did not."""
+        self.w.forge.merge_lag_reads = 99
+        run = self.merge(sleep=lambda seconds: None)
+        self.assertEqual(run.code, 3)
+        self.assertIn("merge not visible", run.err)
+        self.assertNotIn("merged at", run.out)
 
-def rules(value: list) -> dict:
-    return {"stdout": json.dumps(value)}
-
-
-def merges(calls):
-    return [call for call in calls if call[:2] == ["pr", "merge"]]
-
-
-def landing() -> list:
-    return [
-        land_response(),
-        response(issue(**STALE)),
-        response(issue(**STALE)),
-        compare_response("ahead", FULL_SHA),
-        pulls_response([(42, "2026-10-01T10:00:00Z")]),
-        {"stdout": "edited\n"},
-        {"stdout": "commented\n"},
-        response(issue(**CLEAN)),
-    ]
-
-
-class PullRequestMergeWalk(unittest.TestCase):
-    def test_golden_walk_merges_the_exact_head_then_lands(self) -> None:
-        result, calls = run_qew(
-            [pull(), MERGED, pull(state="MERGED"), *landing()], ["pr", "merge", "42", *REPO]
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("merged PR #42", result.stdout)
-        self.assertIn("landed #15 from PR #42", result.stdout)
+    def test_json_reports_the_merge_the_head_and_the_covered_items(self) -> None:
+        """Prevents agents scraping text."""
+        run = self.merge("--json")
         self.assertEqual(
-            merges(calls),
-            [["pr", "merge", "42", "--repo", "acme/widgets", "--merge", "--match-head-commit", HEAD]],
+            json.loads(run.out),
+            {"merged": True, "number": 1, "head_sha": self.sha, "items": [self.item], "schema_version": 1},
         )
 
-    def test_json_reports_the_merge_and_what_landed(self) -> None:
-        result, _ = run_qew(
-            [pull(), MERGED, pull(state="MERGED"), *landing()], ["pr", "merge", "42", *REPO, "--json"]
+
+class AutoWalk(MergeBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.w.forge.edit_pull(1, checks="pending")
+
+    def test_auto_is_refused_where_the_base_branch_requires_no_checks(self) -> None:
+        """Prevents an auto-merge that skips CI."""
+        run = self.merge("--auto")
+        self.assertEqual(run.code, 3)
+        self.assertIn("would merge immediately", run.err)
+        self.nothing_merged()
+
+    def test_auto_enables_where_checks_are_required_and_names_the_follow_up(self) -> None:
+        self.w.forge.required_checks["main"] = True
+        run = self.merge("--auto")
+        self.assertEqual(run.code, 0, run)
+        self.assertTrue(self.w.forge.pulls[1].auto_merge)
+        self.assertIn("auto-merge enabled", run.out)
+        self.assertIn("qew land 1", run.out)
+        self.nothing_merged()
+
+    def test_auto_that_does_not_show_after_enabling_is_a_failure(self) -> None:
+        self.w.forge.required_checks["main"] = True
+        self.w.forge.auto_merge_ignored = True
+        self.assertEqual(self.merge("--auto").code, 3)
+
+    def test_unreadable_rules_are_indeterminate_and_never_assumed(self) -> None:
+        """Prevents guessing."""
+        self.w.forge.rules_error = ForgeAuth("HTTP 403")
+        run = self.merge("--auto")
+        self.assertEqual(run.code, 4)
+        self.nothing_merged()
+
+    def test_a_forge_without_auto_merge_says_so_in_one_line_and_changes_nothing(self) -> None:
+        self.w.forge.required_checks["main"] = True
+        self.w.forge.supports_auto_merge = False
+        run = self.merge("--auto")
+        self.assertEqual(run.code, 3)
+        self.assertEqual(len(run.err.strip().splitlines()), 1)
+        self.nothing_merged()
+
+    def test_auto_never_waits_for_failing_checks_and_merges_green_ones_at_once(self) -> None:
+        self.w.forge.required_checks["main"] = True
+        self.w.forge.edit_pull(1, checks="failing")
+        self.assertEqual(self.merge("--auto").code, 3)
+        self.w.forge.edit_pull(1, checks="passing")
+        self.assertEqual(self.merge("--auto").code, 0)
+        self.assertEqual(len(self.w.forge.merged), 1)
+
+    def test_auto_and_admin_contradict_before_any_call(self) -> None:
+        calls = len(self.w.forge.calls)
+        self.assertEqual(self.merge("--auto", "--admin", "--reason", "x").code, 2)
+        self.assertEqual(len(self.w.forge.calls), calls)
+
+
+class AdminWalk(MergeBase):
+    def test_admin_without_a_reason_and_a_reason_without_admin_are_refused_before_any_call(self) -> None:
+        """Prevents a silent bypass."""
+        calls = len(self.w.forge.calls)
+        self.assertEqual(self.merge("--admin").code, 2)
+        self.assertEqual(self.merge("--reason", "because").code, 2)
+        self.assertEqual(len(self.w.forge.calls), calls)
+
+    def test_admin_skips_pending_and_failing_checks_prints_the_reason_and_leaves_an_audit_event(self) -> None:
+        """Prevents a blocked emergency docs-only merge."""
+        for checks in ("pending", "failing"):
+            with self.subTest(checks=checks):
+                self.w.forge.edit_pull(1, **{**BASE, "checks": checks})
+                self.w.forge.merged.clear()
+                run = self.merge("--admin", "--reason", "docs only fix")
+                self.assertEqual(run.code, 0, run)
+                self.assertIn("admin merge: docs only fix", run.out)
+                self.assertEqual(self.w.forge.merge_calls[-1], (1, self.sha, True))
+        audit = [e for e in self.w.events(self.item) if e.get("key") == "admin_merge"]
+        self.assertEqual([e["new"] for e in audit], ["docs only fix", "docs only fix"])
+
+    def test_admin_is_not_a_master_key(self) -> None:
+        """Prevents admin bypassing the draft, checklist, conflict and ownership rules."""
+        table = (
+            ("draft", dict(draft=True), "draft"),
+            ("open checklist", dict(body="- [ ] step\n"), "unticked"),
+            ("conflict", dict(mergeable=False), "conflicts"),
         )
-
-        output = json.loads(result.stdout)
-        self.assertTrue(output["merged"])
-        self.assertEqual(output["landed"], [15])
-        self.assertEqual(output["pull_request"], 42)
-
-    def test_refusals_write_nothing(self) -> None:
-        cases = {
-            "draft": (pull(draft=True), 2, "is a draft; run qew pr ready"),
-            "open item": (pull(body="- [ ] todo\n\nFixes #15"), 2, "checklist"),
-            "closes a draft": (pull(closing=((15, ("task", "qew:draft")),)), 2, "closes #15"),
-            "conflict": (pull(mergeable="CONFLICTING"), 2, "conflicts"),
-            "closed": (pull(state="CLOSED"), 2, "closed"),
-            "merged": (pull(state="MERGED"), 2, "merged"),
-            "foreign": (pull(author="mallory"), 3, "mallory"),
-            "failing checks": (pull(checks="FAILURE"), 3, "are failing"),
-            "pending checks": (pull(checks="PENDING"), 3, "are pending"),
-        }
-        for name, (response_value, code, text) in cases.items():
+        for name, change, fragment in table:
             with self.subTest(name):
-                result, calls = run_qew([response_value], ["pr", "merge", "42", *REPO])
+                self.w.forge.edit_pull(1, **{**BASE, **change})
+                run = self.merge("--admin", "--reason", "emergency")
+                self.assertEqual(run.code, 2, run)
+                self.assertIn(fragment, run.err)
+        self.w.forge.edit_pull(1, **BASE)
+        stranger = self.merge("--admin", "--reason", "emergency", actor="stranger")
+        self.assertEqual(stranger.code, 3)
+        self.nothing_merged()
 
-                self.assertEqual(result.returncode, code, result.stderr)
-                self.assertIn(text, result.stderr)
-                self.assertEqual(merges(calls), [])
+    def test_a_forge_without_a_bypass_refuses_one_line_and_merges_nothing(self) -> None:
+        self.w.forge.bypass_supported = False
+        run = self.merge("--admin", "--reason", "emergency")
+        self.assertEqual(run.code, 3)
+        self.assertEqual(self.w.forge.merged, [])
 
-    def test_a_pull_request_without_any_checks_may_merge(self) -> None:
-        result, calls = run_qew(
-            [pull(checks=None), MERGED, pull(state="MERGED"), *landing()], ["pr", "merge", "42", *REPO]
-        )
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(merges(calls)), 1)
+class ItemGateWalk(unittest.TestCase):
+    def setUp(self) -> None:
+        self.w = PrWorld()
+        self.addCleanup(self.w.close)
+        self.item = self.w.item("Work")
+        self.assertEqual(self.w.open(self.item).code, 0)
+        self.sha = self.w.commit("work")
+        self.w.forge.edit_pull(1, head_sha=self.sha, draft=False)
 
-    def test_auto_is_refused_when_the_base_branch_requires_no_checks(self) -> None:
-        # Adversary: GitHub merges at once, so auto-merge would skip a pending CI.
-        result, calls = run_qew(
-            [pull(checks="PENDING"), rules([])], ["pr", "merge", "42", "--auto", *REPO]
-        )
+    def test_an_open_child_task_blocks_the_merge_and_a_finished_one_lets_it_through(self) -> None:
+        """Prevents merging half-done work."""
+        self.assertEqual(self.w.qew("evidence", self.item, "--change", self.sha).code, 0)
+        task = self.w.item("Step", kind="task", parent=self.item, claim=False)
+        refused = self.w.qew("pr", "merge", "1")
+        self.assertEqual(refused.code, 2)
+        self.assertIn(task, refused.err)
+        self.assertEqual(self.w.forge.merged, [])
+        self.w.qew("start", task)
+        self.w.qew("evidence", task, "--change", self.sha)
+        self.assertEqual(self.w.qew("complete", task).code, 0)
+        self.assertEqual(self.w.qew("pr", "merge", "1").code, 0)
 
-        self.assertEqual(result.returncode, 3, result.stderr)
-        self.assertIn("immediately", result.stderr)
-        self.assertEqual(merges(calls), [])
+    def test_a_merge_without_evidence_for_the_checked_head_is_refused(self) -> None:
+        """Prevents shipping work nothing proves."""
+        refused = self.w.qew("pr", "merge", "1")
+        self.assertEqual(refused.code, 2)
+        self.assertIn(f"qew evidence {self.item}", refused.err)
+        later = self.w.commit("after the head")  # evidence for a commit the head does not contain
+        self.w.qew("evidence", self.item, "--change", later)
+        self.assertEqual(self.w.qew("pr", "merge", "1").code, 2)
+        self.assertEqual(self.w.forge.merged, [])
+        self.w.qew("evidence", self.item, "--change", self.sha)
+        self.assertEqual(self.w.qew("pr", "merge", "1").code, 0)
 
-    def test_auto_is_accepted_when_a_ruleset_requires_checks(self) -> None:
-        # Adversary: A consumer protects main with a ruleset, not a branch protection
-        # rule, so auto-merge was refused although GitHub would wait for the checks.
-        result, calls = run_qew(
-            [
-                pull(checks="PENDING"),
-                rules([{"type": "required_status_checks", "parameters": {}}]),
-                MERGED,
-                pull(checks="PENDING", auto=True),
-            ],
-            ["pr", "merge", "42", "--auto", *REPO],
-        )
+    def test_a_head_missing_from_the_checkout_is_indeterminate_not_unproven(self) -> None:
+        self.w.qew("evidence", self.item, "--change", self.sha)
+        self.w.forge.edit_pull(1, head_sha="f" * 40)
+        self.assertEqual(self.w.qew("pr", "merge", "1").code, 4)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--auto", merges(calls)[0])
-        self.assertEqual(calls[1][:2], ["api", "repos/acme/widgets/rules/branches/main"])
+    def test_a_foreign_claim_blocks_the_merge_until_the_item_is_taken_over(self) -> None:
+        """Prevents merging another actor's claimed work by accident."""
+        self.w.qew("evidence", self.item, "--change", self.sha)
+        self.w.qew("release", self.item, "--reason", "handover")
+        self.assertEqual(self.w.qew("start", self.item, actor="other").code, 0)
+        refused = self.w.qew("pr", "merge", "1")
+        self.assertEqual(refused.code, 3)
+        self.assertIn("other", refused.err)
+        self.assertEqual(self.w.qew("release", self.item, "--reason", "handover", actor="other").code, 0)
+        self.assertEqual(self.w.qew("start", self.item).code, 0)
+        self.assertEqual(self.w.qew("pr", "merge", "1").code, 0)
 
-    def test_a_ruleset_without_required_checks_does_not_enable_auto(self) -> None:
-        result, calls = run_qew(
-            [pull(checks="PENDING"), rules([{"type": "pull_request", "parameters": {}}])],
-            ["pr", "merge", "42", "--auto", *REPO],
-        )
 
-        self.assertEqual(result.returncode, 3, result.stderr)
-        self.assertEqual(merges(calls), [])
+class PlanEpicMergeWalk(unittest.TestCase):
+    def setUp(self) -> None:
+        self.w = PrWorld()
+        self.addCleanup(self.w.close)
+        self.epic = self.w.item("Plan", kind="epic", draft=True)
+        self.one = self.w.item("One", draft=True, parent=self.epic)
+        self.two = self.w.item("Two", draft=True, parent=self.epic)
+        self.assertEqual(self.w.open(self.epic).code, 0)
 
-    def test_rules_that_cannot_be_read_are_indeterminate_not_assumed(self) -> None:
-        result, calls = run_qew(
-            [pull(checks="PENDING"), {"stderr": "HTTP 403", "exit_code": 1}],
-            ["pr", "merge", "42", "--auto", *REPO],
-        )
+    def test_a_plan_pull_request_is_held_while_any_covered_item_is_a_draft(self) -> None:
+        """Prevents merging a plan before approval."""
+        for argv in (("ready", "1"), ("merge", "1")):
+            run = self.w.qew("pr", *argv)
+            self.assertEqual(run.code, 2, run)
+            for item in (self.epic, self.one, self.two):
+                self.assertIn(item, run.err)
+        self.assertEqual(self.w.forge.count("ready_pr"), 0)
 
-        self.assertEqual(result.returncode, 4, result.stderr)
-        self.assertEqual(merges(calls), [])
+    def test_partial_approval_leaves_the_pull_request_held_naming_the_rest(self) -> None:
+        """Prevents an early merge."""
+        self.assertEqual(self.w.approve(self.epic, self.one).code, 0)
+        run = self.w.qew("pr", "ready", "1")
+        self.assertEqual(run.code, 2)
+        self.assertIn(self.two, run.err)
+        self.assertNotIn(self.one, run.err)
 
-    def test_auto_enables_auto_merge_and_names_the_landing_command(self) -> None:
-        result, calls = run_qew(
-            [pull(checks="PENDING", protected=True), MERGED, pull(checks="PENDING", protected=True, auto=True)],
-            ["pr", "merge", "42", "--auto", *REPO],
-        )
+    def test_full_approval_releases_the_same_pull_request_with_no_forge_edit(self) -> None:
+        """Prevents stuck pull requests."""
+        self.assertEqual(self.w.approve(self.epic, tree=True).code, 0)
+        edits = len(self.w.forge.calls)
+        self.assertEqual(self.w.qew("pr", "ready", "1").code, 0)
+        run = self.w.qew("pr", "merge", "1")
+        self.assertEqual(run.code, 0, run)
+        self.assertIn("unclaimed; nothing to complete yet", run.out)
+        self.assertGreater(len(self.w.forge.calls), edits)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--auto", merges(calls)[0])
-        self.assertIn("qew land 42 --repo acme/widgets", result.stdout)
-
-    def test_auto_that_did_not_take_effect_is_reported(self) -> None:
-        result, _ = run_qew(
-            [pull(checks="PENDING", protected=True), MERGED, pull(checks="PENDING", protected=True)],
-            ["pr", "merge", "42", "--auto", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 3, result.stderr)
-
-    def test_admin_needs_a_reason_before_any_call(self) -> None:
-        result, calls = run_qew([], ["pr", "merge", "42", "--admin", *REPO])
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("--reason", result.stderr)
-        self.assertEqual(calls, [])
-
-    def test_admin_skips_the_check_rule_and_prints_the_reason(self) -> None:
-        result, calls = run_qew(
-            [pull(checks="PENDING"), MERGED, pull(state="MERGED"), *landing()],
-            ["pr", "merge", "42", "--admin", "--reason", "docs only", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--admin", merges(calls)[0])
-        self.assertIn("admin merge: docs only", result.stdout)
-
-    def test_admin_still_refuses_open_items_and_drafts(self) -> None:
-        result, calls = run_qew(
-            [pull(draft=True)], ["pr", "merge", "42", "--admin", "--reason", "docs only", *REPO]
-        )
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertEqual(merges(calls), [])
-
-    def test_admin_still_refuses_every_readiness_rule(self) -> None:
-        cases = {
-            "open item": (pull(body="- [ ] todo\n\nFixes #15"), "open checklist"),
-            "conflict": (pull(mergeable="CONFLICTING"), "conflicts"),
-            "closing draft": (pull(closing=((15, ("task", "qew:draft")),)), "closes #15"),
-            "draft": (pull(draft=True), "is a draft; run qew pr ready"),
-        }
-        for name, (response_value, text) in cases.items():
-            with self.subTest(name):
-                result, calls = run_qew(
-                    [response_value], ["pr", "merge", "42", "--admin", "--reason", "docs only", *REPO]
-                )
-
-                self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn(text, result.stderr)
-                self.assertEqual(merges(calls), [])
-
-    def test_failing_and_pending_checks_are_told_apart(self) -> None:
-        for checks, text in (("FAILURE", "are failing"), ("PENDING", "are pending")):
-            with self.subTest(checks):
-                result, _ = run_qew([pull(checks=checks)], ["pr", "merge", "42", *REPO])
-
-                self.assertEqual(result.returncode, 3, result.stderr)
-                self.assertIn(text, result.stderr)
-
-    def test_contradictory_options_are_refused_before_any_call(self) -> None:
-        for extra, text in (
-            (["--auto", "--admin", "--reason", "x"], "--auto"),
-            (["--reason", "x"], "--reason is only for"),
-        ):
-            with self.subTest(extra=extra):
-                result, calls = run_qew([], ["pr", "merge", "42", *extra, *REPO])
-
-                self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn(text, result.stderr)
-                self.assertEqual(calls, [])
-
-    def test_a_pull_request_labelled_qew_draft_is_refused_until_its_issues_are_approved(self) -> None:
-        # Adversary: a plan's pull request is merged while its plan is still a draft.
-        result, calls = run_qew(
-            [pull(labels=("qew:draft",))], ["pr", "merge", "42", *REPO]
-        )
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("labelled qew:draft", result.stderr)
-        self.assertIn("qew draft approve", result.stderr)
-        self.assertEqual(merges(calls), [])
-
-    def test_a_teammates_pull_request_merges_when_the_caller_holds_every_claim(self) -> None:
-        # The lane was claimed deliberately (qew start --take-over): that is the
-        # authority to merge, the same way it is the authority to complete.
-        result, calls = run_qew(
-            [pull(author="peter", closing=((15, ("task", "qew:approved"), ("alexander",)),)), MERGED, pull(state="MERGED", author="peter"), *landing()],
-            ["pr", "merge", "42", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(merges(calls)), 1)
-
-    def test_a_teammates_pull_request_is_refused_without_the_claim_and_names_both_ways(self) -> None:
-        cases = {
-            "unclaimed": ((15, ("task", "qew:approved"), ()),),
-            "claimed by someone else": ((15, ("task", "qew:approved"), ("mallory",)),),
-            "one of two claimed": ((15, ("task", "qew:approved"), ("alexander",)), (16, ("task", "qew:approved"), ())),
-            "closes nothing": (),
-        }
-        for name, closing in cases.items():
-            with self.subTest(name):
-                result, calls = run_qew(
-                    [pull(author="peter", closing=closing)], ["pr", "merge", "42", *REPO]
-                )
-
-                self.assertEqual(result.returncode, 3, result.stderr)
-                self.assertIn("opened by peter", result.stderr)
-                self.assertIn("--take-over", result.stderr)
-                self.assertIn("--other-author", result.stderr)
-                self.assertEqual(merges(calls), [])
-
-    def test_other_author_with_a_reason_merges_and_prints_it(self) -> None:
-        result, calls = run_qew(
-            [pull(author="peter"), MERGED, pull(state="MERGED", author="peter"), *landing()],
-            ["pr", "merge", "42", "--other-author", "--reason", "reviewed and agreed with the author", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("merging peter's pull request: reviewed and agreed with the author", result.stdout)
-        self.assertEqual(len(merges(calls)), 1)
-
-    def test_other_author_needs_a_reason_and_never_overrides_readiness(self) -> None:
-        missing, calls = run_qew([], ["pr", "merge", "42", "--other-author", *REPO])
-        draft, draft_calls = run_qew(
-            [pull(author="peter", draft=True)],
-            ["pr", "merge", "42", "--other-author", "--reason", "agreed", *REPO],
-        )
-
-        self.assertEqual(missing.returncode, 2, missing.stderr)
-        self.assertIn("--other-author requires --reason", missing.stderr)
-        self.assertEqual(calls, [])
-        self.assertEqual(draft.returncode, 2, draft.stderr)
-        self.assertEqual(merges(draft_calls), [])
-
-    def test_a_pull_request_labelled_qew_draft_is_refused_until_its_issues_are_approved(self) -> None:
-        # Adversary: a plan's pull request is merged while its plan is still a draft.
-        result, calls = run_qew([pull(labels=("qew:draft",))], ["pr", "merge", "42", *REPO])
-
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("labelled qew:draft", result.stderr)
-        self.assertIn("qew draft approve", result.stderr)
-        self.assertEqual(merges(calls), [])
-
-    def test_a_merge_not_yet_visible_is_read_once_more_before_giving_up(self) -> None:
-        # Adversary: GitHub still reports OPEN right after a successful merge, so
-        # the issues were never landed.
-        result, _ = run_qew(
-            [pull(), MERGED, pull(), pull(state="MERGED"), *landing()], ["pr", "merge", "42", *REPO]
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("landed #15 from PR #42", result.stdout)
-
-    def test_a_merge_that_did_not_happen_is_reported(self) -> None:
-        result, _ = run_qew([pull(), MERGED, pull(), pull()], ["pr", "merge", "42", *REPO])
-
-        self.assertEqual(result.returncode, 3, result.stderr)
-
-    def test_a_landing_failure_is_reported_with_the_command_to_rerun(self) -> None:
-        result, _ = run_qew(
-            [pull(), MERGED, pull(state="MERGED"), {"stderr": "boom", "exit_code": 1}],
-            ["pr", "merge", "42", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 3, result.stderr)
-        self.assertIn("merged", result.stdout)
-        self.assertIn("qew land 42 --repo acme/widgets", result.stderr)
-
-    def test_incomplete_closing_references_are_indeterminate(self) -> None:
-        value = json.loads(pull()["stdout"])
-        value["data"]["repository"]["pullRequest"]["closingIssuesReferences"]["pageInfo"]["hasNextPage"] = True
-        result, calls = run_qew([{"stdout": json.dumps(value)}], ["pr", "merge", "42", *REPO])
-
-        self.assertEqual(result.returncode, 4, result.stderr)
-        self.assertEqual(merges(calls), [])
+    def test_revert_of_a_covered_item_is_refused_once_the_pull_request_is_ready_and_allowed_while_it_is_a_draft(self) -> None:
+        """Prevents a live pull request for work that went back to draft."""
+        self.assertEqual(self.w.approve(self.epic, tree=True).code, 0)
+        quote = "Alexander: 'please track this work in the Qew ledger now'"
+        allowed = self.w.qew("draft", "revert", self.two, "--reason", "rethink", "--quote", quote)
+        self.assertEqual(allowed.code, 0, allowed)
+        self.assertEqual(self.w.approve(self.two).code, 0)
+        self.assertEqual(self.w.qew("pr", "ready", "1").code, 0)
+        refused = self.w.qew("draft", "revert", self.one, "--reason", "rethink", "--quote", quote)
+        self.assertEqual(refused.code, 2)
+        self.assertIn("pull request #1", refused.err)
 
 
 if __name__ == "__main__":

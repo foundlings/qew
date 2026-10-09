@@ -1,152 +1,112 @@
-"""Installed-distribution smoke walk for Qew's supported Python floor."""
+"""Walk of the built distribution: a real wheel installs into a clean venv and runs outside the checkout.
 
+Adversary: an empty or dependency-bearing package, an entry point that only works from the source
+tree, a version that differs from what `qew --version` prints, and a bulk-import input that is a
+symlink to somewhere the caller did not name.
+"""
+
+import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 
-from tests.command_harness import REQUESTER_QUOTE
+from tests.ledger_harness import PROJECT_ROOT, QUOTE, World, git
+from qew import __version__  # noqa: E402
+
+BUILD_INPUTS = ("src", "setup.cfg", "setup.py", "pyproject.toml", "README.md", "LICENSE")
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+def run(argv, cwd, env=None):
+    return subprocess.run(argv, cwd=cwd, env=env or {**os.environ, "PYTHONPATH": ""}, capture_output=True,
+                          text=True, check=False, timeout=300)
 
 
-class DistributionWalk(unittest.TestCase):
-    def test_wheel_installs_qew_executable_outside_checkout(self) -> None:
-        """The declared package must contain Qew, not an empty UNKNOWN wheel."""
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            temporary = Path(temporary_directory)
-            wheelhouse = temporary / "wheelhouse"
-            wheelhouse.mkdir()
-            build = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "wheel",
-                    "--disable-pip-version-check",
-                    "--no-build-isolation",
-                    "--no-deps",
-                    "--wheel-dir",
-                    str(wheelhouse),
-                    str(PROJECT_ROOT),
-                ],
-                cwd=temporary,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(build.returncode, 0, build.stderr)
-            wheels = list(wheelhouse.glob("qew-*.whl"))
-            self.assertEqual(len(wheels), 1, build.stdout)
+@unittest.skipIf(importlib.util.find_spec("setuptools") is None, "setuptools is not installed (pinned in requirements/build.txt)")
+class WheelWalk(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.temporary = tempfile.TemporaryDirectory()
+        base = Path(cls.temporary.name)
+        source = base / "source"
+        source.mkdir()
+        for name in BUILD_INPUTS:
+            target = source / name
+            if (PROJECT_ROOT / name).is_dir():
+                shutil.copytree(PROJECT_ROOT / name, target, ignore=shutil.ignore_patterns("__pycache__", "*.egg-info"))
+            else:
+                shutil.copy(PROJECT_ROOT / name, target)
+        built = run([sys.executable, "-m", "pip", "wheel", "--no-build-isolation", "--no-deps", "--no-index",
+                     "-q", "-w", str(base / "dist"), "."], source)
+        assert built.returncode == 0, built.stderr
+        cls.wheel = next((base / "dist").glob("*.whl"))
+        venv = base / "venv"
+        assert run([sys.executable, "-m", "venv", str(venv)], base).returncode == 0
+        installed = run([sys.executable, "-m", "pip", "--python", str(venv / "bin" / "python"), "install",
+                         "--no-deps", "--no-index", "-q", str(cls.wheel)], base)
+        assert installed.returncode == 0, installed.stderr
+        cls.venv = venv
+        cls.work = base / "work"
+        cls.work.mkdir()
 
-            environment = os.environ.copy()
-            environment["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
-            venv = temporary / "venv"
-            create = subprocess.run(
-                [sys.executable, "-m", "venv", str(venv)],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(create.returncode, 0, create.stderr)
-            pip = venv / "bin" / "pip"
-            install = subprocess.run(
-                [str(pip), "install", "--no-deps", str(wheels[0])],
-                env=environment,
-                cwd=temporary,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(install.returncode, 0, install.stderr)
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.temporary.cleanup()
 
-            metadata = subprocess.run(
-                [
-                    str(venv / "bin" / "python"),
-                    "-c",
-                    "import importlib.metadata as m, json; "
-                    "print(json.dumps({'version': m.version('qew'), 'requires': m.requires('qew')}))",
-                ],
-                env=environment,
-                cwd=temporary,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            self.assertEqual(metadata.returncode, 0, metadata.stderr)
-            self.assertEqual(
-                json.loads(metadata.stdout),
-                {"version": "2.10.0", "requires": None},
-            )
+    def test_the_wheel_is_real_named_and_free_of_runtime_requirements(self) -> None:
+        """Publishing an empty UNKNOWN wheel or one with dependencies must be impossible."""
+        self.assertEqual(self.wheel.name, f"qew-{__version__}-py3-none-any.whl")
+        with zipfile.ZipFile(self.wheel) as archive:
+            names = archive.namelist()
+            self.assertIn("qew/cli.py", names)
+            metadata = archive.read(f"qew-{__version__}.dist-info/METADATA").decode("utf-8")
+            entry_points = archive.read(f"qew-{__version__}.dist-info/entry_points.txt").decode("utf-8")
+        self.assertIn("Name: qew\n", metadata)
+        self.assertNotIn("Requires-Dist", metadata)
+        self.assertIn("qew = qew.cli:main", entry_points)
 
-            smoke = subprocess.run(
-                [str(venv / "bin" / "qew"), "--help"],
-                env=environment,
-                cwd=temporary,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            # The shipped v1 plan predates requester quotes; dry-run it as a
-            # caller would re-apply it today, with each item naming its requester.
-            plan = temporary / "qew-v1-quoted.jsonl"
-            plan.write_text(
-                "".join(
-                    json.dumps({**json.loads(line), "quote": REQUESTER_QUOTE}) + "\n"
-                    for line in (PROJECT_ROOT / "docs" / "plans" / "qew-v1.jsonl")
-                    .read_text(encoding="utf-8")
-                    .splitlines()
-                    if line.strip()
-                ),
-                encoding="utf-8",
-            )
-            self_host = subprocess.run(
-                [
-                    str(venv / "bin" / "qew"),
-                    "apply",
-                    str(plan),
-                    "--repo",
-                    "acme/widgets",
-                    "--dry-run",
-                    "--json",
-                ],
-                env=environment,
-                cwd=temporary,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            linked_plan = temporary / "linked-plan.jsonl"
-            linked_plan.symlink_to(plan)
-            refusal = subprocess.run(
-                [
-                    str(venv / "bin" / "qew"),
-                    "apply",
-                    str(linked_plan),
-                    "--repo",
-                    "acme/widgets",
-                    "--dry-run",
-                ],
-                env=environment,
-                cwd=temporary,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+    def test_the_installed_executable_runs_help_version_and_a_ledger_golden_path_outside_the_checkout(self) -> None:
+        """The package must not depend on the source tree being importable."""
+        qew = str(self.venv / "bin" / "qew")
+        env = {**os.environ, "PYTHONPATH": "", "QEW_ACTOR": "tester", "QEW_OFFLINE": "1"}
+        repo = self.work / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        self.assertIn("Commands by workflow", run([qew, "--help"], repo, env).stdout)
+        self.assertEqual(run([qew, "--version"], repo, env).stdout, f"qew {__version__}\n")
+        self.assertEqual(run([qew, "init", "--ledger", "../ledger"], repo, env).returncode, 0)
+        created = run([qew, "create", "--title", "Installed", "--quote", QUOTE], repo, env)
+        self.assertEqual(created.returncode, 0, created.stderr)
+        shown = run([qew, "show", created.stdout.split()[0]], repo, env)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertIn("Installed", shown.stdout)
+        imported = run([sys.executable, "-I", "-c", "import qew, sys; print(qew.__file__)"], repo,
+                       {**env, "PYTHONPATH": str(self.venv / "lib")})
+        self.assertNotIn(str(PROJECT_ROOT), imported.stdout)
 
-        self.assertEqual(smoke.returncode, 0, smoke.stderr)
-        self.assertIn("usage: qew", smoke.stdout)
-        self.assertEqual(self_host.returncode, 0, self_host.stderr)
-        operations = json.loads(self_host.stdout)["operations"]
-        created = [operation["id"] for operation in operations if operation["action"] == "create"]
-        self.assertEqual(len(created), len(set(created)))
-        self.assertIn("self-host-release", created)
-        self.assertEqual(refusal.returncode, 2)
-        self.assertIn("plan file must not be a symlink", refusal.stderr)
+
+class BulkInputWalk(unittest.TestCase):
+    def test_a_symlinked_bulk_input_file_is_refused(self) -> None:
+        """A planted link must not make `create --from-file` read a file the caller did not name."""
+        world = World()
+        self.addCleanup(world.close)
+        real = world.base / "real.json"
+        real.write_text(json.dumps([{"title": "From link"}]), encoding="utf-8")
+        link = world.base / "specs.json"
+        link.symlink_to(real)
+        refused = world.run("create", "--from-file", str(link), "--quote", QUOTE)
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn("symlink", refused.stderr)
+        self.assertEqual(world.run("list").stdout, "")
+        self.assertEqual(world.run("create", "--from-file", str(real), "--quote", QUOTE).returncode, 0)
+        body_link = world.base / "body.md"
+        body_link.symlink_to(world.base / "real.json")
+        self.assertEqual(world.run("create", "--title", "x", "--body-file", str(body_link)).returncode, 2)
 
 
 if __name__ == "__main__":

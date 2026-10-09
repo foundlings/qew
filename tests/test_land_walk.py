@@ -1,162 +1,96 @@
-"""Command walks for landing a merged pull request's closing issues.
+"""Walks of `qew land`: after a pull request merged, evidence of its head and completion of its items.
 
-A merged PR closes its issue on GitHub but leaves the claim (assignee and
-`in-progress`) and a stale board card behind. `qew land` runs the completion
-bookkeeping for the caller's own claims, with the merge commit as proof.
-
-Adversary: closing issues taken from PR body text instead of GitHub's own
-closing references, another login's claim cleared without a deliberate
-takeover, and a merge that GitHub has not actually recorded.
+Adversary: completing work whose pull request never merged, completing someone else's claim, a completion
+that skips the gate because it arrived through the pull request, and a forge-side merge nobody recorded.
 """
 
-import json
+import os
+import sys
 import unittest
 
-from tests.command_harness import PROJECT_HINT, run_qew
-from tests.test_lifecycle_walk import FULL_SHA, compare_response, issue, pulls_response, response
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-REPO = ["--repo", "acme/widgets"]
-STALE = dict(
-    state="CLOSED",
-    state_reason="COMPLETED",
-    assignees=["alexander"],
-    labels=["qew:approved", "in-progress"],
-)
-CLEAN = dict(state="CLOSED", state_reason="COMPLETED", labels=["qew:approved"])
-
-
-def pull_request(
-    *, state="MERGED", base="main", sha=FULL_SHA, issues=(15,), has_next=False, number=42
-) -> dict:
-    return {
-        "stdout": json.dumps(
-            {
-                "data": {
-                    "repository": {
-                        "pullRequest": {
-                            "number": number,
-                            "state": state,
-                            "baseRefName": base,
-                            "mergeCommit": None if sha is None else {"oid": sha},
-                            "closingIssuesReferences": {
-                                "nodes": [{"number": value} for value in issues],
-                                "pageInfo": {"hasNextPage": has_next},
-                            },
-                        }
-                    }
-                }
-            }
-        )
-    }
+from tests.pr_harness import PrWorld
 
 
 class LandWalk(unittest.TestCase):
-    def test_golden_walk_completes_the_callers_stale_claim_with_the_merge_commit(self) -> None:
-        result, calls = run_qew(
-            [
-                pull_request(),
-                response(issue(**STALE)),
-                response(issue(**STALE)),
-                compare_response("ahead", FULL_SHA),
-                pulls_response([(42, "2026-10-01T10:00:00Z")]),
-                {"stdout": "edited\n"},
-                {"stdout": "commented\n"},
-                response(issue(**CLEAN)),
-            ],
-            ["land", "42", *REPO],
-        )
+    def setUp(self) -> None:
+        self.w = PrWorld()
+        self.addCleanup(self.w.close)
+        self.item = self.w.item("Work")
+        self.assertEqual(self.w.open(self.item).code, 0)
+        self.sha = self.w.commit("work")
+        self.w.forge.edit_pull(1, head_sha=self.sha, draft=False)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "landed #15 from PR #42\n")
-        self.assertEqual(result.stderr, PROJECT_HINT)
-        edit, comment = calls[5], calls[6]
-        self.assertIn("--remove-assignee", edit)
-        self.assertIn(f"Landed: commit {FULL_SHA} on main", comment[comment.index("--body") + 1])
+    def state(self, item: str) -> str:
+        return self.w.qew("show", item).out.split("state: ")[1].split()[0]
 
-    def test_json_reports_landed_held_and_clean_issues(self) -> None:
-        result, _ = run_qew(
-            [
-                pull_request(issues=(15, 16, 17)),
-                response(issue(**STALE)),
-                response(issue(**STALE)),
-                compare_response("ahead", FULL_SHA),
-                pulls_response([(42, "2026-10-01T10:00:00Z")]),
-                {"stdout": "edited\n"},
-                {"stdout": "commented\n"},
-                response(issue(**CLEAN)),
-                response({**issue(**{**STALE, "assignees": ["mallory"]}), "number": 16}),
-                response({**issue(**CLEAN), "number": 17}),
-            ],
-            ["land", "42", *REPO, "--json"],
-        )
+    def test_merge_then_land_completes_the_item(self) -> None:
+        self.assertEqual(self.w.qew("evidence", self.item, "--change", self.sha).code, 0)
+        self.assertEqual(self.w.qew("pr", "merge", "1").code, 0)
+        run = self.w.qew("land", "1")
+        self.assertEqual(run.code, 0, run)
+        self.assertIn(f"{self.item} completed", run.out)
+        self.assertEqual(self.state(self.item), "completed")
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)
-        self.assertEqual(output["landed"], [15])
-        self.assertEqual(output["clean"], [17])
-        self.assertEqual(output["held"], [{"issue": 16, "by": ["mallory"]}])
-        self.assertEqual(output["state"], "landed")
+    def test_land_of_an_unmerged_pull_request_is_refused_and_writes_nothing(self) -> None:
+        """Prevents completing work that never landed."""
+        before = len(self.w.events(self.item))
+        run = self.w.qew("land", "1")
+        self.assertEqual(run.code, 2)
+        self.assertIn("not merged", run.err)
+        self.assertEqual(len(self.w.events(self.item)), before)
 
-    def test_another_logins_claim_is_reported_never_touched(self) -> None:
-        # Adversary: automation silently taking over a teammate's claim.
-        result, calls = run_qew(
-            [pull_request(), response(issue(**{**STALE, "assignees": ["mallory"]}))],
-            ["land", "42", *REPO],
-        )
+    def test_a_merge_made_outside_qew_still_lands_with_the_merge_head_as_evidence(self) -> None:
+        """Prevents a forge-side merge leaving the item stuck without evidence."""
+        self.w.forge.edit_pull(1, state="merged")
+        run = self.w.qew("land", "1")
+        self.assertEqual(run.code, 0, run)
+        evidence = [e for e in self.w.events(self.item) if e["type"] == "evidence"]
+        self.assertEqual([e["change_ids"] for e in evidence], [[self.sha]])
+        self.assertEqual(self.state(self.item), "completed")
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("#15 is held by mallory", result.stdout)
-        self.assertIn("qew complete 15 --take-over", result.stdout)
-        self.assertEqual(len(calls), 2)
+    def test_a_gate_failure_is_reported_per_item_and_fails_the_command(self) -> None:
+        """Prevents a landing that hides an unfinished child."""
+        task = self.w.item("Step", kind="task", parent=self.item, claim=False)
+        self.w.forge.edit_pull(1, state="merged")
+        run = self.w.qew("land", "1")
+        self.assertEqual(run.code, 2)
+        self.assertIn(f"{self.item}: not completed", run.out)
+        self.assertIn(task, run.out)
+        self.assertEqual(self.state(self.item), "claimed")
 
-    def test_an_unmerged_pull_request_is_a_quiet_no_op(self) -> None:
-        result, calls = run_qew([pull_request(state="OPEN", sha=None)], ["land", "42", *REPO])
+    def test_an_item_someone_else_holds_is_not_landed(self) -> None:
+        """Prevents completing another actor's claim."""
+        self.w.forge.edit_pull(1, state="merged")
+        self.w.qew("release", self.item, "--reason", "handover")
+        self.w.qew("start", self.item, actor="other")
+        run = self.w.qew("land", "1")
+        self.assertEqual(run.code, 0, run)
+        self.assertIn(f"{self.item}: claimed by other; not landed", run.out)
+        self.assertEqual(self.state(self.item), "claimed")
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("not merged", result.stdout)
-        self.assertEqual(len(calls), 1)
+    def test_an_epic_pull_request_lands_its_children_before_the_epic(self) -> None:
+        epic = self.w.item("Epic", kind="epic")
+        child = self.w.item("Child", parent=epic)
+        self.assertEqual(self.w.open(epic).code, 0)
+        self.w.forge.edit_pull(2, head_sha=self.sha, state="merged")
+        run = self.w.qew("land", "2")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual([self.state(child), self.state(epic)], ["completed", "completed"])
+        self.assertLess(run.out.index(child), run.out.index(epic))
 
-    def test_already_clean_issues_are_left_alone(self) -> None:
-        result, calls = run_qew(
-            [pull_request(), response(issue(**CLEAN))], ["land", "42", *REPO]
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("nothing to land", result.stdout)
-        self.assertEqual(len(calls), 2)
-
-    def test_an_issue_github_left_open_is_left_alone(self) -> None:
-        # A PR merged into a non-default branch does not close its issue.
-        result, calls = run_qew(
-            [
-                pull_request(base="feat/stack"),
-                response(issue(assignees=["alexander"], labels=["qew:approved", "in-progress"])),
-            ],
-            ["land", "42", *REPO],
-        )
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("#15 is still open", result.stdout)
-        self.assertEqual(len(calls), 2)
-
-    def test_truncated_closing_references_are_indeterminate(self) -> None:
-        result, calls = run_qew([pull_request(has_next=True)], ["land", "42", *REPO])
-
-        self.assertEqual(result.returncode, 4)
-        self.assertIn("incomplete pagination", result.stderr)
-        self.assertEqual(len(calls), 1)
-
-    def test_a_merged_pull_request_without_a_valid_merge_commit_is_indeterminate(self) -> None:
-        result, calls = run_qew([pull_request(sha="not-a-sha")], ["land", "42", *REPO])
-
-        self.assertEqual(result.returncode, 4)
-        self.assertEqual(len(calls), 1)
-
-    def test_a_non_positive_pull_request_number_is_refused_before_any_call(self) -> None:
-        result, calls = run_qew([], ["land", "0", *REPO])
-
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(calls, [])
+    def test_items_that_landed_stay_landed_when_a_later_item_cannot(self) -> None:
+        """Prevents one unfinished item rolling back the completion of the work that did land."""
+        epic = self.w.item("Epic", kind="epic")
+        child = self.w.item("Child", parent=epic)
+        self.w.item("Open task", kind="task", parent=epic, claim=False)
+        self.assertEqual(self.w.open(epic).code, 0)
+        self.w.forge.edit_pull(2, head_sha=self.sha, state="merged")
+        run = self.w.qew("land", "2")
+        self.assertEqual(run.code, 2)
+        self.assertIn(f"{epic}: not completed", run.out)
+        self.assertEqual(self.state(child), "completed")
 
 
 if __name__ == "__main__":

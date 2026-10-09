@@ -1,4 +1,101 @@
-# Agent hooks
+# Agent hooks (v1)
+
+`qew hook install|remove [--claude] [--codex] [--cursor] [--opencode]` (no flag = all four)
+writes project-relative config at the nearest ancestor holding `.git` or `.jj`, through the
+safe-write foundation described below (atomic, private, idempotent, foreign entries kept).
+Outside a repository it fails with exit 2 and creates nothing.
+`--json` prints `{schema_version: 1, agent, action: installed|removed|unchanged}` (Codex install adds
+`trust_required: true`); with several agents the object carries an `agents` list in the fixed order
+claude, codex, cursor, opencode. Human output is one `ACTION AGENT hook` line per agent, plus the Codex
+trust line `review and trust it with /hooks before it will run` on install. Install drops Qew's own earlier entries
+(`hook pre-shell|post-shell`, `qew prime`); remove deletes current and earlier Qew entries.
+
+| Agent | File | Entries |
+|---|---|---|
+| Claude | `.claude/settings.json` | `SessionStart`; `PreToolUse` and `PostToolUse` matched `Bash` |
+| Codex | `.codex/hooks.json` | the same three (trust each with `/hooks`) |
+| Cursor | `.cursor/hooks.json` (version 1) | `sessionStart`, `beforeShellExecution`, `afterShellExecution` |
+| opencode | `.opencode/plugins/qew-hooks.js` (marker-owned: a file without Qew's marker is never overwritten, install exits 2, nor deleted, remove says `unchanged`) | `bash` before/after; a refusal throws |
+
+They run `qew hook session-start|pre-tool|post-tool --agent NAME`; the agent payload arrives on stdin.
+
+- **session-start** prints the `qew prime` context in its hook variant (commands.md): counts, four convention
+  lines, then Next ready, Active, Blocked and Contradictions with at most 3 quoted titles per section (64 bytes
+  each), the verbs `ready start evidence complete show draft`, and titles that hide text withheld and named under
+  Contradictions. The whole text is at most 2000 bytes. Outside a
+  Qew repository, or on an unreadable ledger, it prints nothing. opencode has no session-start
+  entry (its plugin API has no context-injection point at session start).
+- **pre-tool** refuses, only inside a Qew-managed repository (`.qew/config.toml` at or above the
+  payload `cwd`), shell commands that bypass the ledger, naming the qew command to use. The command
+  text is tokenized and matched structurally (`hook_guard.py`), never executed; quoted examples such
+  as `echo "gh issue edit 3"` are one argument and pass; `sh -c STRING` is unwrapped.
+  Refused: `gh issue create|edit|close|reopen|comment|delete|transfer|pin|unpin|lock|unlock`,
+  `gh label` and `gh project` except `list`/`view`/`field-list`/`item-list`, `glab issue|label|milestone`
+  writes, `tea` and `fj` issue, label, milestone and comment writes; `gh pr merge` (not
+  `--disable-auto`), `glab mr merge`, `tea pulls merge`, `fj pr merge`; `gh|glab api` with a write
+  method (explicit, or implied by `-f`/`-F`/`--input` without `-X GET`) on `issues`, `labels`,
+  `milestones`, `boards`, GitHub `projects` or `pulls|merge_requests/N/merge` paths; GraphQL
+  mutations touching issues, labels, projects, milestones, comments or `mergePullRequest`
+  (a query taken from a file or stdin cannot be inspected and is refused); and the same write
+  paths through `curl`, `wget` or httpie (`http`, `https`, `xh`). Reads stay allowed.
+  Known gaps: wrappers taking a value (`sudo -u x`), `eval`, scripts from files.
+- **post-tool** prints nothing except one line after `git push` or `jj git push` when the ledger
+  holds claimed items owned by the current actor without evidence (one bounded line; another actor's claims are ignored). Read-only.
+  After `qew pr merge N` run by the agent it also prints one line per claimed item recorded for that pull request
+  once the forge reports it merged: `qew complete ITEM` (or `qew evidence ITEM` first when none is recorded), or,
+  for another actor's claim, the `--take-over` form, never a takeover. Decision: a raw `gh pr merge` is refused
+  by pre-tool, so there is no automatic landing; merges that happen anyway (forge UI, auto-merge) are caught by
+  the next `qew` listing, and completion always stays an explicit `qew complete`. Command text that only mentions a
+  merge (quotes, PR 0, a branch name), an open pull request or an unreadable forge prints nothing.
+
+## Exit codes and output
+
+A hook exits 0 with agent-correct output except a deliberate refusal. This is the single place
+qew swallows internal failures: inside `cmd_hook.run` for the three event commands, an
+unexpected exception prints nothing and exits 0, because a hook must never break a session.
+`install` and `remove` fail loudly as everywhere else.
+
+Verified against each tool's documentation (October 2026):
+
+- Claude Code: `SessionStart` output `{"hookSpecificOutput": {"hookEventName": "SessionStart",
+  "additionalContext": TEXT}}`; `PreToolUse` stdin has `tool_name`, `tool_input.command`, `cwd`;
+  deny is `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+  "permissionDecisionReason": TEXT}}` with exit 0.
+- Codex: the same `hookSpecificOutput` shapes for `SessionStart` and `PreToolUse` deny (exit 2
+  with stderr and `{"decision": "block"}` are documented alternatives; Qew uses the first);
+  stdin has `tool_name`, `tool_input`, `cwd`; matcher `Bash`.
+- Cursor: `beforeShellExecution` stdin `{command, cwd, sandbox}`, output `{"permission":
+  "allow"|"deny"|"ask", "user_message", "agent_message"}` (invalid output blocks, so allow is
+  always explicit); `sessionStart` output `{"additional_context": TEXT}`;
+  `afterShellExecution` cannot inject text.
+- opencode: no deny protocol of its own; the plugin runs `qew hook pre-tool`, and exit code 2
+  (reason on stdout) becomes a thrown error that blocks the tool call.
+
+Decisions: Cursor also gets a `sessionStart` entry; refusals are not applied to `gh pr create`
+(no requirement); a prior hook version's opencode plugin keeps its marker so install replaces it.
+
+## VCS evidence hook
+
+A commit cites ledger work with a trailer in the last paragraph of its message: `Refs: ID[, ID...]`
+(`vcs_refs.py`; body prose, other casings, indented lines and tokens that are not ids are ignored).
+`qew hook vcs-check` refuses (exit 2) a push when a cited id is unknown, a draft, or an open item with no
+evidence for that commit, naming `qew evidence ID --change CHANGE`; completed and closed items are skipped (they
+can no longer take evidence). Evidence matches the commit id or the jj change id by prefix.
+
+- git: `qew hook install --git` writes the tracked, marker-owned `.githooks/pre-push` (which runs
+  `qew hook vcs-check --pre-push`, and skips with a warning when qew is not on PATH) and sets the local
+  `core.hooksPath`. It refuses a different existing `core.hooksPath` or an unowned script. The hook is bypassable
+  only by deleting that tracked file (or unsetting the config), which shows in the diff. Remove deletes the script
+  and unsets `core.hooksPath` when `.githooks` holds nothing else. A jj-only checkout has no git hooks (exit 2).
+- jj: there is no pre-push hook, so `--revisions REVSET` serves scripts, and the agent pre-tool guard checks
+  `jj git push` (the mutable ancestors of what `--bookmark`, `-r`, `--change`, `--all` or the working copy name) and
+  denies with the same message. If jj cannot answer, the guard stays silent.
+- `--message-file FILE` prints `known ID` or `unknown ID` per cited id and exits 2 when any is unknown.
+
+# Superseded design (v0)
+
+Everything below describes the old `qew hooks install` and warn-only `pre-shell` / `post-shell`
+design. It is superseded by the section above and is removed with the old command set.
 
 Agent adapters call the shared hook-configuration foundation; they do not write
 configuration directly.
@@ -81,3 +178,15 @@ every unrelated entry; `remove` deletes exactly Qew's entries.
   tool output. It never throws.
 - Install refuses to overwrite an unmarked file and removes Qew's own earlier
   `qew-prime.js` only when it carries Qew's marker.
+
+## Hook command shape (v1)
+
+- Claude and Codex entries are one `command` string, no `args` (exec form is newer than some agent
+  versions; on an older one a bare `qew` would exit 2 and block every shell call). The string is
+  `command -v qew >/dev/null 2>&1 || { echo '{"systemMessage":"qew is not on PATH; qew hooks skipped"}'; exit 0; }; exec qew hook EVENT --agent NAME`
+  (`hook_command.guarded`). A missing qew skips with a one-line warning (fail open); `exec` passes qew's own
+  status through, so a real refusal (exit 2 / deny JSON) still blocks (fail closed).
+- Install migrates the earlier exec-form and unguarded entries; remove deletes them too.
+- Decision: the exec-form entry (a `command` plus `args`, no shell) is rejected. Older agent versions mishandle it, and a
+  bare missing `qew` would exit 2 and block every shell call; the guarded single string fails open when qew is absent
+  and still passes a real refusal through.

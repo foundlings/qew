@@ -1,101 +1,72 @@
-"""Command walks for removing one repository's cards from a board.
+"""Walks of `qew project prune --from OWNER/REPO` on a board shared by two repositories.
 
-An organization board can end up holding another repository's cards (a run that
-named the wrong repository). `project prune --from OWNER/REPO` is the deliberate
-way to remove exactly those cards. A card is never an issue: deleting it
-changes no issue.
-
-Adversary: deleting the board's own cards, deleting by a loose match, and
-reporting success while cards remain.
+Adversary: deleting the board's own cards or a look-alike repository's, a loose
+source match, and a delete that did not stick being reported as success.
 """
 
-import json
 import unittest
 
-from tests.command_harness import run_qew
-from tests.test_campaign_project_walk import (
-    graphql_pages,
-    project_item,
-    project_items_page,
-    project_list_page,
-    response,
-)
+from qew import ledger_config
+from qew.errors import QewError
+from qew.forge import Card
+from qew.project_prune import prune
+from tests.ledger_harness import World
+from tests.memory_forge import MemoryForge
 
-PRUNE = ["project", "prune", "--from", "acme/other", "--repo", "acme/widgets", "--json"]
-DELETED = response({"data": {"deleteProjectV2Item": {"deletedItemId": "X"}}})
-
-
-def card(number: int, repository: str) -> dict:
-    item = project_item("Ready", number)
-    item["content"] = {**item["content"], "repository": {"nameWithOwner": repository}}
-    return item
-
-
-def prune(items, *writes, verified=None, arguments=PRUNE):
-    return run_qew(
-        [
-            graphql_pages(project_list_page()),
-            graphql_pages(project_items_page(*items)),
-            *writes,
-            *([] if verified is None else [graphql_pages(project_items_page(*verified))]),
-        ],
-        arguments,
-        project=31,
-    )
+MIRRORS = '\n[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/o/r"\nproject = 1\n'
 
 
 class ProjectPruneWalk(unittest.TestCase):
-    def test_deletes_exactly_the_named_repositorys_cards_and_verifies(self) -> None:
-        own = [card(5, "acme/widgets"), card(6, "Acme/Widgets")]
-        result, calls = prune(
-            [card(1, "acme/other"), card(2, "ACME/OTHER"), *own, card(3, "acme/other-two")],
-            DELETED,
-            DELETED,
-            verified=[*own, card(3, "acme/other-two")],
-        )
+    def setUp(self) -> None:
+        self.world = World(MIRRORS, replication="\n[replication]\nauto_forge_sync = false\n")
+        self.addCleanup(self.world.close)
+        self.forge = MemoryForge("git.example")
+        self.forge.columns = {1: "Ready", 2: "Done", 3: "Ready"}
+        self.forge.foreign_cards = [
+            Card("F1", "acme/other", 1, "Ready", ""), Card("F2", "ACME/Other", 2, "Done", ""),
+            Card("F3", "acme/other-two", 3, "Ready", ""),
+        ]
+        self.config = ledger_config.load(self.world.code)
+        self.build = lambda mirror: self.forge
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        output = json.loads(result.stdout)
-        self.assertEqual((output["removed"], output["from"]), (2, "acme/other"))
-        deleted = [" ".join(call) for call in calls if "deleteProjectV2Item" in " ".join(call)]
-        self.assertEqual(len(deleted), 2)
-        self.assertTrue(any("ITEM1" in text for text in deleted))
-        self.assertTrue(any("ITEM2" in text for text in deleted))
-        self.assertFalse(any("ITEM5" in text or "ITEM3" in text for text in deleted))
+    def test_prune_deletes_exactly_the_named_repositorys_cards_and_verifies(self) -> None:
+        """Two foreign cards go (any case); the local cards and the look-alike stay, confirmed by a re-read."""
+        text = prune(self.config, None, "acme/other", self.build)
+        self.assertTrue(text.endswith("removed 2"), text)
+        self.assertEqual([card.id for card in self.forge.foreign_cards], ["F3"])
+        self.assertEqual(sorted(self.forge.columns), [1, 2, 3])
+        self.assertEqual(self.forge.count("delete_card"), 2)
 
-    def test_the_boards_own_repository_is_refused_before_any_call(self) -> None:
-        result, calls = run_qew(
-            [], ["project", "prune", "--from", "Acme/Widgets", "--repo", "acme/widgets"], project=31
-        )
+    def test_prune_refuses_the_boards_own_repository_before_any_call(self) -> None:
+        """Pruning the target's own repository would empty its board."""
+        with self.assertRaises(QewError) as raised:
+            prune(self.config, None, "O/R", self.build)
+        self.assertEqual(raised.exception.exit_code, 2)
+        self.assertEqual(self.forge.calls, [])
 
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("own repository", result.stderr)
-        self.assertEqual(calls, [])
+    def test_prune_refuses_malformed_sources_before_any_call(self) -> None:
+        """A loose match could delete the wrong cards."""
+        for source in ("other", "a/b/c", "", "a b/c", "acme/"):
+            with self.assertRaises(QewError, msg=source) as raised:
+                prune(self.config, None, source, self.build)
+            self.assertEqual(raised.exception.exit_code, 2, source)
+        self.assertEqual(self.forge.calls, [])
 
-    def test_a_malformed_source_is_refused_before_any_call(self) -> None:
-        for source in ("other", "a/b/c", "", "a b/c"):
-            with self.subTest(source=source):
-                result, calls = run_qew(
-                    [], ["project", "prune", "--from", source, "--repo", "acme/widgets"], project=31
-                )
+    def test_prune_with_nothing_to_remove_deletes_nothing(self) -> None:
+        """Idempotent: a second run removes nothing and issues no delete."""
+        prune(self.config, None, "acme/other", self.build)
+        deletes = self.forge.count("delete_card")
+        text = prune(self.config, None, "acme/other", self.build)
+        self.assertTrue(text.endswith("removed 0"), text)
+        self.assertEqual(self.forge.count("delete_card"), deletes)
 
-                self.assertEqual(result.returncode, 2)
-                self.assertEqual(calls, [])
-
-    def test_nothing_to_remove_deletes_nothing(self) -> None:
-        result, calls = prune([card(5, "acme/widgets")])
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["removed"], 0)
-        self.assertFalse(any("deleteProjectV2Item" in " ".join(call) for call in calls))
-
-    def test_cards_that_remain_after_the_deletes_are_indeterminate(self) -> None:
-        result, _ = prune(
-            [card(1, "acme/other")], DELETED, verified=[card(1, "acme/other")]
-        )
-
-        self.assertEqual(result.returncode, 4)
-        self.assertIn("remain", result.stderr)
+    def test_cards_that_remain_after_deletes_are_indeterminate(self) -> None:
+        """A delete the forge accepted but did not carry out is reported, not success."""
+        self.forge.stubborn_cards = True
+        with self.assertRaises(QewError) as raised:
+            prune(self.config, None, "acme/other", self.build)
+        self.assertIn("indeterminate", str(raised.exception))
+        self.assertEqual(raised.exception.exit_code, 1)
 
 
 if __name__ == "__main__":

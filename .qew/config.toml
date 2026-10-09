@@ -1,0 +1,13 @@
+[qew]
+minimum_version = "3.0.0"
+
+[ledger]
+path = "../qew-ledger"
+
+[code]
+target = "v1-ledger"
+
+[[mirror]]
+forge = "github"
+repo = "https://github.com/foundlings/qew"
+project = 1

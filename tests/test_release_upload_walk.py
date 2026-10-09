@@ -109,6 +109,30 @@ class ReleaseUploadWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(captured["host"], "ghes.example:8443")
 
+    def test_urls_that_are_not_an_https_origin_never_reach_the_cli(self) -> None:
+        """A token must not be sent to an attacker-chosen host."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary = Path(temporary_directory)
+            calls = temporary / "calls.json"
+            fake_gh = temporary / "gh"
+            fake_gh.write_text(
+                "#!" + sys.executable + "\nimport os, pathlib\npathlib.Path(os.environ['CALLS']).write_text('called')\n",
+                encoding="utf-8",
+            )
+            fake_gh.chmod(0o755)
+            for url in ("http://ghe.example.com", "https://user:pw@ghe.example.com", "https://ghe.example.com/path",
+                        "https://ghe.example.com?x=1", "https://ghe.example.com#frag", "", "ghe.example.com"):
+                with self.subTest(url=url):
+                    environment = os.environ.copy()
+                    environment.update({"CALLS": str(calls), "GITHUB_SERVER_URL": url,
+                                        "PATH": str(temporary) + os.pathsep + environment["PATH"]})
+                    result = subprocess.run(
+                        [sys.executable, str(COMMAND), "--tag", "v1.0.0", "--repo", "o/r", "dist/qew.whl"],
+                        cwd=PROJECT_ROOT, env=environment, capture_output=True, text=True, check=False)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn("HTTPS server origin", result.stderr)
+                    self.assertFalse(calls.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
