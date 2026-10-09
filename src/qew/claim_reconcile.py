@@ -107,7 +107,7 @@ def _on_primary(config: Config, ledger: Ledger, build: Callable, item_id: str, e
 
 
 def _rival(snapshot: Snapshot, item_id: str, event: Event) -> Optional[Event]:
-    """The other owner's claim in the same claim period that beats `event`: confirmed, or older."""
+    """The other owner's claim in the same claim period that beats `event`: confirmed, pushed online, or older."""
     events = sorted(snapshot.events[item_id], key=lambda e: e.id)
     lost = {e.get("ref") for e in events if e.type == "claim_lost"}
     confirmed = {e.get("ref") for e in events if e.type == "claim_confirmed"}
@@ -118,7 +118,9 @@ def _rival(snapshot: Snapshot, item_id: str, event: Event) -> Optional[Event]:
         if rival.get("owner") == event.get("owner"):
             continue
         released_later = any(e.type == "released" and e.id > rival.id for e in events)
-        if not released_later and (rival.id in confirmed or rival.id < event.id):
+        # A claim that reached the remote under arbitration (not itself provisional) is first, whatever its id and
+        # whether or not its claim_confirmed has followed yet; two provisional claims fall back to the older.
+        if not released_later and (rival.id in confirmed or not rival.get("provisional") or rival.id < event.id):
             return rival
     return None
 

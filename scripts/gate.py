@@ -53,7 +53,7 @@ def main() -> int:
         print(f"=== {name} (exit {code}, {seconds:.0f}s)")
         lines = [l for l in output.splitlines() if l.startswith(("FAIL:", "ERROR:", "TIMEOUT"))]
         causes = [l[:400] for l in output.splitlines() if re.match(r"^[A-Za-z_.]*(Error|Exception|Timeout)\b", l)]
-        print("\n".join(lines[:15] + causes[:5]) or output[-1500:])
+        print(output[-3000:] if os.environ.get("QEW_GATE_VERBOSE") else "\n".join(lines[:15] + causes[:5]) or output[-1500:])
     slow = sorted(results, key=lambda r: -r[3])[:5]
     print("slowest: " + ", ".join(f"{r[0]} {r[3]:.0f}s" for r in slow))
     total = sum(r[2] for r in results)

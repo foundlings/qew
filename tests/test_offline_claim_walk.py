@@ -157,7 +157,7 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
         self.assertEqual(self.a.run("start", self.item, "--offline", env=offline).returncode, 0)
         self.assertEqual(self.b.run("start", self.item, env={"QEW_ACTOR": "second"}).returncode, 0)
         synced = self.a.run("sync")
-        self.assertEqual(synced.returncode, 3)
+        self.assertEqual(synced.returncode, 3, repr(synced.stdout + synced.stderr) + str([(e["type"], e.get("owner"), e.get("provisional")) for e in self.a.events(self.item)]))
         self.assertIn(self.item, synced.stderr)
         self.assertIn("second", synced.stderr)
         self.assertEqual([e["type"] for e in self.a.events(self.item)].count("claim_lost"), 1)
@@ -171,7 +171,7 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
         rival = ledger_store.Ledger(self.a.ledger)
         rival.append_event(self.item, "claimed", owner="second", actor="second")  # pushed claim, confirmation not yet arrived
         synced = self.a.run("sync")
-        self.assertEqual(synced.returncode, 3, synced.stdout + synced.stderr)
+        self.assertEqual(synced.returncode, 3, repr(synced.stdout + synced.stderr) + str([(e["type"], e.get("owner"), e.get("provisional")) for e in self.a.events(self.item)]))
         self.assertEqual([e["type"] for e in self.a.events(self.item)].count("claim_lost"), 1)
 
     def test_an_uncontested_offline_claim_is_confirmed_by_the_next_sync(self) -> None:
