@@ -9,10 +9,10 @@ from typing import Callable, List, Optional, Sequence, Union
 from qew import trace, claim_reconcile, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
-from qew.forge import Forge
+from qew.forge import Forge, ForgeError
 from qew.ledger_config import Config, Mirror
 from qew.ledger_store import Ledger
-from qew.forge_pull import PullReport, pull_items, pull_target
+from qew.forge_pull import PullReport, pull_items, pull_target, wiped
 from qew.sync import Target, TargetReport, sync_target
 
 
@@ -21,7 +21,7 @@ def register(commands) -> None:
     sync.add_argument("--target", help="only this target (slug or unique part of it)")
     sync.add_argument("--item", action="append", help="only this item (repeatable): the cheap pass the background worker runs after writes")
     sync.add_argument("--full", action="store_true", help="re-read every issue from the forge, ignoring the pull cursor and cached pages")
-    sync.add_argument("--dry-run", action="store_true", help="show what would change without calling any forge (with --prune-labels: reads the forge, deletes nothing)")
+    sync.add_argument("--dry-run", action="store_true", help="show what would change; reads the forge listing but writes nothing (with --prune-labels: deletes nothing)")
     sync.add_argument("--prune-labels", action="store_true",
                       help="instead of syncing, delete the unused qew: kind: priority: status: author: labels from the target(s)")
 
@@ -107,7 +107,7 @@ def sync_command(config: Config, wanted: Optional[str], item: Union[None, str, S
                 return output
         return "no mirror targets configured"
     if dry_run:
-        return plan(ledger, mirrors, items)
+        return plan(ledger, mirrors, items, build)
     lines = []
     failed = False
     for mirror in mirrors:
@@ -171,10 +171,30 @@ def pending_by_target(ledger: Ledger, mirrors: List[Mirror], only: Union[None, s
     return result
 
 
-def plan(ledger: Ledger, mirrors: List[Mirror], item: Union[None, str, Sequence[str]]) -> str:
-    lines = [f"{action} {item_id} {slug}" for slug, rows in pending_by_target(ledger, mirrors, item).items()
-             for action, item_id in rows]
+def plan(ledger: Ledger, mirrors: List[Mirror], item: Union[None, str, Sequence[str]],
+         build: Callable[[Mirror], Forge] = forge_registry.build) -> str:
+    """The pending writes, read from the ledger; the forge listing is read too, to see a wiped repository."""
+    pending = pending_by_target(ledger, mirrors, item)
+    lines = []
+    for mirror in mirrors:
+        slug = ledger_config.mirror_slug(mirror)
+        wiped_ids, note = _wiped_items(ledger, build, mirror, slug)
+        if note:
+            lines.append(note)
+        rows = [("create", i) for i in wiped_ids] or pending[slug]
+        lines.extend(f"{action} {item_id} {slug}" for action, item_id in rows)
     return "\n".join(lines) or "nothing to sync"
+
+
+def _wiped_items(ledger: Ledger, build: Callable[[Mirror], Forge], mirror: Mirror, slug: str):
+    """(item ids to recreate, note): the items whose mirrored issues are all gone from the forge listing."""
+    mirrored = {r["number"]: item_id for item_id in ledger.item_ids() for r in ledger.load_mirrors(item_id)
+                if r["_target"] == slug and r.get("kind") == "issue"}
+    try:
+        remote = {issue.number for issue in build(mirror).list_issues()}
+    except (ForgeError, QewError) as error:
+        return [], f"{slug}: forge not read ({getattr(error, 'detail', error)}); plan from the ledger only"
+    return (sorted(set(mirrored.values())), "") if wiped(mirrored, remote) else ([], "")
 
 
 def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[str]:
@@ -183,9 +203,12 @@ def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[st
         head += f" adopted {report.adopted}"
     if report.skipped:
         head += f" skipped {','.join(report.skipped)}"
-    if pulled is not None and (pulled.applied or pulled.divergences or pulled.new_items or pulled.comments or pulled.duplicates):
+    if pulled is not None and (pulled.applied or pulled.divergences or pulled.new_items or pulled.comments or pulled.duplicates
+                               or pulled.recreated):
         head += (f" pulled applied={pulled.applied} divergences={pulled.divergences}"
                  f" new={pulled.new_items} comments={pulled.comments} duplicates_closed={pulled.duplicates}")
+        if pulled.recreated:
+            head += f" recreated={pulled.recreated}"
     if report.pruned:
         head += f" pruned {report.pruned}"
     if report.milestones_created or report.milestones_updated or report.milestones_unchanged:

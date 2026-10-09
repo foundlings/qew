@@ -32,6 +32,7 @@ class PullReport:
     new_items: int = 0
     comments: int = 0
     duplicates: int = 0
+    recreated: int = 0  # mirrors forgotten because the forge repo was wiped; the push recreates their issues
     skipped: List[str] = field(default_factory=list)
     failures: List[str] = field(default_factory=list)
     retry_after: float = 0.0  # seconds a rate-limited forge asked us to wait
@@ -72,6 +73,14 @@ def _list(ledger: Ledger, target, report: PullReport, cursor: Optional[pull_curs
     return target.forge.list_issues(since), not since
 
 
+def wiped(mirrored, remote_numbers) -> bool:
+    """A complete listing holding none of at least two mirrored issues is a deleted and recreated repository.
+
+    One missing issue stays a divergence for a human; the ledger is the source of truth, so recreating many is safe.
+    """
+    return len(mirrored) >= 2 and not set(mirrored) & set(remote_numbers)
+
+
 def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], datetime] = instants.now) -> PullReport:
     """Pull one target. `full` ignores the cursor and every cached page. The cursor advances only when the whole pull succeeded."""
     report = PullReport(target.slug)
@@ -94,6 +103,12 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
         for record in ledger.load_mirrors(item_id):
             if record["_target"] == target.slug and record.get("kind") == "issue":
                 mirrored[record["number"]] = item_id
+    unnoticed = {n: i for n, i in mirrored.items()  # an issue whose deletion was already noticed is a deliberate one
+                 if not any(d.get("field") == "exists" for d in snapshot.folds[i].divergences)}
+    if complete and wiped(unnoticed, by_number):
+        for item_id in sorted(set(mirrored.values())):
+            ledger.remove_mirror(item_id, target.slug)
+        report.recreated, mirrored = len(mirrored), {}
     try:
         for number, item_id in sorted(mirrored.items()):
             issue = by_number.get(number)
@@ -233,6 +248,9 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
     if issue is None:
         _diverge(ledger, snapshot, target, report, item_id, record["number"], "exists", "missing", "present")
         return
+    for stale in snapshot.folds[item_id].divergences:  # the issue is back: a missing-issue divergence is over
+        if stale.get("field") == "exists":
+            ledger.append_event(item_id, "divergence_rejected", ref=stale.id, reason="the issue exists on the forge again")
     current = sync_plan.seen_of(issue, (seen or {}).get("comments", []))
     if seen is None:
         # No baseline on this machine (new checkout, or a mirror from before pulling existed): we cannot tell who changed

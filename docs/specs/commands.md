@@ -288,7 +288,7 @@ shape prime: additional_context context_bytes schema_version
   read back; a state other than the intended one is exit 3, never success. Written events stay (no rollback).
 
 ## Mirrors
-- `qew sync [--target T] [--item ID]... [--full] [--dry-run] [--prune-labels]`: pull forge-side changes, then push to every `[[mirror]]` target independently. The pull asks only for what changed (conditional pages or `since`; see forges.md, Incremental pull); `--full` ignores the pull cursor and cached pages and re-reads every issue. On a target with a
+- `qew sync [--target T] [--item ID]... [--full] [--dry-run] [--prune-labels]`: pull forge-side changes, then push to every `[[mirror]]` target independently. The pull asks only for what changed (conditional pages or `since`; see forges.md, Incremental pull); `--full` ignores the pull cursor and cached pages and re-reads every issue. A complete listing holding none of two or more mirrored issues means the repository was deleted and recreated: the pull forgets those mirrors (`recreated=N`, no divergences) and the push recreates the issues; one missing issue stays an `exists` divergence, which settles itself (`divergence_rejected`) when the issue is back. `--dry-run` reads the forge listing and writes nothing, so it lists `create` lines for a wiped repository (an unreadable forge is noted and the plan comes from the ledger only). On a target with a
   board each card's Status (the seven-status model) and Priority (P0-P4; larger priorities clamp to P4 with a
   warning) are set, read back from the forge a bounded number of times, and recorded only once visible (else the item
   is reported failed and retried next sync). A card moved by hand is moved back. Items that left the target's `select`

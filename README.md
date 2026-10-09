@@ -97,7 +97,7 @@ select = "label:area:erp"       # optional: label:X kind:X state:X priority:N; s
 Tokens come from `GITHUB_TOKEN`, `FORGEJO_TOKEN`/`GITEA_TOKEN`, `GITLAB_TOKEN` or the mirror's `token_env`.
 `QEW_FORGE_LOGIN` names the forge login pull requests are assigned to when it differs from `QEW_ACTOR`.
 `api = "URL"` overrides the API root for self-hosted installs; `timeout = SECONDS` bounds every request (default 30).
-Repo and API URLs must be http(s) without credentials, query or fragment, and `repo` names `owner/repo`. `qew sync --dry-run` shows the plan offline.
+Repo and API URLs must be http(s) without credentials, query or fragment, and `repo` names `owner/repo`. `qew sync --dry-run` shows the plan: it reads the forge listing (never writes), so it also shows a wiped or recreated repository's issues as `create` lines. A pull that finds none of two or more mirrored issues on a complete listing treats the repository as recreated: it forgets those mirrors, recreates the issues in the same sync (`recreated=N`), and records no divergences; a missing-issue divergence clears once the issue is back.
 `git_url` / `ledger_git_url` name the clone URLs `qew sync` pushes the code repo and the ledger repo to (git remote
 `qew-<slug>`); `read_only = true` makes a target one-way.
 
