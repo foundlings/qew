@@ -53,6 +53,8 @@ class FakeGitHub:
         self.cards_endless = False  # every ProjectCards page says another follows
         self.label_store: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
         self.drop_label_creates = False  # accept a label create yet store nothing
+        self.secondary_after: int | None = None  # block issue creation (once) with GitHub's secondary-limit 403 after this many creates
+        self.creates = 0
         self.delay = 0.0  # seconds every request takes, so concurrent requests overlap
         self.inflight = 0  # requests being served now
         self.max_inflight = 0  # the most requests served at once
@@ -650,6 +652,10 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(200, self.fake.milestone_json(int(number)))
 
     def _post_issues(self, query: Dict[str, List[str]], body: Any) -> None:
+        if self.fake.secondary_after is not None and self.fake.creates >= self.fake.secondary_after:
+            self.fake.secondary_after = None
+            return self._send(403, {"message": "You have exceeded a secondary rate limit and have been temporarily blocked from content creation."})
+        self.fake.creates += 1
         self._send(201, self.fake.issue_json(self.fake.new_issue(body)))
 
     def _get_issue(self, number: str, query: Dict[str, List[str]], body: Any) -> None:

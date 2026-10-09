@@ -15,10 +15,10 @@ from typing import cast
 from collections.abc import Callable, Mapping, Sequence
 
 from qew import sync_milestones, sync_plan
-from qew.pacing import PaceStop, Pacer
+from qew.pacing import PaceState, PaceStop, Pacer
 from qew.forge import (
     DUPLICATE_MARKER,
-    COLUMNS, Board, Forge, ForgeError, ForgeRejected, ForgeUnavailable, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for,
+    COLUMNS, Board, Forge, ForgeError, ForgeRejected, ForgeSecondaryLimit, ForgeUnavailable, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for,
 )
 from qew.mirror_types import MirrorRecord, updated
 from qew.ledger_config import Config, Mirror
@@ -130,15 +130,24 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
     (a rate limit above all) stops every worker from starting another item, and the items not started stay pending."""
     halt = threading.Event()
     per_minute, per_hour = target.forge.create_pace()
+    state = PaceState(ledger.pace_dir(target.slug))
+    learned = state.window()  # what an earlier secondary-limit block taught about this account
     pacer = Pacer(int(cast(int, target.mirror.options.get("create_per_minute", per_minute))),
-                  int(cast(int, target.mirror.options.get("create_per_hour", per_hour))))
+                  int(cast(int, target.mirror.options.get("create_per_hour", per_hour))), extra=(learned,) if learned else ())
+    pacer.seed(state.ages())
+    made = 0
+    blocked = False
 
     def pace() -> None:
+        nonlocal made
         wait = pacer.acquire(None if deadline is None else max(0.0, deadline - time.monotonic()))
         if wait:
             raise PaceStop(wait)
+        state.record_create()
+        made += 1
 
     def one(item_id: str) -> TargetReport | None:
+        nonlocal blocked
         if halt.is_set():
             return None
         if deadline is not None and time.monotonic() > deadline:
@@ -157,6 +166,12 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
             local.failures.append(f"{snapshot.short(item_id)}: author label: {error.detail}")
         except ForgeRejected as error:
             local.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+        except ForgeSecondaryLimit as error:
+            blocked = True
+            state.record_block()
+            local.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+            _stop(local, error)
+            halt.set()
         except ForgeError as error:
             local.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
             _stop(local, error)
@@ -173,6 +188,7 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
                 break
             if tick is not None:
                 tick()
+        _relax(state, learned, made, blocked)
         return
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for group in _levels(snapshot, ids):
@@ -186,6 +202,13 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
                     tick()
             if halt.is_set():
                 break
+    _relax(state, learned, made, blocked)
+
+
+def _relax(state: PaceState, learned: tuple[int, float] | None, made: int, blocked: bool) -> None:
+    """A run with no block that reached the learned pace raises the learned budget, so one block does not cap the account."""
+    if learned is not None and not blocked and made >= learned[0]:
+        state.relax()
 
 
 def _stop(report: TargetReport, error: ForgeError) -> None:

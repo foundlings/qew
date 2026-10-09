@@ -13,6 +13,7 @@ from qew import trace
 from qew.forge import (
     ForgeAuth,
     ForgeRejected,
+    ForgeSecondaryLimit,
     ForgeUnavailable,
     HttpRequest,
     HttpResponse,
@@ -178,8 +179,8 @@ def _interpret(response: HttpResponse, ok: tuple[int, ...]) -> tuple[Any, Mappin
     wait = wait_from(response.headers)
     limited = response.status == 429 or (response.status == 403 and (wait is not None or "rate limit" in detail.lower()))
     if limited:
-        if wait is None and "secondary rate limit" in detail.lower():
-            wait = SECONDARY_WAIT
+        if "secondary rate limit" in detail.lower():
+            raise ForgeSecondaryLimit(f"HTTP {response.status}: {detail}", wait if wait is not None else SECONDARY_WAIT)
         raise ForgeUnavailable(f"HTTP {response.status}: {detail}", wait if wait is not None else DEFAULT_WAIT)
     if response.status in (401, 403):
         raise ForgeAuth(f"HTTP {response.status}: {detail}")
