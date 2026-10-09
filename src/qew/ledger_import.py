@@ -123,7 +123,8 @@ def _restore_item(ledger: Ledger, target, report: PullReport, issue: RemoteIssue
         elif state == "completed":
             ledger.append_event(item_id, "completed", provenance="forge-import")
         elif state == "closed":
-            ledger.append_event(item_id, "closed", reason="not_planned", provenance="forge-import")
+            ledger.append_event(item_id, "closed", reason="duplicate" if issue.close_reason == "duplicate" else "not_planned",
+                                provenance="forge-import")
     seen = sync_plan.seen_of(issue, [])
     ledger.write_mirror(item_id, target.slug, {
         "forge": target.mirror.forge, "url": target.mirror.repo, "kind": "issue", "number": issue.number,

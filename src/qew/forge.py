@@ -107,7 +107,7 @@ class IssueSpec:
     body: str
     labels: Tuple[str, ...]
     open: bool
-    close_reason: str = ""  # "", "completed" or "not_planned"; honored where the forge has reasons
+    close_reason: str = ""  # "", "completed", "not_planned" or "duplicate"; honored where the forge has reasons
     assignee: str = ""  # forge login; "" clears
 
 
@@ -123,6 +123,7 @@ class RemoteIssue:
     assignee: str
     comments: int = 0  # user comment count when the listing reports one (cheap change signal for pull)
     milestone: int = 0  # the milestone the issue sits in (0: none)
+    close_reason: str = ""  # why a closed issue closed where the forge says: "completed", "not_planned" or "duplicate"
 
 
 @dataclass(frozen=True)
@@ -278,6 +279,10 @@ class Forge(ABC):
 
     def read_issue(self, number: int) -> RemoteIssue:
         raise Unsupported("read_issue")
+
+    def close_history(self, number: int) -> Tuple[str, ...]:
+        """The reason of every close the issue ever had, oldest first ("" where the forge gave none)."""
+        raise Unsupported("close_history")
 
     def list_issues(self, since: str = "") -> List[RemoteIssue]:
         """Issues of the repository, open and closed, pull requests excluded, oldest first.

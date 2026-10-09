@@ -51,6 +51,8 @@ class CloseReasonWalk(unittest.TestCase):
         twin = self.closed_on_forge("Twin by a human", "duplicate")
         self.sync()
         self.sync()
+        checked = self.world.run("check")
+        self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
         self.assertEqual(self.state_of("Done by a human"), "completed")
         self.assertEqual(self.state_of("Closed with no reason shown"), "completed")
         self.assertEqual(self.state_of("Skipped by a human"), "closed")
@@ -100,6 +102,16 @@ class CloseReasonWalk(unittest.TestCase):
         result = self.world.run("repair-closes", env=ENV)
         self.assertIn("nothing to repair", result.stdout + result.stderr)
         self.assertEqual(self.state_of("Really skipped"), "closed")
+
+    def test_accepting_a_forge_side_completed_close_records_completed_not_not_planned(self) -> None:
+        """Prevents `qew accept` turning a human's 'closed as completed' into a not_planned close."""
+        item = self.world.create("--kind", "issue", "--title", "Finished on the forge", "--quote", QUOTE)
+        self.sync()
+        self.fake.set_state(self.fake.issues[1], "closed", "completed")
+        self.sync()
+        accepted = self.world.run("accept", item)
+        self.assertEqual(accepted.returncode, 0, accepted.stdout + accepted.stderr)
+        self.assertEqual(self.state_of("Finished on the forge"), "completed")
 
 
 if __name__ == "__main__":

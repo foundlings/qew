@@ -69,7 +69,16 @@ def accept(config: Config, reference: str, reason: str = "not_planned", complete
         if completed:
             cmd_finish.complete(config, item_id)  # the gate decides; nothing is written when it refuses
         elif state not in (State.CLOSED, State.COMPLETED):
-            ledger.append_event(item_id, "closed", reason=reason, provenance="forge")
+            # the reason the forge gave decides, unless the caller named one: a completed close is never recorded as not planned
+            given = divergence.get("forge_reason")
+            if given in ("", None) or reason != "not_planned":
+                ledger.append_event(item_id, "closed", reason=reason, provenance="forge")
+            elif given == "duplicate":
+                ledger.append_event(item_id, "closed", reason="duplicate", provenance="forge")
+            elif given == "completed" and state in (State.APPROVED, State.CLAIMED):
+                ledger.append_event(item_id, "completed", provenance="forge-import")
+            else:
+                ledger.append_event(item_id, "closed", reason=reason, provenance="forge")
     elif field == "state" and forge == "open" and state in (State.CLOSED, State.COMPLETED):
         ledger.append_event(item_id, "reopened", provenance="forge")
     elif field in ("title", "labels"):

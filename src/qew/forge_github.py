@@ -46,7 +46,7 @@ DOTCOM_API = "https://api.github.com"
 STATUS_FIELD = "Status"
 PRIORITY_FIELD = "Priority"
 DEFAULT_VIEW = "View 1"
-CLOSE_REASONS = ("", "completed", "not_planned")
+CLOSE_REASONS = ("", "completed", "not_planned", "duplicate")
 _NEXT_LINK = re.compile(r'<([^>]+)>([^,<]*)')
 
 _OWNER_PROJECTS = """
@@ -238,6 +238,7 @@ def parse_issue(data: Any) -> RemoteIssue:
     if "assignee" not in issue:
         raise _malformed("issue.assignee")
     assignee = "" if issue["assignee"] is None else _str(_obj(issue["assignee"], "issue.assignee"), "login", "assignee")
+    reason = issue.get("state_reason")
     return RemoteIssue(
         number=_int(issue, "number", "issue"),
         url=_str(issue, "html_url", "issue"),
@@ -249,6 +250,7 @@ def parse_issue(data: Any) -> RemoteIssue:
         assignee=assignee,
         comments=_int(issue, "comments", "issue") if "comments" in issue else 0,
         milestone=0 if issue.get("milestone") is None else _int(_obj(issue["milestone"], "issue.milestone"), "number", "milestone"),
+        close_reason=reason if state == "closed" and reason in ("completed", "not_planned", "duplicate") else "",
     )
 
 
@@ -697,6 +699,16 @@ class GitHub(Forge):
             return issues, len(entries), headers, _next_url(headers) is not None
 
         return list_pages(fetch, cached)
+
+    def close_history(self, number: int) -> Tuple[str, ...]:
+        found: List[str] = []
+        for page in self._wire.pages(f"{self._repo_path}/issues/{number}/events?per_page=100"):
+            for entry in _array(page, "issue event list"):
+                event = _obj(entry, "issue event")
+                if event.get("event") == "closed":
+                    reason = event.get("state_reason")
+                    found.append(reason if reason in ("completed", "not_planned", "duplicate") else "")
+        return tuple(found)
 
     def list_comments(self, number: int) -> List[RemoteComment]:
         found: List[RemoteComment] = []

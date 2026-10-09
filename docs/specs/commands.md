@@ -352,7 +352,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew board columns`: one `Column N` line per column.
 - `qew status [--json]`: `ledger uncommitted=N unpushed=N mode=online|offline remote=ok|offline|none`, one `target SLUG pending=N synced=ISO|never repos=on|off pulled=ISO|never next_pull=conditional|incremental|full full_set=ISO|never` line per target (`repos=off`: no git_url/ledger_git_url, so sync does not push the repositories; JSON: `last_pull`, `next_pull`, `last_full`), `divergences=N`, a `claim ITEM provisional owner=X` line per unsettled offline claim and a `claim ITEM lost winner=Y` line per dropped one (JSON: `claims.provisional`, `claims.lost`), and `sync retry_after=N` (seconds) while a forge rate limit pause is recorded. Read-only: it never fetches, pushes or recovers.
 - `qew accept DIVERGENCE [--reason R] [--completed]`: apply a forge-side state change recorded by the pull. A forge close
-  becomes `closed` (reason `not_planned` by default); `--completed` runs the normal completion gate instead and is refused
+  becomes `closed` (reason `not_planned` by default, or the reason the forge gave: `duplicate`, or completed work); `--completed` runs the normal completion gate instead and is refused
   without a claim and evidence. A reopen becomes `reopened`; title and label edits apply as field events. DIVERGENCE is the
   divergence event id (a unique prefix) or an item with exactly one open divergence.
   A second effective `claimed` event on a held item (found after a merge) is a divergence too (`DIVERGENCE` is that
@@ -452,6 +452,15 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   claimed by another login. Idempotent: a finished ledger prints `nothing to migrate`; a run that stopped midway leaves a
   ledger `qew check` accepts (aliases resolve what is not yet rewritten) and the rerun finishes it. `--dry-run` lists the
   items (`would migrate ID`) and writes nothing. `--to` accepts only `time`.
+- `qew repair-closes [--dry-run]`: restore items an older pull recorded as `closed not_planned` (provenance `forge-import`)
+  although the forge's first close of the issue (its event timeline, not the current reason a push may have rewritten) was
+  completed or gave no reason: appends `reopened` and `completed` (both `forge-import`), then syncs those items so the forge
+  shows completed again. A first close of `not_planned` or `duplicate` is left alone; a forge without close history is
+  skipped. Idempotent: `nothing to repair`. `--dry-run` lists the items and writes nothing.
+- Close reasons on the forge: a pulled closed issue keeps the forge's reason (`completed` or none: completed work,
+  `not_planned`, `duplicate`); sync never sends `not_planned` for anything else. Ledger `duplicate` and `superseded` both
+  reach GitHub as `duplicate` (GitHub has no superseded reason). `qew accept` of a forge-side close follows the reason the
+  forge gave unless `--reason` names one.
 - `qew branch`: the group for `prune`.
 - `qew branch prune [--target T] [--base BRANCH] [--dry-run]`: per forge target (read-only targets skipped), delete every
   branch whose tip `BRANCH` (default the configured target branch) already holds and that no open pull request uses.

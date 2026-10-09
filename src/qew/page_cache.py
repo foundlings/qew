@@ -18,7 +18,7 @@ def to_json(page: CachedPage) -> dict:
 def _issue_json(issue: RemoteIssue) -> dict:
     return {"number": issue.number, "url": issue.url, "node_id": issue.node_id, "open": issue.open, "title": issue.title,
             "body": issue.body, "labels": list(issue.labels), "assignee": issue.assignee, "comments": issue.comments,
-            "milestone": issue.milestone}
+            "milestone": issue.milestone, "close_reason": issue.close_reason}
 
 
 def from_json(value: object) -> CachedPage | None:
@@ -44,7 +44,8 @@ def _issue(entry: object) -> RemoteIssue | None:
     if not isinstance(labels, list) or not all(isinstance(l, str) for l in labels):
         return None
     return RemoteIssue(entry["number"], entry["url"], entry["node_id"], entry["open"], entry["title"], entry["body"],
-                       tuple(labels), entry["assignee"], entry["comments"], entry["milestone"])
+                       tuple(labels), entry["assignee"], entry["comments"], entry["milestone"],
+                       entry.get("close_reason") if isinstance(entry.get("close_reason"), str) else "")
 
 
 def load(files: Mapping[int, object]) -> Dict[int, CachedPage]:

@@ -40,6 +40,9 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
 - Fail loudly on malformed files, truncated reads, cycles and partial writes. Never guess a ready state.
   Typed errors (`QewError`, `ForgeError` subclasses); never swallow an error into a default value. The one
   exception is agent hook events, which must not break a session (see `docs/specs/hooks.md`).
+- Qew relies on typing: every function is type-hinted (Python 3.15 typing features) and the type checker is part
+  of the gate and the tests; a type error fails them. (Being added in qew item 042f15ycm; until it lands, hint
+  all new code.)
 - Keep specs brief and update them when behavior changes.
 
 ## TDD

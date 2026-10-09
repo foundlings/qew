@@ -12,7 +12,8 @@ from qew.ledger_event import State
 from qew.ledger_item import Item, Kind
 from qew.ledger_store import Snapshot
 
-_CLOSE_REASON = {"completed": "completed", "not_planned": "not_planned", "duplicate": "not_planned", "superseded": "not_planned"}
+# GitHub has no "superseded" reason; a replaced item is the closest to a duplicate, and neither shows as "not planned"
+_CLOSE_REASON = {"completed": "completed", "not_planned": "not_planned", "duplicate": "duplicate", "superseded": "duplicate"}
 
 
 def selected(snapshot: Snapshot, expression: str) -> List[str]:

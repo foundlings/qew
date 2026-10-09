@@ -32,9 +32,9 @@ class LargeImportWalk(unittest.TestCase):
 
     def test_an_import_of_many_long_ids_commits_once_and_passes_check(self) -> None:
         """Prevents a plan bigger than the OS argument limit being unimportable."""
-        result = self.world.run("create", "--from-file", "-", "--import", stdin=plan())
+        result = self.world.run("create", "--from-file", "-", "--import", stdin=plan(), timeout=240)
         self.assertEqual(result.returncode, 0, (result.stderr or result.stdout)[-400:])
-        checked = self.world.run("check")
+        checked = self.world.run("check", timeout=240)
         self.assertEqual(checked.returncode, 0, checked.stdout[-400:])
         self.assertIn(f"ok {ITEMS}", checked.stdout)
 

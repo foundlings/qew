@@ -238,7 +238,7 @@ def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[
     if winner is not None and winner.number < created.number:
         # Another checkout created the same item at the same moment; the lowest number wins everywhere.
         forge.update_issue(created.number, replace(spec, body=spec.body.replace(marker_for(item_id), DUPLICATE_MARKER),
-                                                   open=False, close_reason="not_planned"))
+                                                   open=False, close_reason="duplicate"))
         return winner, True, False
     return created, False, False
 
@@ -254,7 +254,7 @@ def _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assign
     if winner is None or winner.number >= mine:
         return
     target.forge.update_issue(mine, replace(spec, body=spec.body.replace(marker_for(item_id), DUPLICATE_MARKER),
-                                            open=False, close_reason="not_planned"))
+                                            open=False, close_reason="duplicate"))
     if board is not None:
         try:
             target.forge.remove_from_board(board, mine)

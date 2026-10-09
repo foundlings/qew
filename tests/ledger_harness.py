@@ -130,6 +130,7 @@ class World:
         *arguments: str,
         stdin: Optional[str] = None,
         env: Optional[Mapping[str, str]] = None,
+        timeout: float = 60,
     ) -> subprocess.CompletedProcess:
         environment = {**os.environ, **_GIT_ENV, "PYTHONPATH": str(PROJECT_ROOT / "src")}
         environment["QEW_ACTOR"] = "tester"
@@ -143,7 +144,7 @@ class World:
             text=True,
             input=stdin,
             check=False,
-            timeout=60,
+            timeout=timeout,
         )
 
     def create(self, *arguments: str) -> str:

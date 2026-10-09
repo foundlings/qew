@@ -197,7 +197,7 @@ def _settle_twins(ledger: Ledger, target, report: PullReport, item_id: str, foun
     for issue, named in open_twins:
         if issue.number > keeper or finished or settled:
             body = issue.body.replace(marker_for(named), DUPLICATE_MARKER)
-            target.forge.update_issue(issue.number, IssueSpec(issue.title, body, tuple(issue.labels), False, "not_planned", ""))
+            target.forge.update_issue(issue.number, IssueSpec(issue.title, body, tuple(issue.labels), False, "duplicate", ""))
             report.duplicates += 1
 
 
@@ -222,11 +222,12 @@ def _already_open(snapshot: Snapshot, item_id: str, field_name: str, forge_value
 
 
 def _diverge(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, item_id: str, number: int,
-             field_name: str, forge_value: str, ledger_value: str) -> None:
+             field_name: str, forge_value: str, ledger_value: str, close_reason: str = "") -> None:
     if _already_open(snapshot, item_id, field_name, forge_value):
         return
+    extra = {"forge_reason": close_reason} if close_reason else {}
     ledger.append_event(item_id, "forge_divergence", target=target.slug, field=field_name, forge=forge_value,
-                        ledger=ledger_value, remote_ref=str(number), provenance="forge")
+                        ledger=ledger_value, remote_ref=str(number), provenance="forge", **extra)
     report.divergences += 1
 
 
@@ -295,7 +296,7 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
         changed = True
     if issue.open != seen["open"]:
         _diverge(ledger, snapshot, target, report, item_id, issue.number, "state",
-                 "open" if issue.open else "closed", "open" if seen["open"] else "closed")
+                 "open" if issue.open else "closed", "open" if seen["open"] else "closed", issue.close_reason)
         changed = True
     if issue.assignee != seen["assignee"]:
         _diverge(ledger, snapshot, target, report, item_id, issue.number, "assignee", issue.assignee or "(none)",
@@ -323,8 +324,21 @@ def _pull_state_only(ledger: Ledger, snapshot: Snapshot, target, report: PullRep
     if issue.open == seen["open"]:
         return
     _diverge(ledger, snapshot, target, report, item_id, issue.number, "state",
-             "open" if issue.open else "closed", "open" if seen["open"] else "closed")
+             "open" if issue.open else "closed", "open" if seen["open"] else "closed", issue.close_reason)
     _save(ledger, item_id, target.slug, record, {**seen, "open": issue.open})
+
+
+CLOSED_ON_FORGE_QUOTE = "forge-import: the issue was closed on the forge before it reached the ledger"
+
+
+def append_forge_close(ledger: Ledger, item_id: str, reason: str) -> None:
+    """Record a close the forge made with the reason the forge gave: not planned and duplicate stay closes, anything else
+    (completed, or no reason, which is how GitHub shows a plain close) is completed work, never invented as not planned."""
+    if reason in ("not_planned", "duplicate"):
+        ledger.append_event(item_id, "closed", reason=reason, provenance="forge-import")
+        return
+    ledger.append_event(item_id, "approved", quote=CLOSED_ON_FORGE_QUOTE, provenance="forge-import")
+    ledger.append_event(item_id, "completed", provenance="forge-import")
 
 
 def _import_issue(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, issue: RemoteIssue) -> None:
@@ -341,7 +355,7 @@ def _import_issue(ledger: Ledger, snapshot: Snapshot, target, report: PullReport
     ledger.write_item(item)
     ledger.append_event(item_id, "drafted", provenance="forge-import")
     if not issue.open:
-        ledger.append_event(item_id, "closed", reason="not_planned", provenance="forge-import")
+        append_forge_close(ledger, item_id, issue.close_reason)
     seen = sync_plan.seen_of(issue, [])
     seen = {**seen, "title": item.title, "body": item.body.strip(), "labels": labels}
     ledger.write_mirror(item_id, target.slug, {
