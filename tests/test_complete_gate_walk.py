@@ -11,6 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
+from qew.ledger_ids import event_id
 from tests.ledger_harness import QUOTE, World
 
 
@@ -38,7 +39,7 @@ class CompleteGateWalk(unittest.TestCase):
         item = self.started()
         directory = self.w.ledger / "events" / item
         last = sorted(directory.glob("*.json"))[-1]
-        (directory / f"{last.stem[:-1]}z.json").write_text(json.dumps({"type": "completed", "at": "2026-01-01T00:00:00Z", "actor": "mallory"}))
+        (directory / f"{event_id(last.stem)}.json").write_text(json.dumps({"type": "completed", "at": "2026-01-01T00:00:00Z", "actor": "mallory"}))
         result = self.w.run("check")
         self.assertEqual(result.returncode, 1)
         self.assertIn("completed without an evidence event", result.stdout)
@@ -48,7 +49,7 @@ class CompleteGateWalk(unittest.TestCase):
         item = self.started()
         directory = self.w.ledger / "events" / item
         last = sorted(directory.glob("*.json"))[-1]
-        (directory / f"{last.stem[:-1]}z.json").write_text(
+        (directory / f"{event_id(last.stem)}.json").write_text(
             json.dumps({"type": "completed", "at": "2026-01-01T00:00:00Z", "actor": "mallory", "provenance": "import"})
         )
         result = self.w.run("check")

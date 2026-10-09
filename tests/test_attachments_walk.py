@@ -49,7 +49,7 @@ class AttachmentsWalk(unittest.TestCase):
         return self.world.run("show", self.item).stdout
 
     def test_an_attached_file_is_stored_by_hash_listed_and_exported_byte_for_byte(self) -> None:
-        """Prevents lost or altered bytes: the file lands content-addressed, show names it, export restores it exactly."""
+        """Prevents lost or altered bytes: the file lands content-addressed, show names it, extract restores it exactly."""
         data = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 40  # binary, not valid text
         result = self.attach(str(self.file("diagram.png", data)), "--as", "design/diagram.png")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -60,7 +60,7 @@ class AttachmentsWalk(unittest.TestCase):
         self.assertIn(sha(data)[:12], listing)
         target = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(target, ignore_errors=True))
-        self.assertEqual(self.world.run("export", self.item, str(target)).returncode, 0)
+        self.assertEqual(self.world.run("extract", self.item, str(target)).returncode, 0)
         self.assertEqual((target / "design" / "diagram.png").read_bytes(), data)
         self.assertEqual(self.world.run("check").returncode, 0)
 
@@ -125,7 +125,7 @@ class AttachmentsWalk(unittest.TestCase):
         data = b"payload"
         self.attach(str(self.file("p.txt", data)), "--as", "p.txt")
         blob = self.world.ledger / "items" / self.item / "attachments" / f"{sha(data)}.txt"
-        blob.write_bytes(b"tampered")
+        blob.write_bytes(b"tampere")  # same length: only the hash can tell
         corrupt = self.world.run("check")
         self.assertEqual(corrupt.returncode, 1, corrupt.stdout)
         self.assertIn("hash", corrupt.stdout)
@@ -147,6 +147,31 @@ class AttachmentsWalk(unittest.TestCase):
         self.assertEqual(self.world.run("check").returncode, 0)
 
 
+class AttachmentsMigrationWalk(unittest.TestCase):
+    def test_attachments_follow_an_item_through_migrate_ids(self) -> None:
+        """Prevents lost files: an item renamed by `migrate-ids` keeps its attachments, listed, valid and extractable."""
+        world = World(ledger_vcs="git")
+        self.addCleanup(world.close)
+        config = world.ledger / "qew-ledger.toml"
+        config.write_text(config.read_text().rstrip("\n") + '\nid_mode = "letters"\n')
+        item = world.create("--kind", "issue", "--title", "Lettered", "--quote", QUOTE)
+        self.assertEqual(item, "A")
+        source = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(source, ignore_errors=True))
+        (source / "x.txt").write_bytes(b"x")
+        self.assertEqual(world.run("attach", item, str(source / "x.txt"), "--as", "docs/x.txt").returncode, 0)
+        config.write_text(config.read_text().replace('id_mode = "letters"', 'id_mode = "base35-time"'))
+        self.assertEqual(world.run("migrate-ids", "--to", "base35-time").returncode, 0)
+        new = world.run("list").stdout.split()[0]
+        self.assertNotEqual(new, "A")
+        self.assertIn("docs/x.txt", world.run("show", new).stdout)
+        self.assertEqual(world.run("check").returncode, 0, world.run("check").stdout)
+        target = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(target, ignore_errors=True))
+        self.assertEqual(world.run("extract", new, str(target)).returncode, 0)
+        self.assertEqual((target / "docs" / "x.txt").read_bytes(), b"x")
+
+
 class AttachmentsMergeWalk(unittest.TestCase):
     def test_two_machines_attaching_different_bytes_under_one_name_merge_without_a_conflict(self) -> None:
         """Prevents git conflicts on attachments: bytes are named by hash and events are separate files, so the merge is
@@ -163,7 +188,8 @@ class AttachmentsMergeWalk(unittest.TestCase):
         self.assertEqual(a.run("attach", item, str(source / "mine.txt"), "--as", "same.txt", env=OFFLINE).returncode, 0)
         self.assertEqual(b.run("attach", item, str(source / "yours.txt"), "--as", "same.txt", env=OFFLINE).returncode, 0)
         for world in (a, b, a, b):
-            self.assertEqual(world.run("ready").returncode, 0)
+            settled = world.run("ready")
+            self.assertEqual(settled.returncode, 0, settled.stdout + settled.stderr)
         shown = [world.run("show", item).stdout for world in (a, b)]
         winners = {sha(b"from a")[:12] in text for text in shown} | {sha(b"from b")[:12] in text for text in shown}
         self.assertEqual(len({sha(b"from a")[:12] in text for text in shown}), 1, "both checkouts must pick the same winner")

@@ -45,6 +45,19 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
   event or mirror directory, or a forge marker naming an alias means the item that carries it; a leftover file under an
   alias is superseded by the renamed one. Reads canonicalise through the alias map, so a half-finished migration is valid.
 
+## Attachments
+- An item owns a directory `items/ID/` beside `items/ID.md`. Attachment bytes are immutable files
+  `items/ID/attachments/HASH.EXT` (sha256 hex plus the original short extension, so a forge web view previews images).
+  They are never edited in place, so two machines cannot write the same path with different bytes.
+- Names are events: `attached` (`path`, `hash`, `size`, `blob`) and `detached` (`path`). The tree is every event applied
+  in ID order; the last event for a path wins, and a path that would be both a file and a directory yields to the later
+  event. Concurrent attaches under one name merge without a git conflict and every checkout derives the same winner.
+- Detached or replaced bytes stay on disk and in history. `qew check` fails on a missing stored file, a size or hash
+  mismatch, a stored file whose directory belongs to no item, and a body link `[text](attachment:NAME)` to a name that is
+  not attached. A ledger that uses attachments needs a qew that knows these events; older versions refuse the unknown
+  event type loudly.
+- Limits: 100 MiB per file (a warning above 25 MiB), 500 MiB of distinct bytes per item; git-lfs is out of scope.
+
 ## Item file (`items/<ID>.md`)
 Header = first lines, `key: value`, one per line, terminated by a line `---`. Parsers read the
 header only and stop at `---` (bounded bytes). Body after `---` is free Markdown for humans.

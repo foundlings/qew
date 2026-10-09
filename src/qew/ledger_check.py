@@ -4,12 +4,12 @@ from dataclasses import dataclass, replace
 import json
 import tomllib
 
-from qew import board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
+from qew import attachments, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import Event, State, fold, needs_after, parse_event, valid_actor
+from qew.ledger_event import Event, State, attachments_after, fold, needs_after, parse_event, valid_actor
 from qew.ledger_ids import sort_key
 from qew.ledger_item import Item, Kind, check_header_values, parse_item, read_item_text
 from qew.ledger_store import Ledger, Snapshot
@@ -20,8 +20,9 @@ MAX_PRIORITY = 9
 DRAFT_MARKERS = ("draft", "qew:draft")
 
 
-def check(ledger: Ledger) -> list[str]:
-    return check_report(ledger)[0]
+def check(ledger: Ledger, deep: bool = True) -> list[str]:
+    """The problems found; `deep` also re-hashes every attachment (sync passes False: it only needs the structure)."""
+    return check_report(ledger, deep)[0]
 
 
 def load(ledger: Ledger) -> tuple[Snapshot, list[str]]:
@@ -102,15 +103,16 @@ class Report:
         }
 
 
-def check_report(ledger: Ledger) -> tuple[list[str], list[str]]:
+def check_report(ledger: Ledger, deep: bool = True) -> tuple[list[str], list[str]]:
     """(problems, notes): problems fail the check; notes (counts and advisories) are reported and never fatal."""
-    report = analyse(ledger)
+    report = analyse(ledger, deep)
     return report.problems, [*report.notes, *report.advisories]
 
 
-def analyse(ledger: Ledger) -> Report:
+def analyse(ledger: Ledger, deep: bool = True) -> Report:
     snapshot, problems = load(ledger)
     items = snapshot.items
+    _check_attachments(snapshot, problems, deep)
     _check_edges(snapshot, problems)
     imported, without_code = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)
@@ -161,8 +163,27 @@ def _load_events(ledger: Ledger, item_id: str, problems: list[str]) -> list[Even
     return sorted(found, key=lambda event: event.id)
 
 
+def _check_attachments(snapshot: Snapshot, problems: list[str], deep: bool) -> None:
+    """Every attached name has its stored file (size, and with `deep` the hash, matching) and every body link names an attachment."""
+    ledger = snapshot.ledger
+    for item_id, item in snapshot.items.items():
+        tree = attachments_after(snapshot.events[item_id])
+        for path, row in sorted(tree.items()):
+            where = f"items/{item_id}/{attachments.DIRECTORY}/{row.blob}"
+            blob = ledger.find_blob(item_id, row.blob)
+            if blob is None:
+                problems.append(f"{where}: missing, the stored file of attachment `{path}`")
+            elif blob.stat().st_size != row.size:
+                problems.append(f"{where}: size {blob.stat().st_size} does not match the {row.size} bytes attached as `{path}`")
+            elif deep and attachments.hash_file(blob)[0] != row.digest:
+                problems.append(f"{where}: the hash does not match attachment `{path}` (the file was changed)")
+        for name in attachments.REFERENCE.findall(item.body):
+            if name not in tree:
+                problems.append(f"items/{item_id}.md: the body links attachment:{name}, which is not attached")
+
+
 def _check_orphans(ledger: Ledger, items: dict[str, Item], aliases: ledger_aliases.Aliases, problems: list[str]) -> None:
-    for directory in (ledger.events_dir, ledger.mirrors_dir):
+    for directory in (ledger.events_dir, ledger.mirrors_dir, ledger.items_dir):
         if directory.is_dir():
             for child in sorted(directory.iterdir()):
                 if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items:

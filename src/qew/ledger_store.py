@@ -5,6 +5,7 @@ from functools import cached_property
 from datetime import datetime, UTC
 import json
 import os
+import shutil
 import subprocess
 import threading
 import tomllib
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 from collections.abc import Iterable
 
-from qew import ledger_aliases
+from qew import attachments, ledger_aliases
 from qew.errors import QewError
 from qew.mirror_types import MirrorRecord
 from qew.ledger_config import LEDGER_FILE
@@ -82,6 +83,37 @@ class Ledger:
             return []
         stale = self.aliases().superseded
         return sorted(path.stem for path in self.items_dir.glob("*.md") if path.stem not in stale)
+
+    def attachments_dir(self, item_id: str) -> Path:
+        return self.items_dir / item_id / attachments.DIRECTORY
+
+    def find_blob(self, item_id: str, blob: str) -> Path | None:
+        """The stored file of an attachment, under the item's id or any id it had before a migration."""
+        for name in (item_id, *self.aliases().of(item_id)):
+            found = self.attachments_dir(name) / blob
+            if found.is_file():
+                return found
+        return None
+
+    def store_blob(self, item_id: str, source: Path, blob: str) -> bool:
+        """Copy `source` to the item's immutable blob file: False when those bytes are already stored there.
+
+        Journaled like every write, so a failed command removes what it created."""
+        target = self.attachments_dir(item_id) / blob
+        if target.exists():
+            return False
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+        try:
+            shutil.copyfile(source, temporary)
+            os.replace(temporary, target)
+        except OSError as error:
+            raise QewError(f"cannot store {source} as {target}: {error}", 3) from None
+        finally:
+            temporary.unlink(missing_ok=True)
+        if JOURNAL is not None:
+            JOURNAL.append((target, None))
+        return True
 
     def aliases(self) -> ledger_aliases.Aliases:
         return ledger_aliases.scan(self.items_dir)
@@ -402,6 +434,12 @@ def journal_rollback(entries: list[tuple[Path, str | None]]) -> None:
                     path.parent.rmdir()
                 except OSError:
                     pass  # not empty: it holds other writes
+            elif path.parent.name == attachments.DIRECTORY:  # the attachments directory, then the item directory, if the write made them
+                for directory in (path.parent, path.parent.parent):
+                    try:
+                        directory.rmdir()
+                    except OSError:
+                        break
         else:
             path.write_text(previous, encoding="utf-8")
         ledger_aliases.note_change(path)
