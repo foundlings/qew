@@ -6,10 +6,10 @@
 CORE_COMMANDS: frozenset[str] = frozenset({"check", "create", "draft", "init", "set"})  # registered by cli.py itself
 
 COMMAND_MODULE: dict[str, str] = {
-    "accept": "cmd_divergence", "attach": "cmd_attach", "detach": "cmd_attach", "extract": "cmd_attach", "blocked": "cmd_read", "board": "cmd_board", "branch": "cmd_branch", "close": "cmd_finish",
+    "accept": "cmd_divergence",  "blocked": "cmd_read", "board": "cmd_board", "branch": "cmd_branch", "close": "cmd_finish",
     "comment": "cmd_comment", "complete": "cmd_finish", "conflicts": "cmd_conflicts", "evidence": "cmd_finish",
     "export": "cmd_transfer", "forge": "cmd_forge", "graph": "cmd_read", "hook": "cmd_hook", "import": "cmd_forgeio",
-    "inbox": "cmd_inbox", "land": "cmd_land", "ledger": "cmd_ledger", "list": "cmd_read", "migrate-ids": "cmd_migrate",
+    "inbox": "cmd_inbox", "item": "cmd_attach", "land": "cmd_land", "ledger": "cmd_ledger", "list": "cmd_read", "migrate-ids": "cmd_migrate",
     "mirror": "cmd_mirror", "plan": "cmd_plan", "pr": "cmd_pr", "prime": "cmd_prime", "project": "cmd_project",
     "ready": "cmd_read", "reject": "cmd_divergence", "release": "cmd_claim", "reopen": "cmd_finish", "repair-closes": "cmd_repair",
     "resolve": "cmd_conflicts", "restore": "cmd_forgeio", "search": "cmd_search", "show": "cmd_read", "start": "cmd_claim",
