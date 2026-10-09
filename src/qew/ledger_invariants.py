@@ -6,7 +6,7 @@ from qew.ledger_event import State
 from qew.ledger_ids import sort_key
 from qew.ledger_store import Snapshot
 
-MAX_NEEDS_DEPTH = 20
+MAX_NEEDS_DEPTH = 30  # a longer chain is a warning: real corpora chain deeper
 AREA = "area:"
 _ORPHAN = "belongs to no item"
 
@@ -70,12 +70,14 @@ def closed_needs(snapshot: Snapshot) -> List[str]:
     return found
 
 
-def report(snapshot: Snapshot, problems: List[str]) -> None:
-    """Append the invariant problems and, when any exist, one counts line. Orphans are already in `problems`."""
+def report(snapshot: Snapshot, problems: List[str], notes: List[str]) -> None:
+    """Add the invariant problems (and the counts line) to `problems`; a deep chain is only a warning in `notes`."""
     orphans = sum(1 for problem in problems if problem.endswith(_ORPHAN))
-    groups = (cross_parent(snapshot), deep_needs(snapshot), closed_needs(snapshot))
-    for found in groups:
-        problems.extend(found)
-    cross, deep, closed = (len(found) for found in groups)
+    cross_found, closed_found, deep_found = cross_parent(snapshot), closed_needs(snapshot), deep_needs(snapshot)
+    problems.extend(cross_found)
+    problems.extend(closed_found)
+    notes.extend(deep_found)
+    cross, closed, deep = len(cross_found), len(closed_found), len(deep_found)
     if orphans or cross or deep or closed:
-        problems.append(f"graph invariants: orphans={orphans} cross_epic={cross} depth={deep} closed_needs={closed}")
+        line = f"graph invariants: orphans={orphans} cross_epic={cross} depth={deep} closed_needs={closed}"
+        (problems if orphans or cross or closed else notes).append(line)

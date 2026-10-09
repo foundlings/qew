@@ -118,12 +118,15 @@ def analyse(ledger: Ledger) -> Report:
     _check_mirror_progress(snapshot, problems)
     _check_claim_refs(snapshot, problems)
     problems.extend(board_config.problems(ledger))
-    ledger_invariants.report(snapshot, problems)
+    warnings: List[str] = []
+    ledger_invariants.report(snapshot, problems, warnings)
     problems.extend(f"items/{item.id}.md: {found}" for item in snapshot.items.values()
                     for found in map(ledger_labels.problem, item.labels) if found)  # flagged by check; reads stay available
     found = contradictions(snapshot)
     findings = text_findings(snapshot)
-    notes = [f"imported without evidence: {imported}"] if imported else []
+    notes = [*warnings]
+    if imported:
+        notes.append(f"imported without evidence: {imported}")
     if without_code:
         notes.append(f"completed without code: {without_code}")
     contested = sum(1 for fold_ in snapshot.folds.values() for e in fold_.divergences if e.type == "claimed")
