@@ -280,6 +280,10 @@ class Forge(ABC):
     def read_issue(self, number: int) -> RemoteIssue:
         raise Unsupported("read_issue")
 
+    def create_pace(self) -> Tuple[int, int]:
+        """(creates per minute, creates per hour) this backend allows before it blocks content creation; 0 means no limit."""
+        return (0, 0)
+
     def close_history(self, number: int) -> Tuple[str, ...]:
         """The reason of every close the issue ever had, oldest first ("" where the forge gave none)."""
         raise Unsupported("close_history")
