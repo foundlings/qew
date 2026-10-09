@@ -163,6 +163,17 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
         self.assertEqual([e["type"] for e in self.a.events(self.item)].count("claim_lost"), 1)
         self.assertEqual(self.a.run("check").returncode, 0)
 
+    def test_a_rival_claim_already_on_the_remote_wins_even_before_its_confirmation_arrives(self) -> None:
+        """Prevents two holders of one item: the other checkout's claim is pushed before its claim_confirmed follows,
+        and a provisional claim older than nothing on the remote must still lose to it."""
+        from qew import ledger_store
+        self.assertEqual(self.a.run("start", self.item, "--offline", env={"QEW_OFFLINE": "1"}).returncode, 0)
+        rival = ledger_store.Ledger(self.a.ledger)
+        rival.append_event(self.item, "claimed", owner="second", actor="second")  # pushed claim, confirmation not yet arrived
+        synced = self.a.run("sync")
+        self.assertEqual(synced.returncode, 3, synced.stdout + synced.stderr)
+        self.assertEqual([e["type"] for e in self.a.events(self.item)].count("claim_lost"), 1)
+
     def test_an_uncontested_offline_claim_is_confirmed_by_the_next_sync(self) -> None:
         """Prevents a provisional claim lingering for ever when nobody else wanted the item."""
         self.assertEqual(self.a.run("start", self.item, "--offline", env={"QEW_OFFLINE": "1"}).returncode, 0)
