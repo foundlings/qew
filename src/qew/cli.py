@@ -9,6 +9,7 @@ from types import ModuleType
 from collections.abc import Sequence
 
 from qew import __version__, body_sections, code_prose, editor, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
+from qew.command_modules import COMMAND_MODULE, CORE_COMMANDS
 from qew.errors import QewError
 from qew.ledger_item import title_is_one_line
 
@@ -85,13 +86,29 @@ _MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_re
 
 def top_level_commands() -> list[str]:
     """Names of the commands `qew --help` lists."""
-    action = next(a for a in _parser()._actions if isinstance(a, argparse._SubParsersAction))
-    return list(action.choices)
+    return sorted(CORE_COMMANDS | COMMAND_MODULE.keys())
 
 
-def _plugins() -> list[ModuleType]:
+def _wanted_modules(argv: Sequence[str] | None) -> tuple[str, ...]:
+    """The command modules a run needs: the one that owns the named command, none for a command cli.py owns, and
+    all of them for `--help`, no command, or one this table does not know (so the error lists every command)."""
+    for token in sys.argv[1:] if argv is None else argv:
+        if token in ("-h", "--help"):
+            return _MODULES
+        if token == "--version":
+            return ()
+        if token.startswith("-"):
+            continue
+        if token in CORE_COMMANDS:
+            return ()
+        module = COMMAND_MODULE.get(token)
+        return (module,) if module else _MODULES
+    return _MODULES
+
+
+def _plugins(names: Sequence[str] = _MODULES) -> list[ModuleType]:
     found: list[ModuleType] = []
-    for name in _MODULES:
+    for name in names:
         try:
             found.append(importlib.import_module(f"qew.{name}"))
         except ModuleNotFoundError as error:
@@ -100,7 +117,7 @@ def _plugins() -> list[ModuleType]:
     return found
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qew",
         description="Offline-first work ledger mirrored to forges.",
@@ -178,7 +195,7 @@ def _parser() -> argparse.ArgumentParser:
     revert.add_argument("--reason", required=True, help="why the release is withdrawn")
     revert.add_argument("--quote", required=True, help="a human's words, \"Name: 'their words'\"")
     revert.add_argument("--json", action="store_true", help="machine-readable output")
-    for plugin in _plugins():
+    for plugin in _plugins(modules):
         plugin.register(commands)
     return parser
 
@@ -230,7 +247,7 @@ def _read(path: str) -> str:
 
 def _run(arguments: argparse.Namespace) -> None:
     command = arguments.command
-    for plugin in _plugins():
+    for plugin in _plugins(_wanted_modules([arguments.command])):
         if plugin.run(arguments):
             return
     if command == "init":
@@ -299,7 +316,7 @@ def _run(arguments: argparse.Namespace) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    arguments = _parser().parse_args(argv)
+    arguments = _parser(_wanted_modules(argv)).parse_args(argv)
     arguments.json = outcome.wants_json(arguments)
     try:
         with replication.session(arguments):

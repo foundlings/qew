@@ -7,7 +7,6 @@ from collections.abc import Mapping
 
 from qew.errors import QewError
 from qew.forge import Forge, Transport
-from qew.forge_http import TIMEOUT_SECONDS, urllib_transport
 from qew.ledger_config import Mirror
 
 _BACKENDS = {
@@ -31,5 +30,7 @@ def build(mirror: Mirror, transport: Transport | None = None, env: Mapping[str, 
         backend = getattr(importlib.import_module(module), name)
     except (ImportError, AttributeError):
         raise QewError(f"the {forge} backend is not available in this build", 1) from None
+    from qew.forge_http import TIMEOUT_SECONDS, urllib_transport  # the HTTP stack loads only when a forge is built
+
     timeout = mirror.options.get("timeout", TIMEOUT_SECONDS)
     return cast(Forge, backend(mirror, transport or urllib_transport(float(cast(str | float, timeout))), dict(os.environ if env is None else env)))
