@@ -232,7 +232,7 @@ def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[
         return found, True, False
     created = forge.create_issue(spec)
     try:
-        winner = forge.find_issue(marker_for(item_id), recent)
+        winner = forge.find_issue(marker_for(item_id), True)  # the newest page holds a concurrent creator
     except Unsupported:
         return created, False, False
     if winner is not None and winner.number < created.number:

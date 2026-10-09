@@ -512,6 +512,7 @@ class GitHub(Forge):
         self._raw_projects: Dict[int, Dict[str, Any]] = {}  # project number -> the structure node as GitHub sent it
         self._adopted: set = set()  # project numbers whose structure came from a cache, not from this run
         self._known_labels: set = set()
+        self._listed: Optional[List[RemoteIssue]] = None  # every issue the first unscoped lookup read, plus this run's creates
 
     # issues
 
@@ -526,17 +527,26 @@ class GitHub(Forge):
         return self._nodes[number]
 
     def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
+        if not recent:
+            # One full listing per run: a first sync of N items must not page the whole repository N times.
+            if self._listed is None:
+                self._listed = []
+                for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
+                    for entry in _array(page, "issue list"):
+                        issue = _obj(entry, "issue list entry")
+                        if "pull_request" not in issue:
+                            self._listed.append(self._remember(parse_issue(issue)))
+            matches = [i for i in self._listed if marker_alone(i.body, marker)]
+            return min(matches, key=lambda found: found.number) if matches else None
         matches = []
-        order = "sort=created&direction=desc&" if recent else ""
-        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&{order}per_page=100"):
+        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&sort=created&direction=desc&per_page=100"):
             for entry in _array(page, "issue list"):
                 issue = _obj(entry, "issue list entry")
                 if "pull_request" in issue:
                     continue
                 if marker_alone(_nullable_str(issue, "body", "issue"), marker):
                     matches.append(self._remember(parse_issue(issue)))
-            if recent:
-                break  # one page of the newest issues: the lookup after a write must not grow with the repository
+            break  # one page of the newest issues: the lookup after a write must not grow with the repository
         return min(matches, key=lambda found: found.number) if matches else None
 
     def _repo_label_looks(self) -> Dict[str, Tuple[str, str]]:
@@ -636,6 +646,8 @@ class GitHub(Forge):
         if spec.assignee:
             payload["assignees"] = [spec.assignee]
         created = self._remember(parse_issue(self._wire.rest("POST", f"{self._repo_path}/issues", payload)))
+        if self._listed is not None:
+            self._listed.append(created)
         if spec.open:
             return created
         return self.update_issue(created.number, spec)

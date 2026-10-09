@@ -12,6 +12,12 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
 
 `AGENTS.md` is a symlink to this file. Keep one canonical copy of these rules.
 
+## Base requirement: conflict-free merges
+
+- Ledger files merge in git without conflicts across machines: one file per item, per event and per mirror
+  target, unique time ids, no shared mutable file. Any change that can make two writers touch the same file
+  is a bug; a contested fact (owner, state) becomes a qew conflict event, never a git conflict.
+
 ## Qew manages Qew
 
 - Track Qew's own work in the qew ledger with qew: `qew create`, `qew draft approve`, `qew start`,
