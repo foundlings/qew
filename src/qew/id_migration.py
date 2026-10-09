@@ -1,4 +1,4 @@
-"""Migrate item ids to time mode: rename the items and carry every reference to the new ids.
+"""Migrate item ids to base35-time mode: rename the items and carry every reference to the new ids.
 
 Each old id is kept in the item's `aliases:` header, so lookups by it still resolve (see ledger_aliases).
 The work is ordered so that the ledger passes `qew check` after every single file operation: items are
@@ -15,7 +15,7 @@ from pathlib import Path
 from qew import ledger_store
 from qew.errors import QewError
 from qew.ledger_event import State
-from qew.ledger_ids import is_time_id, next_id, sort_key
+from qew.ledger_ids import is_base35_time_id, next_id, sort_key
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger
 
@@ -34,19 +34,19 @@ class Report:
 
 
 def migrate(ledger: Ledger, actor_name: str, dry_run: bool = False) -> Report:
-    """Migrate every item whose id is not a time id; with `dry_run` only count what would change."""
+    """Migrate every item whose id is not a base35-time id; with `dry_run` only count what would change."""
     aliases = ledger.aliases()
     snapshot = ledger.snapshot()
     for item_id, folded in sorted(snapshot.folds.items(), key=lambda pair: sort_key(pair[0])):
         if folded.state == State.CLAIMED and folded.owner != actor_name:
             raise QewError(f"{item_id} is claimed by {folded.owner}; ids are not migrated under another login's claim "
                            f"(ask them to release it, or run as that login)", 3)
-    pending = sorted((i for i in ledger.item_ids() if not is_time_id(i)),
+    pending = sorted((i for i in ledger.item_ids() if not is_base35_time_id(i)),
                      key=lambda i: (snapshot.items[i].created, sort_key(i)))
     taken = {*ledger.item_ids(), *aliases.by_alias}
     renames: list[tuple[str, str]] = []
     for old in pending:
-        new = next_id("time", taken)
+        new = next_id("base35-time", taken)
         taken.add(new)
         renames.append((old, new))
     mapping = {**aliases.by_alias, **dict(renames)}

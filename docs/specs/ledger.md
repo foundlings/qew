@@ -34,14 +34,14 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
 - Item and event IDs are ledger-local, globally unique, sortable, never forge counters. They are bare (the configured
   `prefix` names the ledger; it is not part of an ID).
 - `id_mode` in `qew-ledger.toml` picks the mode per kind (`epic`, `issue`, `task`), either one name for every kind or a
-  table; a kind left out is `time`:
-  - `time` (the default): 9 characters, seconds since 2020 in base 35 plus two more, so IDs sort by creation and
+  table; a kind left out is `base35-time`:
+  - `base35-time` (the default): 9 characters, seconds since 2020 in base 35 plus two more, so IDs sort by creation and
     concurrent writers rarely collide (`qew check` refuses duplicates). Example `042fcpx9w`.
   - `letters`: A, B .. Z, AA, AB .. for a handful of long-lived items (foundlings uses it for epics, so phases read `ADA`).
   - `counter`: integers; safe for one writer only.
   Imported items keep the IDs they already have. A short unique prefix of an ID resolves.
 - Forge issue numbers are recorded only in `mirrors/`.
-- `aliases: OLD1 OLD2` (optional header key) lists ids an item had before `qew migrate-ids --to time`. A reference, an
+- `aliases: OLD1 OLD2` (optional header key) lists ids an item had before `qew migrate-ids --to base35-time`. A reference, an
   event or mirror directory, or a forge marker naming an alias means the item that carries it; a leftover file under an
   alias is superseded by the renamed one. Reads canonicalise through the alias map, so a half-finished migration is valid.
 
@@ -279,7 +279,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
 ### Background sync
 
 - **Offline first, forge second (decision).** A write is complete when the ledger commit lands: local, conflict-free
-  (time ids), never waiting for a forge. The issue and its board card are step two, derived and idempotent, moved by
+  (base35-time ids), never waiting for a forge. The issue and its board card are step two, derived and idempotent, moved by
   qew itself with no board workflow and no `qew sync` or `qew project sync` to run by hand. The forge or board is
   never written first. Only a claim under a primary forge arbitrates remotely (see Authority).
 - After any write qew queues the ids the write touched in `.qew/sync.queue` (a union, each id once) and starts ONE

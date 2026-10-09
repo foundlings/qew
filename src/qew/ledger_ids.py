@@ -1,6 +1,6 @@
 """Item and event IDs.
 
-Item IDs come in three modes chosen per kind in `qew-ledger.toml`: `time`
+Item IDs come in three modes chosen per kind in `qew-ledger.toml`: `base35-time`
 (default, merge-safe), `letters` (A..Z, AA..) and `counter` (integers, one
 writer). Imported items keep the IDs they already have. Event IDs are always
 time-ordered: they decide the fold order, so they are monotonic per process.
@@ -14,7 +14,7 @@ from collections.abc import Iterable
 
 from qew.errors import QewError
 
-MODES = ("time", "letters", "counter")
+MODES = ("base35-time", "letters", "counter")
 # 35 characters: digits and lowercase letters without `l`, which reads as `1`.
 _ALPHABET = "0123456789abcdefghijkmnopqrstuvwxyz"
 _EPOCH = 1_577_836_800  # 2020-01-01T00:00:00Z
@@ -25,7 +25,7 @@ _TIME_ID = re.compile(r"[0-9a-km-z]{9}")
 _VALID = re.compile(r"[A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*")
 
 
-def is_time_id(value: str) -> bool:
+def is_base35_time_id(value: str) -> bool:
     return bool(_TIME_ID.fullmatch(value))
 
 
@@ -50,7 +50,7 @@ def _decode(value: str) -> int:
 
 
 def event_id(after: str = "") -> str:
-    """Seconds since 2020 in base 35 (7 characters) plus 2 more: a time-mode ID.
+    """Seconds since 2020 in base 35 (7 characters) plus 2 more: a base35-time ID.
 
     It is always greater than `after` and than this process's last one. The pair counts up
     inside a second, so IDs and an item's events keep their order even when separate commands
@@ -86,8 +86,8 @@ def letters_after(value: str | None) -> str:
 def next_id(mode: str, existing: Iterable[str]) -> str:
     """The next free ID of `mode`, given every ID already in the ledger."""
     taken = set(existing)
-    if mode == "time":
-        # Greater than every time id already here: ordered locally, and unique even within a second.
+    if mode == "base35-time":
+        # Greater than every base35-time id already here: ordered locally, and unique even within a second.
         newest = max((i for i in taken if _TIME_ID.fullmatch(i)), default="")
         return event_id(newest)
     if mode == "letters":
@@ -105,8 +105,8 @@ def sort_key(item_id: str) -> tuple[int, str]:
 
 
 def parse_modes(value: object, kinds: Iterable[str]) -> dict[str, str]:
-    """`id_mode = "time"` for every kind, or a table with one mode per kind (others default to time)."""
-    modes = {kind: "time" for kind in kinds}
+    """`id_mode = "base35-time"` for every kind, or a table with one mode per kind (others default to base35-time)."""
+    modes = {kind: "base35-time" for kind in kinds}
     if value is None:
         return modes
     if isinstance(value, str):
@@ -114,6 +114,8 @@ def parse_modes(value: object, kinds: Iterable[str]) -> dict[str, str]:
     if not isinstance(value, dict):
         raise QewError("qew-ledger.toml: id_mode is a mode name or a table of kind = mode", 1)
     for kind, mode in value.items():
+        if mode == "time":
+            raise QewError(f"qew-ledger.toml: id_mode.{kind} = 'time' was renamed 'base35-time'; change it there", 1)
         if kind not in modes or mode not in MODES:
             raise QewError(f"qew-ledger.toml: id_mode.{kind} = {mode!r} is not a kind with one of {', '.join(MODES)}", 1)
         modes[kind] = mode

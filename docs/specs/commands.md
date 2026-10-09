@@ -441,8 +441,8 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   `--json`: `{merged, number, head_sha, items, schema_version}`. After a landed merge the head branch is deleted on the
   forge, never the base, the configured target branch or a head another open pull request uses (`branch NAME kept: ...`);
   a forge that cannot delete only warns on stderr and the merge still succeeds.
-- `qew migrate-ids --to time [--dry-run]`: rename every item whose id is not a time id (letters, counter, imported) to a
-  new time id, ordered by creation, and carry every reference: item headers (`parent needs tracks pr discovered_from`),
+- `qew migrate-ids --to base35-time [--dry-run]`: rename every item whose id is not a base35-time id (letters, counter, imported) to a
+  new base35-time id, ordered by creation, and carry every reference: item headers (`parent needs tracks pr discovered_from`),
   event directories and the ids cited in `edge`, `closed` and link `field` events, mirror directories and pull request
   mirrors' `items`, named board views' `epic:` and `parent:` terms. Event ids, history and forge numbers are never
   changed. The old id becomes an `aliases:` header value (space separated item ids; an alias may not be an item's own id,
@@ -451,7 +451,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   sync rewrites the marker). One write session, one ledger commit. Refused (exit 3, nothing written) while any item is
   claimed by another login. Idempotent: a finished ledger prints `nothing to migrate`; a run that stopped midway leaves a
   ledger `qew check` accepts (aliases resolve what is not yet rewritten) and the rerun finishes it. `--dry-run` lists the
-  items (`would migrate ID`) and writes nothing. `--to` accepts only `time`.
+  items (`would migrate ID`) and writes nothing. `--to` accepts only `base35-time`.
 - `qew repair-closes [--dry-run]`: restore items an older pull recorded as `closed not_planned` (provenance `forge-import`)
   although the forge's first close of the issue (its event timeline, not the current reason a push may have rewritten) was
   completed or gave no reason: appends `reopened` and `completed` (both `forge-import`), then syncs those items so the forge

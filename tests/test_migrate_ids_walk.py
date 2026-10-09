@@ -1,4 +1,4 @@
-"""Walks of `qew migrate-ids --to time`: letters, counter and imported ids become time ids.
+"""Walks of `qew migrate-ids --to base35-time`: letters, counter and imported ids become time ids.
 
 Adversary: a reference left pointing at a vanished id, history lost or renumbered, a rerun that
 migrates twice, a crash that leaves a ledger `qew check` refuses, another login's claim yanked
@@ -90,7 +90,7 @@ class MigrateIdsWalk(unittest.TestCase):
         w = self.world
         names = {i: sorted(path.name for path in (w.ledger / "events" / i).glob("*.json")) for i in "ABC"}
         before = {i: [(e["type"], e["at"], e["actor"]) for e in w.events(i)] for i in "ABC"}
-        result = w.run("migrate-ids", "--to", "time")
+        result = w.run("migrate-ids", "--to", "base35-time")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(len(self.ids()), 3)
         self.assertTrue(all(TIME.match(i) for i in self.ids()), self.ids())
@@ -108,7 +108,7 @@ class MigrateIdsWalk(unittest.TestCase):
 
     def test_an_old_id_still_resolves_and_the_answer_names_the_new_id(self) -> None:
         """Prevents notes, commits and branches that cite the old id from going dead."""
-        self.world.run("migrate-ids", "--to", "time")
+        self.world.run("migrate-ids", "--to", "base35-time")
         new = self.show("B")["id"]
         self.assertRegex(new, TIME)
         shown = self.world.run("show", "B")
@@ -121,11 +121,11 @@ class MigrateIdsWalk(unittest.TestCase):
         """Prevents a history of per-item commits, and a second run renaming or aliasing again."""
         w = self.world
         commits = len(w.ledger_log())
-        self.assertEqual(w.run("migrate-ids", "--to", "time").returncode, 0)
+        self.assertEqual(w.run("migrate-ids", "--to", "base35-time").returncode, 0)
         self.assertEqual(len(w.ledger_log()), commits + 1)
         self.assertTrue(w.ledger_log()[0].startswith("qew: migrate-ids"), w.ledger_log()[0])
         settled = tree(w.ledger)
-        again = w.run("migrate-ids", "--to", "time")
+        again = w.run("migrate-ids", "--to", "base35-time")
         self.assertEqual(again.returncode, 0, again.stderr)
         self.assertIn("nothing to migrate", again.stdout)
         self.assertEqual(tree(w.ledger), settled)
@@ -135,7 +135,7 @@ class MigrateIdsWalk(unittest.TestCase):
         """Prevents a preview that already renamed files."""
         w = self.world
         settled = tree(w.ledger)
-        result = w.run("migrate-ids", "--to", "time", "--dry-run")
+        result = w.run("migrate-ids", "--to", "base35-time", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         for old in "ABC":
             self.assertIn(old, result.stdout.split())
@@ -148,7 +148,7 @@ class MigrateIdsWalk(unittest.TestCase):
         w.run("release", "B", "--reason", "handoff")
         self.assertEqual(w.run("start", "B", env={"QEW_ACTOR": "other"}).returncode, 0)
         settled = tree(w.ledger)
-        result = w.run("migrate-ids", "--to", "time")
+        result = w.run("migrate-ids", "--to", "base35-time")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("other", result.stderr)
         self.assertEqual(tree(w.ledger), settled)
@@ -207,7 +207,7 @@ class MigrateIdsWalk(unittest.TestCase):
         mirror_dir.mkdir(parents=True)
         record = {"forge": "forgejo", "url": "https://git.example/o/r", "kind": "pr", "number": 7, "items": ["B", "C"]}
         (mirror_dir / "forgejo-git.example-o-r-pr-7.json").write_text(json.dumps(record))
-        self.assertEqual(w.run("migrate-ids", "--to", "time").returncode, 0)
+        self.assertEqual(w.run("migrate-ids", "--to", "base35-time").returncode, 0)
         first, second = self.show("B")["id"], self.show("C")["id"]
         moved = json.loads((w.ledger / "mirrors" / first / "forgejo-git.example-o-r-pr-7.json").read_text())
         self.assertEqual((moved["number"], moved["items"]), (7, [first, second]))
@@ -230,7 +230,7 @@ class MigrateMirrorWalk(unittest.TestCase):
         self.item = self.world.create("--kind", "issue", "--title", "Mirrored", "--quote", QUOTE)
         sync_target(self.ledger, self.target, self.config)
         self.assertIn(marker_for("A"), self.forge.issues[1].body)
-        self.assertEqual(self.world.run("migrate-ids", "--to", "time").returncode, 0)
+        self.assertEqual(self.world.run("migrate-ids", "--to", "base35-time").returncode, 0)
         self.new = next((self.world.ledger / "items").glob("*.md")).stem
 
     def test_the_mirror_follows_the_item_and_the_next_sync_rewrites_only_the_marker(self) -> None:
