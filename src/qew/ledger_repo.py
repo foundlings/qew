@@ -10,7 +10,7 @@ import subprocess
 import time
 from typing import Dict, List, Optional, Sequence
 
-from qew import trace
+from qew import filelock, trace
 from qew import ledger_lineage
 from qew.errors import QewError
 
@@ -129,6 +129,7 @@ class LedgerRepo:
     def __init__(self, path: Path, branch: str = "main") -> None:
         self.path = path
         self.branch = branch
+        self.last_failure = ""  # why the last fetch or push failed: stderr's last line, for the status file and messages
         if (path / ".jj").is_dir():
             self.vcs: Optional[str] = "jj"
         elif (path / ".git").exists():
@@ -226,7 +227,8 @@ class LedgerRepo:
         if not self.has_remote():
             return "no-remote"
         try:
-            result = self._git_fetch_merge(timeout) if self.vcs == "git" else self._jj_fetch_merge(timeout)
+            with self._remote_refs():
+                result = self._git_fetch_merge(timeout) if self.vcs == "git" else self._jj_fetch_merge(timeout)
         except LedgerConflict as conflict:
             self._marker().parent.mkdir(exist_ok=True)
             self._marker().write_text(json.dumps({"remote": conflict.remote, "files": conflict.files,
@@ -349,6 +351,7 @@ class LedgerRepo:
         except QewError:
             return "offline"
         if fetched.returncode != 0:
+            self._remember_failure(fetched)
             return "offline"
         remote = f"origin/{self.branch}"
         if self.run(["git", "rev-parse", "--verify", "-q", remote], check=False).returncode != 0:
@@ -389,6 +392,7 @@ class LedgerRepo:
     def _jj_fetch_merge(self, timeout: float) -> str:
         fetched = self.run(["jj", "--no-pager", "git", "fetch"], timeout=timeout, check=False)
         if fetched.returncode != 0:
+            self._remember_failure(fetched)
             return "offline"
         remote = self._jj_ids(f'remote_bookmarks(exact:"{self.branch}", exact:"origin")')
         sides = self._jj_ids(f'bookmarks(exact:"{self.branch}")')
@@ -424,6 +428,16 @@ class LedgerRepo:
         self.run(["jj", "--no-pager", "new"])
         return "ok"
 
+    def _remote_refs(self):
+        """Fetch and push both rewrite refs/remotes/origin/*; two of them at once in one checkout fail with 'Failed to update
+        refs'. This innermost lock (held only for the one network operation, never while waiting for another lock) serializes
+        them, whichever of the write lock, the push lock or neither the caller holds."""
+        return filelock.hold(self.path / ".qew" / "remote.lock", verb="remote sync", wait_s=120.0, what="the ledger remote refs")
+
+    def _remember_failure(self, result: subprocess.CompletedProcess) -> None:
+        lines = [line.strip() for line in (result.stderr or result.stdout or "").splitlines() if line.strip()]
+        self.last_failure = (lines[-1] if lines else f"exit {result.returncode}")[:300]
+
     def _move_working_copy(self) -> None:
         """After the branch moved, re-seat an empty working copy on its tip (qew's own commits leave it empty)."""
         if self._jj_ids("@ & empty()") and self._jj_ids(f'bookmarks(exact:"{self.branch}") ~ ::@'):
@@ -441,8 +455,11 @@ class LedgerRepo:
         """Push the branch. Returns `ok`, `no-remote` or `offline`."""
         if not self.has_remote():
             return "no-remote"
-        if self.vcs == "git":
-            pushed = self.run(["git", "push", "-q", "origin", f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
-        else:
-            pushed = self.run(["jj", "--no-pager", "git", "push", "--bookmark", self.branch], timeout=timeout, check=False)
+        with self._remote_refs():
+            if self.vcs == "git":
+                pushed = self.run(["git", "push", "-q", "origin", f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
+            else:
+                pushed = self.run(["jj", "--no-pager", "git", "push", "--bookmark", self.branch], timeout=timeout, check=False)
+        if pushed.returncode != 0:
+            self._remember_failure(pushed)
         return "ok" if pushed.returncode == 0 else "offline"

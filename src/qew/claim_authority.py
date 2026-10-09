@@ -93,11 +93,20 @@ def claim(config: Config, ledger: Ledger, item_id: str, owner: str, mode: ClaimM
     if rep.offline or (marker.exists() and marker.read_text(encoding="utf-8").strip() == "offline"):
         if config.offline_claims is OfflineClaims.ALLOW:
             return _provisional(ledger, item_id, owner, lane)
-        raise QewError(f"cannot claim {item_id}: the ledger remote arbitrates claims and is unreachable "
+        why = _remote_error(config)
+        raise QewError(f"cannot claim {item_id}: the ledger remote arbitrates claims and is unreachable"
+                       f"{f' ({why})' if why else ''} "
                        f"(`qew start {item_id} --offline` takes a provisional claim that sync settles)", 3)
     event = ledger.append_event(item_id, "claimed", owner=owner, **lane)
     PENDING.append((item_id, event.id))
     return Claimed.CONFIRMED
+
+
+def _remote_error(config: Config) -> str:
+    try:
+        return (config.ledger_path / ".qew" / "remote-error").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def _confirmed(ledger: Ledger, item_id: str, owner: str, lane: dict) -> None:

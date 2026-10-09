@@ -120,7 +120,7 @@ def session(arguments) -> Iterator[None]:
         if committing:
             _recover(repo)
         if replicating and verb != "resolve":  # resolve settles a conflict the fetch would only re-raise
-            _note(config, repo.fetch_merge(rep.timeout_s))
+            _note(config, repo.fetch_merge(rep.timeout_s), repo.last_failure)
             (config.ledger_path / ".qew" / "last-fetch").touch()
         ledger_store.journal_start()
         try:
@@ -152,11 +152,11 @@ def session(arguments) -> Iterator[None]:
         # waits on the push lock, so the two never touch the checkout at once.
         with _lock(config.ledger_path, "push.lock", verb):
             _after_write(config, touched)
-            _note(config, repo.push(rep.timeout_s))
+            _note(config, repo.push(rep.timeout_s), repo.last_failure)
         return
     if push_after:
         # Outside the write lock: a slow remote must not queue every other writer behind this one.
-        _note(config, repo.push(rep.timeout_s))
+        _note(config, repo.push(rep.timeout_s), repo.last_failure)
     if touched:
         _after_write(config, touched)
 
@@ -192,7 +192,7 @@ def _settle_claim(config, repo: LedgerRepo, pending) -> None:
 
     for _ in range(3):
         outcome = repo.push_strict(rep.timeout_s)
-        _note(config, "ok" if outcome == "ok" else "offline" if outcome == "offline" else "ok")
+        _note(config, "ok" if outcome == "ok" else "offline" if outcome == "offline" else "ok", repo.last_failure)
         if outcome == "ok":
             for item_id, claim_id in pending:
                 _write_claim_event(config, repo, None, item_id, "claim_confirmed", ref=claim_id)
@@ -279,11 +279,16 @@ def _after_write(config, item_ids) -> None:
         syncworker.mark(config, True)  # failures stay pending; the next command retries
 
 
-def _note(config, result: str) -> None:
+def _note(config, result: str, reason: str = "") -> None:
     """Remember the last remote attempt so `qew status` can show an outage without a network call."""
     if result in ("ok", "offline"):
-        (config.ledger_path / ".qew").mkdir(exist_ok=True)
-        (config.ledger_path / ".qew" / "remote-state").write_text(result, encoding="utf-8")
+        cache = config.ledger_path / ".qew"
+        cache.mkdir(exist_ok=True)
+        (cache / "remote-state").write_text(result, encoding="utf-8")
+        if result == "offline" and reason:
+            (cache / "remote-error").write_text(reason + "\n", encoding="utf-8")
+        else:
+            (cache / "remote-error").unlink(missing_ok=True)
 
 
 def _pull_for_read(arguments) -> None:
@@ -305,9 +310,9 @@ def _pull_for_read(arguments) -> None:
         repo.exclude_cache()
         _recover(repo) if rep.auto_commit else None
         fetched = repo.fetch_merge(rep.timeout_s)
-        _note(config, fetched)
+        _note(config, fetched, repo.last_failure)
         if fetched == "ok":
-            _note(config, repo.push(rep.timeout_s))  # catch up commits made while the remote was unreachable
+            _note(config, repo.push(rep.timeout_s), repo.last_failure)  # catch up commits made while the remote was unreachable
         stamp.touch()
     if config.mirrors and rep.auto_forge_sync and not rep.offline:
         from qew import syncworker

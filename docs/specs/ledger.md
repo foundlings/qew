@@ -257,7 +257,12 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
   git process runs on the machine is reported as stale (exit 3, file named and age) and left in place; a lock still
   held after the wait is reported as held. qew never deletes a repository lock; the person removes it. jj's working-copy
   and operation locks are kernel locks held for one command, so a dead jj frees them and jj itself waits.
-- **Walks.** `tests/test_ten_agents_walk.py` runs ten agents on a git and on a jj ledger with a bare remote, kills
+- **Remote refs.** A fetch and a push of one checkout both rewrite `refs/remotes/origin/*`; run together they fail with
+  `Failed to update refs` and the claim arbiter would read that as an unreachable remote. Every fetch and push takes the
+  innermost `.qew/remote.lock` (held for that one network operation only, never while waiting for another lock, so it
+  cannot deadlock with the write or push lock). The last failure text is kept in `.qew/remote-error` and named in the
+  `cannot claim ... unreachable (WHY)` message.
+- **Walks.** `tests/test_ten_agents_walk.py` (git) and `tests/test_ten_agents_jj_walk.py` (jj) run ten agents, five first attempts killed 0.2 s in, with a bare remote, kills
   writers mid-session, and asserts one item per key, no tracebacks, clean history, an unblocked fresh writer and a
   converged remote. Not covered: network filesystems (their lock semantics vary), and Windows is exercised through a
   stubbed `msvcrt`, not a Windows run.

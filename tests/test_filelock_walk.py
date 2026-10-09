@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -117,6 +118,24 @@ class FileLockWalk(unittest.TestCase):
         result = subprocess.run([sys.executable, "-c", script, str(self.path)], capture_output=True, text=True,
                                 env={**os.environ, "PYTHONPATH": str(SRC.parent)})
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
+
+
+class RemoteRefsWalk(unittest.TestCase):
+    def test_fetch_and_push_never_run_together_in_one_checkout(self) -> None:
+        """Prevents 'Failed to update refs: refs/remotes/origin/main': a push and a fetch of one checkout take turns."""
+        from tests.ledger_harness import QUOTE, World
+        from qew import filelock
+        w = World(ledger_vcs="jj", remote=True)
+        self.addCleanup(w.close)
+        lock = w.ledger / ".qew" / "remote.lock"
+        holder = start_holder(lock)
+        self.addCleanup(holder.kill)
+        threading.Timer(1.5, holder.kill).start()
+        started = time.monotonic()
+        result = w.run("create", "--title", "Waits for the remote refs", "--quote", QUOTE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreaterEqual(time.monotonic() - started, 1.0, "the write did not wait for the remote refs lock")
+        self.assertFalse(filelock.is_held(lock))
 
 
 class LockSourceGate(unittest.TestCase):
