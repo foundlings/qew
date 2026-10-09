@@ -386,6 +386,11 @@ def journal_rollback(entries: List[Tuple[Path, Optional[str]]]) -> None:
     for path, previous in reversed(entries):
         if previous is None:
             path.unlink(missing_ok=True)
+            if path.parent.parent.name in ("events", "mirrors"):  # the per-item directory the write created
+                try:
+                    path.parent.rmdir()
+                except OSError:
+                    pass  # not empty: it holds other writes
         else:
             path.write_text(previous, encoding="utf-8")
         ledger_aliases.note_change(path)

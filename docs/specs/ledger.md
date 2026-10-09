@@ -317,6 +317,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
 `branch` (`main`). Unknown keys fail. Cache files in the ledger checkout's `.qew/` (excluded from the VCS):
 `lock` (write lock), `sync.lock` (worker), `sync.log`, `sync.pending`, `sync.spawned`, `last-fetch`.
 A `sync` run takes the write lock only to commit (every 25 mirror writes and at the end), never during forge calls.
+A write of any size is one commit: git receives the paths on stdin, and jj, past a size that fits a command line, the owned directories. A commit that fails rolls back every file and per-item directory the write created.
 
 ## Authority and topology
 

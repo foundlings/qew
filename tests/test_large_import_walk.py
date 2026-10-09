@@ -5,9 +5,14 @@ that leaves the events behind, so the ledger fails its own check.
 """
 
 import json
+import os
 import stat
+import sys
 import unittest
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+from qew.ledger_repo import _jj_filesets
 from tests.ledger_harness import World
 
 ITEMS = 6000
@@ -44,6 +49,12 @@ class LargeImportWalk(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         leftovers = [p.name for folder in ("items", "events") for p in (self.world.ledger / folder).iterdir()]
         self.assertEqual(leftovers, [])
+
+    def test_jj_names_each_path_until_the_list_no_longer_fits_then_the_owned_directories(self) -> None:
+        """Prevents a jj ledger commit with tens of thousands of `root-file:` arguments dying on the argument limit."""
+        self.assertEqual(_jj_filesets(["items/A.md", "events/A/1.json"]), ['root-file:"items/A.md"', 'root-file:"events/A/1.json"'])
+        many = [f"events/{PAD}-{n}/1.json" for n in range(3000)] + ["items/A.md"]
+        self.assertEqual(_jj_filesets(many), ['root:"items"', 'root:"events"'])
 
 
 if __name__ == "__main__":

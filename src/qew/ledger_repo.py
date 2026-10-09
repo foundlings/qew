@@ -18,6 +18,14 @@ from qew.errors import QewError
 # Directories and files whose changes are qew's own writes (never a human's notes).
 OWNED = ("items", "events", "mirrors", "boards", "views", "proposals")
 SHOWN_CONFLICTS = 5
+JJ_FILESET_BYTES = 100_000  # beyond this the paths no longer fit one command line: name the owned directories instead
+
+
+def _jj_filesets(paths: Sequence[str]) -> List[str]:
+    """One `root-file:` fileset per path; a write too large for a command line commits the directories qew owns."""
+    if sum(len(p) + 14 for p in paths) <= JJ_FILESET_BYTES:
+        return [f'root-file:"{p}"' for p in paths]
+    return [f'root:"{name}"' for name in OWNED if any(p == name or p.startswith(name + "/") for p in paths)]
 
 
 # git (and jj through its git backend) report a held repository lock this way; the lock is a sentinel file, not a
@@ -159,11 +167,12 @@ class LedgerRepo:
             self.vcs = None
 
     # -- plumbing
-    def run(self, argv: Sequence[str], timeout: Optional[float] = None, check: bool = True) -> subprocess.CompletedProcess:
+    def run(self, argv: Sequence[str], timeout: Optional[float] = None, check: bool = True,
+            stdin: Optional[str] = None) -> subprocess.CompletedProcess:
         started = time.monotonic()
         attempt = 0
         while True:
-            result = self._run_once(argv, timeout)
+            result = self._run_once(argv, timeout, stdin)
             if result.returncode == 0 or not LOCK_ERROR.search(result.stderr or ""):
                 break
             waited = time.monotonic() - started
@@ -178,10 +187,10 @@ class LedgerRepo:
             raise QewError(f"`{' '.join(argv[:4])}` failed: {(result.stderr or result.stdout).strip()[:300]}", 3)
         return result
 
-    def _run_once(self, argv: Sequence[str], timeout: Optional[float]) -> subprocess.CompletedProcess:
+    def _run_once(self, argv: Sequence[str], timeout: Optional[float], stdin: Optional[str] = None) -> subprocess.CompletedProcess:
         try:
             return subprocess.run(
-                list(argv), cwd=self.path, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                list(argv), cwd=self.path, stdin=subprocess.DEVNULL if stdin is None else None, input=stdin, capture_output=True, text=True,
                 timeout=timeout, check=False, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
         except subprocess.TimeoutExpired:
@@ -231,14 +240,17 @@ class LedgerRepo:
     # -- writing
     def commit(self, paths: Sequence[str], message: str) -> None:
         if self.vcs == "git":
-            self.run(["git", "add", "-A", "--", *paths])
+            # paths go to git on stdin: an import can touch more files than one command line can name
+            names = "\0".join(paths) + "\0"
+            from_stdin = ["--pathspec-from-file=-", "--pathspec-file-nul"]
+            self.run(["git", "add", "-A", *from_stdin], stdin=names)
             try:
-                self.run(["git", "commit", "-q", "-m", message, "--", *paths])
+                self.run(["git", "commit", "-q", "-m", message, *from_stdin], stdin=names)
             except QewError:
-                self.run(["git", "reset", "-q", "--", *paths], check=False)
+                self.run(["git", "reset", "-q", *from_stdin], stdin=names, check=False)
                 raise
         elif self.vcs == "jj":
-            self.run(["jj", "--no-pager", "commit", "-m", message, *[f'root-file:"{p}"' for p in paths]])
+            self.run(["jj", "--no-pager", "commit", "-m", message, *_jj_filesets(paths)])
             self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@-"])
 
     # -- replication (best effort; the caller decides what a failure means)
