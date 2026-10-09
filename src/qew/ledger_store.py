@@ -62,7 +62,7 @@ def actor() -> str:
 class Ledger:
     path: Path
     prefix: str = ""
-    id_modes: dict[str, str] = field(default_factory=lambda: {"epic": "time", "issue": "time", "task": "time"})
+    id_modes: dict[str, str] = field(default_factory=lambda: {"epic": "base35-time", "issue": "base35-time", "task": "base35-time"})
 
     @property
     def items_dir(self) -> Path:

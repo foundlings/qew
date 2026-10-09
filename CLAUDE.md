@@ -15,7 +15,7 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
 ## Base requirement: conflict-free merges
 
 - Ledger files merge in git without conflicts across machines: one file per item, per event and per mirror
-  target, unique time ids, no shared mutable file. Any change that can make two writers touch the same file
+  target, unique base35-time ids, no shared mutable file. Any change that can make two writers touch the same file
   is a bug; a contested fact (owner, state) becomes a qew conflict event, never a git conflict.
 
 ## Qew manages Qew

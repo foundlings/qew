@@ -1,4 +1,4 @@
-"""`qew migrate-ids --to time`: give every item a time-mode id, keeping the old id as an alias."""
+"""`qew migrate-ids --to base35-time`: give every item a base35-time id, keeping the old id as an alias."""
 
 import argparse
 
@@ -8,8 +8,8 @@ from qew.ledger_store import actor
 
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    migrate = commands.add_parser("migrate-ids", help="rewrite letter, counter and imported ids to time ids; old ids stay as aliases")
-    migrate.add_argument("--to", required=True, choices=["time"], help="the id mode to migrate to (only time)")
+    migrate = commands.add_parser("migrate-ids", help="rewrite letter, counter and imported ids to base35-time ids; old ids stay as aliases")
+    migrate.add_argument("--to", required=True, choices=["base35-time"], help="the id mode to migrate to (only base35-time)")
     migrate.add_argument("--dry-run", action="store_true", help="list the items that would be migrated and write nothing")
 
 
