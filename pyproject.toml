@@ -1,3 +1,12 @@
 [build-system]
 requires = ["setuptools==84.0.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.mypy]
+python_version = "3.15"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool", "unused-awaitable"]
+files = ["src/qew"]
+mypy_path = "src"
