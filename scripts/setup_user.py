@@ -42,6 +42,17 @@ def run(command: list) -> None:
         raise SetupError(f"command failed: {' '.join(map(str, command))}", 3)
 
 
+def venv_is_stale(venv: Path) -> bool:
+    """True when the environment's own interpreter is not this Python's minor version (or does not run): `venv` alone
+    would keep it, and its pyvenv.cfg is rewritten by every run so it cannot be trusted."""
+    python = venv / "bin" / "python"
+    if not python.exists() and not python.is_symlink():
+        return False
+    probe = f"import sys; print(sys.version_info[:2] == ({sys.version_info.major}, {sys.version_info.minor}))"
+    result = subprocess.run([str(python), "-c", probe], capture_output=True, text=True, check=False)
+    return result.stdout.strip() != "True"
+
+
 def install() -> None:
     if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
         raise SetupError("this script supports only Linux and macOS")
@@ -55,7 +66,7 @@ def install() -> None:
     bin_dir = home / ".local" / "bin"
     link = bin_dir / "qew"
     linked = check_link(link, executable)
-    run([sys.executable, "-m", "venv", str(venv)])
+    run([sys.executable, "-m", "venv", *(["--clear"] if venv_is_stale(venv) else []), str(venv)])
     run(
         [
             str(venv / "bin" / "python"),
