@@ -1,4 +1,4 @@
-"""`qew attach`, `qew detach`, `qew extract`: files and subdirectories owned by an item (see attachments.py)."""
+"""`qew item attach|detach|extract`: files and subdirectories owned by an item (see attachments.py)."""
 
 import argparse
 import shutil
@@ -12,26 +12,28 @@ from qew.ledger_store import Ledger
 
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    attach = commands.add_parser("attach", help="attach a file, or a directory with its subdirectories, to an item")
+    group = commands.add_parser("item", help="things done with one item: attach | detach | extract")
+    verbs = group.add_subparsers(dest="item_command", required=True)
+    attach = verbs.add_parser("attach", help="attach a file, or a directory with its subdirectories, to an item")
     attach.add_argument("item", help="item id or alias")
     attach.add_argument("source", help="a file or a directory on disk")
     attach.add_argument("--as", dest="name", help="the name in the item's tree (a directory's files go under it); default the file name, or the root for a directory")
-    detach = commands.add_parser("detach", help="detach a name, or a whole directory of names, from an item (the bytes stay in history)")
+    detach = verbs.add_parser("detach", help="detach a name, or a whole directory of names, from an item (the bytes stay in history)")
     detach.add_argument("item", help="item id or alias")
     detach.add_argument("name", help="a file name or a directory name in the item's tree")
-    extract = commands.add_parser("extract", help="write an item's attached tree to a directory as real files")
+    extract = verbs.add_parser("extract", help="write an item's attached tree to a directory as real files")
     extract.add_argument("item", help="item id or alias")
     extract.add_argument("dest", help="a directory that does not exist or is empty")
 
 
 def run(arguments: argparse.Namespace) -> bool:
-    if arguments.command not in ("attach", "detach", "extract"):
+    if arguments.command != "item":
         return False
     ledger = cmd_items.ledger_for(ledger_config.load())
     item_id = ledger.resolve(arguments.item, ledger.item_ids())
-    if arguments.command == "attach":
+    if arguments.item_command == "attach":
         print(attach(ledger, item_id, Path(arguments.source), arguments.name))
-    elif arguments.command == "detach":
+    elif arguments.item_command == "detach":
         print(detach(ledger, item_id, arguments.name))
     else:
         print(extract(ledger, item_id, Path(arguments.dest)))

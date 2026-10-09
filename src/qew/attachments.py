@@ -4,7 +4,7 @@ An item owns a directory `items/ID/` beside `items/ID.md`. Attachment bytes are 
 `items/ID/attachments/HASH.EXT` (content hash, original extension kept so a forge web view can preview images); the
 item names them through `attached` and `detached` events (a relative path with subdirectories, mapped to a hash; the
 last event by id wins). Two machines can therefore never write the same path with different bytes, and a merge has
-nothing to conflict on. The named tree is derived: `qew show` lists it and `qew extract` writes it out.
+nothing to conflict on. The named tree is derived: `qew show` lists it and `qew item extract` writes it out.
 """
 
 from dataclasses import dataclass

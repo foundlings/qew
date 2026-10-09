@@ -38,7 +38,7 @@ class AttachmentsWalk(unittest.TestCase):
         return path
 
     def attach(self, *arguments: str):
-        return self.world.run("attach", self.item, *arguments)
+        return self.world.run("item", "attach", self.item, *arguments)
 
     def assertRefused(self, result, label: object = "") -> None:
         """A refusal of the attach command itself (exit 2), not the CLI not knowing the command."""
@@ -60,7 +60,7 @@ class AttachmentsWalk(unittest.TestCase):
         self.assertIn(sha(data)[:12], listing)
         target = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(target, ignore_errors=True))
-        self.assertEqual(self.world.run("extract", self.item, str(target)).returncode, 0)
+        self.assertEqual(self.world.run("item", "extract", self.item, str(target)).returncode, 0)
         self.assertEqual((target / "design" / "diagram.png").read_bytes(), data)
         self.assertEqual(self.world.run("check").returncode, 0)
 
@@ -95,10 +95,10 @@ class AttachmentsWalk(unittest.TestCase):
         self.file("d/x.txt", b"x")
         self.file("d/y.txt", b"y")
         self.attach(str(self.source), "--as", "all")
-        self.assertEqual(self.world.run("detach", self.item, "all/d/x.txt").returncode, 0)
+        self.assertEqual(self.world.run("item", "detach", self.item, "all/d/x.txt").returncode, 0)
         self.assertNotIn("all/d/x.txt", self.show())
         self.assertIn("all/d/y.txt", self.show())
-        self.assertEqual(self.world.run("detach", self.item, "all").returncode, 0)
+        self.assertEqual(self.world.run("item", "detach", self.item, "all").returncode, 0)
         self.assertNotIn("all/d", self.show())
         self.assertTrue((self.world.ledger / "items" / self.item / "attachments" / f"{sha(b'x')}.txt").exists())
         self.assertEqual(self.world.run("check").returncode, 0)
@@ -110,7 +110,7 @@ class AttachmentsWalk(unittest.TestCase):
             self.assertRefused(self.attach(str(good), "--as", bad), bad)
         self.assertRefused(self.attach(str(self.source / "missing.txt")))
         big = self.file("big.bin", b"0" * 2048)
-        limited = self.world.run("attach", self.item, str(big), env={"QEW_ATTACH_MAX_BYTES": "1024"})
+        limited = self.world.run("item", "attach", self.item, str(big), env={"QEW_ATTACH_MAX_BYTES": "1024"})
         self.assertRefused(limited)
         self.assertEqual([e for e in self.world.events(self.item) if e["type"] == "attached"], [])
         self.assertFalse((self.world.ledger / "items" / self.item / "attachments").exists())
@@ -159,7 +159,7 @@ class AttachmentsMigrationWalk(unittest.TestCase):
         source = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(source, ignore_errors=True))
         (source / "x.txt").write_bytes(b"x")
-        self.assertEqual(world.run("attach", item, str(source / "x.txt"), "--as", "docs/x.txt").returncode, 0)
+        self.assertEqual(world.run("item", "attach", item, str(source / "x.txt"), "--as", "docs/x.txt").returncode, 0)
         config.write_text(config.read_text().replace('id_mode = "letters"', 'id_mode = "base35-time"'))
         self.assertEqual(world.run("migrate-ids", "--to", "base35-time").returncode, 0)
         new = world.run("list").stdout.split()[0]
@@ -168,7 +168,7 @@ class AttachmentsMigrationWalk(unittest.TestCase):
         self.assertEqual(world.run("check").returncode, 0, world.run("check").stdout)
         target = Path(tempfile.mkdtemp())
         self.addCleanup(lambda: __import__("shutil").rmtree(target, ignore_errors=True))
-        self.assertEqual(world.run("extract", new, str(target)).returncode, 0)
+        self.assertEqual(world.run("item", "extract", new, str(target)).returncode, 0)
         self.assertEqual((target / "docs" / "x.txt").read_bytes(), b"x")
 
 
@@ -185,8 +185,8 @@ class AttachmentsMergeWalk(unittest.TestCase):
         self.addCleanup(lambda: __import__("shutil").rmtree(source, ignore_errors=True))
         (source / "mine.txt").write_bytes(b"from a")
         (source / "yours.txt").write_bytes(b"from b")
-        self.assertEqual(a.run("attach", item, str(source / "mine.txt"), "--as", "same.txt", env=OFFLINE).returncode, 0)
-        self.assertEqual(b.run("attach", item, str(source / "yours.txt"), "--as", "same.txt", env=OFFLINE).returncode, 0)
+        self.assertEqual(a.run("item", "attach", item, str(source / "mine.txt"), "--as", "same.txt", env=OFFLINE).returncode, 0)
+        self.assertEqual(b.run("item", "attach", item, str(source / "yours.txt"), "--as", "same.txt", env=OFFLINE).returncode, 0)
         for world in (a, b, a, b):
             settled = world.run("ready")
             self.assertEqual(settled.returncode, 0, settled.stdout + settled.stderr)

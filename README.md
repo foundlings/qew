@@ -135,7 +135,7 @@ Board and admin flags: `--due` (`qew set`, an epic's milestone due date); `--fro
 
 Edge edits: `qew block ITEM --on BLOCKER` and `qew unblock ITEM --from BLOCKER` change one need at a time; `qew set` takes `--add-label`, `--remove-label`, `--body-file` and `--kind`.
 
-Files: `qew attach ITEM PATH [--as NAME]` attaches a file, or a directory with its subdirectories, to an item (bytes are immutable files named by their hash under `items/ID/attachments/`, the names are events, so merges never conflict); `qew detach ITEM NAME` detaches a name or a directory of names; `qew extract ITEM DIR` writes the attached tree out as real files; `qew show` lists them and `qew check` validates them and `[text](attachment:NAME)` links in the body.
+Files: `qew item attach ITEM PATH [--as NAME]` attaches a file, or a directory with its subdirectories, to an item (bytes are immutable files named by their hash under `items/ID/attachments/`, the names are events, so merges never conflict); `qew item detach ITEM NAME` detaches a name or a directory of names; `qew item extract ITEM DIR` writes the attached tree out as real files; `qew show` lists them and `qew check` validates them and `[text](attachment:NAME)` links in the body.
 
 Discussion: `qew comment ITEM --body TEXT` (or `--body-file F`) appends a comment to the item's history; `qew show` lists it.
 

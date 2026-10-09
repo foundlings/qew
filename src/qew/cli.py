@@ -33,9 +33,7 @@ Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
   qew comment     add a comment to an item
-  qew attach      attach a file or a directory tree to an item
-  qew detach      detach a name or a directory of names from an item
-  qew extract     write an item's attached tree out as real files
+  qew item        attach | detach | extract: files and directories owned by an item
   qew start       claim work
   qew release     give a claim up
   qew evidence    record the code changes that deliver an item
