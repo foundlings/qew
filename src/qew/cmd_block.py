@@ -1,5 +1,6 @@
 """`qew block` and `qew unblock`: incremental, idempotent edits of one item's `needs`."""
 
+import argparse
 import json
 
 from qew import ledger_config
@@ -9,7 +10,7 @@ from qew.ledger_config import Config
 from qew.ledger_event import State
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     block = commands.add_parser("block", help="make an item wait for another (adds one need)")
     block.add_argument("item", help="item id or alias")
     block.add_argument("--on", required=True, help="the item it must wait for")
@@ -22,7 +23,7 @@ def register(commands) -> None:
     unblock.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command not in ("block", "unblock"):
         return False
     config = ledger_config.load()

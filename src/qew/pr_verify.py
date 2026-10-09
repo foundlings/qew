@@ -2,7 +2,7 @@
 
 from enum import Enum
 import time
-from typing import Callable, Optional, Sequence
+from collections.abc import Callable, Sequence
 
 from qew.forge import RemotePullRequest
 
@@ -19,7 +19,7 @@ def apply_and_verify(
     read: Callable[[], RemotePullRequest],
     applied: Callable[[RemotePullRequest], bool],
     delays: Sequence[float] = (),
-    sleep: Optional[Callable[[float], None]] = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> Outcome:
     """Write unless `before` already satisfies `applied`; then read once, and once more after each delay."""
     if applied(before):

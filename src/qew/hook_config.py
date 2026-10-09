@@ -8,12 +8,13 @@ import os
 from pathlib import Path
 import secrets
 import stat
-from typing import Any, Callable, Dict, Iterator, Optional, Sequence, Tuple
+from typing import Any
+from collections.abc import Callable, Iterator, Sequence
 
 from qew.errors import QewError
 
 
-JsonTransform = Callable[[Dict[str, Any]], Dict[str, Any]]
+JsonTransform = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 def update_json_config(
@@ -39,7 +40,7 @@ def _update_json(
         directory, name = target
         existing = _read_regular_file(directory, name)
         if existing is None:
-            current: Dict[str, Any] = {}
+            current: dict[str, Any] = {}
             mode = 0o600
         else:
             raw, mode = existing
@@ -124,7 +125,7 @@ def _parent_directory(
     relative: Sequence[str],
     *,
     create: bool,
-) -> Iterator[Tuple[int, str]]:
+) -> Iterator[tuple[int, str]]:
     parts = _relative_parts(relative)
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     if root.is_symlink():
@@ -164,13 +165,13 @@ def _parent_directory(
         os.close(directory)
 
 
-def _relative_parts(relative: Sequence[str]) -> Tuple[str, ...]:
+def _relative_parts(relative: Sequence[str]) -> tuple[str, ...]:
     parts = tuple(relative)
     if not parts:
         raise QewError("configuration path must not be empty", 2)
     for component in parts:
         if (
-            not isinstance(component, str)
+            not isinstance(component, str)  # type: ignore[redundant-expr]  # runtime guard for non-str callers
             or not component
             or component in (".", "..")
             or os.sep in component
@@ -183,7 +184,7 @@ def _relative_parts(relative: Sequence[str]) -> Tuple[str, ...]:
 def _read_regular_file(
     directory: int,
     name: str,
-) -> Optional[Tuple[bytes, int]]:
+) -> tuple[bytes, int] | None:
     try:
         details = os.stat(name, dir_fd=directory, follow_symlinks=False)
     except FileNotFoundError:

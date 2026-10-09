@@ -5,8 +5,9 @@ has its issue there, and only then switch `[authority] primary` and demote the o
 Progress is derived from mirror files, so a failed run changes no config and a rerun resumes without duplicates.
 """
 
+import argparse
 import json
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 from qew import config_edit, forge_registry, ledger_check, ledger_config, sync_plan
 from qew.cmd_items import ledger_for
@@ -14,11 +15,12 @@ from qew.cmd_sync import choose, mirrors_with_boards
 from qew.errors import QewError
 from qew.forge import Forge, ForgeError, Unsupported
 from qew.ledger_config import Config, Mirror
+from qew.ledger_store import Ledger, Snapshot
 from qew.restore import restore_target
 from qew.sync import Target
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     forge = commands.add_parser("forge", help="forge authority: migrate")
     sub = forge.add_subparsers(dest="forge_command", required=True)
     migrate_ = sub.add_parser("migrate", help="restore the ledger onto another target, verify it, make it the primary")
@@ -26,14 +28,14 @@ def register(commands) -> None:
     migrate_.add_argument("--remove-old", action="store_true", help="drop the old primary from the config instead of demoting it to read-only")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "forge":
         return False
     print(migrate(ledger_config.load(), arguments.to, arguments.remove_old))
     return True
 
 
-def _link_pull_requests(ledger, snapshot, target: Target) -> None:
+def _link_pull_requests(ledger: Ledger, snapshot: Snapshot, target: Target) -> None:
     """A pull request of another target appears on the target's issue as a link comment, once."""
     for item_id in snapshot.items:
         records = ledger.load_mirrors(item_id)
@@ -49,7 +51,7 @@ def _link_pull_requests(ledger, snapshot, target: Target) -> None:
                 target.forge.create_comment(mine["number"], f"Pull request: {url}")
 
 
-def _verify(ledger, target: Target, selected: List[str]) -> int:
+def _verify(ledger: Ledger, target: Target, selected: list[str]) -> int:
     remote = {issue.number for issue in target.forge.list_issues()}
     missing = []
     for item_id in selected:
@@ -78,7 +80,7 @@ def migrate(config: Config, wanted: str, remove_old: bool,
     try:
         report = restore_target(ledger, target, config)
         if report.failures or report.stopped:
-            raise QewError(f"migration to {slug} failed: {(report.failures or [report.stopped])[0]}; the primary is unchanged, rerun to resume", 1)
+            raise QewError(f"migration to {slug} failed: {(report.failures[0] if report.failures else report.stopped)}; the primary is unchanged, rerun to resume", 1)
         snapshot = ledger.snapshot()
         _link_pull_requests(ledger, snapshot, target)
         count = _verify(ledger, target, sync_plan.selected(snapshot, chosen.select))

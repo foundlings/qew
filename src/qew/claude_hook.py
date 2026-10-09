@@ -4,34 +4,35 @@ from pathlib import Path
 
 from qew.hook_command import guarded
 from qew.hook_events import install_json_hooks, remove_json_hooks
+from qew.jsontypes import JsonObject
 
 
 _SETTINGS_PATH = (".claude", "settings.json")
 
 
-def _entry(event: str) -> dict:
+def _entry(event: str) -> JsonObject:
     return {"command": guarded(event, "claude"), "timeout": 10, "type": "command"}
 
 
-def _exec_entry(event: str) -> dict:
+def _exec_entry(event: str) -> JsonObject:
     """The earlier exec-form entry; install replaces it, remove deletes it."""
     return {"args": ["hook", event, "--agent", "claude"], "command": "qew", "timeout": 10, "type": "command"}
 
 
-def _group(event: str, matcher: bool = True) -> dict:
-    group = {"hooks": [_entry(event)]}
+def _group(event: str, matcher: bool = True) -> JsonObject:
+    group: JsonObject = {"hooks": [_entry(event)]}
     if matcher:
         group["matcher"] = "Bash"
     return group
 
 
-_WANTED = {
+_WANTED: dict[str, list[JsonObject]] = {
     "SessionStart": [_group("session-start", matcher=False)],
     "PreToolUse": [_group("pre-tool")],
     "PostToolUse": [_group("post-tool")],
 }
 # Qew's earlier entries (shell warnings, session-start prime): dropped on install.
-_LEGACY = {
+_LEGACY: dict[str, list[JsonObject]] = {
     "SessionStart": [
         {"hooks": [{"args": ["prime"], "command": "qew", "timeout": 10, "type": "command"}]},
         {"hooks": [_exec_entry("session-start")]},

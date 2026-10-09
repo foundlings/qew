@@ -5,14 +5,15 @@ child is finished, and (except for epics) the delivering code is an ancestor of 
 shipped without a claim is closed with `close --delivered-by`, under the same landing proof.
 """
 
+import argparse
 import sys
-from typing import Dict, List, Optional
 
 from qew import claim_reconcile, code_vcs, ledger_graph, outcome
 from qew.cmd_claim import holding
 from qew.cmd_items import ledger_for
 from qew.code_vcs import Landing
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import CLOSE_REASONS, State
 from qew.ledger_item import Kind
@@ -22,7 +23,7 @@ RELEASED_SHOWN = 5  # work a completion released, named in its one line
 _FINISHED_WORK = "finished work: qew complete ITEM, or qew close ITEM --delivered-by SHA --landed-on BRANCH"
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     evidence = commands.add_parser("evidence", help="record the code changes that deliver an item")
     evidence.add_argument("item", help="item id or alias")
     evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
@@ -49,7 +50,7 @@ def register(commands) -> None:
     reopen.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command not in ("evidence", "complete", "close", "reopen"):
         return False
     from qew import ledger_config
@@ -66,13 +67,13 @@ def run(arguments) -> bool:
     else:
         result = reopen(config, arguments.item, arguments.reason)
     warning = result.pop("warning", None)
-    print(outcome.render(arguments, result.pop("line"), **result))
+    print(outcome.render(arguments, str(result.pop("line")), **result))
     if warning:
         print(f"warning: {warning}", file=sys.stderr)
     return True
 
 
-_STATE_WHY = {
+_STATE_WHY: dict[State | None, str] = {
     State.DRAFT: "it is a draft; only a human's quoted words release it (qew draft approve)",
     State.APPROVED: "it is approved and unclaimed",
     State.COMPLETED: "it is completed",
@@ -80,7 +81,7 @@ _STATE_WHY = {
 }
 
 
-def _load(config: Config, reference: str):
+def _load(config: Config, reference: str) -> tuple[Ledger, Snapshot, str]:
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
     return ledger, snapshot, ledger.resolve(reference, list(snapshot.items))
@@ -91,7 +92,7 @@ def _refuse(snapshot: Snapshot, item_id: str, verb: str, needs: str) -> QewError
     return QewError(f"cannot {verb} {item_id}: {_STATE_WHY.get(state, 'its state is unknown')} (needs {needs})", 2)
 
 
-def _text(name: str, value: Optional[str]) -> Optional[str]:
+def _text(name: str, value: str | None) -> str | None:
     """A free-text option: absent stays absent, present must say something."""
     if value is None:
         return None
@@ -117,7 +118,7 @@ def _holds_ancestor(snapshot: Snapshot, item_id: str, who: str) -> bool:
     return False
 
 
-def evidence(config: Config, reference: str, changes: List[str], vcs: Optional[str]) -> str:
+def evidence(config: Config, reference: str, changes: list[str], vcs: str | None) -> str:
     ledger, snapshot, item_id = _load(config, reference)
     if snapshot.folds[item_id].state not in (State.APPROVED, State.CLAIMED):
         raise _refuse(snapshot, item_id, "record evidence for", "an approved or claimed item")
@@ -140,7 +141,7 @@ def evidence(config: Config, reference: str, changes: List[str], vcs: Optional[s
     return f"{item_id} evidence {kind} {' '.join(cited)}"
 
 
-def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> Optional[str]:  # "completed" when already done
+def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> str | None:  # "completed" when already done
     """Complete only work the caller holds; returns the previous holder when it is a take-over."""
     folded = snapshot.folds[item_id]
     if folded.state == State.COMPLETED:
@@ -162,8 +163,8 @@ def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> Optional
     return folded.owner
 
 
-def complete(config: Config, reference: str, reason: Optional[str] = None, take_over: bool = False,
-             no_commit: Optional[str] = None, landed_on: Optional[str] = None) -> Dict[str, object]:
+def complete(config: Config, reference: str, reason: str | None = None, take_over: bool = False,
+             no_commit: str | None = None, landed_on: str | None = None) -> dict[str, object]:
     reason = _text("reason", reason)
     no_commit = _text("no-commit", no_commit)
     branch = _branch(landed_on if landed_on is not None else config.target)
@@ -184,8 +185,8 @@ def complete(config: Config, reference: str, reason: Optional[str] = None, take_
     if open_kids:
         count = f"{len(open_kids)} open child{'ren' if len(open_kids) != 1 else ''}"
         raise QewError(f"cannot complete {item_id}: {count}, unfinished children {' '.join(open_kids)}", 2)
-    data: Dict[str, object] = {}
-    commits: List[str] = []
+    data: JsonObject = {}
+    commits: list[str] = []
     if item.kind == Kind.EPIC:
         if no_commit is not None:
             raise QewError(f"{item_id} is an epic: it needs children, not code, so --no-commit does not apply", 2)
@@ -211,24 +212,24 @@ def complete(config: Config, reference: str, reason: Optional[str] = None, take_
     ledger.append_event(item_id, "completed", **data)
     released = sorted(set(ledger_graph.ready(ledger.snapshot())) - set(ledger_graph.ready(snapshot)))
     line = f"{item_id} completed" + (f"; ready: {' '.join(released[:RELEASED_SHOWN])}" if released else "")
-    result: Dict[str, object] = {"line": line, "id": item_id, "state": "completed", "released": released}
+    result: dict[str, object] = {"line": line, "id": item_id, "state": "completed", "released": released}
     result.update(_finish_parent(ledger, item_id))
     return result
 
 
-def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: str) -> List[str]:
+def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: str) -> list[str]:
     """Full ids of the first evidence event whose changes all landed on `target`, else a precise refusal."""
     events = snapshot.folds[item_id].evidence
     if not events:
         raise QewError(f"cannot complete {item_id}: no evidence recorded (qew evidence {item_id} --change ID)", 2)
     checkout = code_vcs.detect(config.root)
-    unknown: List[str] = []
-    unlanded: List[str] = []
+    unknown: list[str] = []
+    unlanded: list[str] = []
     for event in events:
         kind = event.get("vcs")
         if kind != checkout:
             raise QewError(f"evidence uses {kind} but this checkout is {checkout}", 3)
-        full: List[str] = []
+        full: list[str] = []
         for change in event.get("change_ids"):
             if not code_vcs.valid_change(kind, change):
                 raise QewError(f"cannot complete {item_id}: evidence `{change}` is not a valid {kind} change id", 2)
@@ -249,7 +250,7 @@ def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: st
     raise QewError(f"cannot complete {item_id}: {'; '.join(problems)}", 2)
 
 
-def _merged_pull_requests(ledger: Ledger, item_id: str) -> List[int]:
+def _merged_pull_requests(ledger: Ledger, item_id: str) -> list[int]:
     """Numbers of the item's pull requests recorded as merged; unreadable records are indeterminate (exit 4)."""
     try:
         records = ledger.load_mirrors(item_id)
@@ -266,7 +267,7 @@ def _merged_pull_requests(ledger: Ledger, item_id: str) -> List[int]:
     return sorted(set(numbers))
 
 
-def _finish_parent(ledger: Ledger, child_id: str) -> Dict[str, object]:
+def _finish_parent(ledger: Ledger, child_id: str) -> dict[str, object]:
     """Complete the epic above `child_id` when its last open child just finished.
 
     The child's own event is already written; a failure here is only a warning naming the explicit command.
@@ -287,9 +288,9 @@ def _finish_parent(ledger: Ledger, child_id: str) -> Dict[str, object]:
         return {"warning": f"{child_id} is done, but its epic was not completed automatically ({error}); run `qew complete {snapshot.items[child_id].parent}`"}
 
 
-def close(config: Config, reference: str, reason: Optional[str] = None, of: Optional[str] = None,
-          by: Optional[str] = None, note: Optional[str] = None, delivered_by: Optional[str] = None,
-          landed_on: Optional[str] = None) -> Dict[str, object]:
+def close(config: Config, reference: str, reason: str | None = None, of: str | None = None,
+          by: str | None = None, note: str | None = None, delivered_by: str | None = None,
+          landed_on: str | None = None) -> dict[str, object]:
     note = _text("note", note)
     if delivered_by is not None or (landed_on is not None and reason is None):
         return _close_delivered(config, reference, reason, of, by, note, delivered_by, landed_on)
@@ -304,16 +305,16 @@ def close(config: Config, reference: str, reason: Optional[str] = None, of: Opti
         if last and last[0].get("reason") == reason and all(last[0].get(k) == v for k, v in link.items()):
             return {"line": f"{item_id} closed ({reason}) (unchanged)", "id": item_id, "state": "closed"}  # a retry
         raise QewError(f"{item_id} is already closed", 2)
-    data: Dict[str, object] = {"reason": reason, **link}
+    data: JsonObject = {"reason": reason, **link}
     if note is not None:
         data["note"] = note
     ledger.append_event(item_id, "closed", **data)
-    result: Dict[str, object] = {"line": f"{item_id} closed ({reason})", "id": item_id, "state": "closed"}
+    result: dict[str, object] = {"line": f"{item_id} closed ({reason})", "id": item_id, "state": "closed"}
     result.update(_finish_parent(ledger, item_id))
     return result
 
 
-def _disposition(ledger: Ledger, snapshot: Snapshot, item_id: str, reason: str, of: Optional[str], by: Optional[str]) -> Dict[str, str]:
+def _disposition(ledger: Ledger, snapshot: Snapshot, item_id: str, reason: str, of: str | None, by: str | None) -> dict[str, str]:
     """The linked item a duplicate or superseded close names; any other pairing is refused."""
     wanted = {"duplicate": ("of", of, by), "superseded": ("by", by, of)}.get(reason)
     field = {"of": "duplicate_of", "by": "superseded_by"}
@@ -332,8 +333,8 @@ def _disposition(ledger: Ledger, snapshot: Snapshot, item_id: str, reason: str, 
     return {field[key]: other}
 
 
-def _close_delivered(config: Config, reference: str, reason: Optional[str], of: Optional[str], by: Optional[str],
-                     note: Optional[str], delivered_by: Optional[str], landed_on: Optional[str]) -> Dict[str, object]:
+def _close_delivered(config: Config, reference: str, reason: str | None, of: str | None, by: str | None,
+                     note: str | None, delivered_by: str | None, landed_on: str | None) -> dict[str, object]:
     if delivered_by is None or landed_on is None:
         raise QewError("--delivered-by SHA and --landed-on BRANCH go together: half a proof proves nothing", 2)
     if reason is not None or of is not None or by is not None or note is not None:
@@ -354,12 +355,12 @@ def _close_delivered(config: Config, reference: str, reason: Optional[str], of: 
                        else f"cannot close {item_id}: {delivered_by} is {where.value}", 2)
     ledger.append_event(item_id, "evidence", vcs=kind, change_ids=[commit], repo=code_vcs.repository_url(config.root))
     ledger.append_event(item_id, "completed", delivered_by=[commit], commits=[commit], branch=branch)
-    result: Dict[str, object] = {"line": f"{item_id} completed (delivered by {commit[:12]} on {branch})", "id": item_id, "state": "completed"}
+    result: dict[str, object] = {"line": f"{item_id} completed (delivered by {commit[:12]} on {branch})", "id": item_id, "state": "completed"}
     result.update(_finish_parent(ledger, item_id))
     return result
 
 
-def reopen(config: Config, reference: str, reason: Optional[str] = None) -> Dict[str, object]:
+def reopen(config: Config, reference: str, reason: str | None = None) -> dict[str, object]:
     reason = _text("reason", reason)
     ledger, snapshot, item_id = _load(config, reference)
     state = snapshot.folds[item_id].state

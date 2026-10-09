@@ -6,21 +6,22 @@ and no qew process holds a ledger lock; every removal is appended to the ledger'
 the approving words and each file's age.
 """
 
+import argparse
 import json
 import os
 from pathlib import Path
 import time
-from typing import List
 
 from qew import filelock, ledger_config, ledger_store
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_repo import STALE_AFTER_S, lock_in_use
 from qew.requester import require_quote
 
 QEW_LOCKS = ("lock", "push.lock", "remote.lock", "sync.lock")
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     unlock = commands.add_parser("unlock", help="remove a stale repository lock a crashed git left, with a human's quoted approval")
     unlock.add_argument("--stale", action="store_true", required=True, help="remove only locks that are old and open in no process")
     unlock.add_argument("--quote", help="the approving human's words, \"Name: 'their words'\" (recorded in .qew/unlock.log)")
@@ -28,7 +29,7 @@ def register(commands) -> None:
     unlock.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "unlock":
         return False
     quote = require_quote(arguments.quote)
@@ -44,17 +45,17 @@ def run(arguments) -> bool:
     return True
 
 
-def candidates(ledger_path: Path) -> List[Path]:
+def candidates(ledger_path: Path) -> list[Path]:
     git_dir = ledger_path / ".git"
     if not git_dir.is_dir():
         raise QewError(f"{ledger_path} has no .git directory; qew only clears git's own locks there", 2)
-    found = []
+    found: list[Path] = []
     for directory, _, files in os.walk(git_dir):
         found.extend(Path(directory) / name for name in files if name.endswith(".lock"))
     return sorted(found)
 
 
-def unlock(ledger_path: Path, quote: str, dry_run: bool) -> List[dict]:
+def unlock(ledger_path: Path, quote: str, dry_run: bool) -> list[JsonObject]:
     for name in QEW_LOCKS:
         lock = ledger_path / ".qew" / name
         if filelock.is_held(lock):
@@ -62,7 +63,7 @@ def unlock(ledger_path: Path, quote: str, dry_run: bool) -> List[dict]:
             raise QewError(f"a qew process holds the ledger lock `{name}` ({holder.get('who', '?')}'s `{holder.get('verb', '?')}`, "
                            f"pid {holder.get('pid', '?')}); nothing was removed", 3)
     now = time.time()
-    chosen = []
+    chosen: list[JsonObject] = []
     for path in candidates(ledger_path):
         age = max(0.0, now - path.stat().st_mtime)
         if age < STALE_AFTER_S:

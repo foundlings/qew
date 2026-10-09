@@ -1,20 +1,23 @@
 """`qew board`: the kanban of the whole ledger, offline, plus its named board files."""
 
+import argparse
 from dataclasses import replace
 
 from qew import board, board_config, ledger_config
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
+from qew.ledger_store import Ledger
 
 
-def _view_options(parser) -> None:
+def _view_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--columns", dest="cfg_columns", help="status columns to show, comma separated, in order")
     parser.add_argument("--sort", dest="cfg_sort", help="default sort: priority, updated, created or title, optionally :desc")
     parser.add_argument("--group-by", dest="cfg_group_by", help="default grouping: column, owner, label, epic or parent")
     parser.add_argument("--filter", dest="cfg_filter", help="default filter terms")
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     parser = commands.add_parser("board", help="show the offline kanban board (seven status columns)")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     parser.add_argument("--compact", action="store_true", help="fixed-format lines for agents")
@@ -33,7 +36,7 @@ def register(commands) -> None:
     _view_options(change)
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "board":
         return False
     ledger = ledger_for(ledger_config.load())
@@ -50,8 +53,8 @@ def run(arguments) -> bool:
     return True
 
 
-def _changes(arguments) -> dict:
-    changes = {}
+def _changes(arguments: argparse.Namespace) -> JsonObject:
+    changes: JsonObject = {}
     if arguments.cfg_columns is not None:
         changes["columns"] = tuple(c.strip() for c in arguments.cfg_columns.split(",") if c.strip())
     for option, key in (("cfg_sort", "sort"), ("cfg_group_by", "group_by"), ("cfg_filter", "filter")):
@@ -60,19 +63,21 @@ def _changes(arguments) -> dict:
     return changes
 
 
-def _from_options(view, arguments):
+def _from_options(view: board_config.View, arguments: argparse.Namespace) -> board_config.View:
     return replace(view, **_changes(arguments))
 
 
-def _listing(ledger) -> str:
+def _listing(ledger: Ledger) -> str:
     lines = []
     for name in board_config.names(ledger):
         view = board_config.load(ledger, name)
+        if view is None:
+            raise QewError(f"no board named `{name}`", 2)
         lines.append(f"{name} columns={','.join(view.columns)} sort={view.sort} group={view.group_by} filter={view.filter or '-'}")
     return "\n".join(lines) or "no board files"
 
 
-def _show(ledger, arguments) -> None:
+def _show(ledger: Ledger, arguments: argparse.Namespace) -> None:
     name = arguments.name or board_config.DEFAULT_NAME
     view = board_config.load(ledger, name)
     if view is None:

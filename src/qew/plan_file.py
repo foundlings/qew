@@ -10,9 +10,9 @@ import json
 import os
 import stat
 import sys
-from typing import Dict, List, Optional, Tuple
 
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_item import title_is_one_line
 
 KINDS = ("epic", "issue", "task")
@@ -25,12 +25,12 @@ class Entry:
     number: int  # the line in a JSON Lines plan, the position in an array
     label: str  # `line N` or `entry N`, for messages
     key: str  # the entry's `ref`, else `line-N`
-    spec: dict
+    spec: JsonObject
 
 
 @dataclass(frozen=True)
 class Plan:
-    entries: Tuple[Entry, ...]
+    entries: tuple[Entry, ...]
     digest: str  # sha256 of the raw bytes
     source: str  # file base name, or `-` for standard input
 
@@ -64,8 +64,8 @@ def parse(data: bytes, source: str = "-") -> Plan:
     objects = _objects(text)
     if not objects:
         raise QewError("plan is empty: it names no work items", 2)
-    entries: List[Entry] = []
-    used: Dict[str, int] = {}
+    entries: list[Entry] = []
+    used: dict[str, int] = {}
     for number, label, value in objects:
         if not isinstance(value, dict):
             raise QewError(f"{label}: not a JSON object", 2)
@@ -82,7 +82,7 @@ def parse(data: bytes, source: str = "-") -> Plan:
     return Plan(tuple(entries), hashlib.sha256(data).hexdigest(), source)
 
 
-def _objects(text: str) -> List[Tuple[int, str, object]]:
+def _objects(text: str) -> list[tuple[int, str, object]]:
     """(number, label, value) per entry: a whole-file array or object, else one JSON value per line."""
     try:
         whole = json.loads(text)
@@ -103,7 +103,7 @@ def _objects(text: str) -> List[Tuple[int, str, object]]:
     return found
 
 
-def _checked(value: dict, label: str) -> dict:
+def _checked(value: JsonObject, label: str) -> JsonObject:
     unknown = [key for key in value if key not in FIELDS]
     if unknown:
         raise QewError(f"{label}: unknown field `{unknown[0]}` (fields: {', '.join(FIELDS)})", 2)
@@ -135,7 +135,7 @@ def _checked(value: dict, label: str) -> dict:
     return value
 
 
-def _references(spec: dict) -> List[str]:
+def _references(spec: JsonObject) -> list[str]:
     parent = spec.get("parent")
     return list(spec.get("needs", [])) + ([parent] if parent else [])
 
@@ -143,7 +143,7 @@ def _references(spec: dict) -> List[str]:
 KEY_SOURCE = "--key"
 
 
-def single(spec: dict, key: Optional[str] = None) -> Plan:
+def single(spec: JsonObject, key: str | None = None) -> Plan:
     """A one-entry plan for an item given on the command line; with a key, a retry of the same intent adopts the first run."""
     checked = _checked(spec, "entry 1")
     digest = hashlib.sha256(json.dumps(checked, sort_keys=True).encode()).hexdigest()

@@ -4,6 +4,7 @@ Items and their events are carried over under the same ids. Mirrors, boards, the
 unresolved divergences are not: the fork starts with nobody holding anything and no forge attached.
 """
 
+import argparse
 import json
 import os
 import re
@@ -12,7 +13,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List, Optional
 
 from qew import ledger_config, ledger_lineage
 from qew.errors import QewError
@@ -26,7 +26,7 @@ _IDENTITY_LINES = re.compile(r"^(ledger_id|forked_from)\s*=.*\n", re.M)
 PUSH_TIMEOUT_S = 120
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     ledger = commands.add_parser("ledger", help="ledger identity: fork")
     sub = ledger.add_subparsers(dest="ledger_command", required=True)
     fork = sub.add_parser("fork", help="push a copy with a new identity: same items, no mirrors, claims or divergences")
@@ -34,14 +34,14 @@ def register(commands) -> None:
     fork.add_argument("--primary", help="the fresh forge target the fork will use as primary (printed as config)")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "ledger":
         return False
     print(fork(ledger_config.load(), arguments.to, arguments.primary))
     return True
 
 
-def _git(path: Path, *arguments: str) -> subprocess.CompletedProcess:
+def _git(path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", "-C", str(path), *arguments], capture_output=True, text=True, timeout=PUSH_TIMEOUT_S,
                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, check=False)
 
@@ -57,7 +57,7 @@ def _origin_commit(config: Config) -> str:
     raise QewError("the ledger has no commit yet; a fork needs one to record", 2)
 
 
-def _carried(events: List[Event]) -> List[Event]:
+def _carried(events: list[Event]) -> list[Event]:
     """The events a fork keeps: everything but the claim in force on open work and unresolved divergences."""
     folded = fold(events)
     dropped = {e.id for e in folded.divergences}
@@ -91,7 +91,7 @@ def _write_copy(config: Config, target: Path, ledger_id: str, forked_from: str) 
     (target / LEDGER_FILE).write_text(header + text, encoding="utf-8")
 
 
-def fork(config: Config, remote: str, primary: Optional[str]) -> str:
+def fork(config: Config, remote: str, primary: str | None) -> str:
     problem = url_problem(remote)
     if problem:
         raise QewError(f"--to {problem}", 2)

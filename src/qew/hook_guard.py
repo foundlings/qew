@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import os
 import re
 import shlex
-from typing import Dict, FrozenSet, List, Mapping, Optional, Tuple
+from collections.abc import Mapping
 from urllib.parse import urlsplit
 
 _ENVIRONMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=")
@@ -65,15 +65,15 @@ class _Area:
     action) is never refused: it only prints help or a listing.
     """
 
-    names: FrozenSet[str]
+    names: frozenset[str]
     advice: Mapping[str, str]
     default_advice: str
-    writes: Optional[FrozenSet[str]] = None
-    reads: Optional[FrozenSet[str]] = None
+    writes: frozenset[str] | None = None
+    reads: frozenset[str] | None = None
     bare_is_write: bool = False
-    exempt_flags: FrozenSet[str] = frozenset()
+    exempt_flags: frozenset[str] = frozenset()
 
-    def refused(self, action: Optional[str], flags: FrozenSet[str]) -> bool:
+    def refused(self, action: str | None, flags: frozenset[str]) -> bool:
         if flags & self.exempt_flags:
             return False
         if action is None:
@@ -85,12 +85,12 @@ class _Area:
         return True
 
 
-def _fs(*names: str) -> FrozenSet[str]:
+def _fs(*names: str) -> frozenset[str]:
     return frozenset(names)
 
 
 _PR_MERGE = {"merge": _MERGE}
-_CLI_RULES: Dict[str, Tuple[_Area, ...]] = {
+_CLI_RULES: dict[str, tuple[_Area, ...]] = {
     "gh": (
         _Area(_fs("issue"), _ISSUE_ADVICE, _ISSUE_DEFAULT,
               writes=_fs("create", "edit", "close", "reopen", "comment", "delete", "transfer", "pin", "unpin", "lock", "unlock")),
@@ -149,7 +149,7 @@ OVERRIDE = "QEW_ALLOW_FORGE_BYPASS"
 _OVERRIDE_WORD = f"{OVERRIDE}=1"
 
 
-def _overridden(segment: List[str]) -> bool:
+def _overridden(segment: list[str]) -> bool:
     """The deliberate, greppable exception: the override as a leading assignment of this very command."""
     for word in segment:
         if word == _OVERRIDE_WORD:
@@ -159,22 +159,22 @@ def _overridden(segment: List[str]) -> bool:
     return False
 
 
-def refusals(command: str) -> List[Refusal]:
+def refusals(command: str) -> list[Refusal]:
     """Refusals for a shell command; none when the hook environment sets the override to 1."""
     if os.environ.get(OVERRIDE) == "1":
         return []
-    found: List[Refusal] = []
+    found: list[Refusal] = []
     for words in _simple_commands(command, 0):
         found.extend(_classify(words))
-    unique: List[Refusal] = []
+    unique: list[Refusal] = []
     for refusal in found:
         if refusal not in unique:
             unique.append(refusal)
     return unique
 
 
-def _segments(command: str) -> List[List[str]]:
-    segments: List[List[str]] = []
+def _segments(command: str) -> list[list[str]]:
+    segments: list[list[str]] = []
     for line in command.splitlines():
         lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
@@ -183,7 +183,7 @@ def _segments(command: str) -> List[List[str]]:
             tokens = list(lexer)
         except ValueError:
             continue
-        current: List[str] = []
+        current: list[str] = []
         for token in tokens:
             if token and all(character in "();<>|&" for character in token):
                 if current:
@@ -196,8 +196,8 @@ def _segments(command: str) -> List[List[str]]:
     return segments
 
 
-def _simple_commands(command: str, depth: int) -> List[List[str]]:
-    commands: List[List[str]] = []
+def _simple_commands(command: str, depth: int) -> list[list[str]]:
+    commands: list[list[str]] = []
     for segment in _segments(command):
         if _overridden(segment):
             continue
@@ -212,7 +212,7 @@ def _simple_commands(command: str, depth: int) -> List[List[str]]:
     return commands
 
 
-def _strip_prefix(tokens: List[str]) -> List[str]:
+def _strip_prefix(tokens: list[str]) -> list[str]:
     words = list(tokens)
     while words:
         if _ENVIRONMENT.match(words[0]):
@@ -226,7 +226,7 @@ def _strip_prefix(tokens: List[str]) -> List[str]:
     return words
 
 
-def _shell_script(arguments: List[str]) -> Optional[str]:
+def _shell_script(arguments: list[str]) -> str | None:
     for position, argument in enumerate(arguments):
         if _SHELL_COMMAND_FLAG.fullmatch(argument):
             return arguments[position + 1] if position + 1 < len(arguments) else None
@@ -239,7 +239,7 @@ def _basename(word: str) -> str:
     return word.rsplit("/", 1)[-1]
 
 
-def _classify(words: List[str]) -> List[Refusal]:
+def _classify(words: list[str]) -> list[Refusal]:
     binary = _basename(words[0])
     if binary in _CLI_RULES:
         found = _cli(binary, words[1:])
@@ -255,9 +255,9 @@ def _classify(words: List[str]) -> List[Refusal]:
     return []
 
 
-def _subcommand(arguments: List[str]) -> Tuple[List[str], FrozenSet[str]]:
+def _subcommand(arguments: list[str]) -> tuple[list[str], frozenset[str]]:
     """The words after the CLI's global flags, and every flag seen."""
-    words: List[str] = []
+    words: list[str] = []
     flags = set()
     skip = False
     for argument in arguments:
@@ -271,7 +271,7 @@ def _subcommand(arguments: List[str]) -> Tuple[List[str], FrozenSet[str]]:
     return words, frozenset(flags)
 
 
-def _cli(binary: str, arguments: List[str]) -> List[Refusal]:
+def _cli(binary: str, arguments: list[str]) -> list[Refusal]:
     words, flags = _subcommand(arguments)
     if not words:
         return []
@@ -284,14 +284,14 @@ def _cli(binary: str, arguments: List[str]) -> List[Refusal]:
     return []
 
 
-def _cli_api(binary: str, arguments: List[str]) -> List[Refusal]:
+def _cli_api(binary: str, arguments: list[str]) -> list[Refusal]:
     if not arguments or arguments[0] != "api":
         return []
-    method: Optional[str] = None
+    method: str | None = None
     fields = False
     opaque_input = False
-    endpoint: Optional[str] = None
-    skip: Optional[str] = None
+    endpoint: str | None = None
+    skip: str | None = None
     for argument in arguments[1:]:
         if skip is not None:
             if skip in ("-X", "--method"):
@@ -330,7 +330,7 @@ def _cli_api(binary: str, arguments: List[str]) -> List[Refusal]:
     return _path_refusal(label, path)
 
 
-def _path_refusal(label: str, path: str) -> List[Refusal]:
+def _path_refusal(label: str, path: str) -> list[Refusal]:
     if _MERGE_PATH.search(path):
         return [Refusal(label, _MERGE)]
     if _TRACKER_PATH.search(path) or _BOARD_PATH.search(path):
@@ -338,7 +338,7 @@ def _path_refusal(label: str, path: str) -> List[Refusal]:
     return []
 
 
-def _graphql(label: str, words: List[str], opaque_input: bool) -> List[Refusal]:
+def _graphql(label: str, words: list[str], opaque_input: bool) -> list[Refusal]:
     """A GraphQL write is refused when it mutates issues, labels, projects or merges.
 
     A query read from a file or stdin cannot be inspected, so it is refused too.
@@ -350,7 +350,7 @@ def _graphql(label: str, words: List[str], opaque_input: bool) -> List[Refusal]:
     return [Refusal(label, _API_ADVICE)] if opaque else []
 
 
-def _http(words: List[str], flavor: str) -> List[Refusal]:
+def _http(words: list[str], flavor: str) -> list[Refusal]:
     method, body, url, query_only = _http_request(words[1:], flavor)
     if url is None:
         return []
@@ -364,15 +364,15 @@ def _http(words: List[str], flavor: str) -> List[Refusal]:
     return _path_refusal(label, path)
 
 
-def _http_request(arguments: List[str], flavor: str) -> Tuple[Optional[str], bool, Optional[str], bool]:
+def _http_request(arguments: list[str], flavor: str) -> tuple[str | None, bool, str | None, bool]:
     """(explicit method, sends a body, url, body is sent as the query string)."""
-    method: Optional[str] = None
+    method: str | None = None
     body = False
     query_only = False
-    url: Optional[str] = None
+    url: str | None = None
     value_flags = _CURL_VALUE_FLAGS if flavor == "curl" else frozenset()
     skip = False
-    positional: List[str] = []
+    positional: list[str] = []
     for argument in arguments:
         if skip:
             skip = False
@@ -426,7 +426,7 @@ def _http_request(arguments: List[str], flavor: str) -> Tuple[Optional[str], boo
     return method, body, url, query_only
 
 
-def _following(arguments: List[str], flag: str) -> Optional[str]:
+def _following(arguments: list[str], flag: str) -> str | None:
     position = arguments.index(flag)
     return arguments[position + 1].upper() if position + 1 < len(arguments) else None
 
@@ -445,16 +445,16 @@ def pushes(command: str) -> bool:
     return False
 
 
-def _without_git_options(arguments: List[str]) -> List[str]:
+def _without_git_options(arguments: list[str]) -> list[str]:
     rest = list(arguments)
     while rest and rest[0].startswith("-"):
         rest = rest[2:] if rest[0] in ("-C", "-c", "--git-dir", "--work-tree") else rest[1:]
     return rest
 
 
-def jj_push_revsets(command: str) -> List[str]:
+def jj_push_revsets(command: str) -> list[str]:
     """The revset each `jj git push` in the command would send (mutable ancestors of what it names)."""
-    found: List[str] = []
+    found: list[str] = []
     for words in _simple_commands(command, 0):
         if _basename(words[0]) != "jj":
             continue
@@ -470,9 +470,9 @@ def jj_push_revsets(command: str) -> List[str]:
 _REVSET_UNSAFE = re.compile(r'["\\\n]')
 
 
-def _push_revset(arguments: List[str]) -> Optional[str]:
+def _push_revset(arguments: list[str]) -> str | None:
     """None when an argument cannot be put in a revset safely: the guard then stays silent."""
-    selectors: List[str] = []
+    selectors: list[str] = []
     position = 0
     while position < len(arguments):
         argument = arguments[position]
@@ -495,9 +495,9 @@ def _push_revset(arguments: List[str]) -> Optional[str]:
     return "mutable() & ::(" + " | ".join(selectors or ["@"]) + ")"
 
 
-def qew_pr_merges(command: str) -> List[int]:
+def qew_pr_merges(command: str) -> list[int]:
     """Pull request numbers named by `qew pr merge N` simple commands (positive integers only)."""
-    numbers: List[int] = []
+    numbers: list[int] = []
     for words in _simple_commands(command, 0):
         if _basename(words[0]) != "qew" or words[1:3] != ["pr", "merge"]:
             continue

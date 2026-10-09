@@ -5,8 +5,9 @@ wrote after the forge accepted the open.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import cast
 
+from qew.mirror_types import MirrorRecord
 from qew.errors import QewError
 from qew.ledger_event import State
 from qew.ledger_graph import children
@@ -23,7 +24,7 @@ class PrRecord:
     mirror_file: str  # the file stem, `<target>-pr-<N>`
     target: str  # the mirror target slug the pull request lives on
     opener: str  # the actor who opened it; "" for a record from before openers were kept
-    items: Tuple[str, ...]  # the covered items
+    items: tuple[str, ...]  # the covered items
 
 
 def positive_number(number: int) -> int:
@@ -32,8 +33,8 @@ def positive_number(number: int) -> int:
     return number
 
 
-def find(ledger: Ledger, number: int, target: Optional[str]) -> PrRecord:
-    found: List[PrRecord] = []
+def find(ledger: Ledger, number: int, target: str | None) -> PrRecord:
+    found: list[PrRecord] = []
     for item_id in ledger.item_ids():
         for record in ledger.load_mirrors(item_id):
             if record.get("kind") != "pr" or record.get("number") != number:
@@ -48,21 +49,21 @@ def find(ledger: Ledger, number: int, target: Optional[str]) -> PrRecord:
     return found[0]
 
 
-def _record(host: str, mirror: dict) -> PrRecord:
+def _record(host: str, mirror: MirrorRecord) -> PrRecord:
     stem = mirror["_target"]
-    items = mirror.get("items", [host])  # a record from before covered items were kept covers its host
-    opener = mirror.get("opener", "")
+    items: object = mirror.get("items", [host])  # a record from before covered items were kept covers its host; read from disk
+    opener: object = mirror.get("opener", "")
     if not isinstance(items, list) or not all(isinstance(i, str) for i in items) or not isinstance(opener, str):
         raise QewError(f"mirrors/{host}/{stem}.json: `items` must be a list of ids and `opener` a string", 1)
     return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, tuple(items))
 
 
-def covered_by(snapshot: Snapshot, root: str) -> List[str]:
+def covered_by(snapshot: Snapshot, root: str) -> list[str]:
     """What a pull request opened for `root` covers: an epic and its open descendants, else the item."""
     if snapshot.items[root].kind != Kind.EPIC:
         return [root]
     kids = children(snapshot)
-    found: List[str] = []
+    found: list[str] = []
     stack = [root]
     while stack:
         item_id = stack.pop(0)
@@ -74,9 +75,9 @@ def covered_by(snapshot: Snapshot, root: str) -> List[str]:
     return found
 
 
-def known_states(snapshot: Snapshot, record: PrRecord) -> Dict[str, State]:
+def known_states(snapshot: Snapshot, record: PrRecord) -> dict[str, State]:
     """State of every covered item; a missing item or unreadable history is exit 4, never a guess."""
-    states: Dict[str, State] = {}
+    states: dict[str, State] = {}
     for item_id in record.items:
         folded = snapshot.folds.get(item_id)
         if folded is None or folded.errors or folded.state is None or any(e.type == "claimed" for e in folded.divergences):
@@ -87,11 +88,11 @@ def known_states(snapshot: Snapshot, record: PrRecord) -> Dict[str, State]:
     return states
 
 
-def drafts(states: Dict[str, State]) -> List[str]:
+def drafts(states: dict[str, State]) -> list[str]:
     return [item_id for item_id, state in states.items() if state == State.DRAFT]
 
 
-def require_owner(snapshot: Snapshot, record: PrRecord, states: Dict[str, State], who: str, reason: str, merging: bool) -> str:
+def require_owner(snapshot: Snapshot, record: PrRecord, states: dict[str, State], who: str, reason: str, merging: bool) -> str:
     """Let `who` act on the pull request, or refuse with the ways forward (exit 3).
 
     Allowed: the opener, or the holder of every claim on the items still open. A merge is stricter: even
@@ -123,12 +124,12 @@ def require_owner(snapshot: Snapshot, record: PrRecord, states: Dict[str, State]
 def update_mirror(ledger: Ledger, record: PrRecord, **changes: object) -> None:
     """Rewrite the pull request's mirror file with `changes`, keeping every other field."""
     current = next(m for m in ledger.load_mirrors(record.host) if m["_target"] == record.mirror_file)
-    ledger.write_mirror(record.host, record.mirror_file, {**{k: v for k, v in current.items() if k != "_target"}, **changes})
+    ledger.write_mirror(record.host, record.mirror_file, cast(MirrorRecord, {**{k: v for k, v in current.items() if k != "_target"}, **changes}))
 
 
-def covering_open(ledger: Ledger, item_id: str) -> List[int]:
+def covering_open(ledger: Ledger, item_id: str) -> list[int]:
     """Numbers of the recorded pull requests that cover `item_id`, are not finished and are not drafts."""
-    found: List[int] = []
+    found: list[int] = []
     for host in ledger.item_ids():
         for mirror in ledger.load_mirrors(host):
             if mirror.get("kind") != "pr" or mirror.get("state", "open") in ("merged", "closed") or mirror.get("draft") is True:

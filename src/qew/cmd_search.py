@@ -7,7 +7,6 @@ Terms are data: compared as text, never evaluated or passed to a shell.
 import argparse
 import re
 import sys
-from typing import List
 
 from qew import cmd_read, ledger_config, read_filter, read_view, readfmt
 from qew.ledger_event import State
@@ -17,7 +16,7 @@ from qew.ledger_store import Snapshot
 SEARCH_LIMIT = 30
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     search = commands.add_parser("search", help="find approved work by words in its id, title or labels")
     search.add_argument("terms", nargs="+", metavar="TERM", help="every term must match (put `--` before a term that starts with a dash)")
     search.add_argument("--limit", type=cmd_read.limit_type, default=SEARCH_LIMIT, help=f"at most N items, default {SEARCH_LIMIT} (0 = all)")
@@ -42,7 +41,7 @@ def run(arguments: argparse.Namespace) -> bool:
     return True
 
 
-def search(snapshot: Snapshot, terms: List[str]) -> List[str]:
+def search(snapshot: Snapshot, terms: list[str]) -> list[str]:
     """Matching non-draft items, best match first, then priority, then id."""
     wanted = [read_filter.fold(term) for term in terms]
     whole = " ".join(wanted)

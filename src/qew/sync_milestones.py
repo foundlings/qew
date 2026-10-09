@@ -6,25 +6,30 @@ different milestone is never moved; a milestone closes only when its epic is com
 """
 
 from dataclasses import replace
-from typing import Dict, List
+from typing import TYPE_CHECKING
+from collections.abc import Mapping
 
-from qew import sync_plan
+from qew.mirror_types import MirrorRecord, updated
 from qew.forge import ForgeError, Milestone, MilestoneSpec, RemoteIssue, Unsupported
 from qew.ledger_event import State
 from qew.ledger_item import Kind
+from qew.ledger_store import Ledger, Snapshot
+
+if TYPE_CHECKING:
+    from qew.sync import Target, TargetReport
 
 
-def enabled(options) -> bool:
+def enabled(options: Mapping[str, object]) -> bool:
     return options.get("milestones") is True
 
 
-def description(snapshot, epic_id: str) -> str:
+def description(snapshot: Snapshot, epic_id: str) -> str:
     approvals = [e for e in snapshot.events[epic_id] if e.type == "approved"]
     quote = approvals[-1].get("quote") if approvals else ""
     return f"Approved: {quote}" if quote else ""
 
 
-def sync_milestones(ledger, snapshot, target, report, ids: List[str], numbers: Dict[str, int]) -> None:
+def sync_milestones(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, ids: list[str], numbers: dict[str, int]) -> None:
     forge = target.forge
     try:
         issues = {issue.number: issue for issue in forge.list_issues()}
@@ -45,11 +50,11 @@ def sync_milestones(ledger, snapshot, target, report, ids: List[str], numbers: D
             report.failures.append(f"{snapshot.short(epic_id)}: milestone: {error.detail}")
 
 
-def _record(ledger, target, epic_id):
+def _record(ledger: Ledger, target: Target, epic_id: str) -> MirrorRecord | None:
     return next((m for m in ledger.load_mirrors(epic_id) if m["_target"] == target.slug), None)
 
 
-def _one(ledger, snapshot, target, report, epic_id: str, numbers, issues: Dict[int, RemoteIssue]) -> None:
+def _one(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, epic_id: str, numbers: dict[str, int], issues: dict[int, RemoteIssue]) -> None:
     forge = target.forge
     epic = snapshot.items[epic_id]
     state = snapshot.folds[epic_id].state
@@ -73,13 +78,13 @@ def _one(ledger, snapshot, target, report, epic_id: str, numbers, issues: Dict[i
     _state(ledger, target, report, epic_id, state, checked, issues)
 
 
-def _assign(snapshot, target, report, epic_id: str, milestone: Milestone, numbers, issues) -> None:
+def _assign(snapshot: Snapshot, target: Target, report: TargetReport, epic_id: str, milestone: Milestone, numbers: dict[str, int], issues: dict[int, RemoteIssue]) -> None:
     for item in snapshot.items.values():
         if item.parent != epic_id or snapshot.folds[item.id].state not in (State.APPROVED, State.CLAIMED, State.COMPLETED):
             continue
         number = numbers.get(item.id)
         issue = issues.get(number) if number else None
-        if issue is None or issue.milestone == milestone.number:
+        if number is None or issue is None or issue.milestone == milestone.number:
             continue
         if issue.milestone:
             report.failures.append(
@@ -92,7 +97,7 @@ def _assign(snapshot, target, report, epic_id: str, milestone: Milestone, number
         issues[number] = replace(issue, milestone=milestone.number)
 
 
-def _state(ledger, target, report, epic_id: str, state, milestone: Milestone, issues) -> None:
+def _state(ledger: Ledger, target: Target, report: TargetReport, epic_id: str, state: State | None, milestone: Milestone, issues: dict[int, RemoteIssue]) -> None:
     forge = target.forge
     record = _record(ledger, target, epic_id)
     if state == State.COMPLETED:
@@ -110,8 +115,7 @@ def _state(ledger, target, report, epic_id: str, state, milestone: Milestone, is
         _remember(ledger, target, epic_id, record, closed=False)
 
 
-def _remember(ledger, target, epic_id: str, record, closed: bool) -> None:
+def _remember(ledger: Ledger, target: Target, epic_id: str, record: MirrorRecord | None, closed: bool) -> None:
     if record is None:
         return
-    clean = {k: v for k, v in record.items() if k != "_target"}
-    ledger.write_mirror(epic_id, target.slug, {**clean, "milestone_closed": closed})
+    ledger.write_mirror(epic_id, target.slug, updated(record, milestone_closed=closed))

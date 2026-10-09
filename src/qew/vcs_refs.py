@@ -7,7 +7,6 @@ ledger id (`#12`, URLs, anything with punctuation) are ignored.
 """
 
 import re
-from typing import List
 
 from qew.ledger_ids import valid_id
 
@@ -17,7 +16,7 @@ _PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
 _SEPARATORS = re.compile(r"[,\s]+")
 
 
-def cited_ids(message: str) -> List[str]:
+def cited_ids(message: str) -> list[str]:
     """Candidate ledger ids the message cites, in order, without duplicates."""
     paragraphs = _PARAGRAPH_BREAK.split(message.strip("\n"))
     if len(paragraphs) < 2:
@@ -25,7 +24,7 @@ def cited_ids(message: str) -> List[str]:
     lines = paragraphs[-1].split("\n")
     if not all(_TRAILER_LINE.match(line) for line in lines):
         return []
-    found: List[str] = []
+    found: list[str] = []
     for line in lines:
         match = _REFS.fullmatch(line)
         if match is None:

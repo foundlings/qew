@@ -2,11 +2,9 @@
 
 import re
 from pathlib import Path
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Tuple
 
-from qew import ledger_labels
 from qew.errors import QewError
 from qew.ledger_ids import valid_id
 
@@ -36,8 +34,8 @@ class Item:
     title: str
     created: str
     parent: str = ""
-    needs: Tuple[str, ...] = ()
-    labels: Tuple[str, ...] = ()
+    needs: tuple[str, ...] = ()
+    labels: tuple[str, ...] = ()
     owner: str = ""
     priority: int = DEFAULT_PRIORITY
     body: str = field(default="", compare=False)
@@ -45,9 +43,9 @@ class Item:
     pr: str = ""
     due: str = ""
     discovered_from: str = ""  # the item this one was found while working on; never a dependency
-    aliases: Tuple[str, ...] = ()  # ids this item had before `qew migrate-ids`; lookups by them still resolve
+    aliases: tuple[str, ...] = ()  # ids this item had before `qew migrate-ids`; lookups by them still resolve
 
-    def header(self) -> Dict[str, str]:
+    def header(self) -> dict[str, str]:
         return {
             "id": self.id,
             "kind": self.kind.value,
@@ -65,7 +63,7 @@ class Item:
             "aliases": " ".join(self.aliases),
         }
 
-    def with_value(self, key: str, value: str) -> "Item":
+    def with_value(self, key: str, value: str) -> Item:
         header = self.header()
         header[key] = value
         return from_header(header, self.body)
@@ -73,7 +71,7 @@ class Item:
 
 def parse_item(text: str, where: str = "item") -> Item:
     """Parse the header only, stopping at the first `---` line within bounded bytes."""
-    header: Dict[str, str] = {}
+    header: dict[str, str] = {}
     body_start = None
     consumed = 0
     lines = text.split("\n")
@@ -115,7 +113,7 @@ def title_is_one_line(title: str) -> bool:
     return title.splitlines() in ([title], [])
 
 
-def from_header(header: Dict[str, str], body: str = "", where: str = "item") -> Item:
+def from_header(header: dict[str, str], body: str = "", where: str = "item") -> Item:
     for key in REQUIRED:
         if not header.get(key):
             raise QewError(f"{where}: missing required header key `{key}`", 1)
@@ -169,7 +167,7 @@ def render_item(item: Item) -> str:
     return "\n".join(lines) + f"\n{RULE}\n" + body
 
 
-def check_header_values(item: Item) -> List[str]:
+def check_header_values(item: Item) -> list[str]:
     """Problems with a parsed item that the parser itself tolerates."""
     problems = []
     if item.owner:

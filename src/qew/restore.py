@@ -1,15 +1,13 @@
 """`qew restore`: recreate a forge project from the ledger alone."""
 
-import os
-from typing import Optional
 
 from qew.forge import ForgeError, Unsupported
 from qew.ledger_config import Config
 from qew.ledger_store import Ledger
-from qew.sync import TargetReport, sync_target
+from qew.sync import Target, TargetReport, sync_target
 
 
-def restore_target(ledger: Ledger, target, config: Config, deadline: Optional[float] = None) -> TargetReport:
+def restore_target(ledger: Ledger, target: Target, config: Config, deadline: float | None = None) -> TargetReport:
     """Forget mirror files whose remote issue is gone, then run the ordinary sync (create, adopt, link, board)."""
     try:
         remote = {issue.number for issue in target.forge.list_issues()}

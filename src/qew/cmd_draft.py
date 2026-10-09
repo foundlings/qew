@@ -2,7 +2,7 @@
 
 from collections import deque
 import json
-from typing import Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 from qew import cmd_read, ledger_graph, pr_record, read_view
 from qew.cmd_items import ledger_for
@@ -15,7 +15,7 @@ from qew.requester import require_quote
 TREE_LIMIT = 1000  # items one `--tree` may visit; a runaway or cyclic tree is refused, never walked forever
 
 
-def list_drafts(config: Config, parent: Optional[str], as_json: bool) -> None:
+def list_drafts(config: Config, parent: str | None, as_json: bool) -> None:
     ledger = ledger_for(config)
     snapshot = cmd_read.snapshot_for(config)
     ids = [i for i in ledger_graph.ordered(snapshot, list(snapshot.items)) if snapshot.folds[i].state == State.DRAFT]
@@ -31,9 +31,9 @@ def list_drafts(config: Config, parent: Optional[str], as_json: bool) -> None:
         print(f"{read_view.text_row(snapshot, item_id)}{f' (under {owner})' if owner else ''}")
 
 
-def _roots(ledger: Ledger, snapshot: Snapshot, references: Sequence[str]) -> List[str]:
+def _roots(ledger: Ledger, snapshot: Snapshot, references: Sequence[str]) -> list[str]:
     """Resolved references, each item once, in the order given (an alias and its full id are one target)."""
-    roots: List[str] = []
+    roots: list[str] = []
     for reference in references:
         item_id = ledger.resolve(reference, list(snapshot.items))
         if item_id not in roots:
@@ -41,10 +41,10 @@ def _roots(ledger: Ledger, snapshot: Snapshot, references: Sequence[str]) -> Lis
     return roots
 
 
-def _visit(snapshot: Snapshot, roots: List[str]) -> List[str]:
+def _visit(snapshot: Snapshot, roots: list[str]) -> list[str]:
     """The roots and everything below them by `parent` edges (never `needs`), each item once."""
     kids = ledger_graph.children(snapshot)
-    order: List[str] = []
+    order: list[str] = []
     seen = set()
     queue = deque(roots)
     while queue:
@@ -66,7 +66,7 @@ def _state(snapshot: Snapshot, item_id: str) -> State:
     return state
 
 
-def _refuse_closed_roots(snapshot: Snapshot, roots: List[str]) -> None:
+def _refuse_closed_roots(snapshot: Snapshot, roots: list[str]) -> None:
     for item_id in roots:
         if _state(snapshot, item_id) == State.CLOSED:
             raise QewError(f"{item_id} is closed; reopen it first, nothing was changed", 2)
@@ -78,9 +78,9 @@ def _approved_with(snapshot: Snapshot, item_id: str, quote: str) -> bool:
     return bool(quotes) and quotes[-1] == quote
 
 
-def _apply(ledger: Ledger, targets: List[str], event_type: str, expected: State, past: str, **data: str) -> None:
+def _apply(ledger: Ledger, targets: list[str], event_type: str, expected: State, past: str, **data: str) -> None:
     """Append one event per target and read each back; on a failure say exactly what was and was not moved."""
-    done: List[str] = []
+    done: list[str] = []
     for item_id in targets:
         try:
             ledger.append_event(item_id, event_type, **data)
@@ -93,7 +93,7 @@ def _apply(ledger: Ledger, targets: List[str], event_type: str, expected: State,
         done.append(item_id)
 
 
-def _partial(past: str, done: List[str], targets: List[str], why: str) -> QewError:
+def _partial(past: str, done: list[str], targets: list[str], why: str) -> QewError:
     left = [i for i in targets if i not in done]
     return QewError(
         f"{why}; {past}: {' '.join(done) or 'none'}; not {past}: {' '.join(left)}; "
@@ -102,13 +102,13 @@ def _partial(past: str, done: List[str], targets: List[str], why: str) -> QewErr
     )
 
 
-def _render(kind: str, done: List[str], skipped: List[Tuple[str, str]], word: str, as_json: bool) -> List[str]:
+def _render(kind: str, done: list[str], skipped: list[tuple[str, str]], word: str, as_json: bool) -> list[str]:
     if as_json:
         return [json.dumps({kind: done, "skipped": [item_id for item_id, _ in skipped]})]
     return [f"{i} {word}" for i in done] + [f"{i} skipped ({why})" for i, why in skipped]
 
 
-def approve(config: Config, references: List[str], tree: bool, quote: str, as_json: bool = False) -> List[str]:
+def approve(config: Config, references: list[str], tree: bool, quote: str, as_json: bool = False) -> list[str]:
     verified = require_quote(quote)
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
@@ -130,8 +130,8 @@ def approve(config: Config, references: List[str], tree: bool, quote: str, as_js
 
 
 def revert(
-    config: Config, references: List[str], tree: bool, reason: str, quote: str, as_json: bool = False
-) -> List[str]:
+    config: Config, references: list[str], tree: bool, reason: str, quote: str, as_json: bool = False
+) -> list[str]:
     verified = require_quote(quote)
     if not reason or not reason.strip():
         raise QewError("--reason must say why the release is withdrawn", 2)

@@ -2,10 +2,11 @@
 
 import argparse
 import sys
-from typing import List, Optional
+from typing import cast
 
 from qew import show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import State
 from qew.ledger_item import Kind
@@ -26,7 +27,7 @@ def limit_type(value: str) -> int:
     return number
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     show = commands.add_parser("show", help="show one item with derived edges and evidence")
     show.add_argument("item", help="item id or alias")
     show.add_argument("--json", action="store_true", help="machine-readable output")
@@ -77,7 +78,7 @@ def snapshot_for(config: Config) -> Snapshot:
     return ledger_check.read_snapshot(cmd_items.ledger_for(config))
 
 
-def print_rows(snapshot: Snapshot, ids: List[str], as_json: bool, work_state: bool = False, progress: bool = False, bodies: bool = False) -> None:
+def print_rows(snapshot: Snapshot, ids: list[str], as_json: bool, work_state: bool = False, progress: bool = False, bodies: bool = False) -> None:
     """Rows as text or NDJSON; `bodies` adds the body of each non-draft item, the one place a list prints bodies."""
     shown = [i for i in ids if bodies and snapshot.folds[i].state != State.DRAFT and snapshot.items[i].body.strip()]
     if as_json:
@@ -95,7 +96,7 @@ def print_rows(snapshot: Snapshot, ids: List[str], as_json: bool, work_state: bo
                 print(f"  {line}")
 
 
-def _bounded(ids: List[str], limit: int, what: str) -> List[str]:
+def _bounded(ids: list[str], limit: int, what: str) -> list[str]:
     """The first `limit` ids (0 = all); a cut is announced on stderr."""
     if limit and len(ids) > limit:
         print(f"qew: {what} truncated: showing {limit} of {len(ids)} (--limit 0 shows all)", file=sys.stderr)
@@ -159,7 +160,7 @@ def blocked(snapshot: Snapshot, as_json: bool, with_chains: bool = False) -> Non
             print(f"  chain: {' -> '.join(chain)} [root {blocked_chains.root_state(snapshot, chain[-1])}]")
 
 
-def graph(snapshot: Snapshot, as_json: bool, form: Optional[str] = None) -> None:
+def graph(snapshot: Snapshot, as_json: bool, form: str | None = None) -> None:
     if as_json and form:
         raise QewError("ask for --json and --format separately, not both", 2)
     if as_json:
@@ -174,12 +175,12 @@ def _plain(text: str) -> str:
     return "".join(" " if (ord(c) < 0x20 and c != "\n") or 0x7F <= ord(c) <= 0x9F else c for c in text)
 
 
-def _epic_facts(snapshot: Snapshot, item_id: str, kids: List[str]) -> dict:
+def _epic_facts(snapshot: Snapshot, item_id: str, kids: list[str]) -> JsonObject:
     """Draft count, the next workable child and the completion command (None unless it would be accepted)."""
     progress = read_view.epic_progress(snapshot, item_id)
     claimed = snapshot.folds[item_id].state == State.CLAIMED
     ready = [k for k in ledger_graph.ready(snapshot) if snapshot.items[k].parent == item_id]
-    facts: dict = {
+    facts: JsonObject = {
         "children_drafts": sum(1 for k in kids if snapshot.folds[k].state in (None, State.DRAFT)),
         "complete_command": f"qew complete {item_id}" if claimed and progress["completable"] else None,
     }
@@ -190,7 +191,7 @@ def _epic_facts(snapshot: Snapshot, item_id: str, kids: List[str]) -> dict:
     return facts
 
 
-def _progress_text(snapshot: Snapshot, item_id: str, kids: List[str], facts: dict, draft: bool) -> str:
+def _progress_text(snapshot: Snapshot, item_id: str, kids: list[str], facts: JsonObject, draft: bool) -> str:
     """`C/T completed[, D drafts]` over the children that are not closed, plus `(draft epic)`."""
     states = [snapshot.folds[k].state for k in kids]
     text = f"{states.count(State.COMPLETED)}/{len([s for s in states if s != State.CLOSED])} completed"
@@ -248,7 +249,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     print(f"priority: {item.priority}")
     needs = [n if n in snapshot.items else f"{n} (missing)" for n in item.needs]
     for link in links:
-        print(" ".join([f"{link['key']}: {link['item']}", *link["urls"]]))
+        print(" ".join([f"{link['key']}: {link['item']}", *cast(list[str], link["urls"])]))
     print(f"author: {data['author']}")
     for key in ("children_open", "children_done", "completable"):
         if key in data:
@@ -271,8 +272,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     if comments:
         print("comments:")
         for entry in comments:
-            print(f"  {entry['index']} @{_plain(entry['author'])} {entry['at']}:")
-            for line in _plain(entry["text"]).rstrip("\n").split("\n"):
+            print(f"  {entry['index']} @{_plain(str(entry['author']))} {entry['at']}:")
+            for line in _plain(str(entry["text"])).rstrip("\n").split("\n"):
                 print(f"    {line}")
     if findings:
         print("text findings:")

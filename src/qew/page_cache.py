@@ -4,18 +4,19 @@ Each file holds a page's ETag and the issues parsed from it. The files are a cac
 or odd-shaped file is dropped (the page is then fetched without a condition), never trusted.
 """
 
-from typing import Dict, Mapping
+from collections.abc import Iterable, Mapping
 
-from qew.forge import CachedPage, RemoteIssue
+from qew.jsontypes import JsonObject
+from qew.forge import CachedPage, RemoteIssue, close_reason_of
 
 _STRINGS = ("url", "node_id", "title", "body", "assignee")
 
 
-def to_json(page: CachedPage) -> dict:
+def to_json(page: CachedPage) -> JsonObject:
     return {"etag": page.etag, "more": page.more, "raw": page.raw, "issues": [_issue_json(i) for i in page.issues]}
 
 
-def _issue_json(issue: RemoteIssue) -> dict:
+def _issue_json(issue: RemoteIssue) -> JsonObject:
     return {"number": issue.number, "url": issue.url, "node_id": issue.node_id, "open": issue.open, "title": issue.title,
             "body": issue.body, "labels": list(issue.labels), "assignee": issue.assignee, "comments": issue.comments,
             "milestone": issue.milestone, "close_reason": issue.close_reason}
@@ -43,15 +44,16 @@ def _issue(entry: object) -> RemoteIssue | None:
     labels = entry.get("labels")
     if not isinstance(labels, list) or not all(isinstance(l, str) for l in labels):
         return None
+    close_reason = entry.get("close_reason")
     return RemoteIssue(entry["number"], entry["url"], entry["node_id"], entry["open"], entry["title"], entry["body"],
                        tuple(labels), entry["assignee"], entry["comments"], entry["milestone"],
-                       entry.get("close_reason") if isinstance(entry.get("close_reason"), str) else "")
+                       close_reason_of(close_reason))
 
 
-def load(files: Mapping[int, object]) -> Dict[int, CachedPage]:
+def load(files: Mapping[int, object]) -> dict[int, CachedPage]:
     found = {number: from_json(value) for number, value in files.items()}
     return {number: page for number, page in found.items() if page is not None}
 
 
-def dump(pages) -> Dict[int, dict]:
+def dump(pages: Iterable[CachedPage]) -> dict[int, JsonObject]:
     return {number: to_json(page) for number, page in enumerate(pages, start=1)}

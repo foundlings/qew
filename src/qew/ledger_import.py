@@ -8,7 +8,7 @@ sync, which recreates issues (adopting by marker after a crash), links and board
 """
 
 import re
-from typing import Dict, List, Optional, Tuple
+from collections.abc import Iterable
 
 from qew import label_style, sync_plan
 from qew.forge import ForgeError, MARKER_PREFIX, RemoteIssue, Unsupported
@@ -16,6 +16,7 @@ from qew.forge_pull import PullReport, clean_body, clean_labels, clean_line, pul
 from qew.ledger_ids import valid_id
 from qew.ledger_item import Kind, from_header
 from qew.ledger_store import Ledger, now
+from qew.sync import Target
 
 _MARKER = re.compile(r"<!-- " + re.escape(MARKER_PREFIX) + r"([A-Za-z0-9][A-Za-z0-9._-]*) -->")
 _FOOTER = re.compile(r"^(\S+) · (\w+) · (\w+)$")
@@ -23,7 +24,7 @@ _LINK = re.compile(r"#(\d+)")
 RESTORED_QUOTE = "forge-import: restored from the forge's qew state label"
 
 
-def _priority_of(labels) -> str:
+def _priority_of(labels: Iterable[str]) -> str:
     """The item priority from a `P0`..`P4` label, else from the retired `priority:N` spelling, else normal (2)."""
     for label in labels:
         if label_style.is_priority(label):
@@ -31,31 +32,31 @@ def _priority_of(labels) -> str:
     return _managed(labels, "priority:") or "2"
 
 
-def _managed(labels, prefix: str) -> Optional[str]:
+def _managed(labels: Iterable[str], prefix: str) -> str | None:
     for label in labels:
         if label.startswith(prefix):
             return label[len(prefix):]
     return None
 
 
-def _footer(body: str) -> Tuple[Optional[Tuple[str, str, str]], List[int], List[int]]:
+def _footer(body: str) -> tuple[tuple[str, str, str] | None, list[int], list[int]]:
     """(id, state, kind), parent numbers, blocked-by numbers from the footer of a mirrored body."""
     if "\n---\n" not in body:
         return None, [], []
     lines = body.rsplit("\n---\n", 1)[1].strip().splitlines()
     head = _FOOTER.match(lines[0]) if lines else None
-    parents: List[int] = []
-    needs: List[int] = []
+    parents: list[int] = []
+    needs: list[int] = []
     for line in lines[1:]:
         numbers = [int(n) for n in _LINK.findall(line)]
         if line.startswith("Parent:"):
             parents = numbers
         elif line.startswith("Blocked by:"):
             needs = numbers
-    return (head.groups() if head else None), parents, needs
+    return ((head[1], head[2], head[3]) if head else None), parents, needs
 
 
-def import_target(ledger: Ledger, target, history: bool = False) -> PullReport:
+def import_target(ledger: Ledger, target: Target, history: bool = False) -> PullReport:
     report = PullReport(target.slug)
     try:
         remote = target.forge.list_issues()
@@ -66,13 +67,13 @@ def import_target(ledger: Ledger, target, history: bool = False) -> PullReport:
         report.failures.append(error.detail)
         return report
     snapshot = ledger.snapshot()
-    known_numbers: Dict[int, str] = {}
+    known_numbers: dict[int, str] = {}
     for item_id in snapshot.items:
         for record in ledger.load_mirrors(item_id):
             if record["_target"] == target.slug and record.get("kind") == "issue":
                 known_numbers[record["number"]] = item_id
-    created: Dict[int, str] = {}
-    pending_links: List[Tuple[str, List[int], List[int]]] = []
+    created: dict[int, str] = {}
+    pending_links: list[tuple[str, list[int], list[int]]] = []
     for issue in remote:
         if issue.number in known_numbers:
             continue
@@ -103,8 +104,8 @@ def import_target(ledger: Ledger, target, history: bool = False) -> PullReport:
     return report
 
 
-def _restore_item(ledger: Ledger, target, report: PullReport, issue: RemoteIssue, item_id: str,
-                  footer: Tuple[str, str, str], history: bool) -> str:
+def _restore_item(ledger: Ledger, target: Target, report: PullReport, issue: RemoteIssue, item_id: str,
+                  footer: tuple[str, str, str], history: bool) -> str:
     state, kind = footer[1], footer[2]
     priority = _priority_of(issue.labels)
     labels = clean_labels(sync_plan.user_labels(issue.labels))

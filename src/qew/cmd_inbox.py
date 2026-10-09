@@ -1,13 +1,12 @@
 """`qew inbox`: what waits on one person, read from the ledger only."""
 
 import argparse
-from typing import List
 
 from qew import cmd_read, inbox, instants, ledger_config, ledger_store, read_view, readfmt
 from qew.errors import QewError
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     command = commands.add_parser("inbox", help="replies, drafts waiting for a human and work assigned to one person (offline)")
     command.add_argument("--login", help="whose inbox (default: the configured actor)")
     command.add_argument("--since", help="reply window start: YYYY-MM-DDTHH:MM:SSZ or a date (midnight UTC); default 7 days ago")
@@ -29,7 +28,7 @@ def run(arguments: argparse.Namespace) -> bool:
     found = inbox.replies(snapshot, login, since)
     waiting, assigned = inbox.waiting(snapshot, login), inbox.assigned(snapshot, login)
     if arguments.json:
-        rows = [{"section": "replies", "id": r.item, "author": r.author, "at": r.at, "excerpt": r.excerpt} for r in found]
+        rows: list[dict[str, object]] = [{"section": "replies", "id": r.item, "author": r.author, "at": r.at, "excerpt": r.excerpt} for r in found]
         rows += [{**read_view.row_data(snapshot, i), "section": name} for name, ids in (("waiting", waiting), ("assigned", assigned)) for i in ids]
         for line in readfmt.ndjson(rows):
             print(line)

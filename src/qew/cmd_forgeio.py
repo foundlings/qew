@@ -1,7 +1,6 @@
 """`qew import` and `qew restore`: move a project from a forge into the ledger, or back."""
 
-import time
-from typing import Optional
+import argparse
 
 from qew import cmd_transfer, forge_registry, ledger_config
 from qew.cmd_items import ledger_for
@@ -13,7 +12,7 @@ from qew.restore import restore_target
 from qew.sync import Target
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     imported = commands.add_parser("import", help="read a forge project into the ledger (items, mirrors, drafts)")
     _target_flags(imported, "--from")
     imported.add_argument("directory", nargs="?", help="instead of a forge: a tree written by `qew export` (items/ID.md files)")
@@ -23,14 +22,14 @@ def register(commands) -> None:
     _target_flags(restore, "--to")
 
 
-def _target_flags(parser, name: str) -> None:
+def _target_flags(parser: argparse.ArgumentParser, name: str) -> None:
     parser.add_argument(name, dest="target", help="configured mirror target (slug or unique part of it)")
     parser.add_argument("--forge", help="ad hoc forge: github, forgejo, gitea or gitlab (with --repo)")
     parser.add_argument("--repo", help="ad hoc repository URL (with --forge)")
     parser.add_argument("--api", help="API root override for the ad hoc target")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command not in ("import", "restore"):
         return False
     config = ledger_config.load()
@@ -47,15 +46,15 @@ def run(arguments) -> bool:
               f" divergences={report.divergences}")
         failures = report.failures
     else:
-        report = restore_target(ledger, target, config)
-        print("\n".join(render(report)))
-        failures = report.failures
+        restored = restore_target(ledger, target, config)
+        print("\n".join(render(restored)))
+        failures = restored.failures
     if failures:
         raise QewError("; ".join(failures[:3]), 1)
     return True
 
 
-def build_target(config: Config, arguments) -> Target:
+def build_target(config: Config, arguments: argparse.Namespace) -> Target:
     ledger = ledger_for(config)
     if arguments.forge or arguments.repo:
         if not (arguments.forge and arguments.repo):

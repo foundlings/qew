@@ -4,17 +4,17 @@ Titles are untrusted data: every label is escaped for its syntax so a title cann
 edges or directives. Order is by id (shorter first, then lexical), identical on every run.
 """
 
-from typing import Callable, Dict, List, Tuple
+from collections.abc import Callable
 
 from qew import untrusted_text
 from qew.ledger_ids import sort_key
 from qew.ledger_store import Snapshot
 
 FORMATS = ("text", "dot", "mermaid")
-Edge = Tuple[str, str, str]  # (item, "needs" | "parent", target)
+Edge = tuple[str, str, str]  # (item, "needs" | "parent", target)
 
 
-def edges(snapshot: Snapshot) -> List[Edge]:
+def edges(snapshot: Snapshot) -> list[Edge]:
     """Dependency edges first, then parent edges, each sorted."""
     ordered = sorted(snapshot.items.values(), key=lambda item: sort_key(item.id))
     needs = [(item.id, "needs", need) for item in ordered for need in sorted(item.needs, key=sort_key)]
@@ -27,7 +27,7 @@ def _title(title: str) -> str:
     return untrusted_text.show(title).text if untrusted_text.findings(title) else title
 
 
-def _nodes(snapshot: Snapshot, found: List[Edge]) -> List[Tuple[str, str]]:
+def _nodes(snapshot: Snapshot, found: list[Edge]) -> list[tuple[str, str]]:
     """(id, label) for every item, then every referenced id that no item file backs."""
     nodes = [(i, f"{i}: {_title(snapshot.items[i].title)}") for i in sorted(snapshot.items, key=sort_key)]
     missing = {t for _, _, t in found if t not in snapshot.items}
@@ -64,7 +64,7 @@ def _mermaid_escape(value: str) -> str:
 def mermaid(snapshot: Snapshot) -> str:
     found = edges(snapshot)
     nodes = _nodes(snapshot, found)
-    names: Dict[str, str] = {node: f"n{index}" for index, (node, _) in enumerate(nodes)}
+    names: dict[str, str] = {node: f"n{index}" for index, (node, _) in enumerate(nodes)}
     lines = ["graph LR"]
     lines += [f'  {names[node]}["{_mermaid_escape(label)}"]' for node, label in nodes]
     for a, kind, b in found:
@@ -73,4 +73,4 @@ def mermaid(snapshot: Snapshot) -> str:
     return "\n".join(lines) + "\n"
 
 
-RENDERERS: Dict[str, Callable[[Snapshot], str]] = {"text": text, "dot": dot, "mermaid": mermaid}
+RENDERERS: dict[str, Callable[[Snapshot], str]] = {"text": text, "dot": dot, "mermaid": mermaid}

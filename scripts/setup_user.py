@@ -3,7 +3,6 @@
 
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
@@ -46,8 +45,8 @@ def run(command: list) -> None:
 def install() -> None:
     if not (sys.platform.startswith("linux") or sys.platform == "darwin"):
         raise SetupError("this script supports only Linux and macOS")
-    if sys.version_info < (3, 11):
-        raise SetupError("Qew requires Python 3.11 or newer")
+    if sys.version_info < (3, 15):  # noqa: UP036 - this script runs on whatever interpreter started it, before the venv exists
+        raise SetupError("Qew requires Python 3.15 or newer")
     home = Path.home()
     if not home.is_absolute():
         raise SetupError("HOME must be an absolute path")

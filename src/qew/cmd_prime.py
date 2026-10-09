@@ -5,7 +5,7 @@ import argparse
 from qew import cmd_read, ledger_conflicts, ledger_config, prime, readfmt
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     command = commands.add_parser("prime", help="bounded session context: ready, active and blocked work")
     command.add_argument("--json", action="store_true", help="machine-readable output")
 

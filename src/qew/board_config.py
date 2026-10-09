@@ -3,11 +3,12 @@
 from dataclasses import dataclass, replace
 import json
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import cast
 
 from qew import board
 from qew.errors import QewError
 from qew.forge import COLUMNS
+from qew.jsontypes import JsonObject
 from qew.ledger_store import Ledger
 
 DEFAULT_NAME = "default"
@@ -18,12 +19,12 @@ _KEYS = ("name", "columns", "sort", "group_by", "filter")
 @dataclass(frozen=True)
 class View:
     name: str
-    columns: Tuple[str, ...] = COLUMNS
+    columns: tuple[str, ...] = COLUMNS
     sort: str = "priority"
     group_by: str = "column"
     filter: str = ""
 
-    def as_json(self) -> dict:
+    def as_json(self) -> JsonObject:
         return {"name": self.name, "columns": list(self.columns), "sort": self.sort, "group_by": self.group_by, "filter": self.filter}
 
 
@@ -32,7 +33,7 @@ def valid_name(name: str) -> None:
         raise QewError(f"board name `{name}` must be lowercase letters, digits and dashes (at most 40)", 2)
 
 
-def validate(value: object, stem: str) -> Tuple[Optional[View], List[str]]:
+def validate(value: object, stem: str) -> tuple[View | None, list[str]]:
     """The view a file describes, or the problems that make it unusable."""
     if not isinstance(value, dict):
         return None, ["must be a JSON object"]
@@ -59,10 +60,10 @@ def validate(value: object, stem: str) -> Tuple[Optional[View], List[str]]:
             problems.append(str(error))
     if problems:
         return None, problems
-    return View(stem, tuple(columns), sort, group, text), []
+    return View(stem, tuple(cast(list[str], columns)), sort, group, text), []
 
 
-def _read(ledger: Ledger, stem: str) -> Tuple[Optional[View], List[str]]:
+def _read(ledger: Ledger, stem: str) -> tuple[View | None, list[str]]:
     path = ledger.views_dir / f"{stem}.json"
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -71,7 +72,7 @@ def _read(ledger: Ledger, stem: str) -> Tuple[Optional[View], List[str]]:
     return validate(value, stem)
 
 
-def load(ledger: Ledger, name: str) -> Optional[View]:
+def load(ledger: Ledger, name: str) -> View | None:
     """The named view, None when no such file; a file that fails validation is an error, never a default."""
     if not (ledger.views_dir / f"{name}.json").is_file():
         return None
@@ -81,12 +82,12 @@ def load(ledger: Ledger, name: str) -> Optional[View]:
     return view
 
 
-def names(ledger: Ledger) -> List[str]:
+def names(ledger: Ledger) -> list[str]:
     return sorted(p.stem for p in ledger.views_dir.glob("*.json")) if ledger.views_dir.is_dir() else []
 
 
-def problems(ledger: Ledger) -> List[str]:
-    found = []
+def problems(ledger: Ledger) -> list[str]:
+    found: list[str] = []
     for stem in names(ledger):
         _view, issues = _read(ledger, stem)
         found.extend(f"views/{stem}.json: {issue}" for issue in issues)
@@ -101,7 +102,7 @@ def create(ledger: Ledger, view: View) -> None:
     ledger.write_view(view.name, view.as_json(), overwrite=False)
 
 
-def update(ledger: Ledger, name: str, changes: Dict[str, object]) -> None:
+def update(ledger: Ledger, name: str, changes: JsonObject) -> None:
     current = load(ledger, name)
     if current is None:
         raise QewError(f"no board named `{name}`; create it with `qew board create`", 2)

@@ -5,7 +5,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import List, Optional, Tuple
 
 from qew.errors import QewError
 
@@ -18,7 +17,7 @@ def detect(root: Path) -> str:
     return "jj" if (root / ".jj").is_dir() else "git"
 
 
-def _run(root: Path, argv: List[str]) -> subprocess.CompletedProcess:
+def _run(root: Path, argv: list[str]) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             argv,
@@ -43,13 +42,13 @@ def current_change(root: Path, vcs: str) -> str:
         result = _run(root, ["git", "rev-parse", "HEAD"])
         if result.returncode != 0:
             raise QewError(f"cannot read git HEAD: {result.stderr.strip()}", 3)
-        return result.stdout.strip()
+        return str(result.stdout.strip())
     for revision in ("@ & ~empty()", "@-"):
         result = _run(root, ["jj", "log", "--no-graph", "-r", revision, "-T", 'change_id.short(12) ++ "\\n"'])
         if result.returncode != 0:
             raise QewError(f"cannot read the jj working copy: {result.stderr.strip()}", 3)
         if result.stdout.strip():
-            return result.stdout.split()[0]
+            return str(result.stdout.split()[0])
     raise QewError("no change to cite; pass --change", 2)
 
 
@@ -90,7 +89,7 @@ class Landing(Enum):
     UNKNOWN = "unknown to this checkout"  # the checkout cannot resolve the change (typo, or never fetched)
 
 
-def landing(root: Path, vcs: str, change: str, target: str) -> Tuple[Landing, str]:
+def landing(root: Path, vcs: str, change: str, target: str) -> tuple[Landing, str]:
     """Where `change` stands against `target`, with the full commit id when it resolves.
 
     A missing target branch is an environment failure (exit 3), never a statement about the change.

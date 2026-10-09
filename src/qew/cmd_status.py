@@ -1,24 +1,28 @@
 """`qew status`: replication state in a few fixed lines (see docs/specs/ledger.md, Replication)."""
 
+import argparse
 import json
 import time
-from typing import Optional
+from collections.abc import Sequence
 
 from qew import claim_reconcile, instants, ledger_config, ledger_conflicts, pull_cursor, syncworker
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
-from qew.ledger_config import Config
+from qew.jsontypes import JsonObject
+from qew.ledger_config import Config, Mirror
+from qew.ledger_event import Event
 from qew.ledger_repo import LedgerRepo
+from qew.ledger_store import Ledger
 
 SHOWN_DIVERGENCES = 10
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     status = commands.add_parser("status", help="replication state: uncommitted, unpushed, pending per target")
     status.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "status":
         return False
     config = ledger_config.load()
@@ -36,12 +40,12 @@ def remote_state(config: Config) -> str:
     return marker.read_text(encoding="utf-8").strip() if marker.exists() else "ok"
 
 
-def last_sync(ledger, slug: str, item_ids) -> Optional[str]:
+def last_sync(ledger: Ledger, slug: str, item_ids: Sequence[str]) -> str | None:
     stamps = [m.get("synced_at", "") for item_id in item_ids for m in ledger.load_mirrors(item_id) if m["_target"] == slug]
     return max(stamps, default="") or None
 
 
-def pull_state(ledger, slug: str) -> dict:
+def pull_state(ledger: Ledger, slug: str) -> JsonObject:
     """When the target was last pulled, when it last saw the complete issue set, and how the next pull will list."""
     cursor = pull_cursor.parse(ledger.read_cursor(slug))
     if cursor is None:
@@ -50,18 +54,18 @@ def pull_state(ledger, slug: str) -> dict:
             "next_pull": pull_cursor.next_mode(cursor, instants.now())}
 
 
-def _contested(item_id: str, claim, holder: str) -> dict:
+def _contested(item_id: str, claim: Event, holder: str) -> JsonObject:
     """A second effective claim in a merged ledger: the holder by event order against the contender."""
     return {"id": claim.id, "item": item_id, "target": "ledger", "field": "owner", "forge": claim.get("owner"), "ledger": holder}
 
 
-def repos_on(mirrors, slug: str) -> bool:
+def repos_on(mirrors: list[Mirror], slug: str) -> bool:
     """Whether the target pushes the code and ledger repositories too (git_url / ledger_git_url set)."""
     mirror = next(m for m in mirrors if ledger_config.mirror_slug(m) == slug)
     return mirror.options.get("git_url") is not None or mirror.options.get("ledger_git_url") is not None
 
 
-def collect(config: Config) -> dict:
+def collect(config: Config) -> JsonObject:
     ledger = ledger_for(config)
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
     mirrors = mirrors_with_boards(ledger, config)
@@ -97,7 +101,7 @@ def collect(config: Config) -> dict:
     }
 
 
-def render(data: dict) -> str:
+def render(data: JsonObject) -> str:
     ledger = data["ledger"]
     lines = [f"authority primary={data['authority']['primary']}"]
     lines += [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]

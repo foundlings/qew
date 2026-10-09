@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import time
 import sys
 import tempfile
 from typing import Mapping, Optional
@@ -119,7 +120,14 @@ class World:
 
     def close(self) -> None:
         if getattr(self, "_owner", True):
-            self._temporary.cleanup()
+            for attempt in range(5):  # a detached sync worker may still be writing into the tree
+                try:
+                    self._temporary.cleanup()
+                    return
+                except OSError:
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.5)
 
     def commit(self, message: str = "work") -> str:
         git(self.code, "commit", "-q", "--allow-empty", "-m", message)

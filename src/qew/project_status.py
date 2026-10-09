@@ -4,13 +4,14 @@ The report is advisory: forge state is never read back as truth for the ledger. 
 """
 
 import json
-from typing import Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
 
 from qew import board_cards, forge_registry, ledger_config, sync_plan
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import choose, mirrors_with_boards
-from qew.forge import COLUMNS, Board, Forge, ForgeError, Unsupported
+from qew.forge import COLUMNS, Board, Card, Forge, ForgeError, Unsupported
 from qew.ledger_config import Config, Mirror
+from qew.ledger_store import Ledger, Snapshot
 
 SCHEMA_VERSION = 1
 
@@ -20,12 +21,12 @@ def repository_of(mirror: Mirror) -> str:
     return "/".join(mirror.repo.split("://", 1)[-1].rstrip("/").split("/")[1:])
 
 
-def status(config: Config, wanted: Optional[str], as_json: bool,
-           build: Callable[[Mirror], Forge] = forge_registry.build) -> Tuple[str, int]:
+def status(config: Config, wanted: str | None, as_json: bool,
+           build: Callable[[Mirror], Forge] = forge_registry.build) -> tuple[str, int]:
     """(output, exit code): 0 in sync, 1 drifted or a forge failure, 2 no board to compare with."""
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
-    lines: List[str] = []
+    lines: list[str] = []
     code = 0
     for mirror in choose(mirrors_with_boards(ledger, config), wanted):
         slug = ledger_config.mirror_slug(mirror)
@@ -53,8 +54,8 @@ def status(config: Config, wanted: Optional[str], as_json: bool,
     return "\n".join(lines) or "no mirror targets configured", code
 
 
-def _drift(ledger, snapshot, mirror: Mirror, slug: str, cards: Dict[int, object]) -> Dict[str, List[str]]:
-    drift: Dict[str, List[str]] = {"missing": [], "stale_column": [], "stale_priority": []}
+def _drift(ledger: Ledger, snapshot: Snapshot, mirror: Mirror, slug: str, cards: dict[int, Card]) -> dict[str, list[str]]:
+    drift: dict[str, list[str]] = {"missing": [], "stale_column": [], "stale_priority": []}
     for item_id in sync_plan.topological(snapshot, sync_plan.selected(snapshot, mirror.select)):
         record = next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug and m.get("kind") == "issue"), None)
         card = cards.get(record["number"]) if record else None
@@ -68,7 +69,7 @@ def _drift(ledger, snapshot, mirror: Mirror, slug: str, cards: Dict[int, object]
     return drift
 
 
-def _render(slug: str, drift: Dict[str, List[str]], as_json: bool) -> str:
+def _render(slug: str, drift: dict[str, list[str]], as_json: bool) -> str:
     in_sync = not any(drift.values())
     if as_json:
         return json.dumps({"schema_version": SCHEMA_VERSION, "target": slug, "in_sync": in_sync, **drift,

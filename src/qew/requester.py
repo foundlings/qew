@@ -1,7 +1,6 @@
 """The quoted human requester every created item must carry."""
 
 import re
-from typing import Optional
 
 from qew.errors import QewError
 
@@ -17,7 +16,7 @@ _PLACEHOLDER = re.compile(
 )
 
 
-def require_quote(quote: Optional[str], context: str = "--quote") -> str:
+def require_quote(quote: str | None, context: str = "--quote") -> str:
     """Return the validated quote or refuse (exit 2) before any GitHub call."""
     if quote is None or not quote.strip():
         raise QewError(f"a human requester quote is required: {context} \"{FORM}\"", 2)
@@ -41,7 +40,7 @@ def requested_by(quote: str) -> str:
     return f"{HEADING}\n\n> {quote}"
 
 
-def with_requested_by(text: Optional[str], quote: str) -> str:
+def with_requested_by(text: str | None, quote: str) -> str:
     section = requested_by(quote)
     body = (text or "").rstrip()
     return f"{body}\n\n{section}" if body else section

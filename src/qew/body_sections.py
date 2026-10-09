@@ -1,6 +1,6 @@
 """A body composed from headed sections: where, problem or goal, fix or approach, done when."""
 
-from typing import Optional
+import argparse
 
 from qew.errors import QewError
 
@@ -8,7 +8,7 @@ SECTIONS = (("where", "Where"), ("problem", "Problem"), ("goal", "Goal"), ("fix"
             ("approach", "Approach"), ("done_when", "Done when"))
 
 
-def compose(arguments) -> Optional[str]:
+def compose(arguments: argparse.Namespace) -> str | None:
     """The sectioned body the structured flags describe, or None when none was given."""
     given = {key: getattr(arguments, key) for key, _ in SECTIONS if getattr(arguments, key, None) is not None}
     if not given:

@@ -43,6 +43,29 @@ class TypecheckWalk(unittest.TestCase):
         result = check(self.source("def add(a: int, b: int) -> int:\n    return a + b\n"))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_the_old_typing_spellings_are_errors(self) -> None:
+        """Prevents Optional, Union, List and Dict creeping back: Python 3.15 spells them `X | None` and `list[X]`."""
+        result = check(self.source("from typing import Optional\n\n\ndef first(items: list[int]) -> Optional[int]:\n    return None\n"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("UP045", result.stdout)
+        result = check(self.source("from typing import List\n\n\ndef first(items: List[int]) -> int:\n    return 0\n"))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("UP006", result.stdout)
+
+    def test_an_override_without_the_decorator_is_an_error(self) -> None:
+        """Prevents a backend method silently overriding (or failing to override) the Forge interface."""
+        text = "class Base:\n    def go(self) -> int:\n        return 1\n\n\nclass Child(Base):\n    def go(self) -> int:\n        return 2\n"
+        result = check(self.source(text))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("explicit-override", result.stdout)
+        fixed = text.replace("class Child(Base):\n    def go", "class Child(Base):\n    @override\n    def go").replace("class Base:", "from typing import override\n\n\nclass Base:", 1)
+        self.assertEqual(check(self.source(fixed)).returncode, 0)
+
+    def test_modern_typing_passes(self) -> None:
+        """Prevents the modern spellings being rejected."""
+        result = check(self.source("def first(items: list[int], default: int | None = None) -> int | None:\n    return default\n"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_the_whole_package_is_clean(self) -> None:
         """Prevents a type error landing in src/qew: the package passes mypy --strict with no findings."""
         result = check()

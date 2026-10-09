@@ -6,7 +6,6 @@ A human's label keeps a colour the team picked: only the neutral default grey is
 
 from dataclasses import dataclass
 import re
-from typing import Optional
 import zlib
 
 from qew.forge import LABEL_DESCRIPTION, PRIORITY_OPTIONS
@@ -41,7 +40,7 @@ def is_managed(name: str) -> bool:
     return name.startswith(MANAGED_PREFIXES) or name in KIND_LABELS or is_priority(name)
 
 
-def managed_style(name: str) -> Optional[LabelStyle]:
+def managed_style(name: str) -> LabelStyle | None:
     """The look of a label qew owns, or None for a human's label and for the retired `kind:` and `priority:` spellings."""
     if is_priority(name):
         _label, colour, description = PRIORITY_OPTIONS[int(name[1:])]
@@ -64,7 +63,7 @@ def style_of(name: str) -> LabelStyle:
     return managed_style(name) or LabelStyle(hashed_colour(name), LABEL_DESCRIPTION)
 
 
-def repaint(name: str, colour: str, description: Optional[str]) -> Optional[LabelStyle]:
+def repaint(name: str, colour: str, description: str | None) -> LabelStyle | None:
     """The style to give an existing label, or None to leave it. qew's own labels are held to the palette; any other
     label is only painted while it still has the neutral default colour, and then keeps its own description."""
     wanted = managed_style(name)

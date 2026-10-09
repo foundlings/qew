@@ -7,17 +7,17 @@ comment and blank line of the file stays as written. The result is parsed again 
 from pathlib import Path
 import re
 import tomllib
-from typing import Callable, List, Optional, Tuple
+from collections.abc import Callable
 
 from qew.errors import QewError
 
 _HEADER = re.compile(r"^\s*(\[\[?)\s*([A-Za-z0-9_.\"-]+)\s*\]\]?\s*(#.*)?$")
 
 
-def _headers(lines: List[str]) -> List[Tuple[int, str, bool]]:
+def _headers(lines: list[str]) -> list[tuple[int, str, bool]]:
     """(line index, table name, is array-of-tables) for every table header outside multi-line strings."""
     found = []
-    quoted: Optional[str] = None
+    quoted: str | None = None
     for index, line in enumerate(lines):
         if quoted is not None:
             if quoted in line:
@@ -36,7 +36,7 @@ def _is_comment(line: str) -> bool:
     return line.lstrip().startswith("#")
 
 
-def _block(lines: List[str], headers: List[Tuple[int, str, bool]], position: int) -> Tuple[int, int]:
+def _block(lines: list[str], headers: list[tuple[int, str, bool]], position: int) -> tuple[int, int]:
     """The line range [start, end) of one table: its attached comments, header and key lines."""
     header_line = headers[position][0]
     start = header_line
@@ -57,13 +57,13 @@ def _checked(text: str) -> str:
     return text
 
 
-def mirror_blocks(text: str) -> List[Tuple[int, int]]:
+def mirror_blocks(text: str) -> list[tuple[int, int]]:
     lines = text.split("\n")
     headers = _headers(lines)
     return [_block(lines, headers, i) for i, (_, name, array) in enumerate(headers) if array and name == "mirror"]
 
 
-def append_mirror(text: str, entries: List[Tuple[str, str]]) -> str:
+def append_mirror(text: str, entries: list[tuple[str, str]]) -> str:
     """Add a `[[mirror]]` block of `key = literal` lines at the end of the file."""
     body = "\n".join(["[[mirror]]", *(f"{key} = {literal}" for key, literal in entries)]) + "\n"
     if text and not text.endswith("\n"):
@@ -81,7 +81,7 @@ def remove_mirror(text: str, index: int) -> str:
     return _checked("\n".join(lines))
 
 
-def set_key(text: str, table: str, key: str, literal: str, index: Optional[int] = None) -> str:
+def set_key(text: str, table: str, key: str, literal: str, index: int | None = None) -> str:
     """Set `key = literal` in a table (the `index`-th `[[table]]` for arrays), adding the key or the table."""
     lines = text.split("\n")
     headers = _headers(lines)
@@ -98,7 +98,7 @@ def set_key(text: str, table: str, key: str, literal: str, index: Optional[int] 
     return _checked("\n".join(lines))
 
 
-def remove_key(text: str, table: str, key: str, index: Optional[int] = None) -> str:
+def remove_key(text: str, table: str, key: str, index: int | None = None) -> str:
     lines = text.split("\n")
     headers = _headers(lines)
     wanted = [i for i, (_, name, array) in enumerate(headers) if name == table and (index is not None) == array]

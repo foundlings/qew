@@ -2,7 +2,7 @@
 """Build deterministic checksums and an SPDX SBOM for Qew releases."""
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 import hashlib
 import json
 from pathlib import Path
@@ -49,7 +49,7 @@ def normalized_created(raw: str) -> str:
         raise MetadataError("--created must be an ISO-8601 timestamp") from error
     if parsed.tzinfo is None:
         raise MetadataError("--created must include a timezone")
-    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return parsed.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def sha256(path: Path) -> str:

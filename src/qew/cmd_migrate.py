@@ -4,11 +4,10 @@ import argparse
 
 from qew import id_migration, ledger_config
 from qew.cmd_items import ledger_for
-from qew.errors import QewError
 from qew.ledger_store import actor
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     migrate = commands.add_parser("migrate-ids", help="rewrite letter, counter and imported ids to time ids; old ids stay as aliases")
     migrate.add_argument("--to", required=True, choices=["time"], help="the id mode to migrate to (only time)")
     migrate.add_argument("--dry-run", action="store_true", help="list the items that would be migrated and write nothing")

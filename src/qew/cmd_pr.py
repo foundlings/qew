@@ -5,13 +5,14 @@ The pull request never carries a closing keyword: finishing work is `qew complet
 pull request and which items it covers.
 """
 
+import argparse
 from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 import os
 import re
 import sys
-from typing import Callable, Dict, Iterator, List, Optional, Tuple
+from collections.abc import Callable, Iterator
 
 from qew import branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, untrusted_text, vcs
 from qew.cmd_items import ledger_for
@@ -34,7 +35,7 @@ _TARGET_HELP = "mirror target (slug or unique part)"
 _REASON_HELP = "why: required with --admin and --other-author"
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     pr = commands.add_parser("pr", help="pull requests for items")
     sub = pr.add_subparsers(dest="pr_command", required=True)
     opened = sub.add_parser("open", help="open a draft pull request for an item")
@@ -72,7 +73,7 @@ def register(commands) -> None:
     merge.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "pr":
         return False
     config = ledger_config.load()
@@ -97,8 +98,8 @@ def run(arguments) -> bool:
     elif command == "close":
         print(close_pull_request(config, arguments.number, arguments.target).render(arguments.json))
     else:
-        options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason)
-        print(merge_pull_request(config, arguments.number, arguments.target, options).render(arguments.json))
+        merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason)
+        print(merge_pull_request(config, arguments.number, arguments.target, merge_options).render(arguments.json))
     return True
 
 
@@ -120,7 +121,7 @@ def mirror_for(config: Config, ledger: Ledger, slug: str) -> Mirror:
     raise QewError(f"target {slug} is not configured in .qew/config.toml", 2)
 
 
-def _build(build: Optional[Build], mirror: Mirror) -> Forge:
+def _build(build: Build | None, mirror: Mirror) -> Forge:
     return (build or forge_registry.build)(mirror)
 
 
@@ -130,13 +131,13 @@ class Loaded:
 
     snapshot: Snapshot
     record: PrRecord
-    states: Dict[str, State]
+    states: dict[str, State]
     forge: Forge
     note: str  # printed before the result when an override was used
 
 
 def load(
-    config: Config, number: int, target: Optional[str], build: Optional[Build],
+    config: Config, number: int, target: str | None, build: Build | None,
     reason: str = "", merging: bool = False, owned: bool = True,
 ) -> Loaded:
     """The recorded pull request, after the ownership rule (exit 3) and a readable-history check (exit 4).
@@ -172,14 +173,14 @@ def refuse_finished(number: int, pull: RemotePullRequest, verb: str) -> None:
 
 @dataclass(frozen=True)
 class OpenOptions:
-    target: Optional[str] = None
-    head: Optional[str] = None
-    base: Optional[str] = None
+    target: str | None = None
+    head: str | None = None
+    base: str | None = None
     ready: bool = False
-    what: Optional[str] = None
-    why: Optional[str] = None
-    testing: Optional[str] = None
-    body_file: Optional[str] = None
+    what: str | None = None
+    why: str | None = None
+    testing: str | None = None
+    body_file: str | None = None
 
 
 @dataclass(frozen=True)
@@ -200,7 +201,7 @@ class Opened:
         return f"{self.item} pr #{self.number} {self.url}{' (draft)' if self.draft else ''}{' adopted' if self.adopted else ''}"
 
 
-def _body_file(path: Optional[str]) -> str:
+def _body_file(path: str | None) -> str:
     if path is None:
         return ""
     try:
@@ -210,7 +211,7 @@ def _body_file(path: Optional[str]) -> str:
         raise QewError(f"cannot read --body-file {path}: {error}", 2) from None
 
 
-def _refuse_other_items_branch(snapshot: Snapshot, head: str, covered: List[str]) -> None:
+def _refuse_other_items_branch(snapshot: Snapshot, head: str, covered: list[str]) -> None:
     """A branch named for another item than the one being opened belongs to that other item."""
     tokens = {t.lower() for t in re.split(r"[^A-Za-z0-9]+", head) if len(t) >= 6}
     named = [i for i in snapshot.items if i.lower() in tokens and valid_id(i)]
@@ -222,7 +223,7 @@ def _refuse_other_items_branch(snapshot: Snapshot, head: str, covered: List[str]
         )
 
 
-def open_pull_request(config: Config, reference: str, options: OpenOptions = OpenOptions(), build: Optional[Build] = None) -> Opened:
+def open_pull_request(config: Config, reference: str, options: OpenOptions = OpenOptions(), build: Build | None = None) -> Opened:
     extra = _body_file(options.body_file)
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
@@ -289,8 +290,8 @@ def _describe(box: pr_checklist.Box) -> str:
 
 
 def check_pull_request(
-    config: Config, number: int, names: List[str], every: bool, listing: bool, target: Optional[str],
-    build: Optional[Build] = None,
+    config: Config, number: int, names: list[str], every: bool, listing: bool, target: str | None,
+    build: Build | None = None,
 ) -> str:
     chosen = [bool(names), every, listing]
     if sum(chosen) != 1:
@@ -331,8 +332,8 @@ class Readied:
 
 
 def mark_ready(
-    config: Config, number: int, target: Optional[str], build: Optional[Build] = None,
-    sleep: Optional[Callable[[float], None]] = None,
+    config: Config, number: int, target: str | None, build: Build | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> Readied:
     loaded = load(config, number, target, build)
     refuse_held(loaded, "be marked ready")
@@ -367,8 +368,8 @@ class Closed:
 
 
 def close_pull_request(
-    config: Config, number: int, target: Optional[str], build: Optional[Build] = None,
-    sleep: Optional[Callable[[float], None]] = None,
+    config: Config, number: int, target: str | None, build: Build | None = None,
+    sleep: Callable[[float], None] | None = None,
 ) -> Closed:
     """Close a recorded, unmerged pull request, read it back, then record `closed` in its mirror."""
     loaded = load(config, number, target, build)
@@ -397,7 +398,7 @@ class MergeOptions:
     auto: bool = False
     admin: bool = False
     other_author: bool = False
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -406,8 +407,8 @@ class Merged:
     head_sha: str
     merge_sha: str
     merged: bool  # False when auto-merge was only enabled
-    items: Tuple[str, ...]
-    lines: Tuple[str, ...]
+    items: tuple[str, ...]
+    lines: tuple[str, ...]
 
     def render(self, as_json: bool) -> str:
         if as_json:
@@ -450,7 +451,7 @@ def _enable_auto(loaded: Loaded, pull: RemotePullRequest) -> RemotePullRequest:
     return after
 
 
-def _hand_off(loaded: Loaded, number: int) -> List[str]:
+def _hand_off(loaded: Loaded, number: int) -> list[str]:
     """What is left per covered item once the merge landed; the gate already proved evidence and children."""
     lines = []
     for item_id in pr_gate.open_work(loaded.states, loaded.record):
@@ -464,7 +465,7 @@ def _hand_off(loaded: Loaded, number: int) -> List[str]:
     return lines
 
 
-def _branch_line(cleanup: branch_cleanup.HeadFate, branch: str) -> List[str]:
+def _branch_line(cleanup: branch_cleanup.HeadFate, branch: str) -> list[str]:
     """The merge output about the head branch; a failure to delete it is a warning on stderr, never an error."""
     if cleanup.fate == branch_cleanup.Fate.DELETED:
         return [f"branch {branch} deleted"]
@@ -475,8 +476,8 @@ def _branch_line(cleanup: branch_cleanup.HeadFate, branch: str) -> List[str]:
 
 
 def merge_pull_request(
-    config: Config, number: int, target: Optional[str], options: MergeOptions = MergeOptions(),
-    build: Optional[Build] = None, sleep: Optional[Callable[[float], None]] = None,
+    config: Config, number: int, target: str | None, options: MergeOptions = MergeOptions(),
+    build: Build | None = None, sleep: Callable[[float], None] | None = None,
 ) -> Merged:
     pr_record.positive_number(number)
     reason = _merge_options(options)

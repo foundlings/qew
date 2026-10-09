@@ -8,17 +8,17 @@ primary `none` the ledger remote arbitrates and `replication` settles the push (
 from enum import Enum
 import re
 import secrets
-from typing import List, Optional, Tuple
+from typing import Any
 
 from qew import forge_registry, ledger_config
 from qew.errors import QewError
-from qew.forge import ForgeError, RemoteComment
+from qew.forge import Forge, ForgeError, RemoteComment
 from qew.ledger_config import Config, OfflineClaims
 from qew.ledger_repo import LedgerRepo
 from qew.ledger_store import Ledger
 
 _MARK = re.compile(r"<!-- qew:(claim|release) ([A-Za-z0-9._-]+)(?: (\S+) (\S+))? -->")
-PENDING: List[Tuple[str, str]] = []  # (item id, claimed event id) awaiting the ledger remote's verdict; one command may claim several
+PENDING: list[tuple[str, str]] = []  # (item id, claimed event id) awaiting the ledger remote's verdict; one command may claim several
 
 
 def claim_comment(item_id: str, owner: str, nonce: str) -> str:
@@ -29,9 +29,9 @@ def release_comment(item_id: str) -> str:
     return f"<!-- qew:release {item_id} -->"
 
 
-def holder(comments: List[RemoteComment], item_id: str) -> Optional[Tuple[str, str]]:
+def holder(comments: list[RemoteComment], item_id: str) -> tuple[str, str] | None:
     """(owner, nonce) of the claim in force after replaying claim and release comments in order."""
-    current: Optional[Tuple[str, str]] = None
+    current: tuple[str, str] | None = None
     for comment in comments:
         found = _MARK.search(comment.body)
         if not found or found.group(2) != item_id:
@@ -43,7 +43,7 @@ def holder(comments: List[RemoteComment], item_id: str) -> Optional[Tuple[str, s
     return current
 
 
-def _primary_forge(config: Config, ledger: Ledger, item_id: str):
+def _primary_forge(config: Config, ledger: Ledger, item_id: str) -> tuple[Forge, Any]:
     mirror = next((m for m in config.mirrors if ledger_config.mirror_slug(m) == config.authority), None)
     record = next((r for r in ledger.load_mirrors(item_id)
                    if r["_target"] == config.authority and r.get("kind") == "issue"), None)
@@ -67,7 +67,7 @@ class Claimed(Enum):
     PROVISIONAL = "provisional"
 
 
-def _provisional(ledger: Ledger, item_id: str, owner: str, lane: dict) -> Claimed:
+def _provisional(ledger: Ledger, item_id: str, owner: str, lane: dict[str, str]) -> Claimed:
     ledger.append_event(item_id, "claimed", owner=owner, provisional=True, **lane)
     return Claimed.PROVISIONAL
 
@@ -109,12 +109,12 @@ def _remote_error(config: Config) -> str:
         return ""
 
 
-def _confirmed(ledger: Ledger, item_id: str, owner: str, lane: dict) -> None:
+def _confirmed(ledger: Ledger, item_id: str, owner: str, lane: dict[str, str]) -> None:
     event = ledger.append_event(item_id, "claimed", owner=owner, **lane)
     ledger.append_event(item_id, "claim_confirmed", ref=event.id)
 
 
-def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, lane: dict) -> Claimed:
+def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, lane: dict[str, str]) -> Claimed:
     allowed = config.offline_claims is OfflineClaims.ALLOW
     try:
         forge, number = _primary_forge(config, ledger, item_id)
@@ -149,7 +149,7 @@ def release(config: Config, ledger: Ledger, item_id: str) -> None:
         raise QewError(f"cannot release {item_id}: the primary forge is unreachable ({error.detail})", 3) from None
 
 
-def take_pending() -> List[Tuple[str, str]]:
+def take_pending() -> list[tuple[str, str]]:
     pending = list(PENDING)
     PENDING.clear()
     return pending

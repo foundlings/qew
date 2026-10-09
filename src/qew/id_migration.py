@@ -11,7 +11,6 @@ from dataclasses import dataclass, replace
 import json
 import os
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
 
 from qew import ledger_store
 from qew.errors import QewError
@@ -26,7 +25,7 @@ VIEW_ID_TERMS = ("epic", "parent")  # board filter terms whose values are item i
 
 @dataclass(frozen=True)
 class Report:
-    renames: Tuple[Tuple[str, str], ...]  # (old id, new id) for every item migrated by this run
+    renames: tuple[tuple[str, str], ...]  # (old id, new id) for every item migrated by this run
     rewritten: int  # files moved, rewritten or removed to follow the renames (this run)
 
     @property
@@ -45,7 +44,7 @@ def migrate(ledger: Ledger, actor_name: str, dry_run: bool = False) -> Report:
     pending = sorted((i for i in ledger.item_ids() if not is_time_id(i)),
                      key=lambda i: (snapshot.items[i].created, sort_key(i)))
     taken = {*ledger.item_ids(), *aliases.by_alias}
-    renames: List[Tuple[str, str]] = []
+    renames: list[tuple[str, str]] = []
     for old in pending:
         new = next_id("time", taken)
         taken.add(new)
@@ -73,11 +72,11 @@ def migrate(ledger: Ledger, actor_name: str, dry_run: bool = False) -> Report:
     return Report(tuple(renames), rewritten)
 
 
-def _map_tokens(text: str, mapping: Dict[str, str]) -> str:
+def _map_tokens(text: str, mapping: dict[str, str]) -> str:
     return " ".join(mapping.get(token, token) for token in text.split())
 
 
-def _follow_links(ledger: Ledger, mapping: Dict[str, str], renamed: set, apply: bool) -> int:
+def _follow_links(ledger: Ledger, mapping: dict[str, str], renamed: set[str], apply: bool) -> int:
     """Item headers: parent, needs, tracks, pr and discovered_from name the current ids."""
     count = 0
     for item_id in ledger.item_ids():
@@ -92,7 +91,7 @@ def _follow_links(ledger: Ledger, mapping: Dict[str, str], renamed: set, apply: 
     return count
 
 
-def _linked(item: Item, mapping: Dict[str, str]) -> Item:
+def _linked(item: Item, mapping: dict[str, str]) -> Item:
     return replace(
         item,
         parent=mapping.get(item.parent, item.parent),
@@ -103,7 +102,7 @@ def _linked(item: Item, mapping: Dict[str, str]) -> Item:
     )
 
 
-def _rewrite_event(text: str, mapping: Dict[str, str]) -> str:
+def _rewrite_event(text: str, mapping: dict[str, str]) -> str:
     """The event file text naming current ids; the text itself when it cites none (or is not an event)."""
     try:
         value = json.loads(text)
@@ -137,11 +136,11 @@ def _rewrite_event(text: str, mapping: Dict[str, str]) -> str:
     return json.dumps(value, sort_keys=True, ensure_ascii=False) + "\n" if changed else text
 
 
-def _directories(root: Path) -> List[Path]:
+def _directories(root: Path) -> list[Path]:
     return sorted(path for path in root.iterdir() if path.is_dir()) if root.is_dir() else []
 
 
-def _move_event_files(ledger: Ledger, mapping: Dict[str, str], apply: bool) -> int:
+def _move_event_files(ledger: Ledger, mapping: dict[str, str], apply: bool) -> int:
     count = 0
     for directory in _directories(ledger.events_dir):
         home = ledger.events_dir / mapping.get(directory.name, directory.name)
@@ -164,7 +163,7 @@ def _move_event_files(ledger: Ledger, mapping: Dict[str, str], apply: bool) -> i
     return count
 
 
-def _move_mirror_files(ledger: Ledger, mapping: Dict[str, str], apply: bool) -> int:
+def _move_mirror_files(ledger: Ledger, mapping: dict[str, str], apply: bool) -> int:
     """Mirror files follow their item; a pull request mirror's `items` list names current ids. Forge numbers never change."""
     count = 0
     for directory in _directories(ledger.mirrors_dir):
@@ -188,7 +187,7 @@ def _move_mirror_files(ledger: Ledger, mapping: Dict[str, str], apply: bool) -> 
     return count
 
 
-def _rewrite_mirror(text: str, mapping: Dict[str, str]) -> str:
+def _rewrite_mirror(text: str, mapping: dict[str, str]) -> str:
     try:
         value = json.loads(text)
     except ValueError:
@@ -203,7 +202,7 @@ def _rewrite_mirror(text: str, mapping: Dict[str, str]) -> str:
     return json.dumps(value, sort_keys=True, indent=2) + "\n"
 
 
-def _rewrite_views(ledger: Ledger, mapping: Dict[str, str], apply: bool) -> int:
+def _rewrite_views(ledger: Ledger, mapping: dict[str, str], apply: bool) -> int:
     count = 0
     for path in sorted(ledger.views_dir.glob("*.json")) if ledger.views_dir.is_dir() else []:
         try:
@@ -221,14 +220,14 @@ def _rewrite_views(ledger: Ledger, mapping: Dict[str, str], apply: bool) -> int:
     return count
 
 
-def _filter_term(term: str, mapping: Dict[str, str]) -> str:
+def _filter_term(term: str, mapping: dict[str, str]) -> str:
     key, colon, values = term.partition(":")
     if not colon or key not in VIEW_ID_TERMS:
         return term
     return key + ":" + ",".join(mapping.get(v, v) for v in values.split(","))
 
 
-def _move_local_state(ledger: Ledger, mapping: Dict[str, str]) -> None:
+def _move_local_state(ledger: Ledger, mapping: dict[str, str]) -> None:
     """This machine's sync baselines are cached under the item id; move them with it (never committed)."""
     root = ledger.path / ".qew" / "state"
     for old, new in mapping.items():

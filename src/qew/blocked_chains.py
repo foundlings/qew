@@ -1,6 +1,5 @@
 """Why work is blocked: for each blocked item, the longest chain of unmet needs down to a root blocker."""
 
-from typing import Dict, List
 
 from qew.errors import QewError
 from qew.ledger_event import State
@@ -11,7 +10,7 @@ from qew.ledger_store import Snapshot
 _OPEN = (State.DRAFT, State.APPROVED, State.CLAIMED)
 
 
-def _unmet(snapshot: Snapshot, item_id: str) -> List[str]:
+def _unmet(snapshot: Snapshot, item_id: str) -> list[str]:
     """Unmet needs to walk through. A dangling, closed or completed id ends a chain and is never walked."""
     if item_id not in snapshot.items or (state_of(snapshot, item_id) or State.DRAFT) not in _OPEN:
         return []
@@ -25,9 +24,9 @@ def root_state(snapshot: Snapshot, item_id: str) -> str:
     return (state_of(snapshot, item_id) or State.DRAFT).value
 
 
-def chains(snapshot: Snapshot, ids: List[str]) -> Dict[str, List[str]]:
+def chains(snapshot: Snapshot, ids: list[str]) -> dict[str, list[str]]:
     """The longest path [item, need, ... root] per id; equal lengths go to the lowest id. Iterative."""
-    best: Dict[str, List[str]] = {}
+    best: dict[str, list[str]] = {}
     for start in ids:
         stack = [(start, iter(_unmet(snapshot, start)))]
         on_path = {start}
@@ -45,7 +44,7 @@ def chains(snapshot: Snapshot, ids: List[str]) -> Dict[str, List[str]]:
             if not descended:
                 stack.pop()
                 on_path.discard(node)
-                longest: List[str] = []
+                longest: list[str] = []
                 for child in _unmet(snapshot, node):
                     if len(best[child]) > len(longest):
                         longest = best[child]

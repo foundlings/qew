@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
-from typing import Iterable, List, Optional, Tuple
+from collections.abc import Iterable
 
 from qew.errors import QewError
 from qew.ledger_event import State
@@ -27,16 +27,16 @@ class Commit:
         return self.change_id or self.commit_id
 
 
-def _run(root: Path, argv: List[str]) -> subprocess.CompletedProcess:
+def _run(root: Path, argv: list[str]) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(argv, cwd=root, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
     except OSError as error:
         raise QewError(f"cannot run `{' '.join(argv)}`: {error}", 3) from None
 
 
-def git_pushed(root: Path, pre_push_input: str) -> List[Commit]:
+def git_pushed(root: Path, pre_push_input: str) -> list[Commit]:
     """Commits a `git push` would send, from the pre-push hook's stdin lines."""
-    commits: List[Commit] = []
+    commits: list[Commit] = []
     for line in pre_push_input.splitlines():
         parts = line.split()
         if len(parts) != 4:
@@ -55,7 +55,7 @@ def git_pushed(root: Path, pre_push_input: str) -> List[Commit]:
     return commits
 
 
-def jj_revisions(root: Path, revset: str) -> List[Commit]:
+def jj_revisions(root: Path, revset: str) -> list[Commit]:
     template = f'commit_id ++ "{_FIELD}" ++ change_id.short(12) ++ "{_FIELD}" ++ description ++ "{_RECORD}"'
     result = _run(root, ["jj", "log", "--no-graph", "-r", revset, "-T", template])
     if result.returncode != 0:
@@ -63,7 +63,7 @@ def jj_revisions(root: Path, revset: str) -> List[Commit]:
     return _parse(result.stdout, with_change=True)
 
 
-def _parse(output: str, with_change: bool) -> List[Commit]:
+def _parse(output: str, with_change: bool) -> list[Commit]:
     commits = []
     for record in output.split(_RECORD):
         if not record.strip():
@@ -83,10 +83,10 @@ def _covers(recorded: str, commit: Commit) -> bool:
     return False
 
 
-def report(snapshot: Snapshot, commits: Iterable[Commit]) -> Tuple[List[str], List[str]]:
+def report(snapshot: Snapshot, commits: Iterable[Commit]) -> tuple[list[str], list[str]]:
     """(lines for stdout, refusals for stderr) for the cited ids of the commits."""
-    lines: List[str] = []
-    refusals: List[str] = []
+    lines: list[str] = []
+    refusals: list[str] = []
     for commit in commits:
         for cited in cited_ids(commit.message):
             if cited not in snapshot.items:
@@ -106,7 +106,7 @@ def report(snapshot: Snapshot, commits: Iterable[Commit]) -> Tuple[List[str], Li
     return lines, refusals
 
 
-def message_ids(snapshot: Snapshot, message: str) -> Tuple[List[str], bool]:
+def message_ids(snapshot: Snapshot, message: str) -> tuple[list[str], bool]:
     """Report lines for a bare message and whether any cited id is unknown."""
     lines = []
     unknown = False
@@ -117,7 +117,7 @@ def message_ids(snapshot: Snapshot, message: str) -> Tuple[List[str], bool]:
     return lines, unknown
 
 
-def jj_push_problems(snapshot: Snapshot, root: Path, revset: str) -> Optional[List[str]]:
+def jj_push_problems(snapshot: Snapshot, root: Path, revset: str) -> list[str] | None:
     """Refusals for a `jj git push`; None when jj cannot answer (the guard then stays silent)."""
     try:
         commits = jj_revisions(root, revset)

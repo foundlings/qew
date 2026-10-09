@@ -7,7 +7,7 @@ from contextlib import contextmanager
 import os
 import sys
 import time
-from typing import Iterator
+from collections.abc import Callable, Iterator
 
 _START = time.perf_counter()
 
@@ -34,10 +34,10 @@ def http(method: str, url: str, status: object, seconds: float) -> None:
     note(f"http {method} {url.split('://', 1)[-1].split('?')[0]} -> {status}", seconds)
 
 
-def traced(label: str):
+def traced[**P, R](label: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Decorator: time the call under `label` when tracing."""
-    def wrap(function):
-        def timed(*args, **kwargs):
+    def wrap(function: Callable[P, R]) -> Callable[P, R]:
+        def timed(*args: P.args, **kwargs: P.kwargs) -> R:
             with phase(label):
                 return function(*args, **kwargs)
         timed.__name__ = function.__name__

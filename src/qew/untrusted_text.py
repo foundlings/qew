@@ -8,7 +8,6 @@ bidirectional override, control) that a reader cannot see.
 from dataclasses import dataclass
 import json
 import unicodedata
-from typing import Tuple
 
 from qew import textscan
 
@@ -16,7 +15,7 @@ MAX_TITLE_BYTES = 96
 ELLIPSIS = "…"
 
 
-def findings(text: str) -> Tuple[str, ...]:
+def findings(text: str) -> tuple[str, ...]:
     """Sorted, unique names of the hidden-character classes found in `text`.
 
     The classes are textscan's (zero_width, bidi_control, unicode_tags, confusable) plus `control`: control,
@@ -35,7 +34,7 @@ class Shown:
     """How a title may be printed. `withheld` lists the findings that forbid printing it at all."""
 
     text: str
-    withheld: Tuple[str, ...]
+    withheld: tuple[str, ...]
     rewritten: bool
 
     @property

@@ -5,3 +5,4 @@ pathspec==1.1.1
 typing-extensions==4.16.0
 librt==0.16.0
 ast-serialize==0.12.1
+ruff==0.17.0

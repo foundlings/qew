@@ -8,12 +8,13 @@ orphan event that the rerun adopts by writing the missing item file.
 
 from dataclasses import dataclass
 import json
+from pathlib import Path
 import re
-from typing import Dict, List, Optional, Tuple
 
 from qew import graph_rules, ledger_labels
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import Event, State, fold, parse_event
 from qew.ledger_ids import valid_id
@@ -30,16 +31,16 @@ _DIGEST = re.compile(r"[0-9a-f]{64}")
 class Planned:
     entry: Entry
     item: Item
-    quote: Optional[str]  # the human's words that release it; None files a draft
-    events: Optional[List[Event]]  # imported history, else None
-    adopted: Optional[str] = None  # None (new), "item" (already complete) or "events" (orphan events, item file missing)
+    quote: str | None  # the human's words that release it; None files a draft
+    events: list[Event] | None  # imported history, else None
+    adopted: str | None = None  # None (new), "item" (already complete) or "events" (orphan events, item file missing)
 
     @property
     def state(self) -> str:
         return "approved" if self.quote else "draft"
 
 
-def _marker(first_event: dict) -> Optional[Tuple[str, str, str]]:
+def _marker(first_event: JsonObject) -> tuple[str, str, str] | None:
     """(plan digest, key, source) of a canonical provenance marker, else None: lookalikes are not provenance."""
     plan, key, source = first_event.get("plan"), first_event.get("key"), first_event.get("source")
     if isinstance(plan, str) and _DIGEST.fullmatch(plan) and isinstance(key, str) and key and isinstance(source, str):
@@ -47,7 +48,7 @@ def _marker(first_event: dict) -> Optional[Tuple[str, str, str]]:
     return None
 
 
-def _first_event(directory) -> Optional[dict]:
+def _first_event(directory: Path) -> JsonObject | None:
     for path in sorted(directory.glob("*.json")):
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
@@ -57,9 +58,9 @@ def _first_event(directory) -> Optional[dict]:
     return None
 
 
-def _markers(ledger: Ledger) -> Dict[str, Tuple[str, str, str]]:
+def _markers(ledger: Ledger) -> dict[str, tuple[str, str, str]]:
     """item id -> marker, for every item (or orphan event directory) whose first event carries one."""
-    found: Dict[str, Tuple[str, str, str]] = {}
+    found: dict[str, tuple[str, str, str]] = {}
     if ledger.events_dir.is_dir():
         for directory in sorted(ledger.events_dir.iterdir()):
             first = _first_event(directory) if directory.is_dir() else None
@@ -69,11 +70,11 @@ def _markers(ledger: Ledger) -> Dict[str, Tuple[str, str, str]]:
     return found
 
 
-def _adoptions(ledger: Ledger, plan: Plan) -> Dict[str, str]:
+def _adoptions(ledger: Ledger, plan: Plan) -> dict[str, str]:
     """key -> id of items an earlier run of this very plan created; refuses ambiguous or revised plans."""
     keys = {entry.key for entry in plan.entries}
-    same: Dict[str, List[str]] = {}
-    revised: List[str] = []
+    same: dict[str, list[str]] = {}
+    revised: list[str] = []
     for item_id, (digest, key, source) in _markers(ledger).items():
         if key not in keys:
             continue
@@ -96,7 +97,7 @@ def _adoptions(ledger: Ledger, plan: Plan) -> Dict[str, str]:
     return {key: ids[0] for key, ids in same.items()}
 
 
-def _release(entry: Entry, default_quote: Optional[str], draft: bool) -> Optional[str]:
+def _release(entry: Entry, default_quote: str | None, draft: bool) -> str | None:
     """The human's words that release this entry, or None to file it as a draft."""
     spec = entry.spec
     own = spec.get("quote")
@@ -112,7 +113,7 @@ def _release(entry: Entry, default_quote: Optional[str], draft: bool) -> Optiona
     return None if spec.get("approved") is False else verified
 
 
-def _import_events(item: Item, spec: dict) -> List[Event]:
+def _import_events(item: Item, spec: JsonObject) -> list[Event]:
     """The item's own events from an import file, validated as a whole before anything is written."""
     raw = spec.get("events")
     if not isinstance(raw, list) or not raw:
@@ -131,8 +132,8 @@ def _import_events(item: Item, spec: dict) -> List[Event]:
 
 
 def prepare(
-    ledger: Ledger, plan: Plan, default_quote: Optional[str], draft: bool, import_events: bool, mark: bool
-) -> List[Planned]:
+    ledger: Ledger, plan: Plan, default_quote: str | None, draft: bool, import_events: bool, mark: bool
+) -> list[Planned]:
     """Every entry built and every rule checked; nothing has been written."""
     if draft and default_quote is not None:
         raise QewError("--draft files drafts; a --quote would release them (give one or the other)", 2)
@@ -143,8 +144,8 @@ def prepare(
         if adopted_id not in existing:
             existing.append(adopted_id)  # an orphan's id is in use even though no item file shows it yet
     taken = {name.lower() for name in existing}  # ids in use, for the explicit-id collision check
-    latest: Dict[str, str] = {}  # newest id allocated per kind: all the id modes need to pick the next one
-    ids: Dict[str, str] = {}
+    latest: dict[str, str] = {}  # newest id allocated per kind: all the id modes need to pick the next one
+    ids: dict[str, str] = {}
     for entry in plan.entries:
         if entry.key in adopted:
             ids[entry.key] = adopted[entry.key]
@@ -165,7 +166,7 @@ def prepare(
         # `@ref` names an entry; a bare id may be an item already in the ledger or an explicit `id` of this plan.
         return ids[value[1:]] if value.startswith("@") else ledger.resolve(value, list(dict.fromkeys(existing + list(ids.values()))))
 
-    planned: List[Planned] = []
+    planned: list[Planned] = []
     for entry in plan.entries:
         spec = entry.spec
         if "events" in spec and not import_events:
@@ -203,10 +204,10 @@ def prepare(
     return planned
 
 
-def operations(planned: List[Planned]) -> List[dict]:
+def operations(planned: list[Planned]) -> list[JsonObject]:
     """The writes a run would do, in apply order: create (or adopt), then each item's parent and needs."""
     keys = {p.item.id: p.entry.key for p in planned}
-    steps: List[dict] = []
+    steps: list[JsonObject] = []
     for p in planned:
         if p.adopted:
             steps.append({"op": "adopt", "ref": p.entry.key, "id": p.item.id, "title": p.item.title})
@@ -222,13 +223,13 @@ def operations(planned: List[Planned]) -> List[dict]:
 def apply(
     config: Config,
     plan: Plan,
-    quote: Optional[str],
+    quote: str | None,
     draft: bool = False,
     import_events: bool = False,
     mark: bool = True,
     as_json: bool = False,
     dry_run: bool = False,
-) -> List[str]:
+) -> list[str]:
     ledger = ledger_for(config)
     planned = prepare(ledger, plan, quote, draft, import_events, mark and not import_events)
     if dry_run:
@@ -263,7 +264,7 @@ def apply(
     return lines
 
 
-def _describe(step: dict) -> str:
+def _describe(step: JsonObject) -> str:
     if step["op"] == "create":
         return f"create {step['ref']} {step['kind']} {step['title']!r}" + (" draft" if step["draft"] else "")
     if step["op"] == "adopt":

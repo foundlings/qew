@@ -3,7 +3,7 @@
 from collections import deque
 import threading
 import time
-from typing import Callable, Deque, Optional
+from collections.abc import Callable
 
 
 class PaceStop(Exception):
@@ -21,9 +21,9 @@ class Pacer:
                  sleep: Callable[[float], None] = time.sleep) -> None:
         self.clock, self.sleep = clock, sleep
         self._lock = threading.Lock()
-        self._windows = [(deque(maxlen=limit), limit, span) for limit, span in ((per_minute, 60.0), (per_hour, 3600.0)) if limit > 0]
+        self._windows: list[tuple[deque[float], int, float]] = [(deque(maxlen=limit), limit, span) for limit, span in ((per_minute, 60.0), (per_hour, 3600.0)) if limit > 0]
 
-    def acquire(self, allow: Optional[float] = None) -> float:
+    def acquire(self, allow: float | None = None) -> float:
         """Wait until a create may go and return 0.0. With `allow`, return the wait instead (and reserve nothing)
         when it would exceed `allow` seconds."""
         with self._lock:

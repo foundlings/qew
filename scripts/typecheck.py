@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Type-check Qew with mypy --strict on Python 3.15; exit status 1 on any finding.
+"""Type-check Qew with mypy --strict and enforce modern typing with ruff, on Python 3.15; exit status 1 on any finding.
 
     python3 scripts/typecheck.py [--setup] [PATH ...]
 
 The checker is a developer tool in `.venv-typecheck/` (pinned in requirements/typecheck.txt), never a runtime
-dependency. `--setup` only creates or refreshes that environment. Without PATH it checks `src/qew`.
+dependency. `--setup` only creates or refreshes that environment. Without PATH it checks `src/qew` (mypy) and
+`src/qew` plus `scripts` (ruff: built-in generics, `X | None`, no deprecated typing imports, no unused imports).
 A missing checker or interpreter is an error, never a skipped check.
 """
 
@@ -56,8 +57,10 @@ def main() -> int:
     interpreter = ensure_environment()
     if arguments.setup:
         return 0
-    command = [str(interpreter), "-m", "mypy", "--config-file", arguments.config, *arguments.paths]
-    return subprocess.run(command, cwd=ROOT, check=False).returncode
+    mypy = subprocess.run([str(interpreter), "-m", "mypy", "--config-file", arguments.config, *arguments.paths], cwd=ROOT, check=False)
+    ruff_paths = arguments.paths or ["src/qew", "scripts"]
+    ruff = subprocess.run([str(VENV / "bin" / "ruff"), "check", "--config", arguments.config, "--no-cache", *ruff_paths], cwd=ROOT, check=False)
+    return 1 if mypy.returncode or ruff.returncode else 0
 
 
 if __name__ == "__main__":

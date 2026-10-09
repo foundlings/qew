@@ -10,11 +10,12 @@ provisional and is tried again at the next sync.
 from dataclasses import dataclass
 from enum import Enum
 import secrets
-from typing import Callable, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 from qew import claim_authority, ledger_config
 from qew.forge import Forge, ForgeError
-from qew.ledger_config import Config
+from qew.ledger_config import Config, Mirror
 from qew.ledger_event import Event, State
 from qew.ledger_store import Ledger, Snapshot
 
@@ -31,7 +32,7 @@ class Settled:
     claim: str  # id of the provisional `claimed` event
     owner: str
     verdict: Verdict
-    winner: Optional[str] = None
+    winner: str | None = None
 
     def line(self) -> str:
         if self.verdict is Verdict.LOST:
@@ -42,11 +43,11 @@ class Settled:
         return f"claim provisional: {self.item} (the arbiter is unreachable; sync again later)"
 
 
-def settled_refs(events: List[Event]) -> set:
+def settled_refs(events: list[Event]) -> set[Any]:
     return {e.get("ref") for e in events if e.type in ("claim_confirmed", "claim_lost")}
 
 
-def provisional_claims(snapshot: Snapshot) -> List[tuple]:
+def provisional_claims(snapshot: Snapshot) -> list[tuple[str, Event]]:
     """(item id, claimed event) of every provisional claim still waiting for the arbiter."""
     found = []
     for item_id, events in snapshot.events.items():
@@ -62,7 +63,7 @@ def provisional_claims(snapshot: Snapshot) -> List[tuple]:
     return found
 
 
-def lost_provisional_claims(snapshot: Snapshot) -> List[tuple]:
+def lost_provisional_claims(snapshot: Snapshot) -> list[tuple[str, Any]]:
     """(item id, winner) of offline claims that were lost and whose item is still open and not re-claimed by the loser."""
     found = []
     for item_id, events in snapshot.events.items():
@@ -77,7 +78,7 @@ def lost_provisional_claims(snapshot: Snapshot) -> List[tuple]:
     return found
 
 
-def provisional_claim_of(snapshot: Snapshot, item_id: str, owner: str) -> Optional[str]:
+def provisional_claim_of(snapshot: Snapshot, item_id: str, owner: str) -> str | None:
     """Id of the unsettled provisional claim `owner` holds on the item, or None."""
     for found_id, event in provisional_claims(snapshot):
         if found_id == item_id and event.get("owner") == owner:
@@ -85,7 +86,7 @@ def provisional_claim_of(snapshot: Snapshot, item_id: str, owner: str) -> Option
     return None
 
 
-def _on_primary(config: Config, ledger: Ledger, build: Callable, item_id: str, event: Event) -> Settled:
+def _on_primary(config: Config, ledger: Ledger, build: Callable[[Mirror], Forge], item_id: str, event: Event) -> Settled:
     owner = event.get("owner")
     mirror = next((m for m in config.mirrors if ledger_config.mirror_slug(m) == config.authority), None)
     record = next((r for r in ledger.load_mirrors(item_id)
@@ -106,7 +107,7 @@ def _on_primary(config: Config, ledger: Ledger, build: Callable, item_id: str, e
     return Settled(item_id, event.id, owner, Verdict.LOST, winner[0] if winner else "someone else")
 
 
-def _rival(snapshot: Snapshot, item_id: str, event: Event) -> Optional[Event]:
+def _rival(snapshot: Snapshot, item_id: str, event: Event) -> Event | None:
     """The other owner's claim in the same claim period that beats `event`: confirmed, pushed online, or older."""
     events = sorted(snapshot.events[item_id], key=lambda e: e.id)
     lost = {e.get("ref") for e in events if e.type == "claim_lost"}
@@ -141,10 +142,10 @@ def _on_ledger_remote(config: Config, snapshot: Snapshot, item_id: str, event: E
     return Settled(item_id, event.id, owner, Verdict.CONFIRMED)  # a single writer, or nobody else claimed it
 
 
-def reconcile(config: Config, ledger: Ledger, build: Callable, only_item: Optional[str] = None) -> List[Settled]:
+def reconcile(config: Config, ledger: Ledger, build: Callable[[Mirror], Forge], only_item: str | None = None) -> list[Settled]:
     """Ask the arbiter about every provisional claim and record the verdicts as events."""
     snapshot = ledger.snapshot()
-    results: List[Settled] = []
+    results: list[Settled] = []
     for item_id, event in provisional_claims(snapshot):
         if only_item is not None and item_id != only_item:
             continue
@@ -159,7 +160,7 @@ def reconcile(config: Config, ledger: Ledger, build: Callable, only_item: Option
     return results
 
 
-def lost_message(results: List[Settled]) -> Optional[str]:
+def lost_message(results: list[Settled]) -> str | None:
     lost = [r for r in results if r.verdict is Verdict.LOST]
     if not lost:
         return None

@@ -1,8 +1,8 @@
 """The release and discussion history of one item, as `qew show` prints it."""
 
-from typing import List
 
 from qew import untrusted_text
+from qew.jsontypes import JsonObject
 from qew.ledger_event import Event
 
 
@@ -14,7 +14,7 @@ def _safe(text: str, keep_lines: bool = False) -> str:
     return text.rstrip() if keep_lines else " ".join(text.split())
 
 
-def approvals(events: List[Event]) -> List[dict]:
+def approvals(events: list[Event]) -> list[JsonObject]:
     """Every release and withdrawal in order: {type, at, actor, quote, reason}."""
     return [
         {"type": e.type, "at": e.at, "actor": e.actor, "quote": e.get("quote"), "reason": e.get("reason", None)}
@@ -23,7 +23,7 @@ def approvals(events: List[Event]) -> List[dict]:
     ]
 
 
-def release_lines(events: List[Event]) -> List[str]:
+def release_lines(events: list[Event]) -> list[str]:
     """The latest release or withdrawal, readable without opening event files."""
     history = approvals(events)
     if not history:

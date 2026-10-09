@@ -11,7 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
 import threading
 import time
-from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import cast
+from collections.abc import Callable, Mapping, Sequence
 
 from qew import sync_milestones, sync_plan
 from qew.pacing import PaceStop, Pacer
@@ -19,6 +20,7 @@ from qew.forge import (
     DUPLICATE_MARKER,
     COLUMNS, Board, Forge, ForgeError, ForgeRejected, ForgeUnavailable, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for,
 )
+from qew.mirror_types import MirrorRecord, updated
 from qew.ledger_config import Config, Mirror
 from qew.ledger_store import Ledger, Snapshot, now
 
@@ -43,27 +45,27 @@ class TargetReport:
     updated: int = 0
     unchanged: int = 0
     adopted: int = 0
-    skipped: List[str] = field(default_factory=list)
-    failures: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     pruned: int = 0
     milestones_created: int = 0
     milestones_updated: int = 0
     milestones_unchanged: int = 0
-    stopped: Optional[str] = None  # set when the forge went away and the rest of the target was not tried
+    stopped: str | None = None  # set when the forge went away and the rest of the target was not tried
     retry_after: float = 0.0  # seconds the forge asked to wait (rate limit), 0 when it named none
 
 
-def sync_target(ledger: Ledger, target: Target, config: Config, only: Union[None, str, Sequence[str]] = None,
-                deadline: Optional[float] = None, tick: Optional[Callable[[], None]] = None) -> TargetReport:
+def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str | Sequence[str] = None,
+                deadline: float | None = None, tick: Callable[[], None] | None = None) -> TargetReport:
     snapshot = ledger.snapshot()
     report = TargetReport(target.slug)
-    assignees = {str(k): str(v) for k, v in dict(target.mirror.options.get("assignees", {})).items()}
+    assignees = {str(k): str(v) for k, v in dict(cast(Mapping[str, object], target.mirror.options.get("assignees", {}))).items()}
     ids = sync_plan.topological(snapshot, sync_plan.selected(snapshot, target.mirror.select))
     wanted = [only] if isinstance(only, str) else list(only or ())
     # an item this mirror's `select` leaves out has nothing to sync here
     chosen = [one for one in (ledger.resolve(w, list(snapshot.items)) for w in wanted) if one in ids] if wanted else None
-    numbers: Dict[str, int] = {}
+    numbers: dict[str, int] = {}
     for item_id in ids:
         record = _read_mirror(ledger, item_id, target.slug)
         if record:
@@ -74,11 +76,11 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Union[None
     if report.stopped:
         return report
     cached_layout = ledger.read_board_layout(target.slug) if board is not None else None
-    if cached_layout is not None and chosen is not None:
+    if board is not None and cached_layout is not None and chosen is not None:
         target.forge.adopt_board_layout(board, cached_layout)
     placements = _listing(target, report, board) if board is not None and chosen is None else None
     if report.stopped:
-        return report
+        return report  # type: ignore[unreachable]  # `_listing` sets it; mypy keeps the earlier narrowing
     # a targeted sync also refreshes the mirrored items whose card the change moves (dependents, parent epics)
     refresh = {*chosen, *(i for one in chosen for i in sync_plan.moved_by(snapshot, one) if i in numbers)} if chosen is not None else None
     todo = [item_id for item_id in ids if refresh is None or item_id in refresh]
@@ -105,12 +107,12 @@ def _merge(report: TargetReport, local: TargetReport) -> None:
     report.retry_after = max(report.retry_after, local.retry_after)
 
 
-def _levels(snapshot: Snapshot, ids: List[str]) -> List[List[str]]:
+def _levels(snapshot: Snapshot, ids: list[str]) -> list[list[str]]:
     """`ids` (needs and parents first) grouped so that every item's needs and parent sit in an earlier group:
     the items of one group do not depend on each other and may sync side by side."""
     wanted = set(ids)
-    depth: Dict[str, int] = {}
-    groups: List[List[str]] = []
+    depth: dict[str, int] = {}
+    groups: list[list[str]] = []
     for item_id in ids:
         item = snapshot.items[item_id]
         deps = [d for d in (*item.needs, item.parent) if d and d in wanted]
@@ -121,22 +123,22 @@ def _levels(snapshot: Snapshot, ids: List[str]) -> List[List[str]]:
     return groups
 
 
-def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, ids: List[str], numbers: Dict[str, int],
-               assignees: Dict[str, str], board: Optional[Board], placements: Optional[Dict[int, Placement]], recent: bool,
-               deadline: Optional[float], tick: Optional[Callable[[], None]], workers: int) -> None:
+def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, ids: list[str], numbers: dict[str, int],
+               assignees: dict[str, str], board: Board | None, placements: dict[int, Placement] | None, recent: bool,
+               deadline: float | None, tick: Callable[[], None] | None, workers: int) -> None:
     """Sync the items, `workers` at a time. An item's needs and parent are done before it starts; the first forge failure
     (a rate limit above all) stops every worker from starting another item, and the items not started stay pending."""
     halt = threading.Event()
     per_minute, per_hour = target.forge.create_pace()
-    pacer = Pacer(int(target.mirror.options.get("create_per_minute", per_minute)),
-                  int(target.mirror.options.get("create_per_hour", per_hour)))
+    pacer = Pacer(int(cast(int, target.mirror.options.get("create_per_minute", per_minute))),
+                  int(cast(int, target.mirror.options.get("create_per_hour", per_hour))))
 
     def pace() -> None:
         wait = pacer.acquire(None if deadline is None else max(0.0, deadline - time.monotonic()))
         if wait:
             raise PaceStop(wait)
 
-    def one(item_id: str) -> Optional[TargetReport]:
+    def one(item_id: str) -> TargetReport | None:
         if halt.is_set():
             return None
         if deadline is not None and time.monotonic() > deadline:
@@ -193,7 +195,7 @@ def _stop(report: TargetReport, error: ForgeError) -> None:
         report.retry_after = max(report.retry_after, error.retry_after)
 
 
-def _listing(target: Target, report: TargetReport, board: Board) -> Optional[Dict[int, Placement]]:
+def _listing(target: Target, report: TargetReport, board: Board) -> dict[int, Placement] | None:
     """One listing of the whole board (None where the forge cannot list it, then cards are read one by one)."""
     try:
         return dict(target.forge.read_board_placements(board))
@@ -205,7 +207,7 @@ def _listing(target: Target, report: TargetReport, board: Board) -> Optional[Dic
         return None
 
 
-def _prune(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, selected: set, board: Board) -> None:
+def _prune(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, selected: set[str], board: Board) -> None:
     """Take cards of items that left the select off the board; their issues stay exactly as they are."""
     for item_id in snapshot.items:
         record = _read_mirror(ledger, item_id, target.slug)
@@ -219,15 +221,15 @@ def _prune(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetRep
             report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
             continue
         clean = {k: v for k, v in record.items() if k not in ("_target", "column", "priority")}
-        ledger.write_mirror(item_id, target.slug, clean)
+        ledger.write_mirror(item_id, target.slug, cast(MirrorRecord, clean))
         report.pruned += 1
 
 
-def _read_mirror(ledger: Ledger, item_id: str, slug: str) -> Optional[dict]:
+def _read_mirror(ledger: Ledger, item_id: str, slug: str) -> MirrorRecord | None:
     return next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug), None)
 
 
-def _recorded_board(ledger: Ledger, target: Target) -> Optional[Board]:
+def _recorded_board(ledger: Ledger, target: Target) -> Board | None:
     """The board `project ensure` recorded for this target, without asking the forge to ensure it again."""
     if target.mirror.project is None:
         return None
@@ -237,7 +239,7 @@ def _recorded_board(ledger: Ledger, target: Target) -> Optional[Board]:
     return Board(id=record["id"], url=record.get("url", ""), columns=tuple(COLUMNS), title=record.get("title", ""))
 
 
-def _board(target: Target, report: TargetReport) -> Optional[Board]:
+def _board(target: Target, report: TargetReport) -> Board | None:
     try:
         return target.forge.ensure_board(COLUMNS, sync_plan.managed_filter(target.mirror.mode))
     except Unsupported as error:
@@ -255,10 +257,10 @@ def _sync_item(
     target: Target,
     report: TargetReport,
     item_id: str,
-    numbers: Dict[str, int],
-    assignees: Dict[str, str],
-    board: Optional[Board],
-    placements: Optional[Dict[int, Placement]] = None,
+    numbers: dict[str, int],
+    assignees: dict[str, str],
+    board: Board | None,
+    placements: dict[int, Placement] | None = None,
     recent: bool = False,
     pace: Callable[[], None] = lambda: None,
 ) -> None:
@@ -285,7 +287,7 @@ def _sync_item(
             report.created += 1
     elif record.get("baselined") and not record.get("synced_hash"):
         # First contact from this machine: the pull took the forge's state as the baseline; do not push over it.
-        ledger.write_mirror(item_id, target.slug, {**{k: v for k, v in record.items() if k != "_target"}, "synced_hash": fingerprint, "baselined": False})
+        ledger.write_mirror(item_id, target.slug, updated(record, synced_hash=fingerprint, baselined=False))
         report.unchanged += 1
     elif record.get("synced_hash") != fingerprint:
         _push(ledger, target, record, item_id, spec, fingerprint)
@@ -299,8 +301,8 @@ def _sync_item(
         _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assignees, board, column, record, spec, fingerprint, placements)
 
 
-def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[str, ...] = (), recent: bool = False,
-                    pace: Callable[[], None] = lambda: None):
+def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: tuple[str, ...] = (), recent: bool = False,
+                    pace: Callable[[], None] = lambda: None) -> tuple[RemoteIssue, bool, bool]:
     """(issue, adopted, unchecked): adopt the issue carrying the item's marker, or one still carrying the marker of an id
     it had before a migration. A scoped create (`recent`, no aliases) skips the lookup before the create and leaves the
     duplicate guard to `_settle_duplicate`, which runs once the card is on the board; `unchecked` says so."""
@@ -327,7 +329,9 @@ def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[
     return created, False, False
 
 
-def _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assignees, board, column, record, spec, fingerprint, placements) -> None:
+def _settle_duplicate(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, numbers: dict[str, int],
+                      assignees: dict[str, str], board: Board | None, column: str, record: MirrorRecord, spec: IssueSpec,
+                      fingerprint: str, placements: dict[int, Placement] | None) -> None:
     """The duplicate guard of a scoped create, after the card is placed: a lower-numbered issue with the item's marker
     (an orphan of a crash, or another checkout's create) wins; ours closes, loses its card, and the mirror follows the winner."""
     try:
@@ -355,7 +359,7 @@ def _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assign
         _place(ledger, snapshot, target, report, item_id, board, column, adopted, placements)
 
 
-def new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id: str, fingerprint: str) -> dict:
+def new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id: str, fingerprint: str) -> MirrorRecord:
     events = snapshot.events[item_id]
     return {
         "forge": target.mirror.forge,
@@ -372,21 +376,18 @@ def new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id:
     }
 
 
-def _push(ledger: Ledger, target: Target, record: dict, item_id: str, spec: IssueSpec, fingerprint: str) -> dict:
+def _push(ledger: Ledger, target: Target, record: MirrorRecord, item_id: str, spec: IssueSpec, fingerprint: str) -> MirrorRecord:
     remote = target.forge.update_issue(record["number"], spec)
     events = ledger.load_events(item_id)
-    updated = {
-        **{k: v for k, v in record.items() if k != "_target"},
-        "seen": sync_plan.seen_of(remote, (record.get("seen") or {}).get("comments", [])),
-        "synced_hash": fingerprint,
-        "synced_at": now(),
-        "synced_event": events[-1].id if events else "",
-    }
-    ledger.write_mirror(item_id, target.slug, updated)
-    return updated
+    seen = record.get("seen")
+    refreshed = updated(record, seen=sync_plan.seen_of(remote, seen["comments"] if seen else []), synced_hash=fingerprint,
+                        synced_at=now(), synced_event=events[-1].id if events else "")
+    ledger.write_mirror(item_id, target.slug, refreshed)
+    return refreshed
 
 
-def _link(ledger, snapshot, target, report, item_id, numbers, record) -> None:
+def _link(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, numbers: dict[str, int],
+          record: MirrorRecord) -> None:
     linked = list(record.get("linked", []))
     missing = [n for n in snapshot.items[item_id].needs if n in numbers and n not in linked]
     for need in missing:
@@ -398,11 +399,11 @@ def _link(ledger, snapshot, target, report, item_id, numbers, record) -> None:
             return
         linked.append(need)
     if missing:
-        clean = {k: v for k, v in record.items() if k != "_target"}
-        ledger.write_mirror(item_id, target.slug, {**clean, "linked": sorted(linked)})
+        ledger.write_mirror(item_id, target.slug, updated(record, linked=sorted(linked)))
 
 
-def _place(ledger, snapshot, target, report, item_id, board, column, record, placements=None, fresh: bool = False) -> None:
+def _place(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, board: Board, column: str,
+           record: MirrorRecord, placements: dict[int, Placement] | None = None, fresh: bool = False) -> None:
     """Make the card show `column` and the item's priority, verified by reading the forge back.
 
     `fresh`: the issue was created a moment ago, so it has no card to read first."""
@@ -450,8 +451,7 @@ def _visible(forge: Forge, board: Board, number: int, wanted: Placement) -> bool
     return False
 
 
-def _record_placement(ledger, target, item_id, current, wanted: Placement) -> None:
+def _record_placement(ledger: Ledger, target: Target, item_id: str, current: MirrorRecord, wanted: Placement) -> None:
     if (current.get("column"), current.get("priority")) == (wanted.column, wanted.priority):
         return
-    clean = {k: v for k, v in current.items() if k != "_target"}
-    ledger.write_mirror(item_id, target.slug, {**clean, "column": wanted.column, "priority": wanted.priority})
+    ledger.write_mirror(item_id, target.slug, updated(current, column=wanted.column, priority=wanted.priority))

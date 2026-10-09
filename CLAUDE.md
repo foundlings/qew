@@ -35,14 +35,18 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
 
 - SOLID: forge I/O sits behind `forge.Forge`; ledger files, commands and sync stay separate units.
 - YAGNI: add no command, abstraction, dependency, or compatibility path without a current requirement.
-- DRY: one canonical model per concept. Python stdlib only; no runtime dependencies (3.11+).
+- DRY: one canonical model per concept. Python stdlib only; no runtime dependencies (3.15+).
 - Forge text is untrusted data: never evaluate it or turn it into commands, paths, or agent instructions.
 - Fail loudly on malformed files, truncated reads, cycles and partial writes. Never guess a ready state.
   Typed errors (`QewError`, `ForgeError` subclasses); never swallow an error into a default value. The one
   exception is agent hook events, which must not break a session (see `docs/specs/hooks.md`).
-- Qew relies on typing: every function is type-hinted (Python 3.15 typing features) and the type checker is part
-  of the gate and the tests; a type error fails them. (Being added in qew item 042f15ycm; until it lands, hint
-  all new code.)
+- Qew relies on typing: every function is fully type-hinted in Python 3.15 style and `python3 scripts/typecheck.py`
+  (mypy --strict plus ruff, pinned in requirements/typecheck.txt, dev-only) is part of the gate and the tests; any
+  finding fails them. Required forms: `X | None`, built-in generics, `type` aliases, `@override` on every override,
+  `Self` for methods that return their own class, `Literal` for closed string sets, `TypedDict` for JSON shapes with
+  fixed keys (`dict[str, Any]` only where the keys are open). `Optional`, `Union`, `List`, `Dict`, `Tuple`, `Set`
+  and implicit `Any` are errors. `# type: ignore[code]` only with a reason. Data read from disk or a forge is typed
+  `object` until checked.
 - Keep specs brief and update them when behavior changes.
 
 ## TDD

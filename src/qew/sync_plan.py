@@ -1,22 +1,22 @@
 """Pure planning for sync: which items a target mirrors, and what each should look like."""
 
-from dataclasses import dataclass
 import hashlib
 import json
-from typing import Dict, List, Optional, Tuple
+from collections.abc import Callable, Iterable
 
 from qew import label_style, ledger_author, ledger_graph
+from qew.mirror_types import Seen
 from qew.errors import QewError
-from qew.forge import COLUMNS, MANAGED_FILTER, MARKER_PREFIX, PRIORITY_OPTIONS, IssueSpec, marker_for
+from qew.forge import COLUMNS, CloseReason, MANAGED_FILTER, MARKER_PREFIX, PRIORITY_OPTIONS, IssueSpec, RemoteIssue, marker_for
 from qew.ledger_event import State
 from qew.ledger_item import Item, Kind
 from qew.ledger_store import Snapshot
 
 # GitHub has no "superseded" reason; a replaced item is the closest to a duplicate, and neither shows as "not planned"
-_CLOSE_REASON = {"completed": "completed", "not_planned": "not_planned", "duplicate": "duplicate", "superseded": "duplicate"}
+_CLOSE_REASON: dict[str, CloseReason] = {"completed": "completed", "not_planned": "not_planned", "duplicate": "duplicate", "superseded": "duplicate"}
 
 
-def selected(snapshot: Snapshot, expression: str) -> List[str]:
+def selected(snapshot: Snapshot, expression: str) -> list[str]:
     """Item ids matching every space-separated `label:`, `kind:`, `state:` or `priority:` term."""
     terms = []
     for term in expression.split():
@@ -28,7 +28,7 @@ def selected(snapshot: Snapshot, expression: str) -> List[str]:
     def matches(item_id: str) -> bool:
         item = snapshot.items[item_id]
         state = snapshot.folds[item_id].state
-        checks = {
+        checks: dict[str, Callable[[str], bool]] = {
             "label": lambda v: v in item.labels,
             "kind": lambda v: item.kind.value == v,
             "state": lambda v: state is not None and state.value == v,
@@ -40,10 +40,10 @@ def selected(snapshot: Snapshot, expression: str) -> List[str]:
     return [item_id for item_id in snapshot.items if matches(item_id)]
 
 
-def topological(snapshot: Snapshot, ids: List[str]) -> List[str]:
+def topological(snapshot: Snapshot, ids: list[str]) -> list[str]:
     """Needs and parents before the items that name them (the graph is acyclic after `check`)."""
     wanted = set(ids)
-    order: List[str] = []
+    order: list[str] = []
     seen = set()
     for start in sorted(ids):
         stack = [(start, False)]
@@ -87,7 +87,7 @@ def column(snapshot: Snapshot, item_id: str) -> str:
     return BACKLOG
 
 
-def moved_by(snapshot: Snapshot, item_id: str) -> List[str]:
+def moved_by(snapshot: Snapshot, item_id: str) -> list[str]:
     """Items whose board status can change because `item_id` changed: its direct dependents and its ancestors."""
     moved = [other.id for other in snapshot.items.values() if item_id in other.needs]
     parent = snapshot.items[item_id].parent
@@ -123,7 +123,7 @@ class InvalidAuthor(QewError):
         self.detail = detail
 
 
-def priority_option(priority: int) -> Tuple[str, bool]:
+def priority_option(priority: int) -> tuple[str, bool]:
     """The Priority option name for an item priority, and whether it was clamped to the last option."""
     last = len(PRIORITY_OPTIONS) - 1
     return PRIORITY_OPTIONS[min(priority, last)][0], priority > last
@@ -134,7 +134,7 @@ def managed_filter(mode: str) -> str:
     return MANAGED_FILTER if mode == "overlay" else ""
 
 
-def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> Tuple[str, ...]:
+def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> tuple[str, ...]:
     """The item's own labels, its priority, its author and `epic`/`task`; overlay mirrors add the state and Status labels.
 
     Repository mode keeps the tracker quiet: the board's Status field carries state, so no `qew:` or `status:` label.
@@ -155,12 +155,12 @@ def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> Tuple[str, 
 
 
 def issue_spec(
-    snapshot: Snapshot, item: Item, numbers: Dict[str, int], assignees: Dict[str, str], overlay: bool = False
+    snapshot: Snapshot, item: Item, numbers: dict[str, int], assignees: dict[str, str], overlay: bool = False
 ) -> IssueSpec:
     """The desired remote issue; `numbers` maps already-mirrored item ids to this target's issue numbers."""
     folded = snapshot.folds[item.id]
     state = folded.state
-    closed_reason = ""
+    closed_reason: CloseReason = ""
     if state == State.COMPLETED:
         closed_reason = "completed"
     elif state == State.CLOSED:
@@ -176,7 +176,7 @@ def issue_spec(
     )
 
 
-def _body(item: Item, state: Optional[State], numbers: Dict[str, int]) -> str:
+def _body(item: Item, state: State | None, numbers: dict[str, int]) -> str:
     lines = [marker_for(item.id), "", item.body.strip(), "", "---", f"{item.id} · {state.value if state else '?'} · {item.kind.value}"]
     if item.parent in numbers:
         lines.append(f"Parent: #{numbers[item.parent]}")
@@ -191,7 +191,7 @@ def fingerprint(spec: IssueSpec, extra: object = None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def user_labels(labels) -> list:
+def user_labels(labels: Iterable[str]) -> list[str]:
     """Labels qew does not manage: the ones a human may add on the forge."""
     return sorted(l for l in labels if not label_style.is_managed(l))
 
@@ -207,7 +207,7 @@ def body_from_remote(text: str) -> str:
     return joined.strip()
 
 
-def seen_of(remote, comment_ids) -> dict:
+def seen_of(remote: RemoteIssue, comment_ids: Iterable[str]) -> Seen:
     """What the forge showed at the last sync or pull: the baseline a later pull diffs against."""
     return {
         "title": remote.title,

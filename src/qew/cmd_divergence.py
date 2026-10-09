@@ -4,17 +4,19 @@ Accepting applies the forge value through the normal gates (a forge close never 
 rejecting keeps the ledger value and makes the next push restore the forge.
 """
 
-from typing import List, Tuple
+import argparse
 
 from qew import cmd_finish, ledger_config
+from qew.mirror_types import updated
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import CLOSE_REASONS, Event, State
-from qew.ledger_store import Ledger
+from qew.ledger_store import Ledger, Snapshot
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     accept = commands.add_parser("accept", help="apply a forge-side change the ledger had not made")
     accept.add_argument("divergence", nargs="+", help="divergence event ids, or items with exactly one open divergence")
     accept.add_argument("--reason", default="not_planned", help="close reason when a forge close is accepted")
@@ -23,7 +25,7 @@ def register(commands) -> None:
     reject.add_argument("divergence", nargs="+", help="divergence event ids, or items with exactly one open divergence")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command == "accept":
         config = ledger_config.load()
         print("\n".join(accept(config, ref, arguments.reason, arguments.completed) for ref in arguments.divergence))
@@ -35,7 +37,7 @@ def run(arguments) -> bool:
     return False
 
 
-def _find(ledger: Ledger, reference: str) -> Tuple[str, Event]:
+def _find(ledger: Ledger, reference: str) -> tuple[str, Event]:
     snapshot = ledger.snapshot()
     try:
         item_id = ledger.resolve(reference, list(snapshot.items))
@@ -46,7 +48,7 @@ def _find(ledger: Ledger, reference: str) -> Tuple[str, Event]:
         if len(open_ones) != 1:
             raise QewError(f"{item_id} has {len(open_ones)} open divergences; name one by its event id", 2)
         return item_id, open_ones[0]
-    found: List[Tuple[str, Event]] = [
+    found: list[tuple[str, Event]] = [
         (i, e) for i in snapshot.items for e in snapshot.folds[i].divergences if e.id.startswith(reference)
     ]
     if len(found) != 1:
@@ -89,11 +91,11 @@ def accept(config: Config, reference: str, reason: str = "not_planned", complete
     return f"{item_id} accepted {field}={forge}"
 
 
-def _why(note: str) -> dict:
+def _why(note: str) -> JsonObject:
     return {"reason": note} if note else {}
 
 
-def reject(config: Config, reference, note: str = "") -> str:
+def reject(config: Config, reference: str | list[str] | tuple[str, ...], note: str = "") -> str:
     if isinstance(reference, (list, tuple)):
         return "\n".join(reject(config, ref, note) for ref in reference)
     ledger = ledger_for(config)
@@ -104,12 +106,11 @@ def reject(config: Config, reference, note: str = "") -> str:
     slug = divergence.get("target")
     for record in ledger.load_mirrors(item_id):
         if record["_target"] == slug:
-            clean = {k: v for k, v in record.items() if k != "_target"}
-            ledger.write_mirror(item_id, slug, {**clean, "synced_hash": ""})  # forces the next push to rewrite the forge
+            ledger.write_mirror(item_id, slug, updated(record, synced_hash=""))  # forces the next push to rewrite the forge
     return f"{item_id} rejected {divergence.get('field')}={divergence.get('forge')}"
 
 
-def _settle_contest(ledger: Ledger, snapshot, item_id: str, contender: Event, keep_contender: bool, note: str = "") -> str:
+def _settle_contest(ledger: Ledger, snapshot: Snapshot, item_id: str, contender: Event, keep_contender: bool, note: str = "") -> str:
     """Two effective claims: the loser gets a `claim_lost` naming the winner; no clock is consulted."""
     holder = snapshot.folds[item_id].owner
     lost_refs = {e.get("ref") for e in snapshot.events[item_id] if e.type == "claim_lost"}

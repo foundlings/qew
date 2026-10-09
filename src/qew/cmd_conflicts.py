@@ -5,9 +5,12 @@ side not kept is recorded in a `conflict_resolved` event. A forge divergence or 
 the `forge` value (accept) or keeping the `ledger` value (reject). See docs/specs/commands.md.
 """
 
+import argparse
+
 from qew import cmd_divergence, ledger_config, readfmt
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
+from qew.ledger_config import Config
 from qew.ledger_conflicts import LEDGER_REFERENCE, Side, clipped_discard, collect
 from qew.ledger_repo import LedgerRepo
 
@@ -15,7 +18,7 @@ MERGE_SIDES = (Side.OURS, Side.THEIRS)
 FORGE_SIDES = (Side.FORGE, Side.LEDGER)
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     conflicts = commands.add_parser("conflicts", help="list every open sync conflict with both sides and how to settle it")
     conflicts.add_argument("--json", action="store_true", help="machine-readable output")
     resolve = commands.add_parser("resolve", help="settle a sync conflict by taking one side, with a recorded reason")
@@ -25,7 +28,7 @@ def register(commands) -> None:
     resolve.add_argument("--reason", required=True, help="why this side; recorded in the ledger")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command == "conflicts":
         config = ledger_config.load()
         found = collect(config, ledger_for(config).snapshot())
@@ -40,7 +43,7 @@ def run(arguments) -> bool:
     return False
 
 
-def resolve(config, reference: str, take: Side, reason: str) -> str:
+def resolve(config: Config, reference: str, take: Side, reason: str) -> str:
     if not reason.strip():
         raise QewError("--reason must say why this side was taken", 2)
     if reference == LEDGER_REFERENCE:
@@ -54,12 +57,12 @@ def resolve(config, reference: str, take: Side, reason: str) -> str:
     return cmd_divergence.reject(config, reference, note=reason)
 
 
-def _resolve_merge(config, take: Side, reason: str) -> str:
+def _resolve_merge(config: Config, take: Side, reason: str) -> str:
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
     resolution = repo.resolve_merge(take.value, config.replication.timeout_s)
     ledger = ledger_for(config)
     items = ledger.item_ids()
-    recorded = {}
+    recorded: dict[str, dict[str, str | None]] = {}
     for relative, text in resolution.discarded.items():
         if relative.startswith("items/") and relative.endswith(".md") and relative[len("items/"):-len(".md")] in items:
             recorded.setdefault(relative[len("items/"):-len(".md")], {})[relative] = clipped_discard(text)

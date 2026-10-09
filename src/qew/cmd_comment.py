@@ -10,7 +10,7 @@ from qew.ledger_event import MAX_COMMENT_BYTES
 from qew.ledger_store import actor
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     comment = commands.add_parser("comment", help="add a comment to an item")
     comment.add_argument("item", help="item id or alias")
     comment.add_argument("--body", help="the comment text")
@@ -44,7 +44,7 @@ def run(arguments: argparse.Namespace) -> bool:
 def _text(arguments: argparse.Namespace) -> str:
     if (arguments.body is None) == (arguments.body_file is None):
         raise QewError("give exactly one of --body and --body-file", 2)
-    text = arguments.body
+    text: str | None = arguments.body
     if text is None:
         if arguments.body_file == "-":
             text = sys.stdin.read()

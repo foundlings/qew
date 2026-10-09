@@ -13,16 +13,23 @@ from pathlib import Path
 import random
 import socket
 import time
-from typing import Iterator, Optional
+from types import ModuleType
+from typing import Any
+from collections.abc import Iterator
 
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 
+fcntl: ModuleType | None
+msvcrt: Any  # only importable on Windows
 try:
-    import fcntl
+    import fcntl as _fcntl_module
+    fcntl = _fcntl_module
     BACKEND = "fcntl"
 except ImportError:  # Windows
     fcntl = None
-    import msvcrt
+    import msvcrt as _msvcrt_module
+    msvcrt = _msvcrt_module
     BACKEND = "msvcrt"
 
 LOCK_BYTE = 2 ** 30  # Windows locks this one byte, far past the holder text, so waiters can still read the text
@@ -33,13 +40,13 @@ _BINARY = getattr(os, "O_BINARY", 0)
 class LockTimeout(QewError):
     """The lock stayed taken for the whole wait; the message names who holds it."""
 
-    def __init__(self, path: Path, what: str, holder: Optional[dict], waited: float) -> None:
+    def __init__(self, path: Path, what: str, holder: JsonObject | None, waited: float) -> None:
         by = _describe(holder)
         super().__init__(f"{what} is locked by {by}; waited {waited:.0f}s (lock file {path.name}, "
                          "released automatically when that process ends)", 3)
 
 
-def _describe(holder: Optional[dict]) -> str:
+def _describe(holder: JsonObject | None) -> str:
     if not holder:
         return "another qew process"
     who = f"{holder['who']}'s " if holder.get("who") else ""
@@ -76,7 +83,7 @@ def _unlock(fd: int) -> None:
         os.lseek(fd, 0, os.SEEK_SET)
 
 
-def read_holder(path: Path) -> Optional[dict]:
+def read_holder(path: Path) -> JsonObject | None:
     """What the last holder wrote about itself; advisory text only, never a liveness test."""
     try:
         value = json.loads(path.read_text(encoding="utf-8").splitlines()[0])

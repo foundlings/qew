@@ -1,7 +1,7 @@
 """`qew mirror add|remove|list`: edit the `[[mirror]]` targets in `.qew/config.toml`."""
 
+import argparse
 import json
-from typing import Optional
 
 from qew import config_edit, forge_registry, ledger_config
 from qew.cmd_sync import choose
@@ -9,7 +9,7 @@ from qew.errors import QewError
 from qew.ledger_config import Config, Mirror
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     mirror = commands.add_parser("mirror", help="mirror targets: add | remove | list")
     sub = mirror.add_subparsers(dest="mirror_command", required=True)
     add = sub.add_parser("add", help="add a forge repository as a mirror target")
@@ -23,7 +23,7 @@ def register(commands) -> None:
     listing.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "mirror":
         return False
     config = ledger_config.load()
@@ -55,12 +55,12 @@ def _need_config_file(config: Config) -> None:
         raise QewError("mirror targets live in the code repo's .qew/config.toml; run this from the code repo", 2)
 
 
-def add(config: Config, forge: str, repo: str, read_only: bool, api: Optional[str] = None) -> str:
+def add(config: Config, forge: str, repo: str, read_only: bool, api: str | None = None) -> str:
     _need_config_file(config)
     canonical = forge_registry.canonical(forge)
     if canonical not in ("github", "forgejo", "gitlab"):
         raise QewError(f"unknown forge `{forge}`; known: github, forgejo, gitea, gitlab", 2)
-    entry = {"forge": canonical, "repo": repo}
+    entry: dict[str, object] = {"forge": canonical, "repo": repo}
     if api:
         entry["api"] = api
     if read_only:

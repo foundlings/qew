@@ -1,7 +1,7 @@
 """`qew branch prune`: delete the forge branches that are already merged and that nothing uses."""
 
 import argparse
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from qew import branch_cleanup, forge_registry, ledger_config, untrusted_text
 from qew.cmd_items import ledger_for
@@ -11,7 +11,7 @@ from qew.forge import Forge, ForgeError, Unsupported
 from qew.ledger_config import Config, Mirror
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     branch = commands.add_parser("branch", help="forge branches")
     sub = branch.add_subparsers(dest="branch_command", required=True)
     prune = sub.add_parser("prune", help="delete merged branches that no open pull request uses")
@@ -29,7 +29,7 @@ def run(arguments: argparse.Namespace) -> bool:
 
 
 def prune(
-    config: Config, wanted: Optional[str], base: Optional[str], dry_run: bool,
+    config: Config, wanted: str | None, base: str | None, dry_run: bool,
     build: Callable[[Mirror], Forge], emit: Callable[[str], None],
 ) -> None:
     """Prune each chosen target, emitting one line per branch as it is handled; a forge failure stops with exit 1."""

@@ -5,7 +5,7 @@ repository (case-insensitive, never a prefix) are deleted; issues are never touc
 """
 
 import re
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from qew import forge_registry, ledger_config
 from qew.cmd_items import ledger_for
@@ -18,7 +18,7 @@ from qew.project_status import repository_of
 _SOURCE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
-def prune(config: Config, wanted: Optional[str], source: str, build: Callable[[Mirror], Forge] = forge_registry.build) -> str:
+def prune(config: Config, wanted: str | None, source: str, build: Callable[[Mirror], Forge] = forge_registry.build) -> str:
     if not _SOURCE.match(source):
         raise QewError(f"`{source}` is not OWNER/REPO", 2)
     mirrors = choose(mirrors_with_boards(ledger_for(config), config), wanted)

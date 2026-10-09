@@ -7,11 +7,14 @@ missing or mistyped field raises `ForgeRejected` rather than becoming a default.
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
+from typing import Any, override
+from collections.abc import Iterator, Mapping, Sequence
 from urllib.parse import quote
 
 from qew import label_style
 from qew.forge import (
+    CLOSE_REASONS,
+    close_reason_of,
     is_dead_twin,
     BOARD_VIEWS,
     LEGACY_STATUS,
@@ -40,6 +43,7 @@ from qew.forge import (
 )
 from qew.forge_http import DEFAULT_WAIT, MAX_PAGES, NotModified, api_base, call_json, get_conditional, resolve_token, split_repo, wait_from
 from qew.forge_pages import list_pages
+from qew.jsontypes import JsonObject
 from qew.ledger_config import Mirror
 
 API_VERSION = "2022-11-28"
@@ -47,7 +51,6 @@ DOTCOM_API = "https://api.github.com"
 STATUS_FIELD = "Status"
 PRIORITY_FIELD = "Priority"
 DEFAULT_VIEW = "View 1"
-CLOSE_REASONS = ("", "completed", "not_planned", "duplicate")
 _NEXT_LINK = re.compile(r'<([^>]+)>([^,<]*)')
 
 _OWNER_PROJECTS = """
@@ -167,7 +170,7 @@ mutation MarkReady($id: ID!) {
 }"""
 
 
-def api_roots(mirror: Mirror) -> Tuple[str, str]:
+def api_roots(mirror: Mirror) -> tuple[str, str]:
     """(REST root, GraphQL URL): github.com, a GHES host, or the mirror's `api` / `graphql` options."""
     host, _, _ = split_repo(mirror)
     default = DOTCOM_API if host.split("://", 1)[-1] in ("github.com", "www.github.com") else f"{host}/api/v3"
@@ -185,40 +188,40 @@ def _malformed(what: str) -> ForgeRejected:
     return ForgeRejected(200, f"malformed GitHub response: {what}")
 
 
-def _obj(value: Any, what: str) -> Dict[str, Any]:
+def _obj(value: Any, what: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _malformed(what)
     return value
 
 
-def _array(value: Any, what: str) -> List[Any]:
+def _array(value: Any, what: str) -> list[Any]:
     if not isinstance(value, list):
         raise _malformed(what)
     return value
 
 
-def _str(data: Dict[str, Any], key: str, what: str) -> str:
+def _str(data: dict[str, Any], key: str, what: str) -> str:
     value = data.get(key)
     if not isinstance(value, str):
         raise _malformed(f"{what}.{key}")
     return value
 
 
-def _int(data: Dict[str, Any], key: str, what: str) -> int:
+def _int(data: dict[str, Any], key: str, what: str) -> int:
     value = data.get(key)
     if not isinstance(value, int) or isinstance(value, bool):
         raise _malformed(f"{what}.{key}")
     return value
 
 
-def _bool(data: Dict[str, Any], key: str, what: str) -> bool:
+def _bool(data: dict[str, Any], key: str, what: str) -> bool:
     value = data.get(key)
     if not isinstance(value, bool):
         raise _malformed(f"{what}.{key}")
     return value
 
 
-def _nullable_str(data: Dict[str, Any], key: str, what: str) -> str:
+def _nullable_str(data: dict[str, Any], key: str, what: str) -> str:
     """A key GitHub sends as a string or null (an empty body is null); null reads as empty."""
     if key not in data:
         raise _malformed(f"{what}.{key}")
@@ -251,7 +254,7 @@ def parse_issue(data: Any) -> RemoteIssue:
         assignee=assignee,
         comments=_int(issue, "comments", "issue") if "comments" in issue else 0,
         milestone=0 if issue.get("milestone") is None else _int(_obj(issue["milestone"], "issue.milestone"), "number", "milestone"),
-        close_reason=reason if state == "closed" and reason in ("completed", "not_planned", "duplicate") else "",
+        close_reason=close_reason_of(reason) if state == "closed" else "",
     )
 
 
@@ -287,7 +290,7 @@ class _PullFacts:
     head_sha: str
     head_branch: str
     base_branch: str
-    mergeable: Optional[bool]
+    mergeable: bool | None
     body: str
     author: str
     assignee: str
@@ -295,7 +298,7 @@ class _PullFacts:
     merge_sha: str
 
 
-def _login(data: Dict[str, Any], key: str, what: str, nullable: bool) -> str:
+def _login(data: dict[str, Any], key: str, what: str, nullable: bool) -> str:
     """The `login` of a user object; a null user reads as "" only where GitHub may send one."""
     if key not in data or (data[key] is None and not nullable):
         raise _malformed(f"{what}.{key}")
@@ -329,13 +332,13 @@ def parse_pull(data: Any) -> _PullFacts:
     )
 
 
-def _auto_merge(pull: Dict[str, Any]) -> bool:
+def _auto_merge(pull: dict[str, Any]) -> bool:
     if "auto_merge" not in pull or not (pull["auto_merge"] is None or isinstance(pull["auto_merge"], dict)):
         raise _malformed("pull.auto_merge")
     return pull["auto_merge"] is not None
 
 
-def combine_checks(status_state: Optional[str], run_outcomes: List[str]) -> str:
+def combine_checks(status_state: str | None, run_outcomes: list[str]) -> str:
     """Fold a commit status and check-run outcomes ("pass", "fail", "wait") into one verdict."""
     outcomes = list(run_outcomes)
     if status_state is not None:
@@ -366,7 +369,7 @@ class _Option:
 @dataclass(frozen=True)
 class _Field:
     id: str
-    options: Tuple[_Option, ...]
+    options: tuple[_Option, ...]
 
 
 @dataclass(frozen=True)
@@ -384,22 +387,22 @@ class _Project:
     title: str
     url: str
     fields: Mapping[str, _Field]
-    views: Tuple[_View, ...]
+    views: tuple[_View, ...]
 
     @property
-    def status_field_id(self) -> Optional[str]:
+    def status_field_id(self) -> str | None:
         field = self.fields.get(STATUS_FIELD)
         return field.id if field else None
 
     @property
-    def status_options(self) -> Tuple[Tuple[str, str], ...]:  # (option id, name)
+    def status_options(self) -> tuple[tuple[str, str], ...]:  # (option id, name)
         field = self.fields.get(STATUS_FIELD)
         return tuple((o.id, o.name) for o in field.options) if field else ()
 
 
 def parse_project(data: Any) -> _Project:
     node = _obj(data, "project")
-    fields: Dict[str, _Field] = {}
+    fields: dict[str, _Field] = {}
     for field in _array(_obj(node.get("fields"), "project.fields").get("nodes"), "project.fields.nodes"):
         field = _obj(field, "project field")
         if not field:  # a field that is not single-select matches no fragment and arrives as {}
@@ -426,11 +429,11 @@ def parse_project(data: Any) -> _Project:
     )
 
 
-def _next_url(headers: Mapping[str, str]) -> Optional[str]:
+def _next_url(headers: Mapping[str, str]) -> str | None:
     link = next((value for key, value in headers.items() if key.lower() == "link"), "")
     for url, params in _NEXT_LINK.findall(link):
         if re.search(r'rel="?next"?', params):
-            return url
+            return str(url)
     return None
 
 
@@ -443,10 +446,10 @@ class _Wire:
         self._mirror = mirror
         self._transport = transport
         self._env = env
-        self._token: Optional[str] = None
+        self._token: str | None = None
         self.rest_root, self.graphql_url = api_roots(mirror)
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         if self._token is None:
             self._token = resolve_token(self._mirror, self._env)
         return {
@@ -456,17 +459,17 @@ class _Wire:
             "User-Agent": "qew",
         }
 
-    def rest(self, method: str, path: str, payload: Optional[Any] = None) -> Any:
+    def rest(self, method: str, path: str, payload: Any | None = None) -> Any:
         data, _ = call_json(self._transport, method, self.rest_root + path, self._headers(), payload)
         return data
 
-    def conditional(self, path: str, etag: str):
+    def conditional(self, path: str, etag: str) -> NotModified | tuple[Any, Mapping[str, str]]:
         """One GET of a list page with the cached ETag: NotModified, or (json, headers)."""
         return get_conditional(self._transport, self.rest_root + path, self._headers(), etag)
 
     def pages(self, path: str) -> Iterator[Any]:
         """Every page of a list endpoint, following Link rel=next on this API root only."""
-        url: Optional[str] = self.rest_root + path
+        url: str | None = self.rest_root + path
         for _ in range(MAX_PAGES):
             if url is None:
                 return
@@ -478,7 +481,7 @@ class _Wire:
         if url is not None:
             raise ForgeRejected(200, f"more than {MAX_PAGES} pages; refusing a truncated listing")
 
-    def graphql(self, query: str, variables: Mapping[str, Any]) -> Dict[str, Any]:
+    def graphql(self, query: str, variables: Mapping[str, Any]) -> dict[str, Any]:
         data, headers = call_json(self._transport, "POST", self.graphql_url, self._headers(), {"query": query, "variables": dict(variables)})
         answer = _obj(data, "graphql response")
         errors = answer.get("errors")
@@ -487,7 +490,7 @@ class _Wire:
         return _obj(answer.get("data"), "graphql data")
 
 
-def _graphql_error(errors: Any, wait: Optional[float] = None) -> Exception:
+def _graphql_error(errors: Any, wait: float | None = None) -> Exception:
     entries = [e for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
     kinds = {e.get("type") for e in entries}
     detail = "; ".join(str(e.get("message", "")) for e in entries)[:300] or "unparseable GraphQL errors"
@@ -510,14 +513,14 @@ class GitHub(Forge):
         self._repo = repo
         self._repo_path = f"/repos/{quote(namespace, safe='')}/{quote(repo, safe='')}"
         self._wire = _Wire(mirror, transport, env)
-        self._nodes: Dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
-        self._projects: Dict[int, _Project] = {}  # project number -> structure read this run
-        self._raw_projects: Dict[int, Dict[str, Any]] = {}  # project number -> the structure node as GitHub sent it
-        self._adopted: set = set()  # project numbers whose structure came from a cache, not from this run
-        self._known_labels: set = set()
+        self._nodes: dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
+        self._projects: dict[int, _Project] = {}  # project number -> structure read this run
+        self._raw_projects: dict[int, dict[str, Any]] = {}  # project number -> the structure node as GitHub sent it
+        self._adopted: set[int] = set()  # project numbers whose structure came from a cache, not from this run
+        self._known_labels: set[str] = set()
         self._labels_read = False  # the repository's label list was read this run
         self._lock = threading.RLock()  # sync workers share this forge: one builds the issue index, one creates a label
-        self._listed: Optional[List[RemoteIssue]] = None  # every issue the first unscoped lookup read, plus this run's creates
+        self._listed: list[RemoteIssue] | None = None  # every issue the first unscoped lookup read, plus this run's creates
 
     # issues
 
@@ -531,16 +534,18 @@ class GitHub(Forge):
             self.read_issue(number)
         return self._nodes[number]
 
-    def create_pace(self) -> Tuple[int, int]:
+    @override
+    def create_pace(self) -> tuple[int, int]:
         # GitHub.com blocks content creation past about 80 a minute and 500 an hour; Enterprise Server's limits are its own
         return (70, 450) if self._wire.rest_root == DOTCOM_API else (0, 0)
 
-    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
+    @override
+    def find_issue(self, marker: str, recent: bool = False) -> RemoteIssue | None:
         if not recent:
             # One full listing per run: a first sync of N items must not page the whole repository N times.
             with self._lock:
                 if self._listed is None:
-                    listed: List[RemoteIssue] = []
+                    listed: list[RemoteIssue] = []
                     for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
                         for entry in _array(page, "issue list"):
                             issue = _obj(entry, "issue list entry")
@@ -561,19 +566,19 @@ class GitHub(Forge):
             break  # one page of the newest issues: the lookup after a write must not grow with the repository
         return min(matches, key=lambda found: found.number) if matches else None
 
-    def _repo_label_looks(self) -> Dict[str, Tuple[str, str]]:
+    def _repo_label_looks(self) -> dict[str, tuple[str, str]]:
         """Every label defined in the repository with its colour and description."""
-        found: Dict[str, Tuple[str, str]] = {}
+        found: dict[str, tuple[str, str]] = {}
         for page in self._wire.pages(f"{self._repo_path}/labels?per_page=100"):
             for entry in _array(page, "label list"):
                 label = _obj(entry, "label")
                 found[_str(label, "name", "label")] = (_nullable_str(label, "color", "label"), _nullable_str(label, "description", "label"))
         return found
 
-    def _repo_labels(self) -> set:
+    def _repo_labels(self) -> set[str]:
         return set(self._repo_label_looks())
 
-    def _restyle(self, looks: Dict[str, Tuple[str, str]]) -> None:
+    def _restyle(self, looks: dict[str, tuple[str, str]]) -> None:
         """Repaint labels that miss the palette or still have the neutral default colour; a colour a human picked stays."""
         for name, (colour, description) in looks.items():
             wanted = label_style.repaint(name, colour, description)
@@ -581,11 +586,13 @@ class GitHub(Forge):
                 self._wire.rest("PATCH", f"{self._repo_path}/labels/{quote(name, safe='')}",
                                 {"color": wanted.color, "description": wanted.description})
 
-    def list_repo_labels(self) -> List[str]:
+    @override
+    def list_repo_labels(self) -> list[str]:
         return sorted(self._repo_labels())
 
-    def labels_in_use(self) -> Set[str]:
-        used: Set[str] = set()
+    @override
+    def labels_in_use(self) -> set[str]:
+        used: set[str] = set()
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):  # pull requests are listed too
             for entry in _array(page, "issue list"):
                 issue = _obj(entry, "issue list entry")
@@ -595,6 +602,7 @@ class GitHub(Forge):
                     used.add(_str(_obj(label, "label"), "name", "label"))
         return used
 
+    @override
     def delete_label(self, name: str) -> None:
         try:
             self._wire.rest("DELETE", f"{self._repo_path}/labels/{quote(name, safe='')}")
@@ -603,7 +611,7 @@ class GitHub(Forge):
                 raise
         self._known_labels.discard(name)
 
-    def _ensure_labels(self, wanted: Tuple[str, ...]) -> None:
+    def _ensure_labels(self, wanted: tuple[str, ...]) -> None:
         """Create the labels the repository lacks (qew's own in the palette, a human's neutral), repaint qew's own that
         are not in the palette, never touch another existing label, and confirm the new ones exist."""
         if not [name for name in dict.fromkeys(wanted) if name not in self._known_labels]:
@@ -611,7 +619,7 @@ class GitHub(Forge):
         with self._lock:
             self._create_missing_labels(wanted)
 
-    def _create_missing_labels(self, wanted: Tuple[str, ...]) -> None:
+    def _create_missing_labels(self, wanted: tuple[str, ...]) -> None:
         missing = [name for name in dict.fromkeys(wanted) if name not in self._known_labels]
         if not missing:
             return
@@ -635,7 +643,8 @@ class GitHub(Forge):
             if absent:
                 raise LabelNotPersisted(absent)
 
-    def find_milestone(self, title: str) -> Optional[Milestone]:
+    @override
+    def find_milestone(self, title: str) -> Milestone | None:
         for page in self._wire.pages(f"{self._repo_path}/milestones?state=all&per_page=100"):
             for entry in _array(page, "milestone list"):
                 found = parse_milestone(entry)
@@ -643,26 +652,32 @@ class GitHub(Forge):
                     return found
         return None
 
+    @override
     def create_milestone(self, spec: MilestoneSpec) -> Milestone:
         return parse_milestone(self._wire.rest("POST", f"{self._repo_path}/milestones", _milestone_payload(spec)))
 
+    @override
     def update_milestone(self, number: int, spec: MilestoneSpec) -> Milestone:
         return parse_milestone(self._wire.rest("PATCH", f"{self._repo_path}/milestones/{number}", _milestone_payload(spec)))
 
+    @override
     def read_milestone(self, number: int) -> Milestone:
         return parse_milestone(self._wire.rest("GET", f"{self._repo_path}/milestones/{number}"))
 
+    @override
     def set_milestone_open(self, number: int, open: bool) -> Milestone:
         return parse_milestone(self._wire.rest("PATCH", f"{self._repo_path}/milestones/{number}",
                                                {"state": "open" if open else "closed"}))
 
+    @override
     def assign_milestone(self, number: int, milestone: int) -> RemoteIssue:
         return self._remember(parse_issue(self._wire.rest("PATCH", f"{self._repo_path}/issues/{number}", {"milestone": milestone})))
 
+    @override
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)
         self._ensure_labels(spec.labels)
-        payload: Dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": list(spec.labels)}
+        payload: dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": list(spec.labels)}
         if spec.assignee:
             payload["assignees"] = [spec.assignee]
         created = self._remember(parse_issue(self._wire.rest("POST", f"{self._repo_path}/issues", payload)))
@@ -673,10 +688,11 @@ class GitHub(Forge):
             return created
         return self.update_issue(created.number, spec)
 
+    @override
     def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
         _check_reason(spec)
         self._ensure_labels(spec.labels)
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "title": spec.title, "body": spec.body, "labels": list(spec.labels),
             "assignees": [spec.assignee] if spec.assignee else [],
             "state": "open" if spec.open else "closed",
@@ -693,11 +709,13 @@ class GitHub(Forge):
         self._wire.rest("PATCH", path, {"state": "open"})
         return self._remember(parse_issue(self._wire.rest("PATCH", path, payload)))
 
+    @override
     def read_issue(self, number: int) -> RemoteIssue:
         return self._remember(parse_issue(self._wire.rest("GET", f"{self._repo_path}/issues/{number}")))
 
-    def list_issues(self, since: str = "") -> List[RemoteIssue]:
-        found: List[RemoteIssue] = []
+    @override
+    def list_issues(self, since: str = "") -> list[RemoteIssue]:
+        found: list[RemoteIssue] = []
         window = f"&since={quote(since, safe='')}" if since else ""
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&sort=created&direction=asc&per_page=100{window}"):
             for entry in _array(page, "issue list"):
@@ -705,10 +723,11 @@ class GitHub(Forge):
                     found.append(self._remember(parse_issue(entry)))
         return found
 
+    @override
     def list_issue_pages(self, cached: Mapping[int, CachedPage]) -> PageListing:
         base = f"{self._repo_path}/issues?state=all&sort=created&direction=asc&per_page=100"
 
-        def fetch(number: int, etag: str):
+        def fetch(number: int, etag: str) -> NotModified | tuple[tuple[RemoteIssue, ...], int, Mapping[str, str], bool]:
             answer = self._wire.conditional(f"{base}&page={number}", etag)
             if isinstance(answer, NotModified):
                 return answer
@@ -719,8 +738,9 @@ class GitHub(Forge):
 
         return list_pages(fetch, cached)
 
-    def close_history(self, number: int) -> Tuple[str, ...]:
-        found: List[str] = []
+    @override
+    def close_history(self, number: int) -> tuple[str, ...]:
+        found: list[str] = []
         for page in self._wire.pages(f"{self._repo_path}/issues/{number}/events?per_page=100"):
             for entry in _array(page, "issue event list"):
                 event = _obj(entry, "issue event")
@@ -729,15 +749,18 @@ class GitHub(Forge):
                     found.append(reason if reason in ("completed", "not_planned", "duplicate") else "")
         return tuple(found)
 
-    def list_comments(self, number: int) -> List[RemoteComment]:
-        found: List[RemoteComment] = []
+    @override
+    def list_comments(self, number: int) -> list[RemoteComment]:
+        found: list[RemoteComment] = []
         for page in self._wire.pages(f"{self._repo_path}/issues/{number}/comments?per_page=100"):
             found.extend(parse_comment(entry) for entry in _array(page, "comment list"))
         return found
 
+    @override
     def create_comment(self, number: int, body: str) -> RemoteComment:
         return parse_comment(self._wire.rest("POST", f"{self._repo_path}/issues/{number}/comments", {"body": body}))
 
+    @override
     def link_dependency(self, number: int, blocked_by: int) -> None:
         path = f"{self._repo_path}/issues/{number}/dependencies/blocked_by"
         for page in self._wire.pages(f"{path}?per_page=100"):
@@ -748,6 +771,7 @@ class GitHub(Forge):
 
     # pull requests
 
+    @override
     def open_pull_request(self, spec: PullRequestSpec) -> RemotePullRequest:
         payload = {"title": spec.title, "head": spec.head, "base": spec.base, "body": spec.body, "draft": spec.draft}
         created = parse_pull(self._wire.rest("POST", f"{self._repo_path}/pulls", payload))
@@ -762,8 +786,9 @@ class GitHub(Forge):
             return self.read_pull_request(created.number)
         return self._with_checks(created)
 
-    def find_open_pull_requests(self, head: str) -> List[RemotePullRequest]:
-        numbers: List[int] = []
+    @override
+    def find_open_pull_requests(self, head: str) -> list[RemotePullRequest]:
+        numbers: list[int] = []
         for page in self._wire.pages(f"{self._repo_path}/pulls?state=open&per_page=100"):
             for entry in _array(page, "pull request list"):
                 pull = _obj(entry, "pull request")
@@ -771,15 +796,18 @@ class GitHub(Forge):
                     numbers.append(_int(pull, "number", "pull request"))
         return [self.read_pull_request(number) for number in numbers]
 
+    @override
     def close_pull_request(self, number: int) -> RemotePullRequest:
         if self._read_pull(number).state == "open":
             self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"state": "closed"})
         return self.read_pull_request(number)
 
+    @override
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"body": body})
         return self.read_pull_request(number)
 
+    @override
     def requires_status_checks(self, branch: str) -> bool:
         name = quote(branch, safe="")
         rules = _array(self._wire.rest("GET", f"{self._repo_path}/rules/branches/{name}"), "branch rules")
@@ -793,15 +821,18 @@ class GitHub(Forge):
             raise
         return protection.get("required_status_checks") is not None
 
+    @override
     def enable_auto_merge(self, number: int) -> RemotePullRequest:
         facts = self._read_pull(number)
         if not facts.auto_merge:
             self._wire.graphql(_ENABLE_AUTO_MERGE, {"id": facts.node_id})
         return self.read_pull_request(number)
 
+    @override
     def read_pull_request(self, number: int) -> RemotePullRequest:
         return self._with_checks(self._read_pull(number))
 
+    @override
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
         facts = self._read_pull(number)
         if facts.draft:
@@ -809,6 +840,7 @@ class GitHub(Forge):
             facts = self._read_pull(number)
         return self._with_checks(facts)
 
+    @override
     def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
         # GitHub has no bypass flag: an administrator's token merges past protection with this same call.
         facts = self._read_pull(number)
@@ -833,16 +865,17 @@ class GitHub(Forge):
         base = f"{self._repo_path}/commits/{quote(sha, safe='')}"
         status = _obj(self._wire.rest("GET", f"{base}/status"), "combined status")
         state = _str(status, "state", "combined status") if _int(status, "total_count", "combined status") else None
-        runs: List[str] = []
+        runs: list[str] = []
         for page in self._wire.pages(f"{base}/check-runs?per_page=100"):
             runs.extend(_run_outcome(run) for run in _array(_obj(page, "check runs").get("check_runs"), "check_runs"))
         return combine_checks(state, runs)
 
     # branches
 
-    def list_branches(self) -> List[RemoteBranch]:
+    @override
+    def list_branches(self) -> list[RemoteBranch]:
         default = _str(_obj(self._wire.rest("GET", self._repo_path), "repository"), "default_branch", "repository")
-        found: List[RemoteBranch] = []
+        found: list[RemoteBranch] = []
         for page in self._wire.pages(f"{self._repo_path}/branches?per_page=100"):
             for entry in _array(page, "branch list"):
                 branch = _obj(entry, "branch")
@@ -850,11 +883,13 @@ class GitHub(Forge):
                 found.append(RemoteBranch(name, name == default, _bool(branch, "protected", "branch")))
         return found
 
+    @override
     def branch_is_merged(self, name: str, base: str) -> bool:
         spec = f"{quote(base, safe='/')}...{quote(name, safe='/')}"
         comparison = _obj(self._wire.rest("GET", f"{self._repo_path}/compare/{spec}"), "comparison")
         return _int(comparison, "ahead_by", "comparison") == 0
 
+    @override
     def delete_branch(self, name: str) -> None:
         try:
             self._wire.rest("DELETE", f"{self._repo_path}/git/refs/heads/{quote(name, safe='/')}")
@@ -862,8 +897,9 @@ class GitHub(Forge):
             if error.status != 422 or "does not exist" not in error.detail:  # a ref that is already gone is success
                 raise
 
-    def list_open_pull_heads(self) -> List[str]:
-        heads: List[str] = []
+    @override
+    def list_open_pull_heads(self) -> list[str]:
+        heads: list[str] = []
         for page in self._wire.pages(f"{self._repo_path}/pulls?state=open&per_page=100"):
             for entry in _array(page, "pull request list"):
                 head = _obj(_obj(entry, "pull request").get("head"), "pull request head")
@@ -872,17 +908,18 @@ class GitHub(Forge):
 
     # boards
 
-    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
+    @override
+    def ensure_board(self, columns: tuple[str, ...], managed_filter: str = "") -> Board:
         project, fresh = self._find_or_create_project()
         self._projects.pop(project.number, None)
-        notes: List[str] = []
+        notes: list[str] = []
         status = _status_options(columns)
         self._ensure_select(project, STATUS_FIELD, status, LEGACY_STATUS, notes, fresh)
         self._ensure_select(project, PRIORITY_FIELD, PRIORITY_OPTIONS, {}, notes, fresh)
         self._ensure_views(project, managed_filter, notes)
         return Board(id=str(project.number), url=project.url, columns=tuple(columns), title=project.title, notes=tuple(notes))
 
-    def _ensure_select(self, project: _Project, name: str, desired, legacy: Mapping[str, str], notes: List[str], fresh: bool) -> None:
+    def _ensure_select(self, project: _Project, name: str, desired: Sequence[tuple[str, str, str]], legacy: Mapping[str, str], notes: list[str], fresh: bool) -> None:
         field = project.fields.get(name)
         if field is None:
             options = [{"name": n, "color": c, "description": d} for n, c, d in desired]
@@ -893,7 +930,7 @@ class GitHub(Forge):
         if changed:
             self._wire.graphql(_UPDATE_STATUS_FIELD, {"fieldId": field.id, "options": inputs})
 
-    def _ensure_views(self, project: _Project, managed_filter: str, notes: List[str]) -> None:
+    def _ensure_views(self, project: _Project, managed_filter: str, notes: list[str]) -> None:
         existing = {v.name: v for v in project.views}
         claimed = {name for name, _layout, _filter in BOARD_VIEWS}
         spare = [v for v in project.views if v.name not in claimed]
@@ -926,13 +963,15 @@ class GitHub(Forge):
             self._projects[wanted] = project
         return self._projects[wanted]
 
-    def board_layout(self, board: Board) -> Optional[dict]:
+    @override
+    def board_layout(self, board: Board) -> JsonObject | None:
         node = self._raw_projects.get(_project_number(board.id))
         if node is None:
             return None
         return {"project": {key: value for key, value in node.items() if key != "views"} | {"views": {"nodes": []}}}
 
-    def adopt_board_layout(self, board: Board, layout: dict) -> None:
+    @override
+    def adopt_board_layout(self, board: Board, layout: JsonObject) -> None:
         number = _project_number(board.id)
         try:
             node = _obj(layout.get("project"), "cached project")
@@ -942,6 +981,7 @@ class GitHub(Forge):
         self._raw_projects[number] = node
         self._adopted.add(number)
 
+    @override
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         wanted = _project_number(board.id)
         try:
@@ -993,11 +1033,12 @@ class GitHub(Forge):
         item = _obj(_obj(added.get("addProjectV2ItemById"), "addProjectV2ItemById").get("item"), "item")
         return _str(item, "id", "item")
 
-    def read_board_placements(self, board: Board) -> Dict[int, Placement]:
+    @override
+    def read_board_placements(self, board: Board) -> dict[int, Placement]:
         """One paged listing of the board: this repository's issues and the Status and Priority each shows."""
         wanted = _project_number(board.id)
-        found: Dict[int, Placement] = {}
-        cursor: Optional[str] = None
+        found: dict[int, Placement] = {}
+        cursor: str | None = None
         for _ in range(MAX_PAGES):
             data = self._wire.graphql(_BOARD_ITEMS, {"owner": self._owner, "number": wanted, "cursor": cursor})
             owner = _obj(data.get("repositoryOwner"), "repositoryOwner")
@@ -1021,7 +1062,7 @@ class GitHub(Forge):
             cursor = _str(info, "endCursor", "pageInfo")
         raise ForgeRejected(200, f"more than {MAX_PAGES} pages of board items; refusing a truncated listing")
 
-    def _placement(self, board: Board, number: int) -> Optional[Tuple[str, Placement]]:
+    def _placement(self, board: Board, number: int) -> tuple[str, Placement] | None:
         data = self._wire.graphql(_ITEM_PLACEMENT, {"contentId": self._node_id(number)})
         node = _obj(data.get("node"), "node")
         wanted = _project_number(board.id)
@@ -1033,14 +1074,16 @@ class GitHub(Forge):
             return _str(entry, "id", "item"), Placement(values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""))
         return None
 
-    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+    @override
+    def read_placement(self, board: Board, number: int) -> Placement | None:
         found = self._placement(board, number)
         return found[1] if found else None
 
-    def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
+    @override
+    def read_board_cards(self, board: Board) -> tuple[Card, ...]:
         project_id = self._board_project(board).id
-        cards: List[Card] = []
-        cursor: Optional[str] = None
+        cards: list[Card] = []
+        cursor: str | None = None
         for _ in range(MAX_PAGES):
             data = self._wire.graphql(_PROJECT_CARDS, {"projectId": project_id, "cursor": cursor})
             listing = _obj(_obj(data.get("node"), "node").get("items"), "items")
@@ -1049,7 +1092,7 @@ class GitHub(Forge):
                 content = _obj(entry.get("content"), "card.content")
                 if not content:  # a pull request or draft card is not an issue of ours
                     continue
-                values: Dict[str, str] = {}
+                values: dict[str, str] = {}
                 for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
                     value = _obj(value, "field value")
                     if value:
@@ -1064,15 +1107,17 @@ class GitHub(Forge):
             cursor = _str(info, "endCursor", "pageInfo")
         raise ForgeRejected(200, f"more than {MAX_PAGES} pages of cards; refusing a truncated listing")
 
+    @override
     def delete_card(self, board: Board, card_id: str) -> None:
         self._wire.graphql(_DELETE_ITEM, {"projectId": self._board_project(board).id, "itemId": card_id})
 
+    @override
     def remove_from_board(self, board: Board, number: int) -> None:
         found = self._placement(board, number)
         if found is not None:
             self._wire.graphql(_DELETE_ITEM, {"projectId": self._board_project(board).id, "itemId": found[0]})
 
-    def _find_or_create_project(self) -> Tuple[_Project, bool]:
+    def _find_or_create_project(self) -> tuple[_Project, bool]:
         """The project and whether this call created it."""
         owner_id, projects = self._owner_projects()
         if self.mirror.project is not None:
@@ -1092,9 +1137,9 @@ class GitHub(Forge):
         created = self._wire.graphql(_CREATE_PROJECT, {"ownerId": owner_id, "title": title})
         return parse_project(_obj(_obj(created.get("createProjectV2"), "createProjectV2").get("projectV2"), "projectV2")), True
 
-    def _owner_projects(self) -> Tuple[str, List[_Project]]:
-        projects: List[_Project] = []
-        cursor: Optional[str] = None
+    def _owner_projects(self) -> tuple[str, list[_Project]]:
+        projects: list[_Project] = []
+        cursor: str | None = None
         for _ in range(MAX_PAGES):
             data = self._wire.graphql(_OWNER_PROJECTS, {"owner": self._owner, "cursor": cursor})
             if data.get("repositoryOwner") is None:
@@ -1116,7 +1161,7 @@ class GitHub(Forge):
         return title if isinstance(title, str) and title else self._repo
 
 
-def _milestone_payload(spec: MilestoneSpec) -> Dict[str, Any]:
+def _milestone_payload(spec: MilestoneSpec) -> dict[str, Any]:
     return {"title": spec.title, "description": spec.description, "due_on": f"{spec.due}T00:00:00Z" if spec.due else None}
 
 
@@ -1125,9 +1170,9 @@ def _check_reason(spec: IssueSpec) -> None:
         raise ForgeRejected(422, f"close_reason must be one of {CLOSE_REASONS}, got {spec.close_reason!r}")
 
 
-def _field_values(entry: Dict[str, Any]) -> Dict[str, str]:
+def _field_values(entry: dict[str, Any]) -> dict[str, str]:
     """Field name -> chosen option name for the single-select values of a project item."""
-    values: Dict[str, str] = {}
+    values: dict[str, str] = {}
     for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
         value = _obj(value, "field value")
         if value:  # other field kinds match no fragment and arrive as {}
@@ -1143,12 +1188,13 @@ def _has_options(project: _Project, column: str, priority: str) -> bool:
     )
 
 
-def _status_options(columns: Tuple[str, ...]) -> Tuple[Tuple[str, str, str], ...]:
+def _status_options(columns: tuple[str, ...]) -> tuple[tuple[str, str, str], ...]:
     known = {name: (name, color, description) for name, color, description in STATUS_OPTIONS}
     return tuple(known.get(name, (name, "GRAY", "")) for name in columns)
 
 
-def reconcile_options(field: str, existing: Tuple[_Option, ...], desired, legacy: Mapping[str, str], notes: List[str]):
+def reconcile_options(field: str, existing: tuple[_Option, ...], desired: Sequence[tuple[str, str, str]], legacy: Mapping[str, str], notes: list[str],
+) -> tuple[list[dict[str, str]], bool]:
     """The option list to send and whether it differs from `existing`.
 
     A wanted option keeps its id (so cards stay) and takes the wanted color and description. A legacy name is
@@ -1157,8 +1203,8 @@ def reconcile_options(field: str, existing: Tuple[_Option, ...], desired, legacy
     """
     by_name = {o.name: o for o in existing}
     wanted_names = {name for name, _c, _d in desired}
-    inputs: List[Dict[str, str]] = []
-    used = set()
+    inputs: list[dict[str, str]] = []
+    used: set[str] = set()
     for name, color, description in desired:
         found = by_name.get(name)
         if found is None:

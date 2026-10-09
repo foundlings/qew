@@ -154,7 +154,7 @@ select = "kind:epic"
 
 ## Decisions (v1 builder; the owner was not available)
 - `qew create` files a draft; `--quote` (a human's words) files it approved. Only quoted words release work.
-- Python 3.11+ (`tomllib`); no runtime dependencies.
+- Python 3.15+ (`tomllib`); no runtime dependencies.
 - The header `owner:` stays empty: ownership is derived from `claimed`/`released` events so claims merge cleanly.
   `qew check` refuses a non-empty value.
 - Extra event `reverted` (`reason`, `quote`) returns approved, unclaimed work to draft.

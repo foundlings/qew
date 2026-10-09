@@ -5,7 +5,8 @@ and merge requests as the pull-request methods. See docs/specs/forges.md ("GitLa
 """
 
 import re
-from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
+from typing import Any, override
+from collections.abc import Iterator, Mapping
 from urllib.parse import quote, urlencode
 
 from qew import forge_http, label_style
@@ -63,19 +64,19 @@ def _malformed(what: str) -> ForgeRejected:
     return ForgeRejected(200, f"malformed GitLab answer: {what}")
 
 
-def _object(value: Any, what: str) -> Dict[str, Any]:
+def _object(value: Any, what: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise _malformed(f"{what} is not an object")
     return value
 
 
-def _list(value: Any, what: str) -> List[Any]:
+def _list(value: Any, what: str) -> list[Any]:
     if not isinstance(value, list):
         raise _malformed(f"{what} is not a list")
     return value
 
 
-def _field(data: Mapping[str, Any], key: str, kind: type) -> Any:
+def _field[T](data: Mapping[str, Any], key: str, kind: type[T]) -> T:
     value = data.get(key, None)
     if type(value) is not kind:
         raise _malformed(f"`{key}` is missing or not {kind.__name__}")
@@ -120,7 +121,7 @@ def _parse_milestone(raw: Any) -> Milestone:
                      "" if due is None else _field(data, "due_date", str), state == "active")
 
 
-def _milestone_payload(spec: MilestoneSpec) -> Dict[str, Any]:
+def _milestone_payload(spec: MilestoneSpec) -> dict[str, Any]:
     return {"title": spec.title, "description": spec.description, "due_date": spec.due or None}
 
 
@@ -144,7 +145,7 @@ def _parse_checks(raw: Any) -> str:
     return _PIPELINE_CHECKS[status]
 
 
-def _parse_mergeable(status: str) -> Optional[bool]:
+def _parse_mergeable(status: str) -> bool | None:
     if status == "mergeable":
         return True
     # Every other settled status is a blocker; an unknown future value fails closed.
@@ -195,7 +196,7 @@ def _next_page(headers: Mapping[str, str]) -> bool:
     return False
 
 
-def _csv(labels: Tuple[str, ...]) -> str:
+def _csv(labels: tuple[str, ...]) -> str:
     for label in labels:
         if "," in label:
             raise ForgeRejected(400, f"label `{label}` contains a comma, which GitLab cannot carry")
@@ -224,8 +225,8 @@ class GitLab(Forge):
 
     # ----- requests -----
 
-    def _call(self, method: str, path: str, query: Optional[Mapping[str, Any]] = None,
-              payload: Optional[Any] = None) -> Tuple[Any, Mapping[str, str]]:
+    def _call(self, method: str, path: str, query: Mapping[str, Any] | None = None,
+              payload: Any | None = None) -> tuple[Any, Mapping[str, str]]:
         token = forge_http.resolve_token(self._mirror, self._env)
         url = self._api + path + (f"?{urlencode(query)}" if query else "")
         return forge_http.call_json(self._transport, method, url, {"PRIVATE-TOKEN": token}, payload)
@@ -241,42 +242,51 @@ class GitLab(Forge):
 
     # ----- issues -----
 
-    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:  # server-side search: recent changes nothing
+    @override
+    def find_issue(self, marker: str, recent: bool = False) -> RemoteIssue | None:  # server-side search: recent changes nothing
         query = {"search": marker, "in": "description", "state": "all"}
         matches = [issue for issue in map(_parse_issue, self._pages(f"{self._project}/issues", query))
                    if marker_alone(issue.body, marker)]
         return min(matches, key=lambda found: found.number) if matches else None
 
-    def list_issues(self, since: str = "") -> List[RemoteIssue]:
+    @override
+    def list_issues(self, since: str = "") -> list[RemoteIssue]:
         query = {"state": "all", "order_by": "created_at", "sort": "asc", **({"updated_after": since} if since else {})}
         return [_parse_issue(raw) for raw in self._pages(f"{self._project}/issues", query)]
 
-    def list_comments(self, number: int) -> List[RemoteComment]:
+    @override
+    def list_comments(self, number: int) -> list[RemoteComment]:
         query = {"order_by": "created_at", "sort": "asc"}
         notes = [_object(raw, "note") for raw in self._pages(f"{self._project}/issues/{number}/notes", query)]
         # System notes are GitLab's own activity lines (label changes, state changes), not comments.
         return [_parse_note(note) for note in notes if not _field(note, "system", bool)]
 
+    @override
     def create_comment(self, number: int, body: str) -> RemoteComment:
         data, _ = self._call("POST", f"{self._project}/issues/{number}/notes", payload={"body": body})
         return _parse_note(data)
 
+    @override
     def read_issue(self, number: int) -> RemoteIssue:
         data, _ = self._call("GET", f"{self._project}/issues/{number}")
         return _parse_issue(data)
 
-    def find_milestone(self, title: str) -> Optional[Milestone]:
+    @override
+    def find_milestone(self, title: str) -> Milestone | None:
         found = [_parse_milestone(raw) for raw in self._pages(f"{self._project}/milestones", {"state": "all"})]
         return next((m for m in found if m.title == title), None)
 
+    @override
     def create_milestone(self, spec: MilestoneSpec) -> Milestone:
         data, _ = self._call("POST", f"{self._project}/milestones", payload=_milestone_payload(spec))
         return _parse_milestone(data)
 
+    @override
     def update_milestone(self, number: int, spec: MilestoneSpec) -> Milestone:
         data, _ = self._call("PUT", f"{self._project}/milestones/{number}", payload=_milestone_payload(spec))
         return _parse_milestone(data)
 
+    @override
     def read_milestone(self, number: int) -> Milestone:
         found = next((m for m in map(_parse_milestone, self._pages(f"{self._project}/milestones", {"state": "all"}))
                       if m.number == number), None)
@@ -284,14 +294,16 @@ class GitLab(Forge):
             raise ForgeRejected(404, f"milestone {number} not found")
         return found
 
+    @override
     def set_milestone_open(self, number: int, open: bool) -> Milestone:
         data, _ = self._call("PUT", f"{self._project}/milestones/{number}", payload={"state_event": "activate" if open else "close"})
         return _parse_milestone(data)
 
+    @override
     def assign_milestone(self, number: int, milestone: int) -> RemoteIssue:
         return self._write_issue(number, {"milestone_id": milestone})
 
-    def _ensure_issue_labels(self, wanted: Tuple[str, ...]) -> None:
+    def _ensure_issue_labels(self, wanted: tuple[str, ...]) -> None:
         """Create the project labels that are missing (neutral, never touching an existing one) and confirm them."""
         _csv(wanted)  # refuses an unusable label name before any request
         known = self._repaint_managed_labels()
@@ -305,9 +317,10 @@ class GitLab(Forge):
             if absent:
                 raise LabelNotPersisted(absent)
 
+    @override
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         self._ensure_issue_labels(spec.labels)
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "title": spec.title, "description": spec.body, "labels": _csv(spec.labels),
             "assignee_ids": self._assignee_ids(spec.assignee),
         }
@@ -317,11 +330,12 @@ class GitLab(Forge):
             return created
         return self._write_issue(created.number, {"state_event": "close"})
 
+    @override
     def update_issue(self, number: int, spec: IssueSpec) -> RemoteIssue:
         self._ensure_issue_labels(spec.labels)
         current = self.read_issue(number)
         kept = tuple(label for label in current.labels if label.startswith((BOARD_PREFIX, PRIORITY_PREFIX)) and label not in spec.labels)
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "title": spec.title, "description": spec.body, "labels": _csv((*spec.labels, *kept)),
             "assignee_ids": self._assignee_ids(spec.assignee),
         }
@@ -333,7 +347,7 @@ class GitLab(Forge):
         data, _ = self._call("PUT", f"{self._project}/issues/{number}", payload=payload)
         return _parse_issue(data)
 
-    def _assignee_ids(self, username: str) -> List[int]:
+    def _assignee_ids(self, username: str) -> list[int]:
         if not username:
             return []
         data, _ = self._call("GET", "/users", {"username": username})
@@ -343,6 +357,7 @@ class GitLab(Forge):
                 return [_field(user, "id", int)]
         raise ForgeRejected(404, f"no GitLab user `{username}`")
 
+    @override
     def link_dependency(self, number: int, blocked_by: int) -> None:
         payload = {"target_project_id": self._full_path, "target_issue_iid": blocked_by, "link_type": "is_blocked_by"}
         try:
@@ -353,7 +368,8 @@ class GitLab(Forge):
 
     # ----- boards -----
 
-    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
+    @override
+    def ensure_board(self, columns: tuple[str, ...], managed_filter: str = "") -> Board:
         name = self._mirror.project or self._repo
         board = self._find_board(name)  # `project` may be a board id this method returned earlier
         if board is None:
@@ -374,25 +390,27 @@ class GitLab(Forge):
             self._call("POST", f"{self._project}/boards/{board_id}/lists", payload={"label_id": label_ids[label]})
         return Board(str(board_id), f"{self._host}/{self._full_path}/-/boards/{board_id}", tuple(columns))
 
-    def _find_board(self, name: str) -> Optional[Dict[str, Any]]:
+    def _find_board(self, name: str) -> dict[str, Any] | None:
         for raw in self._pages(f"{self._project}/boards", {}):
             board = _object(raw, "board")
             if str(_field(board, "id", int)) == name or _field(board, "name", str) == name:
                 return board
         return None
 
-    def _label_ids(self) -> List[Tuple[str, int]]:
+    def _label_ids(self) -> list[tuple[str, int]]:
         found = []
         for raw in self._pages(f"{self._project}/labels", {}):
             label = _object(raw, "label")
             found.append((_field(label, "name", str), _field(label, "id", int)))
         return found
 
-    def list_repo_labels(self) -> List[str]:
+    @override
+    def list_repo_labels(self) -> list[str]:
         return sorted(name for name, _ in self._label_ids())
 
-    def labels_in_use(self) -> Set[str]:
-        used: Set[str] = set()
+    @override
+    def labels_in_use(self) -> set[str]:
+        used: set[str] = set()
         for resource in ("issues", "merge_requests"):
             for raw in self._pages(f"{self._project}/{resource}", {"state": "all"}):
                 entry = _object(raw, resource)
@@ -401,15 +419,16 @@ class GitLab(Forge):
                 used.update(_field({"label": item}, "label", str) for item in _list(entry.get("labels"), "labels"))
         return used
 
+    @override
     def delete_label(self, name: str) -> None:
         for label_name, label_id in self._label_ids():
             if label_name == name:
                 self._call("DELETE", f"{self._project}/labels/{label_id}")
                 return
 
-    def _repaint_managed_labels(self) -> set:
+    def _repaint_managed_labels(self) -> set[str]:
         """Names of the project's labels; those missing the palette or still default-coloured are repainted, a human's pick stays."""
-        names = set()
+        names: set[str] = set()
         for raw in self._pages(f"{self._project}/labels", {}):
             label = _object(raw, "label")
             name = _field(label, "name", str)
@@ -426,6 +445,7 @@ class GitLab(Forge):
                              payload={"name": name, "color": color, "description": description})
         return _field(_object(data, "label"), "id", int)
 
+    @override
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         if column not in board.columns:
             raise ForgeRejected(400, f"board has no column `{column}`")
@@ -433,7 +453,7 @@ class GitLab(Forge):
         labels = self.read_issue(number).labels
         owned = (BOARD_PREFIX, PRIORITY_PREFIX) if priority else (BOARD_PREFIX,)
         stale = [label for label in labels if label.startswith(owned) and label not in wanted]
-        payload: Dict[str, Any] = {}
+        payload: dict[str, Any] = {}
         missing = [label for label in wanted if label not in labels]
         if missing:
             payload["add_labels"] = _csv(tuple(missing))
@@ -442,7 +462,8 @@ class GitLab(Forge):
         if payload:
             self._call("PUT", f"{self._project}/issues/{number}", payload=payload)
 
-    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+    @override
+    def read_placement(self, board: Board, number: int) -> Placement | None:
         labels = self.read_issue(number).labels
         columns = [label[len(BOARD_PREFIX):] for label in labels if label.startswith(BOARD_PREFIX)]
         if not columns:
@@ -450,6 +471,7 @@ class GitLab(Forge):
         priorities = [label[len(PRIORITY_PREFIX):] for label in labels if label.startswith(PRIORITY_PREFIX)]
         return Placement(columns[0], priorities[0] if priorities else "")
 
+    @override
     def remove_from_board(self, board: Board, number: int) -> None:
         stale = [label for label in self.read_issue(number).labels if label.startswith((BOARD_PREFIX, PRIORITY_PREFIX))]
         if stale:
@@ -457,6 +479,7 @@ class GitLab(Forge):
 
     # ----- merge requests -----
 
+    @override
     def open_pull_request(self, spec: PullRequestSpec) -> RemotePullRequest:
         title = _strip_draft(spec.title)
         payload = {
@@ -469,10 +492,12 @@ class GitLab(Forge):
         data, _ = self._call("POST", f"{self._project}/merge_requests", payload=payload)
         return _parse_merge_request(data)
 
+    @override
     def read_pull_request(self, number: int) -> RemotePullRequest:
         data, _ = self._call("GET", f"{self._project}/merge_requests/{number}")
         return _parse_merge_request(data)
 
+    @override
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
         data, _ = self._call("GET", f"{self._project}/merge_requests/{number}")
         current = _parse_merge_request(data)
@@ -482,10 +507,12 @@ class GitLab(Forge):
         data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"title": title})
         return _parse_merge_request(data)
 
+    @override
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"description": body})
         return _parse_merge_request(data)
 
+    @override
     def requires_status_checks(self, branch: str) -> bool:
         project, _ = self._call("GET", self._project)
         if not _field(_object(project, "project"), "only_allow_merge_if_pipeline_succeeds", bool):
@@ -498,11 +525,13 @@ class GitLab(Forge):
             raise
         return True
 
+    @override
     def enable_auto_merge(self, number: int) -> RemotePullRequest:
         payload = {"merge_when_pipeline_succeeds": True, "should_remove_source_branch": False, "squash": False}
         self._call("PUT", f"{self._project}/merge_requests/{number}/merge", payload=payload)
         return self.read_pull_request(number)
 
+    @override
     def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
         if bypass_checks:
             raise Unsupported("merge_pull_request with bypass_checks")

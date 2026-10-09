@@ -1,7 +1,6 @@
 """How one item appears in a read: its text row and its machine row."""
 
 import re
-from typing import Dict, List
 
 from qew import ledger_graph, stale_claims, text_findings, untrusted_text
 from qew.ledger_event import State
@@ -9,7 +8,7 @@ from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
 
 
-def epic_progress(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
+def epic_progress(snapshot: Snapshot, item_id: str) -> dict[str, object]:
     """Direct children still open and done, and whether `qew complete` can finish the epic now."""
     kids = ledger_graph.children(snapshot).get(item_id, [])
     done = [k for k in kids if snapshot.folds[k].state in (State.COMPLETED, State.CLOSED)]
@@ -41,16 +40,16 @@ def text_row(snapshot: Snapshot, item_id: str, progress: bool = False) -> str:
     return line
 
 
-def row_data(snapshot: Snapshot, item_id: str, work_state: bool = False, progress: bool = False) -> Dict[str, object]:
+def row_data(snapshot: Snapshot, item_id: str, work_state: bool = False, progress: bool = False) -> dict[str, object]:
     """The fixed row shape; owner, parent and needs are omitted when empty. `list` adds `work_state`."""
     item = snapshot.items[item_id]
     folded = snapshot.folds[item_id]
     hidden = untrusted_text.findings(item.title)
-    row: Dict[str, object] = {
+    row: dict[str, object] = {
         "id": item_id,
         "kind": item.kind.value,
         "title": None if hidden else item.title,
-        "state": snapshot.derived[item_id][0].value if snapshot.derived[item_id][0] else None,
+        "state": derived.value if (derived := snapshot.derived[item_id][0]) else None,
         "priority": item.priority,
         "labels": sorted(item.labels),
     }
@@ -76,18 +75,18 @@ def row_data(snapshot: Snapshot, item_id: str, work_state: bool = False, progres
     return row
 
 
-def rows(snapshot: Snapshot, ids: List[str], work_state: bool = False, progress: bool = False) -> List[Dict[str, object]]:
+def rows(snapshot: Snapshot, ids: list[str], work_state: bool = False, progress: bool = False) -> list[dict[str, object]]:
     return [row_data(snapshot, item_id, work_state, progress) for item_id in ids]
 
 
-def related(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
+def related(snapshot: Snapshot, item_id: str) -> dict[str, object]:
     """A neighbouring item as `{id, state, title}`; one that does not exist is `{id, state: "missing"}`."""
     if item_id not in snapshot.items:
         return {"id": item_id, "state": "missing"}
     item = snapshot.items[item_id]
     folded = snapshot.folds[item_id]
     hidden = untrusted_text.findings(item.title)
-    entry: Dict[str, object] = {
+    entry: dict[str, object] = {
         "id": item_id,
         "state": folded.state.value if folded.state else None,
         "title": None if hidden else item.title,
@@ -97,18 +96,18 @@ def related(snapshot: Snapshot, item_id: str) -> Dict[str, object]:
     return entry
 
 
-def parent_first(snapshot: Snapshot, ids: List[str]) -> List[str]:
+def parent_first(snapshot: Snapshot, ids: list[str]) -> list[str]:
     """`ids` with every item directly after its parent when that parent is listed too (depth first)."""
     listed = set(ids)
-    children: Dict[str, List[str]] = {}
-    roots: List[str] = []
+    children: dict[str, list[str]] = {}
+    roots: list[str] = []
     for item_id in ids:
         parent = snapshot.items[item_id].parent
         if parent in listed:
             children.setdefault(parent, []).append(item_id)
         else:
             roots.append(item_id)
-    ordered: List[str] = []
+    ordered: list[str] = []
     stack = list(reversed(roots))
     while stack:
         item_id = stack.pop()
@@ -125,7 +124,7 @@ def plain(text: str) -> str:
 _URL = re.compile(r"https?://[^\s\x00-\x1f\x7f]+")
 
 
-def link_urls(snapshot: Snapshot, item_id: str) -> List[Dict[str, object]]:
+def link_urls(snapshot: Snapshot, item_id: str) -> list[dict[str, object]]:
     """Each header link with the forge URLs of the linked item, read from mirrors/ (forge text: shown only if a plain URL)."""
     item = snapshot.items[item_id]
     links = []

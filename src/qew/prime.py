@@ -7,7 +7,6 @@ read. The text must fit its byte bound or building it fails loudly.
 
 from dataclasses import dataclass
 import json
-from typing import List
 
 from qew import ledger_graph, untrusted_text
 from qew.errors import QewError
