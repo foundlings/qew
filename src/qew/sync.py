@@ -7,7 +7,9 @@ body marker. One target's failure never reaches another: callers run targets
 independently and the report says what happened.
 """
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
+import threading
 import time
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -78,24 +80,9 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Union[None
         return report
     # a targeted sync also refreshes the mirrored items whose card the change moves (dependents, parent epics)
     refresh = {*chosen, *(i for one in chosen for i in sync_plan.moved_by(snapshot, one) if i in numbers)} if chosen is not None else None
-    for item_id in ids:
-        if refresh is not None and item_id not in refresh:
-            continue
-        if deadline is not None and time.monotonic() > deadline:
-            report.stopped = "time budget used; the rest stays pending"
-            break
-        try:
-            _sync_item(ledger, snapshot, target, report, item_id, numbers, assignees, board, placements, chosen is not None)
-            if tick is not None:
-                tick()
-        except sync_plan.InvalidAuthor as error:
-            report.failures.append(f"{snapshot.short(item_id)}: author label: {error.detail}")
-        except ForgeRejected as error:
-            report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
-        except ForgeError as error:
-            report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
-            _stop(report, error)
-            break
+    todo = [item_id for item_id in ids if refresh is None or item_id in refresh]
+    _run_items(ledger, snapshot, target, report, todo, numbers, assignees, board, placements, chosen is not None,
+               deadline, tick, config.replication.forge_concurrency)
     if chosen is None and report.stopped is None and sync_milestones.enabled(target.mirror.options):
         sync_milestones.sync_milestones(ledger, snapshot, target, report, ids, numbers)
     if board is not None and chosen is None and report.stopped is None:
@@ -104,6 +91,86 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: Union[None
     if layout is not None and layout != cached_layout:
         ledger.write_board_layout(target.slug, layout)
     return report
+
+
+def _merge(report: TargetReport, local: TargetReport) -> None:
+    """Fold one item's report into the target's."""
+    for name in ("created", "updated", "unchanged", "adopted", "pruned", "milestones_created", "milestones_updated", "milestones_unchanged"):
+        setattr(report, name, getattr(report, name) + getattr(local, name))
+    report.skipped.extend(s for s in local.skipped if s not in report.skipped)
+    report.failures.extend(local.failures)
+    report.warnings.extend(local.warnings)
+    report.stopped = report.stopped or local.stopped
+    report.retry_after = max(report.retry_after, local.retry_after)
+
+
+def _levels(snapshot: Snapshot, ids: List[str]) -> List[List[str]]:
+    """`ids` (needs and parents first) grouped so that every item's needs and parent sit in an earlier group:
+    the items of one group do not depend on each other and may sync side by side."""
+    wanted = set(ids)
+    depth: Dict[str, int] = {}
+    groups: List[List[str]] = []
+    for item_id in ids:
+        item = snapshot.items[item_id]
+        deps = [d for d in (*item.needs, item.parent) if d and d in wanted]
+        depth[item_id] = 1 + max((depth[d] for d in deps if d in depth), default=-1)
+        while len(groups) <= depth[item_id]:
+            groups.append([])
+        groups[depth[item_id]].append(item_id)
+    return groups
+
+
+def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, ids: List[str], numbers: Dict[str, int],
+               assignees: Dict[str, str], board: Optional[Board], placements: Optional[Dict[int, Placement]], recent: bool,
+               deadline: Optional[float], tick: Optional[Callable[[], None]], workers: int) -> None:
+    """Sync the items, `workers` at a time. An item's needs and parent are done before it starts; the first forge failure
+    (a rate limit above all) stops every worker from starting another item, and the items not started stay pending."""
+    halt = threading.Event()
+
+    def one(item_id: str) -> Optional[TargetReport]:
+        if halt.is_set():
+            return None
+        if deadline is not None and time.monotonic() > deadline:
+            halt.set()
+            local = TargetReport(target.slug)
+            local.stopped = "time budget used; the rest stays pending"
+            return local
+        local = TargetReport(target.slug)
+        try:
+            _sync_item(ledger, snapshot, target, local, item_id, numbers, assignees, board, placements, recent)
+        except sync_plan.InvalidAuthor as error:
+            local.failures.append(f"{snapshot.short(item_id)}: author label: {error.detail}")
+        except ForgeRejected as error:
+            local.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+        except ForgeError as error:
+            local.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+            _stop(local, error)
+            halt.set()
+        return local
+
+    if workers <= 1:
+        for item_id in ids:
+            local = one(item_id)
+            if local is None:
+                break
+            _merge(report, local)
+            if halt.is_set():
+                break
+            if tick is not None:
+                tick()
+        return
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for group in _levels(snapshot, ids):
+            futures = [pool.submit(one, item_id) for item_id in group]
+            for future in as_completed(futures):
+                local = future.result()
+                if local is None:
+                    continue
+                _merge(report, local)
+                if tick is not None and not halt.is_set():
+                    tick()
+            if halt.is_set():
+                break
 
 
 def _stop(report: TargetReport, error: ForgeError) -> None:

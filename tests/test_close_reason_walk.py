@@ -69,7 +69,8 @@ class CloseReasonWalk(unittest.TestCase):
         self.assertEqual(self.world.run("close", first, "--reason", "duplicate", "--of", second).returncode, 0)
         self.assertEqual(self.world.run("close", third, "--reason", "superseded", "--by", second).returncode, 0)
         self.sync()
-        self.assertEqual([self.fake.issues[n]["state_reason"] for n in (1, 3)], ["duplicate", "duplicate"])
+        by_title = {i["title"]: i["state_reason"] for i in self.fake.issues.values()}
+        self.assertEqual([by_title["First twin"], by_title["Third"]], ["duplicate", "duplicate"])
 
     def test_repair_closes_restores_items_a_pull_wrongly_closed_as_not_planned(self) -> None:
         """Prevents damage already done (completed on GitHub, then not_planned in the ledger and on GitHub) staying."""

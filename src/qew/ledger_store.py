@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import json
 import os
 import subprocess
+import threading
 import tomllib
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -16,6 +17,8 @@ from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import Event, Folded, fold, needs_after, parse_event, valid_actor
 from qew.ledger_item import Item, parse_item, read_item_text, render_item
 from qew.ledger_ids import event_id, next_id, parse_modes, sort_key
+
+_INTENTS = threading.Lock()  # sync workers add and clear creating intents in one shared file
 
 def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -251,21 +254,23 @@ class Ledger:
 
     def record_creating(self, target: str, item_id: str) -> None:
         """Write the intent before the create is sent: a crash after the forge applied it leaves this behind."""
-        intents = self.creating_intents(target)
-        intents.setdefault(item_id, now())
-        path = self.intent_path(target)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_local(path, json.dumps(intents, sort_keys=True, indent=2) + "\n")
+        with _INTENTS:
+            intents = self.creating_intents(target)
+            intents.setdefault(item_id, now())
+            path = self.intent_path(target)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _write_local(path, json.dumps(intents, sort_keys=True, indent=2) + "\n")
 
     def clear_creating(self, target: str, item_id: str) -> None:
-        intents = self.creating_intents(target)
-        if intents.pop(item_id, None) is None:
-            return
-        path = self.intent_path(target)
-        if intents:
-            _write_local(path, json.dumps(intents, sort_keys=True, indent=2) + "\n")
-        else:
-            path.unlink(missing_ok=True)
+        with _INTENTS:
+            intents = self.creating_intents(target)
+            if intents.pop(item_id, None) is None:
+                return
+            path = self.intent_path(target)
+            if intents:
+                _write_local(path, json.dumps(intents, sort_keys=True, indent=2) + "\n")
+            else:
+                path.unlink(missing_ok=True)
 
     def layout_path(self, target: str) -> Path:
         return self.path / ".qew" / "state" / target / "board-layout.json"

@@ -16,7 +16,7 @@ from tests.fake_github import TOKEN, FakeGitHub
 from tests.ledger_harness import QUOTE, World
 from tests.test_label_style_walk import forget_last_sync
 
-QUIET = "\n[replication]\nauto_forge_sync = false\n"
+QUIET = "\n[replication]\nauto_forge_sync = false\nforge_concurrency = 1\n"
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
 NOISE = {"status:Ready", "kind:issue", "kind:task", "kind:epic", "qew:closed", "qew:draft", "qew:approved", "qew:claimed"}
 

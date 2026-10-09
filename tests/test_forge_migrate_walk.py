@@ -18,7 +18,7 @@ from tests.ledger_harness import QUOTE, World
 from tests.memory_forge import MemoryForge
 
 ENV = {"FORGEJO_TOKEN": TOKEN, "GITHUB_TOKEN": fake_github.TOKEN}
-QUIET = "\n[replication]\nauto_forge_sync = false\nauto_push = false\n"
+QUIET = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\n"
 
 
 def forgejo_block(fake: FakeForgejo) -> str:

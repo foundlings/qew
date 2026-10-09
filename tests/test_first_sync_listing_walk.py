@@ -50,6 +50,13 @@ class FirstSyncListingWalk(unittest.TestCase):
         self.assertTrue(adopted)
         self.assertEqual(len(self.fake.calls("POST", "/issues")), 2)
 
+    def test_new_labels_do_not_relist_the_repository_labels_twice_each(self) -> None:
+        """Prevents 2 label listings per issue that brings a new label (seen live: 10 calls per create)."""
+        for n in range(8):
+            self.backend.create_issue(IssueSpec(title=f"T{n}", body=f"{marker_for(f'x{n}')}\n", labels=(f"area:{n}",), open=True))
+        listings = sum(1 for method, path, _ in self.fake.requests if method == "GET" and "/labels" in path)
+        self.assertLessEqual(listings, 8 + 1)
+
 
 if __name__ == "__main__":
     unittest.main()

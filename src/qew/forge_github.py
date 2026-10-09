@@ -5,6 +5,7 @@ missing or mistyped field raises `ForgeRejected` rather than becoming a default.
 """
 
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple
 from urllib.parse import quote
@@ -514,6 +515,8 @@ class GitHub(Forge):
         self._raw_projects: Dict[int, Dict[str, Any]] = {}  # project number -> the structure node as GitHub sent it
         self._adopted: set = set()  # project numbers whose structure came from a cache, not from this run
         self._known_labels: set = set()
+        self._labels_read = False  # the repository's label list was read this run
+        self._lock = threading.RLock()  # sync workers share this forge: one builds the issue index, one creates a label
         self._listed: Optional[List[RemoteIssue]] = None  # every issue the first unscoped lookup read, plus this run's creates
 
     # issues
@@ -531,14 +534,17 @@ class GitHub(Forge):
     def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
         if not recent:
             # One full listing per run: a first sync of N items must not page the whole repository N times.
-            if self._listed is None:
-                self._listed = []
-                for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
-                    for entry in _array(page, "issue list"):
-                        issue = _obj(entry, "issue list entry")
-                        if "pull_request" not in issue:
-                            self._listed.append(self._remember(parse_issue(issue)))
-            matches = [i for i in self._listed if marker_alone(i.body, marker)]
+            with self._lock:
+                if self._listed is None:
+                    listed: List[RemoteIssue] = []
+                    for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
+                        for entry in _array(page, "issue list"):
+                            issue = _obj(entry, "issue list entry")
+                            if "pull_request" not in issue:
+                                listed.append(self._remember(parse_issue(issue)))
+                    self._listed = listed
+                known = list(self._listed)
+            matches = [i for i in known if marker_alone(i.body, marker)]
             return min(matches, key=lambda found: found.number) if matches else None
         matches = []
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&sort=created&direction=desc&per_page=100"):
@@ -596,12 +602,20 @@ class GitHub(Forge):
     def _ensure_labels(self, wanted: Tuple[str, ...]) -> None:
         """Create the labels the repository lacks (qew's own in the palette, a human's neutral), repaint qew's own that
         are not in the palette, never touch another existing label, and confirm the new ones exist."""
+        if not [name for name in dict.fromkeys(wanted) if name not in self._known_labels]:
+            return
+        with self._lock:
+            self._create_missing_labels(wanted)
+
+    def _create_missing_labels(self, wanted: Tuple[str, ...]) -> None:
         missing = [name for name in dict.fromkeys(wanted) if name not in self._known_labels]
         if not missing:
             return
-        looks = self._repo_label_looks()
-        self._known_labels = set(looks)
-        self._restyle(looks)
+        if not self._labels_read:  # the repository's labels are listed and repainted once per run, not once per new label
+            looks = self._repo_label_looks()
+            self._known_labels = set(looks)
+            self._restyle(looks)
+            self._labels_read = True
         missing = [name for name in missing if name not in self._known_labels]
         for name in missing:
             try:
@@ -648,8 +662,9 @@ class GitHub(Forge):
         if spec.assignee:
             payload["assignees"] = [spec.assignee]
         created = self._remember(parse_issue(self._wire.rest("POST", f"{self._repo_path}/issues", payload)))
-        if self._listed is not None:
-            self._listed.append(created)
+        with self._lock:
+            if self._listed is not None:
+                self._listed.append(created)
         if spec.open:
             return created
         return self.update_issue(created.number, spec)

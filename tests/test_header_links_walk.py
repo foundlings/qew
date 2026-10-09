@@ -13,7 +13,7 @@ from tests.fake_forgejo import TOKEN, FakeForgejo
 from tests.ledger_harness import QUOTE, World
 
 ENV = {"FORGEJO_TOKEN": TOKEN}
-QUIET = "\n[replication]\nauto_forge_sync = false\nauto_push = false\n"
+QUIET = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\n"
 
 
 def mirror_block(fake: FakeForgejo) -> str:
