@@ -11,3 +11,6 @@ target = "main"
 forge = "github"
 repo = "https://github.com/foundlings/qew"
 project = 1
+
+[authority]
+primary = "foundlings-qew"
