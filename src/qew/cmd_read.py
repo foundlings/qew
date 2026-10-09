@@ -8,7 +8,7 @@ from qew import show_history, text_findings, blocked_chains, ledger_author, grap
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
-from qew.ledger_event import State
+from qew.ledger_event import State, attachments_after
 from qew.ledger_item import Kind
 from qew.ledger_ids import sort_key
 from qew.ledger_store import Snapshot
@@ -221,11 +221,12 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     if findings:
         data["text_findings"] = findings
     data.update(epic)
+    tree = attachments_after(snapshot.events[item_id])
     related = (
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
         ("blocking", [read_view.related(snapshot, b) for b in blocks]),
         ("children", [read_view.related(snapshot, k) for k in kids]),
-        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("body", item.body),
+        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("body", item.body),
     )
     for key, value in related:
         if value:
@@ -269,6 +270,10 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         print(f"mirror: {mirror['target']} #{mirror['number']}")
     for line in lines:
         print(line)
+    if tree:
+        print("attachments:")
+        for path, row in sorted(tree.items()):
+            print(f"  {path}  {row.size} bytes  {row.digest[:12]}")
     if comments:
         print("comments:")
         for entry in comments:

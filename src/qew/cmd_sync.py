@@ -92,7 +92,7 @@ def sync_command(config: Config, wanted: str | None, item: None | str | Sequence
     items = [item] if isinstance(item, str) else list(item or ())
     # Contradictions and unsafe actor names are reported by `qew check` but must never stop mirroring.
     with trace.phase("ledger check"):
-        problems = [p for p in ledger_check.check(ledger) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
+        problems = [p for p in ledger_check.check(ledger, deep=False) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
     if problems:
         raise QewError(f"the ledger has {len(problems)} problem(s); run `qew check`", 1)
     mirrors = choose(mirrors_with_boards(ledger, config), wanted)

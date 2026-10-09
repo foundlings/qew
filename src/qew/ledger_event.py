@@ -9,7 +9,7 @@ from enum import Enum
 import json
 from typing import Any
 
-from qew import claim_fields, instants
+from qew import __version__, attachments, claim_fields, instants
 from qew.errors import QewError
 
 CLOSE_REASONS = ("not_planned", "duplicate", "superseded")
@@ -51,6 +51,9 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     "claim_confirmed": (("ref",), tuple(State)),
     "claim_lost": (("ref",), tuple(State)),
     "edge": (("op", "need"), tuple(State)),
+    # Item attachments (docs/specs/ledger.md, Attachments): names mapped to immutable content-addressed files.
+    "attached": (("path", "hash", "blob"), tuple(State)),
+    "detached": (("path",), tuple(State)),
 }
 # A `completed` event with one of these keys finished the item without a claim: its children
 # finished it, the code that delivers it landed without anyone claiming it, or it was made under a
@@ -99,7 +102,7 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
         raise QewError(f"{where}: an event is one JSON object", 1)
     kind = value.get("type")
     if kind not in _RULES:
-        raise QewError(f"{where}: unknown event type `{kind}`", 1)
+        raise QewError(f"{where}: unknown event type `{kind}` (written by a newer qew? this is qew {__version__}; upgrade it)", 1)
     for key in ("at", "actor"):
         if not isinstance(value.get(key), str) or not value[key]:
             raise QewError(f"{where}: event is missing `{key}`", 1)
@@ -176,6 +179,15 @@ def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None
     elif kind == "edge":
         if value["op"] not in ("add", "remove"):
             raise QewError(f"{where}: edge op must be add or remove", 1)
+    elif kind in ("attached", "detached"):
+        bad = attachments.path_error(value["path"]) if isinstance(value["path"], str) else "the path must be text"
+        if kind == "attached":
+            bad = bad or attachments.digest_error(value["hash"])
+            bad = bad or (attachments.blob_error(value["hash"], value["blob"]) if isinstance(value["blob"], str) else "the blob must be text")
+            if not bad and (type(value.get("size")) is not int or value["size"] < 0):
+                bad = "`size` must be a whole number of bytes"
+        if bad:
+            raise QewError(f"{where}: `{kind}` event: {bad}", 1)
 
 
 @dataclass(frozen=True)
@@ -282,6 +294,23 @@ def needs_after(base: tuple[str, ...], events: list[Event]) -> tuple[str, ...]:
         elif event.get("op") == "remove" and need in needs:
             needs.remove(need)
     return tuple(needs)
+
+
+def attachments_after(events: list[Event]) -> dict[str, attachments.Attachment]:
+    """The named tree: every `attached` and `detached` event applied in ID order, the last one for a name winning.
+
+    A name that would be both a file and a directory yields to the later event, so the result can always be exported.
+    """
+    found: dict[str, attachments.Attachment] = {}
+    for event in sorted((e for e in events if e.type in ("attached", "detached")), key=lambda item: item.id):
+        path = event.get("path")
+        if event.type == "detached":
+            found.pop(path, None)
+            continue
+        for other in attachments.clashes(set(found), path):
+            del found[other]
+        found[path] = attachments.Attachment(path, event.get("hash"), event.get("size"), event.get("blob"), event.id)
+    return found
 
 
 def transition_error(state: State | None, event_type: str) -> str | None:

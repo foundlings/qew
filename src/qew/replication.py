@@ -39,7 +39,7 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
     """The commit verb of a ledger-writing command, or None for reads and non-ledger commands."""
     command: str = arguments.command
     if command in ("create", "set", "start", "release", "evidence", "complete", "close", "reopen", "sync",
-                   "import", "restore", "accept", "reject", "resolve", "comment", "block", "unblock"):
+                   "import", "restore", "accept", "reject", "resolve", "comment", "block", "unblock", "attach", "detach"):
         return command
     if command == "draft" and arguments.draft_command in ("approve", "revert"):
         return str(arguments.draft_command)

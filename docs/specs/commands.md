@@ -225,6 +225,16 @@ shape prime: additional_context context_bytes schema_version
   its lane (`--lane`); without it the release needs `--force` too. The event records `lane` (the releasing lane) and
   `previous_lane`; the release is re-read and a claim still in force is exit 3. `--json` adds `by` and `lane`.
   Unclaimed or closed work is exit 2.
+- `qew attach ITEM SOURCE [--as NAME]`: attach a file, or every file under a directory, to the item (any state). The name
+  is `--as` (a directory's files go under it, subdirectories kept) or the file name (a directory's files at the root).
+  Names are relative, `/`-separated, without empty, `.` or `..` segments, control characters or backslashes, at most 1024
+  bytes (255 per segment); a name cannot be a file and a directory at once. Symlinks and special files are refused.
+  Bytes are stored once by hash as `items/ID/attachments/HASH.EXT`; each name is an `attached` event (`path hash size
+  blob`); the same bytes under the same name again is `unchanged`. Limits: 100 MiB per file (`QEW_ATTACH_MAX_BYTES`
+  overrides), a warning above 25 MiB, 500 MiB of distinct bytes per item. One ledger commit; a refusal writes nothing.
+- `qew detach ITEM NAME`: detach a file name, or every name under a directory name, with one `detached` event each; the
+  stored bytes stay (history). Nothing attached under the name is exit 2.
+- `qew extract ITEM DEST`: write the attached tree to `DEST` (absent or empty) as real files, verifying every hash first.
 - `qew comment ITEM (--body TEXT | --body-file F) [--key KEY]`: append a `commented` event (text kept verbatim, `-` reads
   stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
   Comment text is data and never a state change; unmarked code-shaped text warns on stderr. `--key KEY` (one word) makes a

@@ -33,6 +33,9 @@ Work
   qew create      file an item (a draft unless a human's quote releases it)
   qew set         change header fields
   qew comment     add a comment to an item
+  qew attach      attach a file or a directory tree to an item
+  qew detach      detach a name or a directory of names from an item
+  qew extract     write an item's attached tree out as real files
   qew start       claim work
   qew release     give a claim up
   qew evidence    record the code changes that deliver an item
@@ -81,7 +84,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
-_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair")
+_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_attach")
 
 
 def top_level_commands() -> list[str]:

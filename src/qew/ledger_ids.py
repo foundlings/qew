@@ -55,7 +55,7 @@ def event_id(after: str = "") -> str:
     It is always greater than `after` and than this process's last one. The pair counts up
     inside a second, so IDs and an item's events keep their order even when separate commands
     write them within the same second. Two branches minting in the same second collide at
-    about 1/1225; `qew check` refuses duplicates.
+    about 1/600 (1/300 after the same predecessor); `qew check` refuses duplicates.
     """
     global _last
     with _LOCK:
@@ -63,7 +63,12 @@ def event_id(after: str = "") -> str:
         pair = _random_pair() % 600
         floor = max(_last[0] * 1225 + _last[1], _decode(after) if after else -1)
         if seconds * 1225 + pair <= floor:
-            seconds, pair = divmod(floor + 1, 1225)
+            # Not +1: two machines after the same event in the same second would pick the same successor, and the
+            # event file would conflict in git. A random step keeps the order and makes that a 1 in 300 chance.
+            room = 35 ** (_TIME_WIDTH + 2) - 1 - floor  # ids near the top of the 9 character space cannot jump far
+            if room < 1:
+                raise QewError("no event id is left after the newest one", 1)
+            seconds, pair = divmod(floor + 1 + _random_pair() % min(300, room), 1225)
         _last = (seconds, pair)
     return _encode(seconds, _TIME_WIDTH) + _encode(pair, 2)
 
