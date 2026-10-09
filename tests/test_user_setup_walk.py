@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -69,6 +70,21 @@ class UserSetupWalk(unittest.TestCase):
             second = run_setup(home, [local_bin])
             self.assertEqual(second.returncode, 0, second.stderr)
             self.assertTrue(link.is_symlink())
+
+    def test_setup_rebuilds_a_venv_made_by_an_older_python(self) -> None:
+        """Prevents an upgrade failing with 'requires a different Python': `venv` alone keeps the old interpreter."""
+        older = shutil.which("python3.14") or shutil.which("python3.13")
+        if older is None:
+            self.skipTest("no older Python on this machine to make the stale environment with")
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            home = Path(temporary_directory)
+            venv = home / ".local" / "share" / "qew" / "venv"
+            subprocess.run([older, "-m", "venv", str(venv)], check=True)
+            again = run_setup(home, [home / ".local" / "bin"])
+            self.assertEqual(again.returncode, 0, again.stderr)
+            version = subprocess.run([str(venv / "bin" / "python"), "-c", "import sys; print(sys.version_info[:2])"],
+                                     capture_output=True, text=True, check=True).stdout.strip()
+            self.assertEqual(version, str(sys.version_info[:2]))
 
     def test_setup_warns_when_local_bin_is_not_on_path(self) -> None:
         """A silent install that cannot be run would look like a failed install."""
