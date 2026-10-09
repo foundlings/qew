@@ -23,6 +23,9 @@ class Pacer:
         self._lock = threading.Lock()
         self._windows: list[tuple[deque[float], int, float]] = [(deque(maxlen=limit), limit, span) for limit, span in ((per_minute, 60.0), (per_hour, 3600.0)) if limit > 0]
 
+    def seed(self, ages: list[float]) -> None:
+        """Count creates made `ages` seconds ago (an earlier run) against the windows."""
+
     def acquire(self, allow: float | None = None) -> float:
         """Wait until a create may go and return 0.0. With `allow`, return the wait instead (and reserve nothing)
         when it would exceed `allow` seconds."""
