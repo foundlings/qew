@@ -6,6 +6,7 @@ import time
 from collections.abc import Sequence
 
 from qew import claim_reconcile, instants, ledger_config, ledger_conflicts, pull_cursor, syncworker
+from qew.pacing import PaceState
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.jsontypes import JsonObject
@@ -88,7 +89,7 @@ def collect(config: Config) -> JsonObject:
         },
         "targets": [
             {"target": slug, "pending": len(rows), "last_sync": last_sync(ledger, slug, ids), "repos": repos_on(mirrors, slug),
-             **pull_state(ledger, slug)}
+             "pace": _pace(ledger, slug), **pull_state(ledger, slug)}
             for slug, rows in pending.items()
         ],
         "claims": {
@@ -101,6 +102,12 @@ def collect(config: Config) -> JsonObject:
     }
 
 
+def _pace(ledger: Ledger, slug: str) -> JsonObject | None:
+    """The create pace a secondary-limit block taught for this target, or None."""
+    window = PaceState(ledger.pace_dir(slug)).window()
+    return None if window is None else {"limit": window[0], "per_seconds": int(window[1])}
+
+
 def render(data: JsonObject) -> str:
     ledger = data["ledger"]
     lines = [f"authority primary={data['authority']['primary']}"]
@@ -109,6 +116,10 @@ def render(data: JsonObject) -> str:
         lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}"
                      f" repos={'on' if target['repos'] else 'off'}"
                      f" pulled={target['last_pull'] or 'never'} next_pull={target['next_pull']} full_set={target['last_full'] or 'never'}")
+    for target in data["targets"]:
+        if target["pace"]:
+            lines.append(f"pace {target['target']} limit={target['pace']['limit']} per={target['pace']['per_seconds']}s"
+                         f" (learned from a block; delete .qew/state/{target['target']}/pace.json to reset)")
     if data["sync"]["retry_after"]:
         lines.append(f"sync retry_after={data['sync']['retry_after']}")
     for claim in data["claims"]["provisional"]:

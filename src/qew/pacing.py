@@ -15,7 +15,9 @@ from collections.abc import Callable
 
 LEARNED_SPAN = 1800.0  # seconds a learned budget covers
 LEARNED_SHARE = 0.8  # of the budget a block showed
-MIN_BUDGET = 3
+MIN_BUDGET = 3  # smallest window limit a learned budget can impose
+MIN_EVIDENCE = 20  # a block after fewer recorded creates was probably caused by something else and teaches nothing
+TTL = 21600.0  # seconds a learned budget lasts after it was set or raised; then the documented default applies again
 GROWTH = 1.25  # a clean run that reached the learned pace raises the budget by this factor
 KEEP = 7200.0  # seconds of create history kept
 
@@ -106,6 +108,9 @@ class PaceState:
         assert isinstance(learned, dict)
         budget: object = learned.get("budget")  # read from disk: not trusted to be a number
         span: object = learned.get("span", LEARNED_SPAN)
+        at: object = learned.get("at")
+        if isinstance(at, (int, float)) and self._wall() - at > TTL:
+            return None
         if isinstance(budget, (int, float)) and budget > 0 and isinstance(span, (int, float)) and span > 0:
             return int(budget), float(span)
         return None
@@ -123,10 +128,11 @@ class PaceState:
         with self._lock:
             span = (self._budget() or (0, LEARNED_SPAN))[1]
             made = sum(1 for age in self.ages() if age < span) - 1
-            self._write(self._learned, {"budget": max(MIN_BUDGET, made), "span": span, "blocked_at": self._wall()})
+            if made >= MIN_EVIDENCE:
+                self._write(self._learned, {"budget": made, "span": span, "at": self._wall()})
 
     def relax(self) -> None:
         with self._lock:
             learned = self._budget()
             if learned is not None:
-                self._write(self._learned, {"budget": math.ceil(learned[0] * GROWTH), "span": learned[1]})
+                self._write(self._learned, {"budget": math.ceil(learned[0] * GROWTH), "span": learned[1], "at": self._wall()})

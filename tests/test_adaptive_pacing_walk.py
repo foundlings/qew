@@ -124,7 +124,7 @@ class AdaptiveWalk(unittest.TestCase):
         self.assertEqual(first.created, 0, first)
         self.teach(budget=4, at=time.time() - 7 * 3600)  # the old budget has expired: the default lets 25 through, then a block
         sync_target(self.ledger, self.target, self.config, deadline=time.monotonic() + 20)  # a hang here would be pacing at the stale 4
-        self.assertEqual(self.state().get("budget"), 25)
+        self.assertEqual(self.state().get("budget"), 28)  # the 3 earlier creates plus the 25 that went through
 
     def test_status_shows_the_learned_pace(self) -> None:
         """Prevents an invisible limit: a person must see the learned pace and how to reset it."""
