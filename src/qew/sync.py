@@ -14,6 +14,7 @@ import time
 from typing import Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from qew import sync_milestones, sync_plan
+from qew.pacing import PaceStop, Pacer
 from qew.forge import (
     DUPLICATE_MARKER,
     COLUMNS, Board, Forge, ForgeError, ForgeRejected, ForgeUnavailable, IssueSpec, Placement, RemoteIssue, Unsupported, marker_for,
@@ -126,6 +127,14 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
     """Sync the items, `workers` at a time. An item's needs and parent are done before it starts; the first forge failure
     (a rate limit above all) stops every worker from starting another item, and the items not started stay pending."""
     halt = threading.Event()
+    per_minute, per_hour = target.forge.create_pace()
+    pacer = Pacer(int(target.mirror.options.get("create_per_minute", per_minute)),
+                  int(target.mirror.options.get("create_per_hour", per_hour)))
+
+    def pace() -> None:
+        wait = pacer.acquire(None if deadline is None else max(0.0, deadline - time.monotonic()))
+        if wait:
+            raise PaceStop(wait)
 
     def one(item_id: str) -> Optional[TargetReport]:
         if halt.is_set():
@@ -137,7 +146,11 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
             return local
         local = TargetReport(target.slug)
         try:
-            _sync_item(ledger, snapshot, target, local, item_id, numbers, assignees, board, placements, recent)
+            _sync_item(ledger, snapshot, target, local, item_id, numbers, assignees, board, placements, recent, pace)
+        except PaceStop as stop:
+            local.stopped = f"paced: {stop}; a rerun continues"
+            local.retry_after = stop.seconds
+            halt.set()
         except sync_plan.InvalidAuthor as error:
             local.failures.append(f"{snapshot.short(item_id)}: author label: {error.detail}")
         except ForgeRejected as error:
@@ -247,6 +260,7 @@ def _sync_item(
     board: Optional[Board],
     placements: Optional[Dict[int, Placement]] = None,
     recent: bool = False,
+    pace: Callable[[], None] = lambda: None,
 ) -> None:
     item = snapshot.items[item_id]
     spec = sync_plan.issue_spec(snapshot, item, numbers, assignees, target.mirror.mode == "overlay")
@@ -258,7 +272,7 @@ def _sync_item(
         # A create this machine started and never recorded may have been applied: look for it among ALL issues first.
         interrupted = item_id in ledger.creating_intents(target.slug)
         ledger.record_creating(target.slug, item_id)
-        remote, adopted, unchecked = _find_or_create(target.forge, item_id, spec, item.aliases, recent and not interrupted)
+        remote, adopted, unchecked = _find_or_create(target.forge, item_id, spec, item.aliases, recent and not interrupted, pace)
         numbers[item_id] = remote.number
         # The create carried `spec`, so a created issue is already current; an adopted one is not.
         record = new_record(target, remote, snapshot, item_id, "" if adopted else fingerprint)
@@ -285,11 +299,13 @@ def _sync_item(
         _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assignees, board, column, record, spec, fingerprint, placements)
 
 
-def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[str, ...] = (), recent: bool = False):
+def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[str, ...] = (), recent: bool = False,
+                    pace: Callable[[], None] = lambda: None):
     """(issue, adopted, unchecked): adopt the issue carrying the item's marker, or one still carrying the marker of an id
     it had before a migration. A scoped create (`recent`, no aliases) skips the lookup before the create and leaves the
     duplicate guard to `_settle_duplicate`, which runs once the card is on the board; `unchecked` says so."""
     if recent and not aliases:
+        pace()
         return forge.create_issue(spec), False, True
     try:
         found = next((hit for hit in (forge.find_issue(marker_for(name), recent) for name in (item_id, *aliases)) if hit is not None), None)
@@ -297,6 +313,7 @@ def _find_or_create(forge: Forge, item_id: str, spec: IssueSpec, aliases: Tuple[
         found = None
     if found is not None:
         return found, True, False
+    pace()
     created = forge.create_issue(spec)
     try:
         winner = forge.find_issue(marker_for(item_id), True)  # the newest page holds a concurrent creator

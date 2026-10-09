@@ -3,7 +3,7 @@
 import os
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, List, Optional, Sequence, Union
 
 from qew import trace, claim_reconcile, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
@@ -119,7 +119,7 @@ def sync_command(config: Config, wanted: Optional[str], item: Union[None, str, S
         if pulled.retry_after:  # rate limited while reading: pushing would only hit the same wall
             syncworker.set_backoff(pulled.retry_after)
             failed = True
-            lines.append(f"{target.slug}: rate limited; retry after {int(pulled.retry_after)}s")
+            lines.append(f"{target.slug}: rate limited; retry after {_resume(pulled.retry_after, clock)}")
             continue
         with trace.phase("push (sync_target)"):
             report = sync_target(ledger, target, config, items or None,
@@ -197,7 +197,12 @@ def _wiped_items(ledger: Ledger, build: Callable[[Mirror], Forge], mirror: Mirro
     return (sorted(set(mirrored.values())), "") if wiped(mirrored, remote) else ([], "")
 
 
-def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[str]:
+def _resume(seconds: float, clock: Callable[[], datetime] = instants.now) -> str:
+    """`300s (about 21:35 UTC)`: how long to wait and the UTC clock time a rerun is likely to work."""
+    return f"{int(seconds)}s (about {(clock() + timedelta(seconds=seconds)).strftime('%H:%M')} UTC)"
+
+
+def render(report: TargetReport, pulled: Optional[PullReport] = None, clock: Callable[[], datetime] = instants.now) -> List[str]:
     head = f"{report.slug}: created {report.created} updated {report.updated} unchanged {report.unchanged}"
     if report.adopted:
         head += f" adopted {report.adopted}"
@@ -222,5 +227,5 @@ def render(report: TargetReport, pulled: Optional[PullReport] = None) -> List[st
     if report.stopped:
         lines.append(f"  stopped: {report.stopped}")
     if report.retry_after:
-        lines.append(f"  retry after {int(report.retry_after)}s")
+        lines.append(f"  retry after {_resume(report.retry_after, clock)}")
     return lines

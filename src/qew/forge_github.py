@@ -531,6 +531,10 @@ class GitHub(Forge):
             self.read_issue(number)
         return self._nodes[number]
 
+    def create_pace(self) -> Tuple[int, int]:
+        # GitHub.com blocks content creation past about 80 a minute and 500 an hour; Enterprise Server's limits are its own
+        return (70, 450) if self._wire.rest_root == DOTCOM_API else (0, 0)
+
     def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
         if not recent:
             # One full listing per run: a first sync of N items must not page the whole repository N times.

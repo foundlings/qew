@@ -273,6 +273,9 @@ def _mirror(entry: object) -> Mirror:
     timeout = entry.get("timeout")
     if "timeout" in entry and (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0):
         raise QewError("[[mirror]] timeout must be a positive number of seconds", 2)
+    for name in ("create_per_minute", "create_per_hour"):
+        if name in entry and (isinstance(entry[name], bool) or not isinstance(entry[name], int) or entry[name] < 0):
+            raise QewError(f"[[mirror]] {name} must be a whole number of creates, 0 for no limit", 2)
     return Mirror(
         forge=forge,
         repo=_checked_url(entry["repo"], "repo", forge, repository=True).rstrip("/"),

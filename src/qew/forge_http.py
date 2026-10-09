@@ -93,6 +93,7 @@ def api_base(mirror: Mirror, default: str) -> str:
 
 
 DEFAULT_WAIT = 60.0  # a limit answer that names no wait
+SECONDARY_WAIT = 300.0  # a secondary (abuse) limit that names no wait: these blocks last minutes
 MAX_WAIT = 3600.0
 
 
@@ -176,6 +177,8 @@ def _interpret(response: HttpResponse, ok: Tuple[int, ...]) -> Tuple[Any, Mappin
     wait = wait_from(response.headers)
     limited = response.status == 429 or (response.status == 403 and (wait is not None or "rate limit" in detail.lower()))
     if limited:
+        if wait is None and "secondary rate limit" in detail.lower():
+            wait = SECONDARY_WAIT
         raise ForgeUnavailable(f"HTTP {response.status}: {detail}", wait if wait is not None else DEFAULT_WAIT)
     if response.status in (401, 403):
         raise ForgeAuth(f"HTTP {response.status}: {detail}")
