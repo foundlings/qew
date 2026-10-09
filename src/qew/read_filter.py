@@ -1,6 +1,6 @@
 """Filters of the list read. Names fold ASCII case only: a Unicode fold would let a lookalike match."""
 
-from typing import Iterable
+from collections.abc import Iterable
 
 _ASCII_FOLD = {code: code + 32 for code in range(ord("A"), ord("Z") + 1)}
 

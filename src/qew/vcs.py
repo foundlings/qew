@@ -5,14 +5,13 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import List, Optional
 
 from qew.errors import QewError
 
 _COMMIT_IDS = 'commit_id ++ "\\n"'
 
 
-def synced_branch(head: Optional[str] = None) -> str:
+def synced_branch(head: str | None = None) -> str:
     """Return the pushed branch to open a pull request from.
 
     An explicit head is trusted: the caller has pushed it and knows its name.
@@ -30,7 +29,7 @@ def _in_jujutsu() -> bool:
     return _jujutsu_root() is not None
 
 
-def _jujutsu_root() -> Optional[Path]:
+def _jujutsu_root() -> Path | None:
     """The nearest checkout root, if it is a Jujutsu one (`.jj` before `.git`)."""
     here = Path.cwd().resolve()
     for directory in (here, *here.parents):
@@ -41,7 +40,7 @@ def _jujutsu_root() -> Optional[Path]:
     return None
 
 
-def workspace_git_dir() -> Optional[Path]:
+def workspace_git_dir() -> Path | None:
     """The real git store of a Jujutsu workspace that has no `.git`, else None.
 
     A secondary workspace's `.jj/repo` is a file naming the main repository's
@@ -76,7 +75,7 @@ _REMOTE = re.compile(r"[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
 
 
 @lru_cache(maxsize=1)
-def checkout_repository() -> Optional[str]:
+def checkout_repository() -> str | None:
     """OWNER/REPO named by this checkout's `origin` remote, or None when unreadable."""
     try:
         git_dir = workspace_git_dir()
@@ -149,12 +148,12 @@ def _jujutsu_branch() -> str:
     return name
 
 
-def _bookmarks(revision: str) -> List[str]:
+def _bookmarks(revision: str) -> list[str]:
     output = _run(["jj", "bookmark", "list", "-r", revision, "-T", 'name ++ "\\n"'])
     return sorted({line for line in output.splitlines() if line})
 
 
-def _run(argv: List[str], silent_failure: bool = False) -> str:
+def _run(argv: list[str], silent_failure: bool = False) -> str:
     environment = os.environ.copy()
     environment["GIT_TERMINAL_PROMPT"] = "0"
     try:

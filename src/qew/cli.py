@@ -5,10 +5,12 @@ import importlib
 import json
 import os
 import sys
-from typing import List, Optional, Sequence
+from types import ModuleType
+from collections.abc import Sequence
 
 from qew import __version__, body_sections, code_prose, editor, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
 from qew.errors import QewError
+from qew.ledger_item import title_is_one_line
 
 
 EPILOG = """Commands by workflow:
@@ -73,7 +75,7 @@ Help for one command: qew COMMAND --help. Finishing work is `qew complete`, neve
 # Command modules that own their own subcommands. Each exposes
 # `register(commands)` (add its subparsers) and `run(arguments) -> bool` (True when handled).
 # A module that does not exist yet is skipped; any other import failure is loud.
-_MODULES = ("cmd_read", "cmd_comment", "cmd_triage", "cmd_search", "cmd_prime", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
+_MODULES: tuple[str, ...] = ("cmd_read", "cmd_comment", "cmd_triage", "cmd_search", "cmd_prime", "cmd_hook", "cmd_sync", "cmd_project", "cmd_pr", "cmd_land", "cmd_status", "cmd_divergence", "cmd_forgeio", "cmd_inbox")
 _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
@@ -81,14 +83,14 @@ _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
 _MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair")
 
 
-def top_level_commands() -> list:
+def top_level_commands() -> list[str]:
     """Names of the commands `qew --help` lists."""
     action = next(a for a in _parser()._actions if isinstance(a, argparse._SubParsersAction))
     return list(action.choices)
 
 
-def _plugins() -> list:
-    found = []
+def _plugins() -> list[ModuleType]:
+    found: list[ModuleType] = []
     for name in _MODULES:
         try:
             found.append(importlib.import_module(f"qew.{name}"))
@@ -188,7 +190,7 @@ def _plan(arguments: argparse.Namespace) -> plan_file.Plan:
         return plan_file.parse(plan_file.read_bytes(arguments.from_file), os.path.basename(arguments.from_file))
     if not arguments.title:
         raise QewError("--title is required", 2)
-    if not plan_file.title_is_one_line(arguments.title):
+    if not title_is_one_line(arguments.title):
         raise QewError("--title: title must be one line", 2)
     body = arguments.body
     structured = body_sections.compose(arguments)
@@ -296,7 +298,7 @@ def _run(arguments: argparse.Namespace) -> None:
             print("\n".join(cmd_draft.revert(config, arguments.items, arguments.tree, arguments.reason, arguments.quote, arguments.json)))
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     arguments.json = outcome.wants_json(arguments)
     try:

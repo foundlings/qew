@@ -9,7 +9,8 @@ import re
 import shutil
 import subprocess
 import time
-from typing import Dict, List, Optional, Sequence
+from contextlib import AbstractContextManager
+from collections.abc import Sequence
 
 from qew import filelock, trace
 from qew import ledger_lineage
@@ -21,7 +22,7 @@ SHOWN_CONFLICTS = 5
 JJ_FILESET_BYTES = 100_000  # beyond this the paths no longer fit one command line: name the owned directories instead
 
 
-def _jj_filesets(paths: Sequence[str]) -> List[str]:
+def _jj_filesets(paths: Sequence[str]) -> list[str]:
     """One `root-file:` fileset per path; a write too large for a command line commits the directories qew owns."""
     if sum(len(p) + 14 for p in paths) <= JJ_FILESET_BYTES:
         return [f'root-file:"{p}"' for p in paths]
@@ -53,7 +54,7 @@ def git_is_running() -> bool:
     return any(name in ("git", "git.exe") for name in names)
 
 
-def lock_in_use(path: str) -> Optional[bool]:
+def lock_in_use(path: str) -> bool | None:
     """Whether some process has this lock file open right now (git holds index.lock open while it works); None when unknown."""
     lsof = shutil.which("lsof")
     if lsof is None:
@@ -73,7 +74,7 @@ def lock_is_dead(path: str, age: float) -> bool:
     return (not git_is_running()) if open_now is None else not open_now
 
 
-def lock_age(stderr: str) -> Optional[tuple]:
+def lock_age(stderr: str) -> tuple[str, float] | None:
     """(path, seconds old) of the lock file a git error names, when it can be read."""
     found = LOCK_ERROR.search(stderr)
     if not found or not found.group(1):
@@ -91,7 +92,7 @@ class RepoLocked(QewError):
         super().__init__(message, 3)
 
 
-def stale_lock_error(stderr: str, waited: float) -> Optional[RepoLocked]:
+def stale_lock_error(stderr: str, waited: float) -> RepoLocked | None:
     """The error for a lock that looks dead (old, and no git process anywhere); None while it may still be live."""
     named = lock_age(stderr)
     if named is None or not lock_is_dead(named[0], named[1]):
@@ -112,7 +113,7 @@ MERGE_MARKER = "merge-conflict.json"  # in the ledger's local-only .qew/ cache
 MAX_DISCARDED_CHARS = 20_000
 
 
-def conflict_message(remote: str, files, path) -> str:
+def conflict_message(remote: str, files: Sequence[str], path: Path | str) -> str:
     """One short line: a few conflicting files and the count, never the whole list."""
     files = list(files)
     shown = ", ".join(files[:SHOWN_CONFLICTS]) or "unknown files"
@@ -136,7 +137,7 @@ class LedgerConflict(QewError):
 class MergeConflict:
     """What the last failed merge left behind: the files and the two commits that disagree."""
     remote: str
-    files: tuple
+    files: tuple[str, ...]
     ours: str
     theirs: str
 
@@ -145,10 +146,10 @@ class MergeConflict:
 class Resolution:
     """A settled merge: the files it touched and the text of the side that was not kept (None: absent there)."""
     took: str
-    discarded: Dict[str, Optional[str]]
+    discarded: dict[str, str | None]
 
 
-def only_mirrors(files) -> bool:
+def only_mirrors(files: Sequence[str]) -> bool:
     """Mirror files hold forge bookkeeping that older clients rewrote everywhere; the remote's copy is as good."""
     files = list(files)
     return bool(files) and all(f.startswith("mirrors/") for f in files)
@@ -160,15 +161,15 @@ class LedgerRepo:
         self.branch = branch
         self.last_failure = ""  # why the last fetch or push failed: stderr's last line, for the status file and messages
         if (path / ".jj").is_dir():
-            self.vcs: Optional[str] = "jj"
+            self.vcs: str | None = "jj"
         elif (path / ".git").exists():
             self.vcs = "git"
         else:
             self.vcs = None
 
     # -- plumbing
-    def run(self, argv: Sequence[str], timeout: Optional[float] = None, check: bool = True,
-            stdin: Optional[str] = None) -> subprocess.CompletedProcess:
+    def run(self, argv: Sequence[str], timeout: float | None = None, check: bool = True,
+            stdin: str | None = None) -> subprocess.CompletedProcess[str]:
         started = time.monotonic()
         attempt = 0
         while True:
@@ -187,7 +188,7 @@ class LedgerRepo:
             raise QewError(f"`{' '.join(argv[:4])}` failed: {(result.stderr or result.stdout).strip()[:300]}", 3)
         return result
 
-    def _run_once(self, argv: Sequence[str], timeout: Optional[float], stdin: Optional[str] = None) -> subprocess.CompletedProcess:
+    def _run_once(self, argv: Sequence[str], timeout: float | None, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
                 list(argv), cwd=self.path, stdin=subprocess.DEVNULL if stdin is None else None, input=stdin, capture_output=True, text=True,
@@ -208,7 +209,7 @@ class LedgerRepo:
             exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n") + ".qew/\n", encoding="utf-8")
 
     # -- state
-    def dirty_owned(self) -> List[str]:
+    def dirty_owned(self) -> list[str]:
         """Changed or untracked paths inside qew's own directories."""
         if self.vcs == "git":
             out = self.run(["git", "status", "--porcelain", "--untracked-files=all", "--", *OWNED]).stdout
@@ -275,7 +276,7 @@ class LedgerRepo:
     def _marker(self) -> Path:
         return self.path / ".qew" / MERGE_MARKER
 
-    def pending_conflict(self) -> Optional[MergeConflict]:
+    def pending_conflict(self) -> MergeConflict | None:
         """The unresolved merge conflict recorded by the last failed fetch, or None (also when it was merged since)."""
         try:
             data = json.loads(self._marker().read_text(encoding="utf-8"))
@@ -295,7 +296,7 @@ class LedgerRepo:
             return self.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], check=False).returncode == 0
         return bool(self._jj_ids(f"{commit} & ::@"))  # not the bookmark: a diverged bookmark lists the remote tip as a side
 
-    def file_at(self, revision: str, relative: str) -> Optional[str]:
+    def file_at(self, revision: str, relative: str) -> str | None:
         """The text of a ledger file at a commit, or None when that commit has no such file."""
         argv = (["git", "show", f"{revision}:{relative}"] if self.vcs == "git"
                 else ["jj", "--no-pager", "file", "show", "-r", revision, relative])
@@ -316,7 +317,7 @@ class LedgerRepo:
             return self._git_resolve(take, timeout)
         return self._jj_resolve(take, timeout)
 
-    def _foreign(self, files: Sequence[str]) -> List[str]:
+    def _foreign(self, files: Sequence[str]) -> list[str]:
         return [f for f in files if f.split("/")[0] not in OWNED]
 
     def _refuse_unowned(self, foreign: Sequence[str]) -> QewError:
@@ -335,7 +336,7 @@ class LedgerRepo:
         if foreign:
             self.run(["git", "merge", "--abort"], check=False)
             raise self._refuse_unowned(foreign)
-        discarded: Dict[str, Optional[str]] = {}
+        discarded: dict[str, str | None] = {}
         other_stage, kept_flag = (":3", "--ours") if take == "ours" else (":2", "--theirs")
         for relative in files:
             shown = self.run(["git", "show", f"{other_stage}:{relative}"], check=False)
@@ -411,14 +412,14 @@ class LedgerRepo:
             raise LedgerConflict(remote, files, self.path, ours, theirs)
         return "ok"
 
-    def _refuse_foreign(self, remote_file: subprocess.CompletedProcess, remote: str) -> None:
+    def _refuse_foreign(self, remote_file: subprocess.CompletedProcess[str], remote: str) -> None:
         """A remote ledger with another identity (a fork or its origin) is never merged."""
         local = self.path / "qew-ledger.toml"
         if remote_file.returncode != 0 or not local.is_file():
             return
         ledger_lineage.refuse_foreign_merge(local.read_text(encoding="utf-8"), remote_file.stdout, remote)
 
-    def _jj_ids(self, revset: str) -> List[str]:
+    def _jj_ids(self, revset: str) -> list[str]:
         out = self.run(["jj", "--no-pager", "log", "--no-graph", "-r", revset, "-T", 'commit_id ++ "\n"']).stdout
         return out.split()
 
@@ -461,13 +462,13 @@ class LedgerRepo:
         self.run(["jj", "--no-pager", "new"])
         return "ok"
 
-    def _remote_refs(self):
+    def _remote_refs(self) -> AbstractContextManager[None]:
         """Fetch and push both rewrite refs/remotes/origin/*; two of them at once in one checkout fail with 'Failed to update
         refs'. This innermost lock (held only for the one network operation, never while waiting for another lock) serializes
         them, whichever of the write lock, the push lock or neither the caller holds."""
         return filelock.hold(self.path / ".qew" / "remote.lock", verb="remote sync", wait_s=120.0, what="the ledger remote refs")
 
-    def _remember_failure(self, result: subprocess.CompletedProcess) -> None:
+    def _remember_failure(self, result: subprocess.CompletedProcess[str]) -> None:
         lines = [line.strip() for line in (result.stderr or result.stdout or "").splitlines() if line.strip()]
         self.last_failure = (lines[-1] if lines else f"exit {result.returncode}")[:300]
 

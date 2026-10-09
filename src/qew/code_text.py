@@ -1,7 +1,6 @@
 """Code-shaped text in a body or comment that is not marked as code: a hint, never a gate."""
 
 import re
-from typing import List
 
 _FENCE = re.compile(r"```.*?(```|\Z)", re.DOTALL)
 _SPAN = re.compile(r"`[^`\n]*`")
@@ -10,10 +9,10 @@ _FLAG = re.compile(r"(?<![\w-])--[a-z][a-z0-9-]*")
 _PATH = re.compile(r"(?<![\w/.])(?:\.{1,2}/|~/|/)[\w./-]+|(?<![\w/.])[\w-]+(?:/[\w-]+)*/[\w-]+\.[A-Za-z0-9]+")
 
 
-def unmarked(text: str) -> List[str]:
+def unmarked(text: str) -> list[str]:
     """Command, flag and path shaped tokens outside backticks and fences, once each, in order."""
     bare = _SPAN.sub(" ", _FENCE.sub(" ", text))
-    found: List[str] = []
+    found: list[str] = []
     for pattern in (_COMMAND, _FLAG, _PATH):
         for match in pattern.finditer(bare):
             token = " ".join(match.group(0).split())
@@ -22,5 +21,5 @@ def unmarked(text: str) -> List[str]:
     return found
 
 
-def warnings(text: str) -> List[str]:
+def warnings(text: str) -> list[str]:
     return [f"warning: unmarked code-shaped text: {token}" for token in unmarked(text)]

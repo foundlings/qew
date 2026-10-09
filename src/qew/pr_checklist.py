@@ -7,7 +7,7 @@ Ticking changes one character per box and keeps every other byte, line endings i
 
 from dataclasses import dataclass
 import re
-from typing import Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 from qew.errors import QewError
 
@@ -27,17 +27,17 @@ class Box:
     ticked: bool
 
 
-def _split(line: str) -> Tuple[str, str]:
+def _split(line: str) -> tuple[str, str]:
     for ending in _ENDINGS:
         if line.endswith(ending):
             return line[: -len(ending)], ending
     return line, ""
 
 
-def boxes(body: str) -> List[Box]:
+def boxes(body: str) -> list[Box]:
     """Every checklist box outside a fenced code block, in order, with its address."""
-    found: List[Tuple[int, str, str, bool]] = []
-    fence: Optional[Tuple[str, int]] = None  # (character, length) of the open fence
+    found: list[tuple[int, str, str, bool]] = []
+    fence: tuple[str, int] | None = None  # (character, length) of the open fence
     for index, raw in enumerate(body.splitlines(keepends=True)):
         line, _ = _split(raw)
         if fence is not None:
@@ -52,24 +52,24 @@ def boxes(body: str) -> List[Box]:
         matched = _BOX.match(line)
         if matched:
             found.append((index, matched.group("tail"), matched.group("mark"), matched.group("mark") != " "))
-    markers: Dict[int, str] = {}
+    markers: dict[int, str] = {}
     for number, (index, tail, _, _) in enumerate(found, start=1):
         marker = _MARKER.search(tail)
         if marker and marker.group("id") not in markers.values():
             markers[number] = marker.group("id")
     taken = set(markers.values())
-    result: List[Box] = []
+    result: list[Box] = []
     for number, (index, tail, _, ticked) in enumerate(found, start=1):
-        marker = markers.get(number, "")
-        address = marker or (str(number) if str(number) not in taken else f"@{number}")
+        marker_id = markers.get(number, "")
+        address = marker_id or (str(number) if str(number) not in taken else f"@{number}")
         text = _MARKER.sub("", tail[1:]).strip()
-        result.append(Box(index, number, marker, address, text, ticked))
+        result.append(Box(index, number, marker_id, address, text, ticked))
     return result
 
 
-def resolve(listing: Sequence[Box], names: Sequence[str]) -> List[Box]:
+def resolve(listing: Sequence[Box], names: Sequence[str]) -> list[Box]:
     """The boxes named by `names`; an unknown or repeated name is exit 2 and nothing is chosen."""
-    chosen: List[Box] = []
+    chosen: list[Box] = []
     for name in names:
         match = next((b for b in listing if b.address == name), None)
         if match is None and name.startswith("@") and name[1:].isdigit():

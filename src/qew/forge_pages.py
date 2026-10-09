@@ -5,7 +5,7 @@ issue set on every call and an issue missing from it was deleted. A page's ETag 
 on it is created, edited, commented, deleted or shifted onto it, so the cost scales with the changed pages.
 """
 
-from typing import Callable, Mapping, Tuple, Union
+from collections.abc import Callable, Mapping
 
 from qew.forge import CachedPage, ForgeRejected, PageListing, RemoteIssue, Unsupported
 from qew.forge_http import MAX_PAGES, NotModified, header
@@ -13,7 +13,7 @@ from qew.forge_http import MAX_PAGES, NotModified, header
 DEFAULT_PAGE_SIZE = 100
 
 # page number, ETag to send ("" for none) -> NotModified, or (parsed issues, raw entry count, response headers, more)
-Fetch = Callable[[int, str], Union[NotModified, Tuple[Tuple[RemoteIssue, ...], int, Mapping[str, str], bool]]]
+Fetch = Callable[[int, str], NotModified | tuple[tuple[RemoteIssue, ...], int, Mapping[str, str], bool]]
 
 
 def list_pages(fetch: Fetch, cached: Mapping[int, CachedPage], page_size: int = DEFAULT_PAGE_SIZE) -> PageListing:

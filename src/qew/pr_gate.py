@@ -3,7 +3,7 @@
 Pure over the ledger and the code repo: it never calls a forge.
 """
 
-from typing import Dict, List, Sequence
+from collections.abc import Sequence
 
 from qew import code_vcs, ledger_graph
 from qew.errors import QewError
@@ -14,21 +14,21 @@ from qew.ledger_store import Snapshot
 from qew.pr_record import CLOSED_STATES, PrRecord
 
 
-def open_work(states: Dict[str, State], record: PrRecord) -> List[str]:
+def open_work(states: dict[str, State], record: PrRecord) -> list[str]:
     """The covered items that still have to be completed."""
     return [item_id for item_id in record.items if states[item_id] not in CLOSED_STATES]
 
 
-def delivering(states: Dict[str, State], record: PrRecord) -> List[str]:
+def delivering(states: dict[str, State], record: PrRecord) -> list[str]:
     """The covered items someone is working on: only these can have delivered anything through the head."""
     return [item_id for item_id in record.items if states[item_id] == State.CLAIMED]
 
 
-def open_children(snapshot: Snapshot, record: PrRecord, states: Dict[str, State]) -> Dict[str, List[str]]:
+def open_children(snapshot: Snapshot, record: PrRecord, states: dict[str, State]) -> dict[str, list[str]]:
     """Claimed covered items with children that are neither finished nor covered by this same pull request."""
     covered = set(record.items)
     kids = ledger_graph.children(snapshot)
-    found: Dict[str, List[str]] = {}
+    found: dict[str, list[str]] = {}
     for item_id in delivering(states, record):
         blocking = [k for k in kids.get(item_id, []) if snapshot.folds[k].state not in CLOSED_STATES and k not in covered]
         if blocking:
@@ -36,7 +36,7 @@ def open_children(snapshot: Snapshot, record: PrRecord, states: Dict[str, State]
     return found
 
 
-def refuse_open_children(snapshot: Snapshot, record: PrRecord, states: Dict[str, State]) -> None:
+def refuse_open_children(snapshot: Snapshot, record: PrRecord, states: dict[str, State]) -> None:
     found = open_children(snapshot, record, states)
     if found:
         shown = "; ".join(f"{item_id} has open children {' '.join(kids)}" for item_id, kids in found.items())
@@ -60,7 +60,7 @@ def evidence_covers(config: Config, events: Sequence[Event], head_sha: str) -> b
     return False
 
 
-def refuse_missing_evidence(config: Config, snapshot: Snapshot, record: PrRecord, states: Dict[str, State], head_sha: str) -> None:
+def refuse_missing_evidence(config: Config, snapshot: Snapshot, record: PrRecord, states: dict[str, State], head_sha: str) -> None:
     missing = [
         item_id
         for item_id in delivering(states, record)

@@ -6,7 +6,6 @@ records for another item is that item's business and is left to the forge's own 
 """
 
 import re
-from typing import List, Optional
 
 from qew.errors import QewError
 from qew.forge import MARKER_PREFIX, Forge, RemotePullRequest, Unsupported, marker_alone, marker_for
@@ -15,7 +14,7 @@ from qew.ledger_store import Ledger
 _MARKER = re.compile(rf"^<!-- {re.escape(MARKER_PREFIX)}(\S+) -->$", re.MULTILINE)
 
 
-def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: str, item_id: str) -> Optional[RemotePullRequest]:
+def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: str, item_id: str) -> RemotePullRequest | None:
     """The open pull request on `head` that is this item's, or None when the head is free; refuses any other one.
 
     A forge that cannot list pull requests by head (`Unsupported`) has nothing to adopt: the open proceeds as before.
@@ -26,7 +25,7 @@ def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: s
         return None
     recorded = {m["number"] for host in ledger.item_ids() if host != item_id for m in ledger.load_mirrors(host)
                 if m.get("kind") == "pr" and m["_target"].startswith(f"{target}-pr-") and isinstance(m.get("number"), int)}
-    mine: List[RemotePullRequest] = []
+    mine: list[RemotePullRequest] = []
     for pull in found:
         if pull.number in recorded:
             continue

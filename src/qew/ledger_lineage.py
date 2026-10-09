@@ -5,12 +5,11 @@ its origin, nor the origin into the fork); a ledger without an id only merges wi
 """
 
 import tomllib
-from typing import Tuple
 
 from qew.errors import QewError
 
 
-def parse(text: str, where: str = "qew-ledger.toml") -> Tuple[str, str]:
+def parse(text: str, where: str = "qew-ledger.toml") -> tuple[str, str]:
     """(ledger_id, forked_from), each empty when absent."""
     try:
         data = tomllib.loads(text)

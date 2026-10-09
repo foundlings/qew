@@ -1,25 +1,28 @@
 """`qew land`: after a pull request merged, record its head as evidence and complete the items it delivered."""
 
+import argparse
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import cast
 
 from qew import cmd_finish, code_vcs, ledger_config, outcome, pr_gate
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
+from qew.ledger_config import Config
 from qew.ledger_event import State
 from qew.ledger_item import Kind
 from qew.ledger_store import actor
 from qew.pr_record import positive_number
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     land = commands.add_parser("land", help="after a pull request merged, record its head as evidence and complete its claimed items")
     land.add_argument("number", type=int, help="pull request number")
     land.add_argument("--target", help="mirror target (slug or unique part)")
     land.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "land":
         return False
     result = land(ledger_config.load(), arguments.number, arguments.target)
@@ -38,21 +41,21 @@ class Landing:
     """What one `qew land` did: the report lines and the same facts as lists for a caller to parse."""
 
     state: str = "merged"
-    lines: List[str] = field(default_factory=list)
+    lines: list[str] = field(default_factory=list)
     failures: int = 0
-    landed: List[str] = field(default_factory=list)
-    held: List[dict] = field(default_factory=list)
-    clean: List[str] = field(default_factory=list)
-    open: List[str] = field(default_factory=list)
+    landed: list[str] = field(default_factory=list)
+    held: list[JsonObject] = field(default_factory=list)
+    clean: list[str] = field(default_factory=list)
+    open: list[str] = field(default_factory=list)
 
 
-def _order(loaded: Loaded) -> List[str]:
+def _order(loaded: Loaded) -> list[str]:
     """Children before their epics, so an epic completes after what it covers."""
     kinds = loaded.snapshot.items
     return sorted(loaded.record.items, key=lambda item_id: kinds[item_id].kind == Kind.EPIC)
 
 
-def land(config, number: int, target: Optional[str], build: Optional[Build] = None) -> Landing:
+def land(config: Config, number: int, target: str | None, build: Build | None = None) -> Landing:
     """Evidence and completion for every claimed item the merged pull request covered."""
     positive_number(number)
     loaded = load(config, number, target, build)
@@ -85,7 +88,7 @@ def land(config, number: int, target: Optional[str], build: Optional[Build] = No
     return result
 
 
-def _land_one(config, loaded: Loaded, item_id: str, head_sha: str, result: Landing) -> int:
+def _land_one(config: Config, loaded: Loaded, item_id: str, head_sha: str, result: Landing) -> int:
     snapshot = loaded.snapshot.ledger.snapshot()
     if snapshot.folds[item_id].state == State.COMPLETED:  # an epic finishes by itself with its last child
         result.lines.append(f"{item_id}: completed with its children")
@@ -94,7 +97,7 @@ def _land_one(config, loaded: Loaded, item_id: str, head_sha: str, result: Landi
     if snapshot.items[item_id].kind != Kind.EPIC and not pr_gate.evidence_covers(config, snapshot.folds[item_id].evidence, head_sha):
         cmd_finish.evidence(config, item_id, [head_sha], None)
     try:
-        result.lines.append(cmd_finish.complete(config, item_id)["line"])
+        result.lines.append(cast(str, cmd_finish.complete(config, item_id)["line"]))
         result.landed.append(item_id)
     except QewError as error:
         result.lines.append(f"{item_id}: not completed: {error}")

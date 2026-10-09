@@ -7,7 +7,6 @@ on an item the person created, claimed or commented on. Every event of every can
 from dataclasses import dataclass
 from datetime import datetime
 import re
-from typing import List, Optional
 
 from qew import instants, ledger_author, ledger_graph, read_view
 from qew.errors import QewError
@@ -57,7 +56,7 @@ def _involved(snapshot: Snapshot, item_id: str, me: str) -> bool:
     )
 
 
-def replies(snapshot: Snapshot, login: str, since: datetime) -> List[Reply]:
+def replies(snapshot: Snapshot, login: str, since: datetime) -> list[Reply]:
     me = login.casefold()
     found = []
     for item_id in snapshot.items:
@@ -77,13 +76,13 @@ def replies(snapshot: Snapshot, login: str, since: datetime) -> List[Reply]:
     return [reply for *_, reply in sorted(found, key=lambda entry: entry[:2])]
 
 
-def waiting(snapshot: Snapshot, login: str) -> List[str]:
+def waiting(snapshot: Snapshot, login: str) -> list[str]:
     me = login.casefold()
     return [i for i in ledger_graph.ordered(snapshot, list(snapshot.items))
             if snapshot.folds[i].state == State.DRAFT and ledger_author.author(snapshot, i).casefold() == me]
 
 
-def assigned(snapshot: Snapshot, login: str) -> List[str]:
+def assigned(snapshot: Snapshot, login: str) -> list[str]:
     me = login.casefold()
     return [i for i in ledger_graph.ordered(snapshot, list(snapshot.items))
             if snapshot.folds[i].state == State.CLAIMED and snapshot.folds[i].owner.casefold() == me]
@@ -103,7 +102,7 @@ def count_line(snapshot: Snapshot, login: str, since: datetime, listed: int = CO
     return f"{head}; {len(waiting(snapshot, login))} waiting for a human; {len(assigned(snapshot, login))} assigned."
 
 
-def hook_line(snapshot: Snapshot, login: str, room: int) -> Optional[str]:
+def hook_line(snapshot: Snapshot, login: str, room: int) -> str | None:
     """The count line for the session-start context when something waits and it fits in `room` bytes."""
     since = instants.days_ago(WINDOW_DAYS)
     if not (replies(snapshot, login, since) or waiting(snapshot, login) or assigned(snapshot, login)):

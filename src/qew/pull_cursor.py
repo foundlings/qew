@@ -9,9 +9,9 @@ an issue no longer exists on the forge.
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional
 
 from qew import instants
+from qew.jsontypes import JsonObject
 
 MARGIN = timedelta(seconds=120)
 FULL_EVERY = timedelta(hours=24)
@@ -24,11 +24,11 @@ class Cursor:
     full_at: datetime  # start of the last pull that saw the complete issue set
     mode: str  # how that pull listed: conditional (ETag pages), incremental (since) or full
 
-    def to_json(self) -> dict:
+    def to_json(self) -> JsonObject:
         return {"pulled_at": instants.format_instant(self.pulled_at), "full_at": instants.format_instant(self.full_at), "mode": self.mode}
 
 
-def parse(value: object) -> Optional[Cursor]:
+def parse(value: object) -> Cursor | None:
     """The cursor a file holds, or None when it is absent or damaged (the cost is one extra full listing)."""
     if not isinstance(value, dict):
         return None
@@ -42,23 +42,23 @@ def parse(value: object) -> Optional[Cursor]:
     return Cursor(pulled_at, full_at, mode)
 
 
-def full_due(cursor: Optional[Cursor], now: datetime) -> bool:
+def full_due(cursor: Cursor | None, now: datetime) -> bool:
     return cursor is None or now - cursor.full_at >= FULL_EVERY
 
 
-def since_of(cursor: Optional[Cursor], now: datetime, force_full: bool) -> str:
+def since_of(cursor: Cursor | None, now: datetime, force_full: bool) -> str:
     """The `since` argument of the listing: empty means everything."""
     if force_full or cursor is None or full_due(cursor, now):
         return ""
     return instants.format_instant(cursor.pulled_at - MARGIN)
 
 
-def after_pull(cursor: Optional[Cursor], started: datetime, mode: str) -> Cursor:
+def after_pull(cursor: Cursor | None, started: datetime, mode: str) -> Cursor:
     """`mode` conditional or full saw the complete set; an incremental pull keeps the earlier full time."""
     return Cursor(started, cursor.full_at if mode == "incremental" and cursor else started, mode)
 
 
-def next_mode(cursor: Optional[Cursor], now: datetime) -> str:
+def next_mode(cursor: Cursor | None, now: datetime) -> str:
     """How the next pull will list, as `qew status` shows it."""
     if cursor is None or full_due(cursor, now):
         return "full"

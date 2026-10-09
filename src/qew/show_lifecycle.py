@@ -1,8 +1,9 @@
 """The lifecycle facts `qew show` adds to an item: who holds it, how it finished, what it links to."""
 
-from typing import Dict, List, Tuple
 
 from qew import untrusted_text
+from qew.jsontypes import JsonObject
+from qew.ledger_event import Event
 from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
 
@@ -13,9 +14,9 @@ def _safe(text: str) -> str:
     return f"[text withheld: {', '.join(hidden)}]" if hidden else " ".join(text.split())
 
 
-def closed_links(snapshot: Snapshot, item_id: str) -> Dict[str, List[str]]:
+def closed_links(snapshot: Snapshot, item_id: str) -> dict[str, list[str]]:
     """Closed items that name this one as the original (`duplicate_of`) or as their replacement (`superseded_by`)."""
-    found: Dict[str, List[str]] = {"duplicate_of": [], "superseded_by": []}
+    found: dict[str, list[str]] = {"duplicate_of": [], "superseded_by": []}
     for other, folded in snapshot.folds.items():
         if folded.closure is not None:
             for key in found:
@@ -24,7 +25,7 @@ def closed_links(snapshot: Snapshot, item_id: str) -> Dict[str, List[str]]:
     return {key: sorted(ids) for key, ids in found.items()}
 
 
-def _completion_line(event) -> str:
+def _completion_line(event: Event) -> str:
     parts = [_safe(event.get("reason") or "no reason given")]
     if event.get("commits"):
         parts.append(f"landed {' '.join(event.get('commits'))} on {event.get('branch')}")
@@ -39,21 +40,21 @@ def _completion_line(event) -> str:
     return " | ".join(parts)
 
 
-def _closure_line(event) -> str:
-    text = event.get("reason")
+def _closure_line(event: Event) -> str:
+    text: str = event.get("reason")
     for key, word in (("duplicate_of", "of"), ("superseded_by", "by")):
         if event.get(key):
             text += f" {word} {event.get(key)}"
     return text + (f" ({_safe(event.get('note'))})" if event.get("note") else "")
 
 
-def extras(snapshot: Snapshot, item_id: str) -> Tuple[dict, List[str]]:
+def extras(snapshot: Snapshot, item_id: str) -> tuple[JsonObject, list[str]]:
     """(machine fields, text lines) for one item; the machine form always carries `claim` and `holders`."""
     folded = snapshot.folds[item_id]
     holders = snapshot.derived[item_id][1]
     links = closed_links(snapshot, item_id)
-    data: dict = {"claim": folded.claim, "holders": list(holders)}
-    lines: List[str] = []
+    data: JsonObject = {"claim": folded.claim, "holders": list(holders)}
+    lines: list[str] = []
     events = sorted(snapshot.events[item_id], key=lambda event: event.id)
     origin = snapshot.items[item_id].discovered_from
     if origin:

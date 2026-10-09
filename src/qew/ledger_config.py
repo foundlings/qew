@@ -7,7 +7,8 @@ import re
 from pathlib import Path
 import re
 import tomllib
-from typing import Dict, List, Optional, Tuple
+from typing import cast
+from collections.abc import Iterable
 from urllib.parse import urlsplit
 
 from qew import __version__
@@ -28,9 +29,9 @@ class OfflineClaims(Enum):
 class Mirror:
     forge: str
     repo: str
-    project: Optional[str]
+    project: str | None
     select: str
-    options: Dict[str, object]
+    options: dict[str, object]
     read_only: bool = False  # a one-way mirror (ledger to forge): pull never imports its edits
     mode: str = "repository"  # "repository": qew owns the whole tracker; "overlay": a shared tracker, qew marks its issues
 
@@ -55,7 +56,7 @@ class Replication:
         return os.environ.get("QEW_OFFLINE", "") not in ("", "0")
 
 
-_REPLICATION_KEYS = {
+_REPLICATION_KEYS: dict[str, type | tuple[type, ...]] = {
     "auto_commit": bool, "auto_push": bool, "auto_forge_sync": bool, "background_sync": bool,
     "timeout_s": (int, float), "fetch_interval_s": (int, float), "sync_retry_s": (int, float), "sync_budget_s": (int, float), "forge_concurrency": int, "branch": str,
 }
@@ -77,7 +78,7 @@ def _replication(section: object) -> Replication:
     return Replication(**section)
 
 
-def _authority(section: object, mirrors: Tuple["Mirror", ...]) -> str:
+def _authority(section: object, mirrors: tuple[Mirror, ...]) -> str:
     """The primary forge target's slug, or `none`; a unique fragment of a slug is accepted."""
     if section is None:
         return "none"
@@ -113,14 +114,14 @@ class Config:
     ledger_path: Path
     prefix: str
     target: str
-    mirrors: Tuple[Mirror, ...]
+    mirrors: tuple[Mirror, ...]
     replication: Replication = Replication()
     authority: str = "none"  # slug of the primary forge target, or "none": the ledger remote arbitrates
-    max_active_claims: Optional[int] = None  # per-actor cap on claimed items; None = no cap
+    max_active_claims: int | None = None  # per-actor cap on claimed items; None = no cap
     offline_claims: OfflineClaims = OfflineClaims.REFUSE
 
 
-def find_root(start: Optional[Path] = None) -> Optional[Path]:
+def find_root(start: Path | None = None) -> Path | None:
     here = (start or Path.cwd()).resolve()
     for directory in (here, *here.parents):
         if (directory / CONFIG).is_file():
@@ -128,7 +129,7 @@ def find_root(start: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
-def load(start: Optional[Path] = None) -> Config:
+def load(start: Path | None = None) -> Config:
     """The code repo config, or a config built from `QEW_LEDGER` / a ledger cwd."""
     root = find_root(start)
     if root is None:
@@ -170,7 +171,7 @@ def _refuse_real_ledger_under_test(ledger_path: Path) -> None:
         raise QewError(f"under test qew only uses ledgers inside the temporary directory, not {ledger_path}", 2)
 
 
-def _claim_cap(section: object) -> Optional[int]:
+def _claim_cap(section: object) -> int | None:
     """`[claims] max_active_claims`: a positive integer, or absent for no cap; anything else is exit 2."""
     if section is None:
         return None
@@ -230,21 +231,21 @@ def _require_minimum_version(section: object) -> None:
     wanted = _VERSION.match(minimum) if isinstance(minimum, str) else None
     if wanted is None:
         raise QewError(f"[qew] minimum_version must look like 1.2.3, not {minimum!r}", 2)
-    running = tuple(int(n) for n in _VERSION.match(__version__).groups())
+    running = tuple(int(n) for n in cast(re.Match[str], _VERSION.match(__version__)).groups())
     if running < tuple(int(n) for n in wanted.groups()):
         raise QewError(
             f"this repository needs qew {minimum} or newer; this is {__version__}; upgrade with scripts/setup_user.py", 2)
 
 
-def _distinct(mirrors) -> Tuple[Mirror, ...]:
+def _distinct(mirrors: Iterable[Mirror]) -> tuple[Mirror, ...]:
     """One mirror per target: URL spellings that differ in case or `.git` are the same repository."""
-    seen = {}
+    seen: dict[str, Mirror] = {}
     for mirror in mirrors:
         seen.setdefault(mirror_slug(mirror), mirror)
     return tuple(seen.values())
 
 
-def _project_number(value: object) -> Optional[str]:
+def _project_number(value: object) -> str | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
@@ -266,7 +267,8 @@ def _mirror(entry: object) -> Mirror:
     title = entry.get("project_title")
     if title is not None and (not isinstance(title, str) or not title.strip()):
         raise QewError("mirror `project_title` must not be empty", 2)
-    forge = ALIASES.get(entry["forge"], entry["forge"])
+    named: str = entry["forge"]
+    forge = ALIASES.get(named, named)
     for name in _URL_OPTIONS:
         if name in entry:
             _checked_url(entry[name], name, forge, repository=False)
@@ -287,7 +289,7 @@ def _mirror(entry: object) -> Mirror:
     )
 
 
-def _ledger_from_environment(start: Optional[Path]) -> Optional[Path]:
+def _ledger_from_environment(start: Path | None) -> Path | None:
     override = os.environ.get("QEW_LEDGER")
     if override:
         return Path(override).resolve()
@@ -323,7 +325,7 @@ def is_read_only(config: Config, mirror: Mirror) -> bool:
     return mirror.read_only or config.authority != "none"
 
 
-def validated_mirror(entry: Dict[str, object]) -> Mirror:
+def validated_mirror(entry: dict[str, object]) -> Mirror:
     """The mirror a `[[mirror]]` table would define, refusing what the loader refuses."""
     return _mirror(entry)
 

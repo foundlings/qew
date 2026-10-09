@@ -1,7 +1,6 @@
 """The optional lane fields of a claim: shape rules shared by the command and the event schema."""
 
 import re
-from typing import Optional
 
 from qew.errors import QewError
 
@@ -29,7 +28,7 @@ def kind(value: str, exit_code: int = 2) -> str:
     return value
 
 
-def validate(lane_value: Optional[str], workspace_value: Optional[str], kind_value: Optional[str], exit_code: int = 2) -> None:
+def validate(lane_value: str | None, workspace_value: str | None, kind_value: str | None, exit_code: int = 2) -> None:
     """Check whichever fields are present; workspace and kind are meaningless without a lane."""
     if lane_value is not None:
         lane(lane_value, exit_code)

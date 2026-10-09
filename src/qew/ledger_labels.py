@@ -1,6 +1,6 @@
 """Label names a ledger accepts: one word, bounded, and outside the namespaces sync owns."""
 
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from qew.errors import QewError
 
@@ -10,7 +10,7 @@ RESERVED_PREFIXES = ("qew:", "kind:", "priority:", "status:", "author:")
 RESERVED_NAMES = ("in-progress", "epic", "task", "p0", "p1", "p2", "p3", "p4")  # the reference board's claim label, the kind labels and the priority labels
 
 
-def problem(label: str) -> Optional[str]:
+def problem(label: str) -> str | None:
     """Why `label` cannot be a ledger label, or None."""
     if not label.strip():
         return "label must not be empty"

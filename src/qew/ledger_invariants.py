@@ -1,6 +1,6 @@
 """Graph invariants `qew check` reports with counts: orphans, cross-epic parents, depth, needs on closed items."""
 
-from typing import Dict, List
+from collections.abc import Iterable
 
 from qew.ledger_event import State
 from qew.ledger_ids import sort_key
@@ -11,11 +11,11 @@ AREA = "area:"
 _ORPHAN = "belongs to no item"
 
 
-def _areas(labels) -> frozenset:
+def _areas(labels: Iterable[str]) -> frozenset[str]:
     return frozenset(label[len(AREA):] for label in labels if label.startswith(AREA))
 
 
-def cross_parent(snapshot: Snapshot) -> List[str]:
+def cross_parent(snapshot: Snapshot) -> list[str]:
     """Children filed under a parent that shares none of their `area:` labels (only when both have one)."""
     found = []
     for item_id in sorted(snapshot.items, key=sort_key):
@@ -31,9 +31,9 @@ def cross_parent(snapshot: Snapshot) -> List[str]:
     return found
 
 
-def deep_needs(snapshot: Snapshot) -> List[str]:
+def deep_needs(snapshot: Snapshot) -> list[str]:
     """Items whose longest needs chain exceeds the limit and that no deeper item builds on. Cycles are skipped."""
-    depth: Dict[str, int] = {}
+    depth: dict[str, int] = {}
     for start in snapshot.items:
         stack = [(start, iter(snapshot.items[start].needs))]
         on_path = {start}
@@ -58,7 +58,7 @@ def deep_needs(snapshot: Snapshot) -> List[str]:
     ]
 
 
-def closed_needs(snapshot: Snapshot) -> List[str]:
+def closed_needs(snapshot: Snapshot) -> list[str]:
     """Open work that needs a closed item: it can never become ready."""
     found = []
     for item_id in sorted(snapshot.items, key=sort_key):
@@ -70,7 +70,7 @@ def closed_needs(snapshot: Snapshot) -> List[str]:
     return found
 
 
-def report(snapshot: Snapshot, problems: List[str], notes: List[str]) -> None:
+def report(snapshot: Snapshot, problems: list[str], notes: list[str]) -> None:
     """Add the invariant problems (and the counts line) to `problems`; a deep chain is only a warning in `notes`."""
     orphans = sum(1 for problem in problems if problem.endswith(_ORPHAN))
     cross_found, closed_found, deep_found = cross_parent(snapshot), closed_needs(snapshot), deep_needs(snapshot)

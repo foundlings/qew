@@ -20,7 +20,7 @@ being down never blocks reading, planning or finishing work.
 
 ## Install
 
-Python 3.11+, no runtime dependencies. On Linux and macOS `sh scripts/install.sh` installs `qew` into `~/.local/bin`
+Python 3.15+, no runtime dependencies (the type checker is a developer tool). On Linux and macOS `sh scripts/install.sh` installs `qew` into `~/.local/bin`
 (details: `docs/specs/installation.md`).
 
 ## Quickstart

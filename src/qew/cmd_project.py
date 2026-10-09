@@ -1,6 +1,7 @@
 """`qew project ensure`: create the seven-status board per target."""
 
-from typing import Callable
+import argparse
+from collections.abc import Callable
 
 from qew import forge_registry, ledger_config, project_prune, project_status, sync_plan, untrusted_text
 from qew.cmd_items import ledger_for
@@ -10,7 +11,7 @@ from qew.forge import COLUMNS, Forge, ForgeError, Unsupported
 from qew.ledger_config import Config, Mirror
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     project = commands.add_parser("project", help="mirror boards")
     sub = project.add_subparsers(dest="project_command", required=True)
     ensure = sub.add_parser("ensure", help="create the seven-status board on each target")
@@ -23,7 +24,7 @@ def register(commands) -> None:
     report.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "project":
         return False
     if arguments.project_command == "prune":
@@ -39,7 +40,7 @@ def run(arguments) -> bool:
     return True
 
 
-def ensure(config: Config, wanted, build: Callable[[Mirror], Forge] = forge_registry.build) -> str:
+def ensure(config: Config, wanted: str | None, build: Callable[[Mirror], Forge] = forge_registry.build) -> str:
     ledger = ledger_for(config)
     lines = []
     failed = False

@@ -4,19 +4,19 @@ Nothing here is stored. Only open direct non-epic children count (not `needs` ed
 epics); a completed or closed epic shows nothing derived.
 """
 
-from typing import Dict, Tuple
 
 from qew.ledger_event import State
 from qew.ledger_item import Kind
+from qew.ledger_store import Snapshot
 
 
-def derive(snapshot) -> Dict[str, Tuple[State, Tuple[str, ...]]]:
+def derive(snapshot: Snapshot) -> dict[str, tuple[State | None, tuple[str, ...]]]:
     """Every item's effective state and holders; only epics differ from their folded state."""
-    held: Dict[str, set] = {}
+    held: dict[str, set[str]] = {}
     for item in snapshot.items.values():
         if item.parent and item.kind != Kind.EPIC and snapshot.folds[item.id].state == State.CLAIMED:
             held.setdefault(item.parent, set()).add(snapshot.folds[item.id].owner)
-    result: Dict[str, Tuple[State, Tuple[str, ...]]] = {}
+    result: dict[str, tuple[State | None, tuple[str, ...]]] = {}
     for item_id, item in snapshot.items.items():
         folded = snapshot.folds[item_id]
         holders = {folded.owner} if folded.owner else set()

@@ -8,10 +8,10 @@ issue is closed by the pull, a lost claim is final, mirror-only merge conflicts 
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 from qew import ledger_item
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_repo import MAX_DISCARDED_CHARS, LedgerRepo, MergeConflict, OWNED
 from qew.ledger_store import Snapshot
@@ -33,7 +33,7 @@ class Side(str, Enum):
     LEDGER = "ledger"
 
 
-SIDES: Dict[ConflictKind, Tuple[Side, ...]] = {
+SIDES: dict[ConflictKind, tuple[Side, ...]] = {
     ConflictKind.LEDGER_MERGE: (Side.OURS, Side.THEIRS),
     ConflictKind.DIVERGENCE: (Side.FORGE, Side.LEDGER),
     ConflictKind.CLAIM_CONTEST: (Side.FORGE, Side.LEDGER),
@@ -57,16 +57,16 @@ class Conflict:
     field: str
     ledger: str
     forge: str
-    files: Tuple[str, ...] = ()
-    differences: Tuple[Difference, ...] = ()
+    files: tuple[str, ...] = ()
+    differences: tuple[Difference, ...] = ()
     resolvable: bool = True
 
-    def commands(self) -> List[str]:
+    def commands(self) -> list[str]:
         if not self.resolvable:
             return []
         return [f"qew resolve {self.id} --take {side.value} --reason TEXT" for side in SIDES[self.kind]]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> JsonObject:
         return {
             "kind": self.kind.value, "id": self.id, "item": self.item, "target": self.target, "field": self.field,
             "ledger": self.ledger, "forge": self.forge, "files": list(self.files), "resolvable": self.resolvable,
@@ -86,7 +86,7 @@ class Conflict:
         return "\n".join(lines)
 
 
-def divergences(snapshot: Snapshot) -> List[Conflict]:
+def divergences(snapshot: Snapshot) -> list[Conflict]:
     found = []
     for item_id in sorted(snapshot.items):
         fold = snapshot.folds[item_id]
@@ -100,12 +100,12 @@ def divergences(snapshot: Snapshot) -> List[Conflict]:
     return found
 
 
-def _clip(text: Optional[str]) -> str:
+def _clip(text: str | None) -> str:
     return "(absent)" if text is None else text[:SHOWN_CHARS]
 
 
-def _differences(repo: LedgerRepo, pending: MergeConflict) -> Tuple[Difference, ...]:
-    found: List[Difference] = []
+def _differences(repo: LedgerRepo, pending: MergeConflict) -> tuple[Difference, ...]:
+    found: list[Difference] = []
     for relative in pending.files:
         ours, theirs = repo.file_at(pending.ours, relative), repo.file_at(pending.theirs, relative)
         try:
@@ -122,7 +122,7 @@ def _differences(repo: LedgerRepo, pending: MergeConflict) -> Tuple[Difference, 
     return tuple(found)
 
 
-def merge_conflict(config: Config) -> Optional[Conflict]:
+def merge_conflict(config: Config) -> Conflict | None:
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
     pending = repo.pending_conflict()
     if pending is None:
@@ -134,13 +134,13 @@ def merge_conflict(config: Config) -> Optional[Conflict]:
                     _differences(repo, pending), owned)
 
 
-def collect(config: Config, snapshot: Snapshot) -> List[Conflict]:
+def collect(config: Config, snapshot: Snapshot) -> list[Conflict]:
     """The ledger merge conflict first (it blocks every write), then divergences and contests."""
     merge = merge_conflict(config)
     return ([merge] if merge else []) + divergences(snapshot)
 
 
-def clipped_discard(text: Optional[str]) -> Optional[str]:
+def clipped_discard(text: str | None) -> str | None:
     """The side that was not kept, bounded; the full text stays in the merge's other parent commit."""
     if text is None or len(text) <= MAX_DISCARDED_CHARS:
         return text

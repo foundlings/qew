@@ -7,7 +7,7 @@ back to the forge, never evaluated.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Collection, List
+from collections.abc import Collection
 
 from qew.forge import Forge, ForgeError, RemoteBranch, Unsupported
 
@@ -44,13 +44,13 @@ def delete_merged_head(forge: Forge, head: str, never: Collection[str]) -> HeadF
     return HeadFate(head, Fate.DELETED)
 
 
-def removable(forge: Forge, base: str, target: str) -> List[str]:
+def removable(forge: Forge, base: str, target: str) -> list[str]:
     """Names of the branches whose tip `base` already holds and that nothing needs, in listing order.
 
     Raises the forge's error untouched when it cannot answer: an unanswered question never counts as merged.
     """
     in_use = set(forge.list_open_pull_heads())
-    found: List[str] = []
+    found: list[str] = []
     for branch in forge.list_branches():
         if _kept(branch, base, target, in_use):
             continue

@@ -45,7 +45,7 @@ class InstallShellWalk(unittest.TestCase):
             refused = subprocess.run(["/bin/sh", str(script)], cwd=PROJECT_ROOT, env=bare, capture_output=True, text=True, check=False)
             if not any(Path(p).exists() and os.access(p, os.X_OK) for p in ("/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3")):
                 self.assertEqual(refused.returncode, 3)
-                self.assertIn("Python 3.11", refused.stderr)
+                self.assertIn("Python 3.15", refused.stderr)
 
 
 @unittest.skipUnless(SUPPORTED, "the setup script installs only on Linux and macOS")

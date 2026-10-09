@@ -5,7 +5,6 @@ The script is a tracked file, so switching the hook off shows up in the diff.
 
 from pathlib import Path
 import subprocess
-from typing import Optional
 
 from qew.errors import QewError
 from qew.hook_config import install_managed_file, remove_managed_file
@@ -20,14 +19,14 @@ exec qew hook vcs-check --pre-push
 """
 
 
-def _git(root: Path, *arguments: str) -> subprocess.CompletedProcess:
+def _git(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(["git", "-C", str(root), *arguments], capture_output=True, text=True, check=False)
     except OSError as error:
         raise QewError(f"cannot run git: {error}", 3) from None
 
 
-def _hooks_path(root: Path) -> Optional[str]:
+def _hooks_path(root: Path) -> str | None:
     result = _git(root, "config", "--local", "--get", "core.hooksPath")
     return result.stdout.strip() if result.returncode == 0 else None
 

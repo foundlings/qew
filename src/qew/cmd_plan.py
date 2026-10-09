@@ -1,11 +1,12 @@
 """`qew plan status`: a rollup of one epic's direct children, derived from files only."""
 
+import argparse
 import json
-from typing import List, Optional
 
 from qew import ledger_config, ledger_graph
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import State
 from qew.ledger_item import Kind
@@ -15,7 +16,7 @@ SCHEMA_VERSION = 1
 NEXT_REASON = "highest-priority ready child"
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     plan = commands.add_parser("plan", help="plan rollups")
     sub = plan.add_subparsers(dest="plan_command", required=True)
     status = sub.add_parser("status", help="roll up the direct children of an epic (every open epic when none is named)")
@@ -23,7 +24,7 @@ def register(commands) -> None:
     status.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "plan":
         return False
     print(status(ledger_config.load(), arguments.epic, arguments.json))
@@ -41,7 +42,7 @@ def _loud(snapshot: Snapshot, item_id: str) -> None:
         raise QewError(f"{item_id} has no events; run `qew check`", 1)
 
 
-def rollup(snapshot: Snapshot, epic_id: str) -> dict:
+def rollup(snapshot: Snapshot, epic_id: str) -> JsonObject:
     _loud(snapshot, epic_id)
     kids = ledger_graph.children(snapshot).get(epic_id, [])
     for kid in kids:
@@ -63,6 +64,8 @@ def rollup(snapshot: Snapshot, epic_id: str) -> dict:
     best = ledger_graph.ordered(snapshot, [k for k in kids if k in ready])
     epic = snapshot.items[epic_id]
     state = snapshot.folds[epic_id].state
+    if state is None:  # _loud refused this already
+        raise QewError(f"{epic_id} has no events; run `qew check`", 1)
     draft = state == State.DRAFT
     completable = not draft and counts["total"] > 0 and counts["closed"] == counts["total"]
     return {
@@ -77,7 +80,7 @@ def rollup(snapshot: Snapshot, epic_id: str) -> dict:
     }
 
 
-def _text(plan: dict) -> List[str]:
+def _text(plan: JsonObject) -> list[str]:
     counts = plan["counts"]
     head = f"{plan['id']} {plan['state']} {plan['title']}" + (" (draft plan)" if plan["draft"] else "")
     progress = f"{counts['closed']}/{counts['total']} closed" + (f", {counts['draft']} drafts" if counts["draft"] else "")
@@ -89,7 +92,7 @@ def _text(plan: dict) -> List[str]:
     return lines
 
 
-def status(config: Config, reference: Optional[str], as_json: bool) -> str:
+def status(config: Config, reference: str | None, as_json: bool) -> str:
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
     if reference:

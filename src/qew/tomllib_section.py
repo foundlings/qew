@@ -2,12 +2,15 @@
 
 from pathlib import Path
 import tomllib
-from typing import Dict
+from typing import cast
+from collections.abc import Iterable
+
+from qew.jsontypes import JsonObject
 
 from qew.errors import QewError
 
 
-def read(path: Path, name: str, keys: Dict[str, type]) -> dict:
+def read(path: Path, name: str, keys: dict[str, type]) -> JsonObject:
     """The table `name` (empty when absent); a key outside `keys` or of the wrong type is exit 1."""
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -21,6 +24,6 @@ def read(path: Path, name: str, keys: Dict[str, type]) -> dict:
     for key, value in section.items():
         if key not in keys:
             raise QewError(f"[{name}] has an unknown key `{key}`", 1)
-        if not isinstance(value, keys[key]) or (keys[key] is list and not all(isinstance(v, str) for v in value)):
+        if not isinstance(value, keys[key]) or (keys[key] is list and not all(isinstance(v, str) for v in cast(Iterable[object], value))):
             raise QewError(f"[{name}] {key} has the wrong type", 1)
     return section

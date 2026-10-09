@@ -10,7 +10,7 @@ import os
 import re
 import threading
 import time
-from typing import Dict, Iterable, Optional
+from collections.abc import Iterable
 
 from qew.errors import QewError
 
@@ -68,7 +68,7 @@ def event_id(after: str = "") -> str:
     return _encode(seconds, _TIME_WIDTH) + _encode(pair, 2)
 
 
-def letters_after(value: Optional[str]) -> str:
+def letters_after(value: str | None) -> str:
     """A, B .. Z, AA, AB .. ZZ, AAA .. (the spreadsheet column after `value`)."""
     if not value:
         return "A"
@@ -99,12 +99,12 @@ def next_id(mode: str, existing: Iterable[str]) -> str:
     raise QewError(f"unknown id_mode `{mode}`; use one of {', '.join(MODES)}", 1)
 
 
-def sort_key(item_id: str):
+def sort_key(item_id: str) -> tuple[int, str]:
     """Shorter first, then lexical: right for fixed-width time IDs, letters and counters alike."""
     return (len(item_id), item_id)
 
 
-def parse_modes(value: object, kinds: Iterable[str]) -> Dict[str, str]:
+def parse_modes(value: object, kinds: Iterable[str]) -> dict[str, str]:
     """`id_mode = "time"` for every kind, or a table with one mode per kind (others default to time)."""
     modes = {kind: "time" for kind in kinds}
     if value is None:

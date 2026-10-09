@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from typing import Optional
+from collections.abc import Callable, Iterable
 
 from qew import filelock, trace
 from qew.ledger_config import Config
@@ -55,7 +55,7 @@ def retry_at(config: Config) -> float:
     return 0.0
 
 
-def enqueue(config: Config, item_ids) -> None:
+def enqueue(config: Config, item_ids: Iterable[str]) -> None:
     """Remember which items a write touched: the worker syncs exactly those (a union, so bursts cost one run)."""
     ids = sorted(set(item_ids))
     if not ids:
@@ -64,7 +64,7 @@ def enqueue(config: Config, item_ids) -> None:
         handle.write("".join(f"{item_id}\n" for item_id in ids))
 
 
-def take_queue(config: Config) -> list:
+def take_queue(config: Config) -> list[str]:
     """Drain the queued item ids (each once); ids queued while this runs land in a fresh file for the next round."""
     path = cache_dir(config) / "sync.queue"
     taken = path.with_name("sync.queue.taking")
@@ -82,7 +82,7 @@ def catch_up_pending(config: Config) -> bool:
     return (cache_dir(config) / "sync.pending").exists()
 
 
-def queue(config: Config, item_ids=()) -> None:
+def queue(config: Config, item_ids: Iterable[str] = ()) -> None:
     """Queue the touched items and start one detached worker unless one is running or the forge asked for a pause."""
     cache = cache_dir(config)
     enqueue(config, item_ids)
@@ -127,7 +127,7 @@ def newest_event(config: Config) -> str:
     return max((p.stem for d in events.iterdir() if d.is_dir() for p in d.glob("*.json")), default="")
 
 
-def run_worker(config: Config, run_once) -> None:
+def run_worker(config: Config, run_once: Callable[[], bool]) -> None:
     """Hold the worker lock, sync until nothing new arrived meanwhile (at most 3 rounds), keep the marker honest."""
     lock = filelock.hold(cache_dir(config) / "sync.lock", verb="sync worker", wait_s=0, what="the sync worker")
     try:
@@ -140,7 +140,7 @@ def run_worker(config: Config, run_once) -> None:
         lock.__exit__(None, None, None)
 
 
-def _run_locked(config: Config, run_once) -> None:
+def _run_locked(config: Config, run_once: Callable[[], bool]) -> None:
     global _backoff
     _backoff = 0.0
     if trace.enabled():

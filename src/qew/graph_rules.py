@@ -3,22 +3,22 @@
 `qew check` reports the same problems for hand-merged files; this module is the write-time half.
 """
 
-from typing import Dict, Iterable, List, Mapping
+from collections.abc import Iterable, Mapping
 
 from qew.errors import QewError
 from qew.ledger_item import Item, Kind
 
 # Which parent kinds may hold each child kind: epic > issue > task, and a task may also sit directly under an epic.
-PARENT_KINDS: Dict[Kind, tuple] = {Kind.EPIC: (), Kind.ISSUE: (Kind.EPIC,), Kind.TASK: (Kind.ISSUE, Kind.EPIC)}
+PARENT_KINDS: dict[Kind, tuple[Kind, ...]] = {Kind.EPIC: (), Kind.ISSUE: (Kind.EPIC,), Kind.TASK: (Kind.ISSUE, Kind.EPIC)}
 
 
-def _components(items: Mapping[str, Item]) -> Dict[str, int]:
+def _components(items: Mapping[str, Item]) -> dict[str, int]:
     """Strongly connected component number of every item along `needs` (iterative Tarjan, linear time)."""
-    index: Dict[str, int] = {}
-    low: Dict[str, int] = {}
-    on_stack = set()
-    stack: List[str] = []
-    component: Dict[str, int] = {}
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    on_stack: set[str] = set()
+    stack: list[str] = []
+    component: dict[str, int] = {}
     counted = 0
     for root in items:
         if root in index:
@@ -60,7 +60,7 @@ def _components(items: Mapping[str, Item]) -> Dict[str, int]:
     return component
 
 
-def _cycle_path(items: Mapping[str, Item], start: str, members: set) -> List[str]:
+def _cycle_path(items: Mapping[str, Item], start: str, members: set[str]) -> list[str]:
     """A path from `start` back to itself inside one component (iterative depth-first)."""
     seen = {start}
     path = [start]
@@ -98,7 +98,7 @@ def validate_edges(items: Mapping[str, Item], changed: Iterable[str]) -> None:
             raise QewError(f"{item_id}: unknown parent {item.parent}", 2)
     _check_nesting(items, changed_ids)
     components = _components(items)  # parent cycles are impossible once nesting holds (epic > issue > task)
-    sizes: Dict[int, int] = {}
+    sizes: dict[int, int] = {}
     for number in components.values():
         sizes[number] = sizes.get(number, 0) + 1
     for item_id in changed_ids:
@@ -107,7 +107,7 @@ def validate_edges(items: Mapping[str, Item], changed: Iterable[str]) -> None:
             raise QewError(f"needs cycle: {' -> '.join(_cycle_path(items, item_id, members))}", 2)
 
 
-def _check_nesting(items: Mapping[str, Item], changed: List[str]) -> None:
+def _check_nesting(items: Mapping[str, Item], changed: list[str]) -> None:
     """The changed items under their parents, and the items under the changed ones (a kind change can orphan them)."""
     wanted = set(changed)
     for item in items.values():

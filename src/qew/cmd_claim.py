@@ -4,7 +4,8 @@ Refusals are distinct for agent loops: 2 the work may not start or the usage is 
 (or another lane of you does), 5 you already hold exactly this claim, 6 the per-actor claim cap is reached.
 """
 
-from typing import Dict, List, Optional
+import argparse
+from typing import Any
 
 from qew import claim_authority, claim_fields, ledger_graph, outcome, replication
 from qew.cmd_items import ledger_for
@@ -14,14 +15,14 @@ from qew.ledger_event import Folded, State
 from qew.ledger_item import Kind
 from qew.ledger_store import Ledger, Snapshot, actor
 
-_STATE_REASON = {
+_STATE_REASON: dict[State | None, str] = {
     State.DRAFT: "it is a draft; only a human's quoted words release it (qew draft approve)",
     State.COMPLETED: "it is completed (qew reopen)",
     State.CLOSED: "it is closed (qew reopen)",
 }
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     start = commands.add_parser("start", help="claim approved, unblocked work")
     start.add_argument("item", help="item id or alias")
     start.add_argument("--take-over", action="store_true", help="take over a claim another actor holds (needs --reason)")
@@ -40,12 +41,12 @@ def register(commands) -> None:
     release.add_argument("--json", action="store_true", help="machine-readable output")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command == "start":
         config = _config()
         result = start(config, arguments.item, arguments.take_over, arguments.reason,
                        arguments.lane, arguments.workspace, arguments.kind, arguments.offline)
-        line = outcome.render(arguments, result.pop("line"), **result)
+        line = outcome.render(arguments, str(result.pop("line")), **result)
         if not claim_authority.PENDING:
             print(line)
         else:
@@ -53,7 +54,7 @@ def run(arguments) -> bool:
         return True
     if arguments.command == "release":
         result = release(_config(), arguments.item, arguments.reason, arguments.force, arguments.lane)
-        print(outcome.render(arguments, result.pop("line"), **result))
+        print(outcome.render(arguments, str(result.pop("line")), **result))
         return True
     return False
 
@@ -71,7 +72,7 @@ def holding(snapshot: Snapshot, item_id: str) -> str:
     return f"{folded.owner} (lane {lane})" if lane else folded.owner
 
 
-def _lane_of(folded: Folded) -> Optional[str]:
+def _lane_of(folded: Folded) -> str | None:
     return (folded.claim or {}).get("lane")
 
 
@@ -81,9 +82,9 @@ def _refuse_state(snapshot: Snapshot, item_id: str, verb: str) -> QewError:
     return QewError(f"cannot {verb} {item_id}: {why}", 2)
 
 
-def start(config: Config, reference: str, take_over: bool = False, reason: Optional[str] = None,
-          lane: Optional[str] = None, workspace: Optional[str] = None, kind: Optional[str] = None,
-          offline: bool = False) -> Dict[str, object]:
+def start(config: Config, reference: str, take_over: bool = False, reason: str | None = None,
+          lane: str | None = None, workspace: str | None = None, kind: str | None = None,
+          offline: bool = False) -> dict[str, object]:
     claim_fields.validate(lane, workspace, kind)
     if offline and take_over:
         raise QewError("--offline cannot be combined with --take-over: a takeover is arbitrated, never provisional", 2)
@@ -118,7 +119,7 @@ def start(config: Config, reference: str, take_over: bool = False, reason: Optio
     _enforce_cap(config, snapshot, me)
     if take_over:
         claim_authority.release(config, ledger, item_id)
-        ledger.append_event(item_id, "released", reason=reason.strip(), previous_owner=holder, forced=True)
+        ledger.append_event(item_id, "released", reason=(reason or "").strip(), previous_owner=holder, forced=True)
     claimed = claim_authority.claim(config, ledger, item_id, me, mode, **fields)
     title = snapshot.items[item_id].title
     short = title if len(title) <= TITLE_SHOWN else title[:TITLE_SHOWN - 1] + "…"
@@ -134,14 +135,14 @@ _PROVISIONAL_NOTE = {
 }
 
 
-def _provisional_field(*claimed: "claim_authority.Claimed") -> Dict[str, object]:
+def _provisional_field(*claimed: claim_authority.Claimed) -> dict[str, object]:
     return {"provisional": True} if claim_authority.Claimed.PROVISIONAL in claimed else {}
 
 
-def _descendants(snapshot: Snapshot, root: str) -> List[str]:
+def _descendants(snapshot: Snapshot, root: str) -> list[str]:
     """Every item below `root`, breadth first, each once."""
     kids = ledger_graph.children(snapshot)
-    found: List[str] = []
+    found: list[str] = []
     queue = list(kids.get(root, []))
     while queue:
         item_id = queue.pop(0)
@@ -151,8 +152,8 @@ def _descendants(snapshot: Snapshot, root: str) -> List[str]:
     return found
 
 
-def _start_epic(config: Config, ledger, snapshot: Snapshot, epic_id: str, me: str, fields: Dict[str, str],
-                mode: "claim_authority.ClaimMode") -> Dict[str, object]:
+def _start_epic(config: Config, ledger: Ledger, snapshot: Snapshot, epic_id: str, me: str, fields: dict[str, str],
+                mode: claim_authority.ClaimMode) -> dict[str, object]:
     """Claim an epic and its open descendants in one operation: all of them or none.
 
     Descendants that cannot start (drafts, work with unmet needs, finished work) are left alone; one held by
@@ -174,8 +175,8 @@ def _start_epic(config: Config, ledger, snapshot: Snapshot, epic_id: str, me: st
         mine = sum(1 for folded in snapshot.folds.values() if folded.state == State.CLAIMED and folded.owner == me)
         if mine + len(targets) > cap:
             raise QewError(f"claiming {len(targets)} items would give {me} more than max_active_claims = {cap}", 6)
-    posted: List[str] = []
-    outcomes: List["claim_authority.Claimed"] = []
+    posted: list[str] = []
+    outcomes: list[claim_authority.Claimed] = []
     try:
         for item_id in targets:
             outcomes.append(claim_authority.claim(config, ledger, item_id, me, mode, **fields))
@@ -193,7 +194,7 @@ def _start_epic(config: Config, ledger, snapshot: Snapshot, epic_id: str, me: st
             "actor": me, "claimed": targets, **_provisional_field(*outcomes), **fields}
 
 
-def _refuse_own_claim(item_id: str, folded: Folded, lane: Optional[str], take_over: bool) -> None:
+def _refuse_own_claim(item_id: str, folded: Folded, lane: str | None, take_over: bool) -> None:
     if take_over:
         raise QewError(f"nothing to take over: you already hold {item_id}", 2)
     held = _lane_of(folded)
@@ -212,7 +213,7 @@ def _enforce_cap(config: Config, snapshot: Snapshot, me: str) -> None:
         raise QewError(f"{me} already holds {mine} active claims; max_active_claims is {cap}", 6)
 
 
-def release(config: Config, reference: str, reason: str, force: bool = False, lane: Optional[str] = None) -> Dict[str, object]:
+def release(config: Config, reference: str, reason: str, force: bool = False, lane: str | None = None) -> dict[str, object]:
     if not (reason or "").strip():
         raise QewError("release needs --reason TEXT", 2)
     if lane is not None:
@@ -234,7 +235,7 @@ def release(config: Config, reference: str, reason: str, force: bool = False, la
     if overrides and not force:
         hint = f"; name its lane with --lane {held_lane} or use --force" if held_lane and lane is None and folded.owner == me else "; to release it anyway use --force"
         raise QewError(f"{item_id} is claimed by {holding(snapshot, item_id)}{hint}", 3)
-    data: Dict[str, object] = {"reason": reason.strip(), "previous_owner": folded.owner}
+    data: dict[str, Any] = {"reason": reason.strip(), "previous_owner": folded.owner}
     if lane is not None:
         data["lane"] = lane
     if held_lane:

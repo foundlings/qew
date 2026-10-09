@@ -7,7 +7,7 @@ machine does not allow is a typed refusal, never a silent no-op.
 from dataclasses import dataclass
 from enum import Enum
 import json
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from qew import claim_fields, instants
 from qew.errors import QewError
@@ -29,7 +29,7 @@ class State(str, Enum):
 
 
 # type -> (required string fields, allowed source states; None = initial event only)
-_RULES: Dict[str, Tuple[Tuple[str, ...], Optional[Tuple[State, ...]]]] = {
+_RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     "drafted": ((), None),
     "approved": (("quote",), (State.DRAFT,)),
     "reverted": (("reason", "quote"), (State.APPROVED,)),
@@ -77,7 +77,7 @@ class Event:
     type: str
     at: str
     actor: str
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
     def get(self, key: str, default: Any = "") -> Any:
         return self.data.get(key, default)
@@ -134,7 +134,7 @@ def _strings(value: Any) -> bool:
     return isinstance(value, list) and bool(value) and all(isinstance(i, str) and i for i in value)
 
 
-def _check_optional_fields(kind: str, value: Dict[str, Any], where: str) -> None:
+def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None:
     """Schema of the optional fields an event may carry; a malformed one makes `qew check` fail loudly."""
 
     def text(key: str) -> None:
@@ -180,35 +180,35 @@ def _check_optional_fields(kind: str, value: Dict[str, Any], where: str) -> None
 
 @dataclass(frozen=True)
 class Folded:
-    state: Optional[State]
+    state: State | None
     owner: str
-    evidence: Tuple[Event, ...]
-    errors: Tuple[str, ...]
+    evidence: tuple[Event, ...]
+    errors: tuple[str, ...]
     imported: bool = False  # completed by an import path, without verifiable evidence
-    divergences: Tuple[Event, ...] = ()  # unresolved: forge-side state changes, and `claimed` events contesting a held item
-    claim: Optional[Dict[str, Optional[str]]] = None  # {by, kind, lane, workspace} while claimed
-    lost_claims: Tuple[Tuple[str, str], ...] = ()  # (event id, actor) of claims that lost a merged race
-    completion: Optional[Event] = None  # the `completed` event that finished the item
-    closure: Optional[Event] = None  # the `closed` event while the item is closed
+    divergences: tuple[Event, ...] = ()  # unresolved: forge-side state changes, and `claimed` events contesting a held item
+    claim: dict[str, str | None] | None = None  # {by, kind, lane, workspace} while claimed
+    lost_claims: tuple[tuple[str, str], ...] = ()  # (event id, actor) of claims that lost a merged race
+    completion: Event | None = None  # the `completed` event that finished the item
+    closure: Event | None = None  # the `closed` event while the item is closed
 
 
-def fold(events: List[Event]) -> Folded:
+def fold(events: list[Event]) -> Folded:
     """Apply events in ID order; collect every illegal transition instead of stopping.
 
     Two writers on different branches may both claim an item. A claim the authority recorded as lost
     (`claim_lost`) never held the item. Of two claims that nobody arbitrated, the oldest in the current
     claim period holds it; a later claim by another actor is a recorded lost race, not corruption.
     """
-    state: Optional[State] = None
+    state: State | None = None
     owner = ""
-    claim: Optional[Dict[str, Optional[str]]] = None
-    lost_claims: List[Tuple[str, str]] = []
-    completion: Optional[Event] = None
-    closure: Optional[Event] = None
-    evidence: List[Event] = []
-    errors: List[str] = []
+    claim: dict[str, str | None] | None = None
+    lost_claims: list[tuple[str, str]] = []
+    completion: Event | None = None
+    closure: Event | None = None
+    evidence: list[Event] = []
+    errors: list[str] = []
     imported = False
-    contested: List[Event] = []
+    contested: list[Event] = []
     lost = {e.get("ref") for e in events if e.type == "claim_lost"}
     for event in sorted(events, key=lambda item: item.id):
         if event.type == "claimed" and event.id in lost:
@@ -268,7 +268,7 @@ def fold(events: List[Event]) -> Folded:
                   tuple(lost_claims), completion, closure)
 
 
-def needs_after(base: Tuple[str, ...], events: List[Event]) -> Tuple[str, ...]:
+def needs_after(base: tuple[str, ...], events: list[Event]) -> tuple[str, ...]:
     """The effective needs: the header's list with every `edge` event applied in ID order.
 
     Each added or removed edge is its own event file, so two branches that change different edges merge
@@ -284,7 +284,7 @@ def needs_after(base: Tuple[str, ...], events: List[Event]) -> Tuple[str, ...]:
     return tuple(needs)
 
 
-def transition_error(state: Optional[State], event_type: str) -> Optional[str]:
+def transition_error(state: State | None, event_type: str) -> str | None:
     """Why `event_type` is refused from `state`, or None when allowed."""
     _, sources = _RULES[event_type]
     if sources is None or state is None:

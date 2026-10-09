@@ -2,15 +2,14 @@
 
 from dataclasses import dataclass, replace
 import json
-from pathlib import Path
 import tomllib
-from typing import Dict, List, Tuple
 
 from qew import board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
+from qew.jsontypes import JsonObject
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import State, fold, needs_after, parse_event, valid_actor
+from qew.ledger_event import Event, State, fold, needs_after, parse_event, valid_actor
 from qew.ledger_ids import sort_key
 from qew.ledger_item import Item, Kind, check_header_values, parse_item, read_item_text
 from qew.ledger_store import Ledger, Snapshot
@@ -21,24 +20,24 @@ MAX_PRIORITY = 9
 DRAFT_MARKERS = ("draft", "qew:draft")
 
 
-def check(ledger: Ledger) -> List[str]:
+def check(ledger: Ledger) -> list[str]:
     return check_report(ledger)[0]
 
 
-def load(ledger: Ledger) -> Tuple[Snapshot, List[str]]:
+def load(ledger: Ledger) -> tuple[Snapshot, list[str]]:
     """Parse every file of the ledger: the snapshot of what parsed and the structural problems.
 
     Structural problems (unreadable or malformed files, duplicate ids, orphaned history, illegal
     transitions, bad metadata) make a ledger unreadable; edge and mirror problems are `check`'s own.
     """
-    problems: List[str] = []
+    problems: list[str] = []
     _check_metadata(ledger, problems)
-    items: Dict[str, Item] = {}
-    claimed: Dict[str, str] = {}
+    items: dict[str, Item] = {}
+    claimed: dict[str, str] = {}
     folds = {}
     events = {}
     aliases = ledger.aliases()
-    owners: Dict[str, str] = {}
+    owners: dict[str, str] = {}
     for path in sorted(ledger.items_dir.glob("*.md")) if ledger.items_dir.is_dir() else []:
         where = f"items/{path.name}"
         if path.stem in aliases.superseded:
@@ -89,21 +88,21 @@ def read_snapshot(ledger: Ledger) -> Snapshot:
 
 @dataclass(frozen=True)
 class Report:
-    problems: List[str]
-    notes: List[str]
-    cycles: List[List[str]]
-    contradictions: List[Dict[str, str]]
-    text_findings: List[Dict[str, object]]
-    advisories: List[str]
+    problems: list[str]
+    notes: list[str]
+    cycles: list[list[str]]
+    contradictions: list[dict[str, str]]
+    text_findings: list[dict[str, object]]
+    advisories: list[str]
 
-    def as_json(self) -> dict:
+    def as_json(self) -> JsonObject:
         return {
             "schema_version": SCHEMA_VERSION, "valid": not self.problems, "cycles": self.cycles,
             "contradictions": self.contradictions, "text_findings": self.text_findings, "problems": self.problems,
         }
 
 
-def check_report(ledger: Ledger):
+def check_report(ledger: Ledger) -> tuple[list[str], list[str]]:
     """(problems, notes): problems fail the check; notes (counts and advisories) are reported and never fatal."""
     report = analyse(ledger)
     return report.problems, [*report.notes, *report.advisories]
@@ -118,7 +117,7 @@ def analyse(ledger: Ledger) -> Report:
     _check_mirror_progress(snapshot, problems)
     _check_claim_refs(snapshot, problems)
     problems.extend(board_config.problems(ledger))
-    warnings: List[str] = []
+    warnings: list[str] = []
     ledger_invariants.report(snapshot, problems, warnings)
     problems.extend(f"items/{item.id}.md: {found}" for item in snapshot.items.values()
                     for found in map(ledger_labels.problem, item.labels) if found)  # flagged by check; reads stay available
@@ -137,7 +136,7 @@ def analyse(ledger: Ledger) -> Report:
     return Report(problems, notes, _cycles(snapshot), found, findings, _advisories(found, findings))
 
 
-def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
+def _check_metadata(ledger: Ledger, problems: list[str]) -> None:
     try:
         data = tomllib.loads((ledger.path / LEDGER_FILE).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
@@ -147,9 +146,9 @@ def _check_metadata(ledger: Ledger, problems: List[str]) -> None:
         problems.append(f"{LEDGER_FILE}: schema_version must be {SCHEMA_VERSION}")
 
 
-def _load_events(ledger: Ledger, item_id: str, problems: List[str]) -> list:
-    found = []
-    seen = set()
+def _load_events(ledger: Ledger, item_id: str, problems: list[str]) -> list[Event]:
+    found: list[Event] = []
+    seen: set[str] = set()
     for directory in ledger.events_homes(item_id):
         for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
             if path.stem in seen:
@@ -162,7 +161,7 @@ def _load_events(ledger: Ledger, item_id: str, problems: List[str]) -> list:
     return sorted(found, key=lambda event: event.id)
 
 
-def _check_orphans(ledger: Ledger, items: Dict[str, Item], aliases: ledger_aliases.Aliases, problems: List[str]) -> None:
+def _check_orphans(ledger: Ledger, items: dict[str, Item], aliases: ledger_aliases.Aliases, problems: list[str]) -> None:
     for directory in (ledger.events_dir, ledger.mirrors_dir):
         if directory.is_dir():
             for child in sorted(directory.iterdir()):
@@ -170,7 +169,7 @@ def _check_orphans(ledger: Ledger, items: Dict[str, Item], aliases: ledger_alias
                     problems.append(f"{directory.name}/{child.name}: belongs to no item")
 
 
-def _check_edges(snapshot: Snapshot, problems: List[str]) -> None:
+def _check_edges(snapshot: Snapshot, problems: list[str]) -> None:
     for item in snapshot.items.values():
         where = f"items/{item.id}.md"
         for need in item.needs:
@@ -193,7 +192,7 @@ def _check_edges(snapshot: Snapshot, problems: List[str]) -> None:
             problems.append(f"{label} cycle: {' -> '.join(cycle)}")
 
 
-def _check_completed(snapshot: Snapshot, problems: List[str]):
+def _check_completed(snapshot: Snapshot, problems: list[str]) -> tuple[int, int]:
     """(imported without evidence, completed with an explicit no-code reason); both are counted, not fatal."""
     imported = without_code = 0
     for item_id, item in snapshot.items.items():
@@ -208,7 +207,7 @@ def _check_completed(snapshot: Snapshot, problems: List[str]):
     return imported, without_code
 
 
-def _stale_claim_notes(snapshot: Snapshot) -> List[str]:
+def _stale_claim_notes(snapshot: Snapshot) -> list[str]:
     """Claimed items whose recorded pull request merged: the fix is `qew land`, nothing is written."""
     stale = {item_id: stale_claims.merged_pull_requests(snapshot, item_id) for item_id in snapshot.items}
     stale = {item_id: numbers for item_id, numbers in stale.items() if numbers}
@@ -218,7 +217,7 @@ def _stale_claim_notes(snapshot: Snapshot) -> List[str]:
     return [f"claimed but its pull request merged: {' '.join(sorted(stale))} (fix: {'; '.join(f'qew land {n}' for n in fixes)})"]
 
 
-def _lost_claim_notes(snapshot: Snapshot) -> List[str]:
+def _lost_claim_notes(snapshot: Snapshot) -> list[str]:
     """A merged double claim is not corruption: the oldest claim holds, the later actors are named."""
     return [
         f"lost claim: {item_id} {actor} (held by {folded.owner}, event {event_id})"
@@ -226,7 +225,7 @@ def _lost_claim_notes(snapshot: Snapshot) -> List[str]:
         for event_id, actor in folded.lost_claims
     ]
 
-def _check_claim_refs(snapshot: Snapshot, problems: List[str]) -> None:
+def _check_claim_refs(snapshot: Snapshot, problems: list[str]) -> None:
     for item_id in snapshot.items:
         by_id = {e.id: e for e in snapshot.events[item_id]}
         for event in snapshot.events[item_id]:
@@ -236,17 +235,17 @@ def _check_claim_refs(snapshot: Snapshot, problems: List[str]) -> None:
                     problems.append(f"events/{item_id}/{event.id}: {event.type} names no `claimed` event of this item")
 
 
-def _check_mirror_progress(snapshot: Snapshot, problems: List[str]) -> None:
+def _check_mirror_progress(snapshot: Snapshot, problems: list[str]) -> None:
     """A mirror cannot have synced an event the item does not have: that would hide pending work."""
     for item_id in snapshot.items:
         newest = max((e.id for e in snapshot.events[item_id]), default="")
         for mirror in snapshot.ledger.load_mirrors(item_id):
-            claimed = mirror.get("synced_event", "")
+            claimed: object = mirror.get("synced_event", "")  # read from disk: not trusted to be text
             if isinstance(claimed, str) and claimed > newest:
                 problems.append(f"mirrors/{item_id}/{mirror['_target']}.json: synced_event {claimed} is newer than the item's newest event")
 
 
-def _check_mirrors(ledger: Ledger, items: Dict[str, Item], problems: List[str]) -> None:
+def _check_mirrors(ledger: Ledger, items: dict[str, Item], problems: list[str]) -> None:
     if not ledger.mirrors_dir.is_dir():
         return
     for path in sorted(ledger.mirrors_dir.glob("*/*.json")):
@@ -260,7 +259,7 @@ def _check_mirrors(ledger: Ledger, items: Dict[str, Item], problems: List[str]) 
             problems.append(f"{where}: a mirror needs {', '.join(_MIRROR_KEYS)}")
 
 
-def text_findings(snapshot: Snapshot) -> List[Dict[str, object]]:
+def text_findings(snapshot: Snapshot) -> list[dict[str, object]]:
     """Advisory: hidden or confusable text per item and field, as `{item, source, kind: true}`."""
     return [
         {"item": item_id, **finding}
@@ -269,13 +268,13 @@ def text_findings(snapshot: Snapshot) -> List[Dict[str, object]]:
     ]
 
 
-def _advisories(found: List[Dict[str, str]], findings: List[Dict[str, object]]) -> List[str]:
+def _advisories(found: list[dict[str, str]], findings: list[dict[str, object]]) -> list[str]:
     lines = [f"advisory: {c['item']} {c['kind']}" for c in found]
     lines += [f"advisory: {f['item']} {text_findings_module.where(f)}: {text_findings_module.describe(f)}" for f in findings]
     return lines
 
 
-def _cycles(snapshot: Snapshot) -> List[List[str]]:
+def _cycles(snapshot: Snapshot) -> list[list[str]]:
     """Each needs or parent cycle once, rotated to start at its smallest id and closed back on it."""
     needs = {i.id: [n for n in i.needs if n in snapshot.items] for i in snapshot.items.values()}
     parents = {i.id: [i.parent] if i.parent in snapshot.items else [] for i in snapshot.items.values()}
@@ -288,7 +287,7 @@ def _cycles(snapshot: Snapshot) -> List[List[str]]:
     return [list(cycle) for cycle in sorted(found)]
 
 
-def contradictions(snapshot: Snapshot) -> List[Dict[str, str]]:
+def contradictions(snapshot: Snapshot) -> list[dict[str, str]]:
     """Advisory: states the ledger can hold but a board or a plan cannot show (they never fail the check)."""
     found = []
     for item_id, item in sorted(snapshot.items.items()):

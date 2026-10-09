@@ -3,19 +3,17 @@
 import json
 import os
 from pathlib import Path
-import sys
 import tempfile
 from dataclasses import replace
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 from qew import graph_rules, ledger_config, ledger_labels
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
-from qew.ledger_event import Event, State, fold, parse_event
-from qew.ledger_ids import valid_id
-from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header, title_is_one_line
-from qew.ledger_store import Ledger, actor, now, open_ledger
-from qew.requester import require_quote
+from qew.ledger_event import State
+from qew.ledger_item import title_is_one_line
+from qew.ledger_store import Ledger, open_ledger
 
 
 def ledger_for(config: Config) -> Ledger:
@@ -49,7 +47,7 @@ def _write_atomic(path: Path, text: str) -> None:
         raise QewError(f"cannot write {path}: {error}", 1) from None
 
 
-def init(ledger: Optional[str]) -> str:
+def init(ledger: str | None) -> str:
     root = repository_root(Path.cwd().resolve())
     config_path = root / CONFIG
     if config_path.parent.is_symlink() or config_path.is_symlink():
@@ -71,18 +69,18 @@ def init(ledger: Optional[str]) -> str:
     return "\n".join([*(f"created {path}" for path in created), TRUST_GUIDANCE])
 
 
-Change = Tuple[str, str, str, str]  # item id, key, old, new
+Change = tuple[str, str, str, str]  # item id, key, old, new
 
 
 def set_fields(
     config: Config,
-    references: List[str],
-    changes: Dict[str, str],
-    body: Optional[str],
+    references: list[str],
+    changes: dict[str, str],
+    body: str | None,
     allow_closed: bool = False,
     add_labels: Sequence[str] = (),
     remove_labels: Sequence[str] = (),
-) -> List[Change]:
+) -> list[Change]:
     """Change header fields and the body of one or more items; every change is audited and read back."""
     if "title" in changes and (not changes["title"].strip() or not title_is_one_line(changes["title"])):
         raise QewError("a title is one line and not blank", 2)
@@ -101,7 +99,7 @@ def set_fields(
         if state in (State.COMPLETED, State.CLOSED) and not allow_closed:
             raise QewError(f"{item_id} is {state.value}; pass --closed to edit finished work", 2)
     proposed = dict(snapshot.items)
-    audit: List[Change] = []  # in write order
+    audit: list[Change] = []  # in write order
     for item_id in ids:
         item = proposed[item_id]
         wanted = dict(changes)
@@ -140,7 +138,7 @@ def set_fields(
     return audit
 
 
-def create(config: Config, specs: List[dict], quote: Optional[str], import_events: bool = False) -> List[str]:
+def create(config: Config, specs: list[JsonObject], quote: str | None, import_events: bool = False) -> list[str]:
     """File the given item specs in one step (the programmatic form of `qew create`); returns `ID state title` lines."""
     from qew import plan_apply, plan_file  # late: plan_apply builds on this module
 

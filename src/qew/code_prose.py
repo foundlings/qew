@@ -8,7 +8,7 @@ runs to the end) are code; everything else is scanned. Findings are advisory and
 from functools import lru_cache
 import re
 import sys
-from typing import Iterable, List, Tuple
+from collections.abc import Iterable
 
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _INLINE = re.compile(r"(`+).+?\1")
@@ -21,13 +21,13 @@ _PIPX = ("install", "uninstall", "run", "upgrade", "inject")
 
 
 @lru_cache(maxsize=1)
-def _qew_words() -> Tuple[str, ...]:
+def _qew_words() -> tuple[str, ...]:
     from qew import cli  # late: cli imports this module
 
     return tuple(sorted(cli.top_level_commands()))  # built once: the parser is expensive and scanned bodies are many
 
 
-def _invocation(words: Iterable[str]) -> "re.Pattern[str]":
+def _invocation(words: Iterable[str]) -> re.Pattern[str]:
     return re.compile(r"\b(qew|git|gh|pipx)\s+(" + "|".join(re.escape(w) for w in words) + r")\b")
 
 
@@ -45,11 +45,11 @@ def _prose_lines(text: str) -> Iterable[str]:
         yield _INLINE.sub(" ", line)
 
 
-def scan(text: str) -> List[str]:
+def scan(text: str) -> list[str]:
     """Code-shaped tokens in unmarked prose, in order of first appearance."""
     invocations = _invocation(sorted({*_qew_words(), *_GIT, *_GH, *_PIPX}))
     allowed = {"qew": set(_qew_words()), "git": set(_GIT), "gh": set(_GH), "pipx": set(_PIPX)}
-    found: List[str] = []
+    found: list[str] = []
     for line in _prose_lines(text):
         hits = []
         for match in invocations.finditer(line):

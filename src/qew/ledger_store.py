@@ -2,29 +2,32 @@
 
 from dataclasses import dataclass, field, replace
 from functools import cached_property
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 import json
 import os
 import subprocess
 import threading
 import tomllib
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Any, cast
+from collections.abc import Iterable
 
 from qew import ledger_aliases
 from qew.errors import QewError
+from qew.mirror_types import MirrorRecord
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import Event, Folded, fold, needs_after, parse_event, valid_actor
+from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, valid_actor
 from qew.ledger_item import Item, parse_item, read_item_text, render_item
+from qew.jsontypes import JsonObject
 from qew.ledger_ids import event_id, next_id, parse_modes, sort_key
 
 _INTENTS = threading.Lock()  # sync workers add and clear creating intents in one shared file
 
 def now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-_configured: Optional[str] = None
+_configured: str | None = None
 
 
 def _safe(name: str, source: str) -> str:
@@ -59,7 +62,7 @@ def actor() -> str:
 class Ledger:
     path: Path
     prefix: str = ""
-    id_modes: Dict[str, str] = field(default_factory=lambda: {"epic": "time", "issue": "time", "task": "time"})
+    id_modes: dict[str, str] = field(default_factory=lambda: {"epic": "time", "issue": "time", "task": "time"})
 
     @property
     def items_dir(self) -> Path:
@@ -74,7 +77,7 @@ class Ledger:
         return self.path / "mirrors"
 
     # -- reading
-    def item_ids(self) -> List[str]:
+    def item_ids(self) -> list[str]:
         if not self.items_dir.is_dir():
             return []
         stale = self.aliases().superseded
@@ -83,10 +86,10 @@ class Ledger:
     def aliases(self) -> ledger_aliases.Aliases:
         return ledger_aliases.scan(self.items_dir)
 
-    def events_homes(self, item_id: str) -> List[Path]:
+    def events_homes(self, item_id: str) -> list[Path]:
         return self._homes(self.events_dir, item_id)
 
-    def _homes(self, root: Path, item_id: str) -> List[Path]:
+    def _homes(self, root: Path, item_id: str) -> list[Path]:
         """The directories that may hold this item's files: under its id, and under any id it had before a migration."""
         return [root / name for name in (item_id, *self.aliases().of(item_id))]
 
@@ -101,7 +104,7 @@ class Ledger:
             raise QewError(f"{path}: header id {item.id} does not match the file name", 1)
         return item
 
-    def load_events(self, item_id: str) -> List[Event]:
+    def load_events(self, item_id: str) -> list[Event]:
         events = []
         seen = set()
         for directory in self._homes(self.events_dir, item_id):
@@ -116,7 +119,7 @@ class Ledger:
                 events.append(parse_event(path.stem, text, str(path)))
         return sorted(events, key=lambda event: event.id)
 
-    def load_mirrors(self, item_id: str) -> List[dict]:
+    def load_mirrors(self, item_id: str) -> list[MirrorRecord]:
         """Mirror records: the committed identity merged with this machine's local sync state."""
         mirrors = []
         seen = set()
@@ -131,14 +134,14 @@ class Ledger:
                     raise QewError(f"{path}: {error}", 1) from None
                 if not isinstance(value, dict):
                     raise QewError(f"{path}: a mirror is one JSON object", 1)
-                mirrors.append({**value, **self.read_state(item_id, path.stem), "_target": path.stem})
+                mirrors.append(cast(MirrorRecord, {**value, **self.read_state(item_id, path.stem), "_target": path.stem}))
         return mirrors
 
     # -- local sync state: what this machine knows about a forge, never committed
     def state_path(self, item_id: str, target: str) -> Path:
         return self.path / ".qew" / "state" / target / f"{item_id}.json"
 
-    def read_state(self, item_id: str, target: str) -> dict:
+    def read_state(self, item_id: str, target: str) -> JsonObject:
         path = next((p for p in (self.state_path(name, target) for name in (item_id, *self.aliases().of(item_id))) if p.is_file()), None)
         if path is None:
             return {}
@@ -148,10 +151,10 @@ class Ledger:
             return {}  # a damaged cache only costs a redundant forge update; the ledger is untouched
         return value if isinstance(value, dict) else {}
 
-    def snapshot(self) -> "Snapshot":
-        items: Dict[str, Item] = {}
-        folds: Dict[str, Folded] = {}
-        events: Dict[str, List[Event]] = {}
+    def snapshot(self) -> Snapshot:
+        items: dict[str, Item] = {}
+        folds: dict[str, Folded] = {}
+        events: dict[str, list[Event]] = {}
         aliases = self.aliases()
         for item_id in self.item_ids():
             events[item_id] = self.load_events(item_id)
@@ -161,7 +164,7 @@ class Ledger:
         return Snapshot(self, items, folds, events)
 
     # -- resolving
-    def resolve(self, reference: str, ids: Optional[Iterable[str]] = None) -> str:
+    def resolve(self, reference: str, ids: Iterable[str] | None = None) -> str:
         """Full ID from an exact ID, an exact ID ignoring case, or a unique prefix."""
         known = list(ids if ids is not None else self.item_ids())
         text = reference.strip()
@@ -188,7 +191,7 @@ class Ledger:
         path = self.items_dir / f"{item.id}.md"
         _write(path, render_item(item), exclusive=not overwrite)
 
-    def append_event(self, item_id: str, event_type: str, at: str = "", by: str = "", **data: object) -> Event:
+    def append_event(self, item_id: str, event_type: str, at: str = "", by: str = "", **data: Any) -> Event:
         directory = self.events_dir / item_id
         directory.mkdir(parents=True, exist_ok=True)
         existing = sorted(path.stem for path in directory.glob("*.json"))
@@ -196,7 +199,7 @@ class Ledger:
         _write(directory / f"{event.id}.json", event.to_json(), exclusive=True)
         return event
 
-    def write_mirror(self, item_id: str, target: str, value: dict) -> None:
+    def write_mirror(self, item_id: str, target: str, value: MirrorRecord) -> None:
         """Identity keys go to the committed mirror file (written once); everything else is local state."""
         identity = {k: v for k, v in value.items() if k in MIRROR_IDENTITY}
         volatile = {k: v for k, v in value.items() if k not in MIRROR_IDENTITY and k != "_target"}
@@ -219,7 +222,7 @@ class Ledger:
     def cursor_path(self, target: str) -> Path:
         return self.path / ".qew" / "state" / target / "cursor.json"
 
-    def read_cursor(self, target: str) -> dict:
+    def read_cursor(self, target: str) -> JsonObject:
         """The pull cursor of one target (see pull_cursor); {} when absent or damaged."""
         path = self.cursor_path(target)
         if not path.is_file():
@@ -230,7 +233,7 @@ class Ledger:
             return {}  # a damaged cursor only costs one extra full listing
         return value if isinstance(value, dict) else {}
 
-    def write_cursor(self, target: str, value: dict) -> None:
+    def write_cursor(self, target: str, value: JsonObject) -> None:
         path = self.cursor_path(target)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_local(path, json.dumps(value, sort_keys=True, indent=2) + "\n")
@@ -238,7 +241,7 @@ class Ledger:
     def intent_path(self, target: str) -> Path:
         return self.path / ".qew" / "state" / target / "creating.json"
 
-    def creating_intents(self, target: str) -> dict:
+    def creating_intents(self, target: str) -> JsonObject:
         """Items whose forge issue this machine started creating and has not yet recorded: {item id: ISO time}.
 
         Local, never committed; a damaged file reads as empty (the cost is one cheap-path create).
@@ -275,7 +278,7 @@ class Ledger:
     def layout_path(self, target: str) -> Path:
         return self.path / ".qew" / "state" / target / "board-layout.json"
 
-    def read_board_layout(self, target: str) -> Optional[dict]:
+    def read_board_layout(self, target: str) -> JsonObject | None:
         """The board structure a worker cached for one target (see Forge.board_layout); None when absent or damaged."""
         try:
             value = json.loads(self.layout_path(target).read_text(encoding="utf-8"))
@@ -283,14 +286,14 @@ class Ledger:
             return None  # a damaged cache only costs one structure read
         return value if isinstance(value, dict) else None
 
-    def write_board_layout(self, target: str, value: dict) -> None:
+    def write_board_layout(self, target: str, value: JsonObject) -> None:
         path = self.layout_path(target)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write_local(path, json.dumps(value, sort_keys=True) + "\n")
 
-    def read_page_files(self, target: str) -> Dict[int, object]:
+    def read_page_files(self, target: str) -> dict[int, object]:
         """The cached listing pages of a target by page number; damaged files are left out."""
-        found: Dict[int, object] = {}
+        found: dict[int, object] = {}
         for path in (self.path / ".qew" / "state" / target / "pages").glob("*.json"):
             try:
                 found[int(path.stem)] = json.loads(path.read_text(encoding="utf-8"))
@@ -298,7 +301,7 @@ class Ledger:
                 continue
         return found
 
-    def write_page_files(self, target: str, pages: Dict[int, dict]) -> None:
+    def write_page_files(self, target: str, pages: dict[int, JsonObject]) -> None:
         """Replace the cached pages with exactly `pages`."""
         directory = self.path / ".qew" / "state" / target / "pages"
         directory.mkdir(parents=True, exist_ok=True)
@@ -313,7 +316,7 @@ class Ledger:
         discard(self.mirrors_dir / item_id / f"{target}.json")
         self.state_path(item_id, target).unlink(missing_ok=True)
 
-    def read_board(self, target: str) -> Optional[dict]:
+    def read_board(self, target: str) -> JsonObject | None:
         path = self.path / "boards" / f"{target}.json"
         if not path.is_file():
             return None
@@ -329,32 +332,32 @@ class Ledger:
     def views_dir(self) -> Path:
         return self.path / "views"
 
-    def write_view(self, name: str, value: dict, overwrite: bool) -> None:
+    def write_view(self, name: str, value: JsonObject, overwrite: bool) -> None:
         """One file per named board view; a new name never replaces an existing file."""
         self.views_dir.mkdir(parents=True, exist_ok=True)
         _write(self.views_dir / f"{name}.json", json.dumps(value, sort_keys=True, indent=2) + "\n", exclusive=not overwrite)
 
-    def write_board(self, target: str, value: dict) -> None:
+    def write_board(self, target: str, value: JsonObject) -> None:
         directory = self.path / "boards"
         directory.mkdir(parents=True, exist_ok=True)
         _write(directory / f"{target}.json", json.dumps(value, sort_keys=True, indent=2) + "\n", exclusive=False)
 
-    def new_id(self, kind: str, taken: Optional[Iterable[str]] = None) -> str:
+    def new_id(self, kind: str, taken: Iterable[str] | None = None) -> str:
         return next_id(self.id_modes[kind], taken if taken is not None else self.item_ids())
 
 
 @dataclass(frozen=True)
 class Snapshot:
     ledger: Ledger
-    items: Dict[str, Item]
-    folds: Dict[str, Folded]
-    events: Dict[str, List[Event]]
+    items: dict[str, Item]
+    folds: dict[str, Folded]
+    events: dict[str, list[Event]]
 
     def short(self, item_id: str) -> str:
         return item_id
 
     @cached_property
-    def derived(self):
+    def derived(self) -> dict[str, tuple[State | None, tuple[str, ...]]]:
         """item id -> (effective state, holders); an epic is in progress while a direct child is claimed."""
         from qew import epic_claims
 
@@ -372,7 +375,7 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
 
 
 MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items")
-JOURNAL: Optional[List[Tuple[Path, Optional[str]]]] = None  # (path, previous text or None) while a session records
+JOURNAL: list[tuple[Path, str | None]] | None = None  # (path, previous text or None) while a session records
 
 
 def journal_start() -> None:
@@ -380,13 +383,13 @@ def journal_start() -> None:
     JOURNAL = []
 
 
-def journal_take() -> List[Tuple[Path, Optional[str]]]:
+def journal_take() -> list[tuple[Path, str | None]]:
     global JOURNAL
     taken, JOURNAL = JOURNAL or [], None
     return taken
 
 
-def journal_rollback(entries: List[Tuple[Path, Optional[str]]]) -> None:
+def journal_rollback(entries: list[tuple[Path, str | None]]) -> None:
     """Undo recorded writes, newest first: restore previous text or delete a new file."""
     for path, previous in reversed(entries):
         if previous is None:

@@ -5,7 +5,6 @@ that makes the forge close an issue when the pull request merges.
 """
 
 import re
-from typing import Optional
 
 from qew.errors import QewError
 from qew.forge import marker_for
@@ -34,8 +33,8 @@ def build_body(
     item_id: str,
     issue_number: int,
     what: str,
-    why: Optional[str],
-    testing: Optional[str],
+    why: str | None,
+    testing: str | None,
     extra: str,
 ) -> str:
     """Marker, the `Delivers` line, then the What / Why / Testing sections that have text, then `extra`."""

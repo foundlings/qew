@@ -5,15 +5,15 @@ text findings; nothing is rewritten. Triage is the only list-shaped read that pr
 """
 
 import argparse
-from typing import List
 
-from qew import cmd_items, cmd_read, ledger_check, ledger_config, ledger_graph, read_filter, read_view, readfmt, text_findings, tomllib_section
+from qew import cmd_items, ledger_check, ledger_config, ledger_graph, read_filter, read_view, readfmt, text_findings, tomllib_section
+from qew.jsontypes import JsonObject
 from qew.ledger_config import CONFIG, Config
 from qew.ledger_event import State
 from qew.ledger_store import Snapshot
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     triage = commands.add_parser("triage", help="review drafts and items missing planning fields, with bodies and findings")
     triage.add_argument("--search", nargs="+", metavar="TERM", help="only items whose title or body holds every term")
     triage.add_argument("--json", action="store_true", help="machine-readable output")
@@ -25,7 +25,7 @@ def run(arguments: argparse.Namespace) -> bool:
     config = ledger_config.load()
     snapshot = ledger_check.read_snapshot(cmd_items.ledger_for(config))
     groups = label_groups(config)
-    found = []
+    found: list[tuple[str, list[str]]] = []
     for item_id in ledger_graph.ordered(snapshot, list(snapshot.items)):
         if snapshot.folds[item_id].state in (State.COMPLETED, State.CLOSED):
             continue
@@ -39,13 +39,13 @@ def run(arguments: argparse.Namespace) -> bool:
     return True
 
 
-def label_groups(config: Config) -> List[str]:
+def label_groups(config: Config) -> list[str]:
     """Label prefixes of the `[triage] label_groups` list in the code repo config (none = no label check)."""
     section = tomllib_section.read(config.root / CONFIG, "triage", {"label_groups": list})
     return list(section.get("label_groups", []))
 
 
-def missing_fields(snapshot: Snapshot, item_id: str, groups: List[str]) -> List[str]:
+def missing_fields(snapshot: Snapshot, item_id: str, groups: list[str]) -> list[str]:
     item = snapshot.items[item_id]
     missing = []
     if not item.body.strip():
@@ -58,17 +58,17 @@ def missing_fields(snapshot: Snapshot, item_id: str, groups: List[str]) -> List[
     return sorted(missing)
 
 
-def matches(snapshot: Snapshot, item_id: str, terms: List[str]) -> bool:
+def matches(snapshot: Snapshot, item_id: str, terms: list[str]) -> bool:
     item = snapshot.items[item_id]
     haystack = read_filter.fold(f"{item.title}\n{item.body}")
     return all(read_filter.fold(term) in haystack for term in terms)
 
 
-def emit(snapshot: Snapshot, found: List, as_json: bool) -> None:
-    rows = []
+def emit(snapshot: Snapshot, found: list[tuple[str, list[str]]], as_json: bool) -> None:
+    rows: list[JsonObject] = []
     for item_id, missing in found:
         item = snapshot.items[item_id]
-        row = read_view.row_data(snapshot, item_id)
+        row: JsonObject = read_view.row_data(snapshot, item_id)
         row.pop("text_findings", None)
         row["title"] = item.title
         row["body"] = item.body.rstrip("\n")

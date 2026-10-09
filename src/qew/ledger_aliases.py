@@ -9,31 +9,30 @@ headers; nothing else stores it.
 
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Dict, FrozenSet, Set, Tuple
 
 from qew.ledger_item import MAX_HEADER_BYTES, RULE, Item
 
 
 @dataclass(frozen=True)
 class Aliases:
-    by_alias: Dict[str, str]  # old id -> the id of the item that carries it
-    superseded: FrozenSet[str]  # file stems of leftover copies under an old id
-    owned: Dict[str, Tuple[str, ...]] = field(default_factory=dict)  # item id -> its aliases
+    by_alias: dict[str, str]  # old id -> the id of the item that carries it
+    superseded: frozenset[str]  # file stems of leftover copies under an old id
+    owned: dict[str, tuple[str, ...]] = field(default_factory=dict)  # item id -> its aliases
 
     def canonical(self, reference: str) -> str:
         return self.by_alias.get(reference, reference)
 
-    def of(self, item_id: str) -> Tuple[str, ...]:
+    def of(self, item_id: str) -> tuple[str, ...]:
         return self.owned.get(item_id, ())
 
 
-def _header_values(path: Path) -> Dict[str, str]:
+def _header_values(path: Path) -> dict[str, str]:
     try:
         with path.open("rb") as stream:
             text = stream.read(MAX_HEADER_BYTES).decode("utf-8", "replace").replace("\r\n", "\n")
     except OSError:
         return {}
-    found: Dict[str, str] = {}
+    found: dict[str, str] = {}
     for line in text.split("\n"):
         if line == RULE:
             break
@@ -46,13 +45,13 @@ def _header_values(path: Path) -> Dict[str, str]:
 class _Index:
     """What the item headers of one ledger said: stem -> its aliases, and the map built from them."""
 
-    def __init__(self, stamp: int, headers: Dict[str, Tuple[str, ...]]) -> None:
+    def __init__(self, stamp: int, headers: dict[str, tuple[str, ...]]) -> None:
         self.stamp = stamp
         self.headers = headers
         self.aliased = {stem: found for stem, found in headers.items() if found}
         self.aliases = _build(self.aliased, headers)
 
-    def refresh(self, stamp: int, changed: Set[str], items_dir: Path) -> None:
+    def refresh(self, stamp: int, changed: set[str], items_dir: Path) -> None:
         for stem in changed:
             found = _read(items_dir / f"{stem}.md")
             if found is None:
@@ -67,8 +66,8 @@ class _Index:
         self.aliases = _build(self.aliased, self.headers)
 
 
-_indexes: Dict[str, _Index] = {}
-_changed: Dict[str, Set[str]] = {}  # item stems this process wrote or removed since the last scan
+_indexes: dict[str, _Index] = {}
+_changed: dict[str, set[str]] = {}  # item stems this process wrote or removed since the last scan
 
 
 def note_change(path: Path) -> None:
@@ -77,16 +76,16 @@ def note_change(path: Path) -> None:
         _changed.setdefault(str(path.parent), set()).add(path.stem)
 
 
-def _read(path: Path):
+def _read(path: Path) -> tuple[str, ...] | None:
     header = _header_values(path)
     if header.get("id") != path.stem:
         return None  # a mismatch is `qew check`'s to report
     return tuple(header.get("aliases", "").split())
 
 
-def _build(aliased: Dict[str, Tuple[str, ...]], headers: Dict[str, Tuple[str, ...]]) -> Aliases:
-    by_alias: Dict[str, str] = {}
-    owned: Dict[str, Tuple[str, ...]] = {}
+def _build(aliased: dict[str, tuple[str, ...]], headers: dict[str, tuple[str, ...]]) -> Aliases:
+    by_alias: dict[str, str] = {}
+    owned: dict[str, tuple[str, ...]] = {}
     for stem in sorted(aliased):
         owned[stem] = tuple(sorted(aliased[stem]))
         for alias in aliased[stem]:

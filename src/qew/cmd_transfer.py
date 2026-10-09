@@ -4,13 +4,13 @@ The tree is `DIR/items/<ID>.md` (the ledger's own item files) plus `DIR/events.j
 import ignores. Import is mechanical: header-only parse, every file validated before the first write.
 """
 
+import argparse
 import json
-import os
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from qew import cmd_items, cmd_read, graph_rules, ledger_config, ledger_graph, ledger_labels, untrusted_text
 from qew.errors import QewError
+from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_ids import sort_key, valid_id
 from qew.ledger_item import Item, check_header_values, parse_item, render_item
@@ -21,13 +21,13 @@ MAX_FILE_BYTES = 1024 * 1024
 USAGE = "export needs a directory or --json, not both and not neither"
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     export = commands.add_parser("export", help="write every item as Markdown files in a new directory, or as JSON")
     export.add_argument("directory", nargs="?", help="new or empty directory for items/ID.md files and events.json")
     export.add_argument("--json", action="store_true", help="print the items as the JSON array `create --from-file` accepts")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "export":
         return False
     if arguments.json == (arguments.directory is not None):
@@ -55,11 +55,11 @@ def _require_whole_graph(snapshot: Snapshot) -> None:
         raise QewError(f"needs cycle {' -> '.join(cycle)}; fix the ledger (`qew check`) before exporting", 1)
 
 
-def as_specs(snapshot: Snapshot) -> List[dict]:
+def as_specs(snapshot: Snapshot) -> list[JsonObject]:
     """Every item as a `create --from-file` object, each after the items it references (ties by id)."""
     remaining = {i: {*snapshot.items[i].needs, *([snapshot.items[i].parent] if snapshot.items[i].parent else [])}
                  for i in snapshot.items}
-    ordered: List[str] = []
+    ordered: list[str] = []
     while remaining:
         free = sorted((i for i, deps in remaining.items() if not deps), key=sort_key)
         if not free:
@@ -71,7 +71,7 @@ def as_specs(snapshot: Snapshot) -> List[dict]:
     return [_spec(snapshot.items[i]) for i in ordered]
 
 
-def _spec(item: Item) -> dict:
+def _spec(item: Item) -> JsonObject:
     return {
         "id": item.id,
         "kind": item.kind.value,
@@ -107,7 +107,7 @@ def write_tree(snapshot: Snapshot, directory: Path) -> int:
     return len(ids)
 
 
-def import_directory(config: Config, directory: str, quote: Optional[str]) -> List[str]:
+def import_directory(config: Config, directory: str, quote: str | None) -> list[str]:
     """Read DIR/items/*.md into the ledger as drafts (approved with a human's quote), ids kept."""
     verified = require_quote(quote) if quote is not None else None
     ledger = cmd_items.ledger_for(config)
@@ -135,12 +135,12 @@ def import_directory(config: Config, directory: str, quote: Optional[str]) -> Li
     return lines
 
 
-def _read_tree(root: Path) -> Dict[str, Item]:
+def _read_tree(root: Path) -> dict[str, Item]:
     items_dir = root / "items"
     if not items_dir.is_dir() or items_dir.is_symlink():
         raise QewError(f"{root}: no items directory (an exported tree holds items/ID.md files)", 2)
-    parsed: Dict[str, Item] = {}
-    lowered: Dict[str, str] = {}
+    parsed: dict[str, Item] = {}
+    lowered: dict[str, str] = {}
     for path in sorted(items_dir.iterdir(), key=lambda p: p.name):
         name = path.name
         if path.is_symlink():

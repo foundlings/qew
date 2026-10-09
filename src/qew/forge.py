@@ -7,7 +7,10 @@ ledgers. A capability a forge lacks raises `Unsupported`, never a faked result.
 
 from abc import ABC
 from dataclasses import dataclass
-from typing import Callable, List, Mapping, Optional, Set, Tuple
+from collections.abc import Callable, Iterable, Mapping
+from typing import Literal, get_args
+
+from qew.jsontypes import JsonObject
 
 # (name, GitHub color, description): the seven Status values, in board order.
 STATUS_OPTIONS = (
@@ -65,7 +68,7 @@ class ForgeRejected(ForgeError):
 class LabelNotPersisted(ForgeRejected):
     """The forge accepted a label create but the label is not there afterwards: the item is indeterminate."""
 
-    def __init__(self, names) -> None:
+    def __init__(self, names: Iterable[str]) -> None:
         super().__init__(502, f"label(s) {', '.join(sorted(names))} did not persist after creation")
 
 
@@ -86,7 +89,7 @@ class HttpRequest:
     method: str
     url: str
     headers: Mapping[str, str]
-    body: Optional[bytes] = None
+    body: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -99,15 +102,28 @@ class HttpResponse:
 Transport = Callable[[HttpRequest], HttpResponse]
 
 
+type CloseReason = Literal["", "completed", "not_planned", "duplicate"]  # "": no reason given or none known
+CLOSE_REASONS: tuple[str, ...] = get_args(CloseReason.__value__)
+
+
+def close_reason_of(value: object) -> CloseReason:
+    """The reason a forge or a cache named, or "" for anything this version does not know."""
+    match value:
+        case "completed" | "not_planned" | "duplicate":
+            return value
+        case _:
+            return ""
+
+
 @dataclass(frozen=True)
 class IssueSpec:
     """What an issue should look like; `labels` replaces the issue's whole label set."""
 
     title: str
     body: str
-    labels: Tuple[str, ...]
+    labels: tuple[str, ...]
     open: bool
-    close_reason: str = ""  # "", "completed", "not_planned" or "duplicate"; honored where the forge has reasons
+    close_reason: CloseReason = ""  # honored where the forge has reasons
     assignee: str = ""  # forge login; "" clears
 
 
@@ -119,11 +135,11 @@ class RemoteIssue:
     open: bool
     title: str
     body: str
-    labels: Tuple[str, ...]
+    labels: tuple[str, ...]
     assignee: str
     comments: int = 0  # user comment count when the listing reports one (cheap change signal for pull)
     milestone: int = 0  # the milestone the issue sits in (0: none)
-    close_reason: str = ""  # why a closed issue closed where the forge says: "completed", "not_planned" or "duplicate"
+    close_reason: CloseReason = ""  # why a closed issue closed, where the forge says
 
 
 @dataclass(frozen=True)
@@ -131,7 +147,7 @@ class CachedPage:
     """One page of the creation-ordered issue listing as last fetched: its ETag and the issues it held."""
 
     etag: str
-    issues: Tuple["RemoteIssue", ...]
+    issues: tuple[RemoteIssue, ...]
     more: bool  # the forge said another page follows
     raw: int  # entries on the wire page (pull requests included), to tell a full page from a short one
 
@@ -140,11 +156,11 @@ class CachedPage:
 class PageListing:
     """The complete current issue set, page by page. `fetched` pages came over the wire, `reused` answered 304."""
 
-    pages: Tuple[CachedPage, ...]
+    pages: tuple[CachedPage, ...]
     fetched: int
     reused: int
 
-    def issues(self) -> List["RemoteIssue"]:
+    def issues(self) -> list[RemoteIssue]:
         return [issue for page in self.pages for issue in page.issues]
 
 
@@ -175,7 +191,7 @@ class RemotePullRequest:
     head_sha: str
     head_branch: str
     base_branch: str
-    mergeable: Optional[bool]  # None while the forge is still computing it
+    mergeable: bool | None  # None while the forge is still computing it
     checks: str  # "passing", "failing", "pending" or "none"
     body: str = ""  # a null body reads as ""
     author: str = ""  # forge login of the opener
@@ -212,9 +228,9 @@ LEGACY_STATUS = {"To triage": "Draft"}
 class Board:
     id: str
     url: str
-    columns: Tuple[str, ...]
+    columns: tuple[str, ...]
     title: str = ""  # the board's current title where the forge has one (a renamed board keeps its number)
-    notes: Tuple[str, ...] = ()  # corrections and foreign leftovers `ensure_board` reports
+    notes: tuple[str, ...] = ()  # corrections and foreign leftovers `ensure_board` reports
 
 
 @dataclass(frozen=True)
@@ -265,7 +281,7 @@ class Forge(ABC):
 
     name = ""
 
-    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
+    def find_issue(self, marker: str, recent: bool = False) -> RemoteIssue | None:
         """The issue whose body carries `marker` (the crash-recovery lookup), else None.
 
         `recent` lets a backend that must scan look only at the newest issues (the cheap lookup after a write)."""
@@ -280,15 +296,15 @@ class Forge(ABC):
     def read_issue(self, number: int) -> RemoteIssue:
         raise Unsupported("read_issue")
 
-    def create_pace(self) -> Tuple[int, int]:
+    def create_pace(self) -> tuple[int, int]:
         """(creates per minute, creates per hour) this backend allows before it blocks content creation; 0 means no limit."""
         return (0, 0)
 
-    def close_history(self, number: int) -> Tuple[str, ...]:
+    def close_history(self, number: int) -> tuple[str, ...]:
         """The reason of every close the issue ever had, oldest first ("" where the forge gave none)."""
         raise Unsupported("close_history")
 
-    def list_issues(self, since: str = "") -> List[RemoteIssue]:
+    def list_issues(self, since: str = "") -> list[RemoteIssue]:
         """Issues of the repository, open and closed, pull requests excluded, oldest first.
 
         `since` (an ISO instant, empty = everything) keeps only issues created or modified at or after it; a
@@ -304,18 +320,18 @@ class Forge(ABC):
         """
         raise Unsupported("conditional_listing")
 
-    def list_comments(self, number: int) -> List[RemoteComment]:
+    def list_comments(self, number: int) -> list[RemoteComment]:
         """User comments of one issue in creation order (system notes excluded)."""
         raise Unsupported("list_comments")
 
     def create_comment(self, number: int, body: str) -> RemoteComment:
         raise Unsupported("create_comment")
 
-    def list_repo_labels(self) -> List[str]:
+    def list_repo_labels(self) -> list[str]:
         """Names of every label defined in the repository, used or not."""
         raise Unsupported("list_repo_labels")
 
-    def labels_in_use(self) -> Set[str]:
+    def labels_in_use(self) -> set[str]:
         """Label names carried by any issue or pull request of the repository, open or closed."""
         raise Unsupported("labels_in_use")
 
@@ -327,7 +343,7 @@ class Forge(ABC):
         """Record on the forge that issue `number` is blocked by issue `blocked_by` (idempotent)."""
         raise Unsupported("link_dependency")
 
-    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
+    def ensure_board(self, columns: tuple[str, ...], managed_filter: str = "") -> Board:
         """Find or create the board named by the mirror's `project` with these columns.
 
         `managed_filter` (when non-empty) is prefixed to every view filter on forges with views.
@@ -342,18 +358,18 @@ class Forge(ABC):
         """Put the issue on the board in `column` (and `priority` where the board has one), idempotent."""
         raise Unsupported("place_on_board")
 
-    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+    def read_placement(self, board: Board, number: int) -> Placement | None:
         """What the forge shows now for the issue on the board, or None when it is not on it."""
         raise Unsupported("read_placement")
 
-    def board_layout(self, board: Board) -> Optional[dict]:
+    def board_layout(self, board: Board) -> JsonObject | None:
         """The board's structure as this run read it (JSON-serialisable and opaque), or None where nothing is worth caching."""
         return None
 
-    def adopt_board_layout(self, board: Board, layout: dict) -> None:
+    def adopt_board_layout(self, board: Board, layout: JsonObject) -> None:
         """Start from a layout cached earlier instead of reading the structure again; a stale one is repaired on first refusal."""
 
-    def find_milestone(self, title: str) -> Optional[Milestone]:
+    def find_milestone(self, title: str) -> Milestone | None:
         """The milestone with exactly this title (any state), else None."""
         raise Unsupported("find_milestone")
 
@@ -373,7 +389,7 @@ class Forge(ABC):
         """Put issue `number` in milestone `milestone`; the returned issue shows where it sits."""
         raise Unsupported("assign_milestone")
 
-    def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
+    def read_board_cards(self, board: Board) -> tuple[Card, ...]:
         """Every card on the board (all repositories), or `Unsupported`; a truncated listing raises, never returns."""
         raise Unsupported("read_board_cards")
 
@@ -401,7 +417,7 @@ class Forge(ABC):
         """
         raise Unsupported("merge_pull_request")
 
-    def find_open_pull_requests(self, head: str) -> List[RemotePullRequest]:
+    def find_open_pull_requests(self, head: str) -> list[RemotePullRequest]:
         """Every open pull request (drafts included) whose head branch is exactly `head`; a truncated listing raises."""
         raise Unsupported("find_open_pull_requests")
 
@@ -424,7 +440,7 @@ class Forge(ABC):
         """Merge the pull request once its checks pass; returns the re-read pull request."""
         raise Unsupported("enable_auto_merge")
 
-    def list_branches(self) -> List[RemoteBranch]:
+    def list_branches(self) -> list[RemoteBranch]:
         """Every branch of the repository with its default and protected flags; a truncated listing raises."""
         raise Unsupported("list_branches")
 
@@ -436,7 +452,7 @@ class Forge(ABC):
         """Delete branch `name`; a branch that is already gone is success (idempotent)."""
         raise Unsupported("delete_branch")
 
-    def list_open_pull_heads(self) -> List[str]:
+    def list_open_pull_heads(self) -> list[str]:
         """The head branch names of every open pull request (drafts included); a truncated listing raises."""
         raise Unsupported("list_open_pull_heads")
 

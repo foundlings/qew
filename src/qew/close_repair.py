@@ -5,11 +5,11 @@ so the forge's current reason is no evidence. The first `closed` entry of the is
 """
 
 from dataclasses import dataclass
-from typing import Callable, List
+from collections.abc import Callable
 
 from qew import ledger_config
 from qew.forge import Forge, Unsupported
-from qew.ledger_config import Config
+from qew.ledger_config import Config, Mirror
 from qew.ledger_event import State
 from qew.ledger_store import Ledger
 
@@ -22,7 +22,7 @@ class Repaired:
     number: int
 
 
-def candidates(ledger: Ledger) -> List[str]:
+def candidates(ledger: Ledger) -> list[str]:
     """Closed items whose latest close is a not_planned the forge pull invented."""
     snapshot = ledger.snapshot()
     found = []
@@ -35,17 +35,17 @@ def candidates(ledger: Ledger) -> List[str]:
     return sorted(found)
 
 
-def repair(config: Config, ledger: Ledger, build: Callable, dry_run: bool) -> List[Repaired]:
+def repair(config: Config, ledger: Ledger, build: Callable[[Mirror], Forge], dry_run: bool) -> list[Repaired]:
     wanted = candidates(ledger)
     if not wanted:
         return []
-    forges = {}
+    forges: dict[str, Forge] = {}
     for mirror in config.mirrors:
         forges[ledger_config.mirror_slug(mirror)] = build(mirror)
     repaired = []
     for item_id in wanted:
         for record in ledger.load_mirrors(item_id):
-            forge: Forge = forges.get(record["_target"])
+            forge: Forge | None = forges.get(record["_target"])
             if forge is None or record.get("kind") != "issue":
                 continue
             try:

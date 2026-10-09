@@ -9,7 +9,6 @@ bases, keycaps on [0-9#*], and tag sequences spelling a recommended subdivision 
 """
 
 import hashlib
-from typing import List, Tuple
 
 UNICODE_RELEASE = "16.0"  # the reviewed release the ranges below were taken from
 
@@ -62,7 +61,7 @@ def covers(code: int) -> bool:
     return code in ZERO_WIDTH or code in BIDI_CONTROL or TAG_FIRST <= code <= TAG_LAST
 
 
-def _within(code: int, ranges: Tuple[Tuple[int, int], ...]) -> bool:
+def _within(code: int, ranges: tuple[tuple[int, int], ...]) -> bool:
     return any(first <= code <= last for first, last in ranges)
 
 
@@ -74,14 +73,14 @@ def _is_modifier(code: int) -> bool:
     return SKIN_TONES[0] <= code <= SKIN_TONES[1] or VARIATION_SELECTORS[0] <= code <= VARIATION_SELECTORS[1]
 
 
-def _joins_two_emoji(codes: List[int], index: int) -> bool:
+def _joins_two_emoji(codes: list[int], index: int) -> bool:
     before = index - 1
     while before >= 0 and _is_modifier(codes[before]):
         before -= 1
     return before >= 0 and _is_emoji_base(codes[before]) and index + 1 < len(codes) and _is_emoji_base(codes[index + 1])
 
 
-def _valid_variation(codes: List[int], index: int) -> bool:
+def _valid_variation(codes: list[int], index: int) -> bool:
     if index == 0:
         return False
     previous = codes[index - 1]
@@ -91,7 +90,7 @@ def _valid_variation(codes: List[int], index: int) -> bool:
     return keycap_base and index + 1 < len(codes) and codes[index + 1] == KEYCAP
 
 
-def _is_subdivision_flag(codes: List[int], start: int, end: int) -> bool:
+def _is_subdivision_flag(codes: list[int], start: int, end: int) -> bool:
     """The tag run codes[start:end] directly after a black flag, spelling a recommended flag and cancelled."""
     if start == 0 or codes[start - 1] != BLACK_FLAG or codes[end - 1] != TAG_CANCEL:
         return False
@@ -99,7 +98,7 @@ def _is_subdivision_flag(codes: List[int], start: int, end: int) -> bool:
     return spelled in SUBDIVISION_FLAGS
 
 
-def scan(text: str) -> Tuple[str, ...]:
+def scan(text: str) -> tuple[str, ...]:
     """Sorted finding kinds in `text`; empty when it holds nothing hidden."""
     codes = [ord(char) for char in text]
     has_ascii = any(code < 0x80 and chr(code).isalnum() for code in codes)

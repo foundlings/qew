@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from qew.jsontypes import JsonObject
 from qew.hook_command import guarded
 from qew.hook_events import install_json_hooks, remove_json_hooks
 
@@ -9,8 +10,8 @@ from qew.hook_events import install_json_hooks, remove_json_hooks
 _HOOKS_PATH = (".codex", "hooks.json")
 
 
-def _group(event: str, timeout: int, matcher: bool = True) -> dict:
-    group = {"hooks": [{"command": guarded(event, "codex"), "timeout": timeout, "type": "command"}]}
+def _group(event: str, timeout: int, matcher: bool = True) -> JsonObject:
+    group: JsonObject = {"hooks": [{"command": guarded(event, "codex"), "timeout": timeout, "type": "command"}]}
     if matcher:
         group["matcher"] = "Bash"
     return group
@@ -22,9 +23,9 @@ _WANTED = {
     "PostToolUse": [_group("post-tool", 10)],
 }
 # Qew's earlier entries (shell warnings, session-start prime): dropped on install.
-def _plain(event: str, timeout: int = 10, matcher: bool = True) -> dict:
+def _plain(event: str, timeout: int = 10, matcher: bool = True) -> JsonObject:
     """The earlier unguarded entry; install replaces it, remove deletes it."""
-    group = {"hooks": [{"command": f"qew hook {event} --agent codex", "timeout": timeout, "type": "command"}]}
+    group: JsonObject = {"hooks": [{"command": f"qew hook {event} --agent codex", "timeout": timeout, "type": "command"}]}
     if matcher:
         group["matcher"] = "Bash"
     return group

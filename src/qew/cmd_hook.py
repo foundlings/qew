@@ -4,7 +4,6 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from typing import List, Optional, Tuple
 
 from qew import (
     claude_hook, cmd_items, codex_hook, inbox, ledger_check, ledger_conflicts, prime, cursor_hook, git_hook, hook_guard, hook_merge, ledger_config,
@@ -31,7 +30,7 @@ _SCHEMA_VERSION = 1
 _TRUST_LINE = "review and trust it with /hooks before it will run"
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     hook = commands.add_parser("hook", help="install agent hooks; answer agent hook events")
     actions = hook.add_subparsers(dest="hook_command", required=True)
     for name, text in (("install", "wire Qew into agent configuration"), ("remove", "remove Qew's agent hook entries")):
@@ -85,7 +84,7 @@ def _configure(arguments: argparse.Namespace) -> str:
         adapter = _ADAPTERS[agent]
         changed = adapter.install(root) if installing else adapter.remove(root)
         action = ("installed" if installing else "removed") if changed else "unchanged"
-        result = {"agent": agent, "action": action}
+        result: dict[str, str | bool] = {"agent": agent, "action": action}
         if agent == "codex" and installing:
             result["trust_required"] = True
         results.append(result)
@@ -137,7 +136,7 @@ def _vcs_check(arguments: argparse.Namespace) -> bool:
 
 # -- hook events
 
-def _answer(event: str, agent: str, raw: str) -> Tuple[str, int]:
+def _answer(event: str, agent: str, raw: str) -> tuple[str, int]:
     command, cwd = _payload(raw)
     if event == "session-start":
         return _render_context(agent, "SessionStart", _prime(cwd)), 0
@@ -147,7 +146,7 @@ def _answer(event: str, agent: str, raw: str) -> Tuple[str, int]:
     return _render_context(agent, "PostToolUse", "\n".join(note for note in notes if note) or None), 0
 
 
-def _payload(raw: str) -> Tuple[Optional[str], Optional[Path]]:
+def _payload(raw: str) -> tuple[str | None, Path | None]:
     try:
         payload = json.loads(raw)
     except ValueError:
@@ -163,7 +162,7 @@ def _payload(raw: str) -> Tuple[Optional[str], Optional[Path]]:
     )
 
 
-def _pre_tool(agent: str, command: Optional[str], cwd: Optional[Path]) -> Tuple[str, int]:
+def _pre_tool(agent: str, command: str | None, cwd: Path | None) -> tuple[str, int]:
     refusals = hook_guard.refusals(command) if command and ledger_config.find_root(cwd) else []
     unevidenced = _unevidenced_jj_pushes(command, cwd) if command and not refusals else []
     if not refusals and not unevidenced:
@@ -177,14 +176,14 @@ def _pre_tool(agent: str, command: Optional[str], cwd: Optional[Path]) -> Tuple[
     return reason, _REFUSAL_EXIT
 
 
-def _unevidenced_jj_pushes(command: str, cwd: Optional[Path]) -> List[str]:
+def _unevidenced_jj_pushes(command: str, cwd: Path | None) -> list[str]:
     """jj has no pre-push hook: refuse `jj git push` of changes that cite unevidenced items."""
     revsets = hook_guard.jj_push_revsets(command)
     if not revsets or cwd is None or ledger_config.find_root(cwd) is None:
         return []
     config = ledger_config.load(cwd)
     snapshot = cmd_items.ledger_for(config).snapshot()
-    reasons: List[str] = []
+    reasons: list[str] = []
     for revset in revsets:
         problems = vcs_check.jj_push_problems(snapshot, config.root, revset)
         for problem in problems or []:
@@ -192,7 +191,7 @@ def _unevidenced_jj_pushes(command: str, cwd: Optional[Path]) -> List[str]:
     return reasons
 
 
-def _render_context(agent: str, event: str, text: Optional[str]) -> str:
+def _render_context(agent: str, event: str, text: str | None) -> str:
     if not text:
         return ""
     if agent in ("claude", "codex"):
@@ -202,7 +201,7 @@ def _render_context(agent: str, event: str, text: Optional[str]) -> str:
     return text
 
 
-def _prime(cwd: Optional[Path]) -> Optional[str]:
+def _prime(cwd: Path | None) -> str | None:
     if ledger_config.find_root(cwd) is None:
         return None
     config = ledger_config.load(cwd)
@@ -216,7 +215,7 @@ def _prime(cwd: Optional[Path]) -> Optional[str]:
     return f"{text}\n{line}" if line else text
 
 
-def _push_reminder(command: str, cwd: Optional[Path]) -> Optional[str]:
+def _push_reminder(command: str, cwd: Path | None) -> str | None:
     if not hook_guard.pushes(command) or ledger_config.find_root(cwd) is None:
         return None
     snapshot = cmd_items.ledger_for(ledger_config.load(cwd)).snapshot()

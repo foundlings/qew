@@ -6,15 +6,20 @@ fails. Forge-facing commands keep their partial work instead, because a mirror f
 forge already accepted.
 """
 
+import argparse
 from contextlib import contextmanager
 import os
 from pathlib import Path
 import time
-from typing import Callable, Iterator, List, Optional, Set
+from typing import Any
+from collections.abc import Callable, Iterable, Iterator
 
 from qew import claim_authority, filelock, ledger_config, ledger_store, trace
 from qew.errors import QewError
+from qew.ledger_config import Config
 from qew.ledger_repo import LedgerRepo, RepoLocked
+
+type Entries = list[tuple[Path, str | None]]
 
 LOCK_WAIT_SECONDS = 60.0
 CHECKPOINT_EVERY = 25
@@ -22,7 +27,7 @@ CHECKPOINT_EVERY = 25
 KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land", "migrate-ids"}
 
 
-_AFTER_SETTLE: List[Callable[[], None]] = []
+_AFTER_SETTLE: list[Callable[[], None]] = []
 
 
 def after_settle(callback: Callable[[], None]) -> None:
@@ -30,14 +35,14 @@ def after_settle(callback: Callable[[], None]) -> None:
     _AFTER_SETTLE.append(callback)
 
 
-def verb_for(arguments) -> Optional[str]:
+def verb_for(arguments: argparse.Namespace) -> str | None:
     """The commit verb of a ledger-writing command, or None for reads and non-ledger commands."""
-    command = arguments.command
+    command: str = arguments.command
     if command in ("create", "set", "start", "release", "evidence", "complete", "close", "reopen", "sync",
                    "import", "restore", "accept", "reject", "resolve", "comment", "block", "unblock"):
         return command
     if command == "draft" and arguments.draft_command in ("approve", "revert"):
-        return arguments.draft_command
+        return str(arguments.draft_command)
     if command == "project" and arguments.project_command == "ensure":
         return "board"
     if command == "board" and arguments.board_command in ("create", "set"):
@@ -53,8 +58,8 @@ def verb_for(arguments) -> Optional[str]:
     return None
 
 
-def _item_ids(relative_paths: List[str]) -> List[str]:
-    ids: Set[str] = set()
+def _item_ids(relative_paths: list[str]) -> list[str]:
+    ids: set[str] = set()
     for path in relative_paths:
         parts = path.split("/")
         if parts[0] in ("items", "events", "mirrors", "proposals") and len(parts) > 1:
@@ -62,7 +67,7 @@ def _item_ids(relative_paths: List[str]) -> List[str]:
     return sorted(ids)
 
 
-def message(verb: str, relative_paths: List[str]) -> str:
+def message(verb: str, relative_paths: list[str]) -> str:
     ids = [] if verb == "migrate-ids" else _item_ids(relative_paths)  # a rename touches the old and the new id
     who = ledger_store.actor()
     if len(ids) == 1:
@@ -89,11 +94,11 @@ def _lock(ledger_path: Path, name: str = "lock", verb: str = "") -> Iterator[Non
         yield
 
 
-_ACTIVE = None  # (config, repo, verb) of the running sync session, for checkpoints
+_ACTIVE: tuple[Config, LedgerRepo, bool, bool] | None = None  # (config, repo, verb) of the running sync session, for checkpoints
 
 
 @contextmanager
-def session(arguments) -> Iterator[None]:
+def session(arguments: argparse.Namespace) -> Iterator[None]:
     verb = verb_for(arguments)
     if verb is None:
         _pull_for_read(arguments)
@@ -161,7 +166,7 @@ def session(arguments) -> Iterator[None]:
         _after_write(config, touched)
 
 
-def _write_claim_event(config, repo: LedgerRepo, ledger_path, item_id: str, event_type: str, **data) -> None:
+def _write_claim_event(config: Config, repo: LedgerRepo, ledger_path: Path | None, item_id: str, event_type: str, **data: Any) -> None:
     from qew.ledger_store import open_ledger
 
     ledger = open_ledger(config.ledger_path, config.prefix)
@@ -174,7 +179,7 @@ def _write_claim_event(config, repo: LedgerRepo, ledger_path, item_id: str, even
     repo.push(config.replication.timeout_s)
 
 
-def _settle_claim(config, repo: LedgerRepo, pending) -> None:
+def _settle_claim(config: Config, repo: LedgerRepo, pending: list[tuple[str, str]]) -> None:
     """The claims are committed locally; the ledger remote decides whether they count (first push to land wins).
 
     One command may claim several items (an epic and its descendants): they stand or fall together, so a loss
@@ -208,7 +213,7 @@ def _settle_claim(config, repo: LedgerRepo, pending) -> None:
     raise QewError(f"cannot claim {pending[0][0]}: the ledger remote kept rejecting the push", 3)
 
 
-def _sync_session(config, repo: LedgerRepo, committing: bool, replicating: bool, push_repos: bool) -> Iterator[None]:
+def _sync_session(config: Config, repo: LedgerRepo, committing: bool, replicating: bool, push_repos: bool) -> Iterator[None]:
     """Sync takes the lock only to commit: forge calls can be slow and must never block other writers."""
     global _ACTIVE
     rep = config.replication
@@ -249,16 +254,18 @@ def checkpoint() -> None:
         with _lock(config.ledger_path, "push.lock", "sync"), _lock(config.ledger_path, "lock", "sync"):
             _commit(repo, config, "sync", entries, rollback_on_failure=False)
     else:
-        ledger_store.JOURNAL.extend(entries)
+        journal = ledger_store.JOURNAL
+        if journal is not None:
+            journal.extend(entries)
 
 
-def _worker_starts(config) -> bool:
+def _worker_starts(config: Config) -> bool:
     """Whether `_after_write` will start a detached worker (so it can run before the push)."""
     rep = config.replication
     return bool(config.mirrors) and rep.auto_forge_sync and not rep.offline and rep.background_sync and not os.environ.get("QEW_BACKGROUND")
 
 
-def _after_write(config, item_ids) -> None:
+def _after_write(config: Config, item_ids: Iterable[str]) -> None:
     """Sync the items this write touched (and what their change moves): detached and silent, or inline within a budget."""
     rep = config.replication
     if not config.mirrors or not rep.auto_forge_sync or rep.offline or os.environ.get("QEW_BACKGROUND"):
@@ -279,7 +286,7 @@ def _after_write(config, item_ids) -> None:
         syncworker.mark(config, True)  # failures stay pending; the next command retries
 
 
-def _note(config, result: str, reason: str = "") -> None:
+def _note(config: Config, result: str, reason: str = "") -> None:
     """Remember the last remote attempt so `qew status` can show an outage without a network call."""
     if result in ("ok", "offline"):
         cache = config.ledger_path / ".qew"
@@ -291,7 +298,7 @@ def _note(config, result: str, reason: str = "") -> None:
             (cache / "remote-error").unlink(missing_ok=True)
 
 
-def _pull_for_read(arguments) -> None:
+def _pull_for_read(arguments: argparse.Namespace) -> None:
     """Reads see other agents' work: fetch and merge the ledger remote, at most every fetch_interval_s."""
     if arguments.command in ("init", "hook", "status", "conflicts", "unlock"):
         return
@@ -320,12 +327,12 @@ def _pull_for_read(arguments) -> None:
         syncworker.retry_if_pending(config)
 
 
-def _relative(config, entries) -> List[str]:
+def _relative(config: Config, entries: Entries) -> list[str]:
     root = config.ledger_path
     return sorted({str(path.relative_to(root)) for path, _ in entries if path.is_relative_to(root)})
 
 
-def _commit(repo: LedgerRepo, config, verb: str, entries, rollback_on_failure: bool) -> None:
+def _commit(repo: LedgerRepo, config: Config, verb: str, entries: Entries, rollback_on_failure: bool) -> None:
     paths = _relative(config, entries)
     try:
         with trace.phase(f"ledger commit ({len(paths)} files)"):

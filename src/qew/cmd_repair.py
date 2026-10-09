@@ -6,7 +6,7 @@ from qew import close_repair, cmd_sync, forge_registry, ledger_config
 from qew.cmd_items import ledger_for
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     repair = commands.add_parser("repair-closes", help="restore items a pull wrongly closed as not planned; the forge's first close decides")
     repair.add_argument("--dry-run", action="store_true", help="list the items that would be restored and write nothing")
 

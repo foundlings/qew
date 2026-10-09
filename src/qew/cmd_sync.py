@@ -1,10 +1,11 @@
 """`qew sync`: push the ledger to every mirror target, each independently."""
 
+import argparse
 import os
 import time
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Callable, List, Optional, Sequence, Union
+from collections.abc import Callable, Sequence
 
 from qew import trace, claim_reconcile, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
 from qew.cmd_items import ledger_for
@@ -16,7 +17,7 @@ from qew.forge_pull import PullReport, pull_items, pull_target, wiped
 from qew.sync import Target, TargetReport, sync_target
 
 
-def register(commands) -> None:
+def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     sync = commands.add_parser("sync", help="push ledger state to every mirror target")
     sync.add_argument("--target", help="only this target (slug or unique part of it)")
     sync.add_argument("--item", action="append", help="only this item (repeatable): the cheap pass the background worker runs after writes")
@@ -26,7 +27,7 @@ def register(commands) -> None:
                       help="instead of syncing, delete the unused qew: kind: priority: status: author: labels from the target(s)")
 
 
-def run(arguments) -> bool:
+def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "sync":
         return False
     config = ledger_config.load()
@@ -44,7 +45,7 @@ def run(arguments) -> bool:
     return True
 
 
-def _worker_round(config: Config, arguments) -> bool:
+def _worker_round(config: Config, arguments: argparse.Namespace) -> bool:
     """One background pass; its output goes to the log. True when every target synced cleanly.
 
     The ids the writes queued are synced alone (a few forge calls each); with no queue, or after a failed pass left
@@ -60,7 +61,7 @@ def _worker_round(config: Config, arguments) -> bool:
         return False
 
 
-def mirrors_with_boards(ledger: Ledger, config: Config) -> List[Mirror]:
+def mirrors_with_boards(ledger: Ledger, config: Config) -> list[Mirror]:
     """Mirrors with the board `project ensure` recorded when the config names none."""
     mirrors = []
     for mirror in config.mirrors:
@@ -71,7 +72,7 @@ def mirrors_with_boards(ledger: Ledger, config: Config) -> List[Mirror]:
     return mirrors
 
 
-def choose(mirrors: List[Mirror], wanted: Optional[str]) -> List[Mirror]:
+def choose(mirrors: list[Mirror], wanted: str | None) -> list[Mirror]:
     if not wanted:
         return mirrors
     exact = [m for m in mirrors if ledger_config.mirror_slug(m) == wanted]
@@ -83,9 +84,9 @@ def choose(mirrors: List[Mirror], wanted: Optional[str]) -> List[Mirror]:
     return found
 
 
-def sync_command(config: Config, wanted: Optional[str], item: Union[None, str, Sequence[str]], dry_run: bool,
-                 build: Callable[[Mirror], Forge] = forge_registry.build, budget_s: Optional[float] = None,
-                 tick: Optional[Callable[[], None]] = None, full: bool = False,
+def sync_command(config: Config, wanted: str | None, item: None | str | Sequence[str], dry_run: bool,
+                 build: Callable[[Mirror], Forge] = forge_registry.build, budget_s: float | None = None,
+                 tick: Callable[[], None] | None = None, full: bool = False,
                  clock: Callable[[], datetime] = instants.now) -> str:
     ledger = ledger_for(config)
     items = [item] if isinstance(item, str) else list(item or ())
@@ -142,14 +143,14 @@ def sync_command(config: Config, wanted: Optional[str], item: Union[None, str, S
     return output
 
 
-def _touched(ledger: Ledger, items: Sequence[str]) -> List[str]:
+def _touched(ledger: Ledger, items: Sequence[str]) -> list[str]:
     """The named items and the ones their change moves (dependents, parent epics)."""
     snapshot = ledger.snapshot()
     chosen = [ledger.resolve(one, list(snapshot.items)) for one in items]
     return sorted({*chosen, *(i for one in chosen for i in sync_plan.moved_by(snapshot, one))})
 
 
-def pending_by_target(ledger: Ledger, mirrors: List[Mirror], only: Union[None, str, Sequence[str]] = None) -> dict:
+def pending_by_target(ledger: Ledger, mirrors: list[Mirror], only: None | str | Sequence[str] = None) -> dict[str, list[tuple[str, str]]]:
     """slug -> [(action, item id)]: derived from event ids and mirror files, never queued."""
     snapshot = ledger.snapshot()
     wanted = [only] if isinstance(only, str) else list(only or ())
@@ -171,7 +172,7 @@ def pending_by_target(ledger: Ledger, mirrors: List[Mirror], only: Union[None, s
     return result
 
 
-def plan(ledger: Ledger, mirrors: List[Mirror], item: Union[None, str, Sequence[str]],
+def plan(ledger: Ledger, mirrors: list[Mirror], item: None | str | Sequence[str],
          build: Callable[[Mirror], Forge] = forge_registry.build) -> str:
     """The pending writes, read from the ledger; the forge listing is read too, to see a wiped repository."""
     pending = pending_by_target(ledger, mirrors, item)
@@ -186,7 +187,7 @@ def plan(ledger: Ledger, mirrors: List[Mirror], item: Union[None, str, Sequence[
     return "\n".join(lines) or "nothing to sync"
 
 
-def _wiped_items(ledger: Ledger, build: Callable[[Mirror], Forge], mirror: Mirror, slug: str):
+def _wiped_items(ledger: Ledger, build: Callable[[Mirror], Forge], mirror: Mirror, slug: str) -> tuple[list[str], str]:
     """(item ids to recreate, note): the items whose mirrored issues are all gone from the forge listing."""
     mirrored = {r["number"]: item_id for item_id in ledger.item_ids() for r in ledger.load_mirrors(item_id)
                 if r["_target"] == slug and r.get("kind") == "issue"}
@@ -202,7 +203,7 @@ def _resume(seconds: float, clock: Callable[[], datetime] = instants.now) -> str
     return f"{int(seconds)}s (about {(clock() + timedelta(seconds=seconds)).strftime('%H:%M')} UTC)"
 
 
-def render(report: TargetReport, pulled: Optional[PullReport] = None, clock: Callable[[], datetime] = instants.now) -> List[str]:
+def render(report: TargetReport, pulled: PullReport | None = None, clock: Callable[[], datetime] = instants.now) -> list[str]:
     head = f"{report.slug}: created {report.created} updated {report.updated} unchanged {report.unchanged}"
     if report.adopted:
         head += f" adopted {report.adopted}"

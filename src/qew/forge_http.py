@@ -2,12 +2,12 @@
 
 from dataclasses import dataclass
 import json
-import os
 import subprocess
 import time
 import urllib.error
 import urllib.request
-from typing import Any, List, Mapping, Optional, Tuple, Union
+from typing import Any, override
+from collections.abc import Mapping
 
 from qew import trace
 from qew.forge import (
@@ -31,6 +31,7 @@ _TOKEN_VARIABLES = {
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    @override
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:
         return None
 
@@ -57,7 +58,7 @@ def urllib_transport(timeout: float = TIMEOUT_SECONDS) -> Transport:
 
 def resolve_token(mirror: Mirror, env: Mapping[str, str]) -> str:
     """Token from the mirror's `token_env` or the forge's usual variables; GitHub also asks `gh`."""
-    names: List[str] = []
+    names: list[str] = []
     custom = mirror.options.get("token_env")
     if isinstance(custom, str):
         names.append(custom)
@@ -78,7 +79,7 @@ def resolve_token(mirror: Mirror, env: Mapping[str, str]) -> str:
     raise ForgeAuth(f"no token for {mirror.forge} {mirror.repo}: set {' or '.join(names) or 'token_env'}")
 
 
-def split_repo(mirror: Mirror) -> Tuple[str, str, str]:
+def split_repo(mirror: Mirror) -> tuple[str, str, str]:
     """(scheme://host, owner-or-namespace path, repo) of the mirror URL; GitLab paths may nest."""
     scheme, _, rest = mirror.repo.partition("://")
     host, _, path = rest.partition("/")
@@ -97,7 +98,7 @@ SECONDARY_WAIT = 300.0  # a secondary (abuse) limit that names no wait: these bl
 MAX_WAIT = 3600.0
 
 
-def wait_from(headers: Mapping[str, str]) -> Optional[float]:
+def wait_from(headers: Mapping[str, str]) -> float | None:
     """Seconds the forge asked for through Retry-After or an exhausted X-RateLimit-Reset, else None."""
     lowered = {name.lower(): value for name, value in headers.items()}
     try:
@@ -117,7 +118,7 @@ class NotModified:
     headers: Mapping[str, str]
 
 
-def header(headers: Mapping[str, str], name: str) -> Optional[str]:
+def header(headers: Mapping[str, str], name: str) -> str | None:
     """One response header by case-insensitive name."""
     lowered = name.lower()
     return next((value for key, value in headers.items() if key.lower() == lowered), None)
@@ -141,9 +142,9 @@ def call_json(
     method: str,
     url: str,
     headers: Mapping[str, str],
-    payload: Optional[Any] = None,
-    ok: Tuple[int, ...] = (200, 201, 204),
-) -> Tuple[Any, Mapping[str, str]]:
+    payload: Any | None = None,
+    ok: tuple[int, ...] = (200, 201, 204),
+) -> tuple[Any, Mapping[str, str]]:
     """One JSON request; maps HTTP failures to the typed forge errors. Returns (json, headers)."""
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     merged = {"Accept": "application/json", **headers}
@@ -154,7 +155,7 @@ def call_json(
 
 def get_conditional(
     transport: Transport, url: str, headers: Mapping[str, str], etag: str = "",
-) -> Union[NotModified, Tuple[Any, Mapping[str, str]]]:
+) -> NotModified | tuple[Any, Mapping[str, str]]:
     """GET with `If-None-Match: etag` (when given): NotModified on 304, else (json, headers) like call_json."""
     sent = {"Accept": "application/json", **headers}
     if etag:
@@ -165,7 +166,7 @@ def get_conditional(
     return _interpret(response, (200,))
 
 
-def _interpret(response: HttpResponse, ok: Tuple[int, ...]) -> Tuple[Any, Mapping[str, str]]:
+def _interpret(response: HttpResponse, ok: tuple[int, ...]) -> tuple[Any, Mapping[str, str]]:
     if response.status in ok:
         if not response.body:
             return None, response.headers

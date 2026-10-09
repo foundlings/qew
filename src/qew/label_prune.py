@@ -1,6 +1,6 @@
 """Delete the label definitions qew manages that nothing carries and the ledger no longer wants."""
 
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 from qew import forge_registry, label_style, ledger_config, sync_plan
 from qew.errors import QewError
@@ -9,7 +9,7 @@ from qew.ledger_config import Config, Mirror
 from qew.ledger_store import Ledger
 
 
-def unused_managed(ledger: Ledger, mirror: Mirror, forge: Forge) -> List[str]:
+def unused_managed(ledger: Ledger, mirror: Mirror, forge: Forge) -> list[str]:
     """Managed-prefix labels defined on the forge that no issue or pull request carries and no item will apply."""
     snapshot = ledger.snapshot()
     overlay = mirror.mode == "overlay"
@@ -20,14 +20,14 @@ def unused_managed(ledger: Ledger, mirror: Mirror, forge: Forge) -> List[str]:
             if label_style.is_managed(name) and name not in in_use and name not in wanted]
 
 
-def prune(ledger: Ledger, config: Config, mirrors: List[Mirror], dry_run: bool,
+def prune(ledger: Ledger, config: Config, mirrors: list[Mirror], dry_run: bool,
           build: Callable[[Mirror], Forge] = forge_registry.build) -> str:
     """Refuses before any call when a chosen target is read-only; then lists (dry run) or deletes per target."""
     slugs = [ledger_config.mirror_slug(m) for m in mirrors]
     read_only = [s for m, s in zip(mirrors, slugs) if ledger_config.is_read_only(config, m)]
     if read_only:
         raise QewError(f"{', '.join(read_only)}: read-only target, labels are never pruned there; name a writable one with --target", 2)
-    lines: List[str] = []
+    lines: list[str] = []
     for mirror, slug in zip(mirrors, slugs):
         forge = build(mirror)
         names = unused_managed(ledger, mirror, forge)

@@ -1,6 +1,5 @@
 """Derived structure: reverse edges, cycles, readiness. Nothing here is stored."""
 
-from typing import Dict, List, Optional
 
 from qew.errors import QewError
 from qew.ledger_event import State
@@ -13,11 +12,11 @@ from qew.ledger_store import Snapshot
 APPROVAL_LABEL = "needs:approval"
 
 
-def state_of(snapshot: Snapshot, item_id: str) -> Optional[State]:
+def state_of(snapshot: Snapshot, item_id: str) -> State | None:
     return snapshot.folds[item_id].state
 
 
-def blockers(snapshot: Snapshot, item_id: str) -> List[str]:
+def blockers(snapshot: Snapshot, item_id: str) -> list[str]:
     """Needs that are not completed (dangling needs count as unmet)."""
     return [
         need
@@ -26,27 +25,27 @@ def blockers(snapshot: Snapshot, item_id: str) -> List[str]:
     ]
 
 
-def children(snapshot: Snapshot) -> Dict[str, List[str]]:
-    result: Dict[str, List[str]] = {}
+def children(snapshot: Snapshot) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
     for item in snapshot.items.values():
         if item.parent:
             result.setdefault(item.parent, []).append(item.id)
     return {parent: sorted(ids) for parent, ids in result.items()}
 
 
-def blocks(snapshot: Snapshot) -> Dict[str, List[str]]:
-    result: Dict[str, List[str]] = {}
+def blocks(snapshot: Snapshot) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
     for item in snapshot.items.values():
         for need in item.needs:
             result.setdefault(need, []).append(item.id)
     return {need: sorted(ids) for need, ids in result.items()}
 
 
-def ordered(snapshot: Snapshot, ids: List[str]) -> List[str]:
+def ordered(snapshot: Snapshot, ids: list[str]) -> list[str]:
     return sorted(ids, key=lambda item_id: (snapshot.items[item_id].priority, sort_key(item_id)))
 
 
-def _open_dependents(snapshot: Snapshot) -> Dict[str, List[str]]:
+def _open_dependents(snapshot: Snapshot) -> dict[str, list[str]]:
     """For each item, the unfinished items that need it (completed and closed work needs nothing more)."""
     return {
         need: [i for i in ids if state_of(snapshot, i) not in (State.COMPLETED, State.CLOSED)]
@@ -54,10 +53,10 @@ def _open_dependents(snapshot: Snapshot) -> Dict[str, List[str]]:
     }
 
 
-def chain_depths(snapshot: Snapshot, roots: List[str]) -> Dict[str, int]:
+def chain_depths(snapshot: Snapshot, roots: list[str]) -> dict[str, int]:
     """Longest chain of unfinished dependents below each root. Iterative; a needs cycle is refused."""
     dependents = _open_dependents(snapshot)
-    depth: Dict[str, int] = {}
+    depth: dict[str, int] = {}
     for root in roots:
         stack = [(root, iter(dependents.get(root, [])))]
         on_path = {root}
@@ -79,7 +78,7 @@ def chain_depths(snapshot: Snapshot, roots: List[str]) -> Dict[str, int]:
     return depth
 
 
-def ready(snapshot: Snapshot) -> List[str]:
+def ready(snapshot: Snapshot) -> list[str]:
     """Approved, unclaimed, not an epic, not awaiting a human gate, every need completed.
 
     Within a priority: the longest chain of unfinished work it unblocks first, then the most direct
@@ -101,7 +100,7 @@ def ready(snapshot: Snapshot) -> List[str]:
     )
 
 
-def blocked(snapshot: Snapshot) -> List[str]:
+def blocked(snapshot: Snapshot) -> list[str]:
     """Approved or claimed work that still has unmet needs."""
     return ordered(
         snapshot,
@@ -126,7 +125,7 @@ def work_state(snapshot: Snapshot, item_id: str) -> str:
     if state in (None, State.DRAFT):
         return "needs_decision"
     if state in (State.COMPLETED, State.CLOSED):
-        return state.value
+        return str(state.value)
     if snapshot.items[item_id].kind == Kind.EPIC:
         return "plan"
     if blockers(snapshot, item_id):
@@ -134,10 +133,10 @@ def work_state(snapshot: Snapshot, item_id: str) -> str:
     return "claimed" if state == State.CLAIMED else "ready"
 
 
-def find_cycles(edges: Dict[str, List[str]]) -> List[List[str]]:
+def find_cycles(edges: dict[str, list[str]]) -> list[list[str]]:
     """Every cycle found by depth-first search over `edges` (iterative, no recursion limit)."""
-    cycles: List[List[str]] = []
-    done: set = set()
+    cycles: list[list[str]] = []
+    done: set[str] = set()
     for start in sorted(edges):
         if start in done:
             continue

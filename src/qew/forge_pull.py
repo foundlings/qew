@@ -11,14 +11,15 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime
 import re
 import unicodedata
-from typing import Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable, Collection, Iterable
 
 from qew import instants, page_cache, pull_cursor, sync_plan
+from qew.mirror_types import MirrorRecord, Seen, updated
 from qew.forge import DUPLICATE_MARKER, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_event import State
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
-from qew.sync import new_record
+from qew.sync import Target, new_record
 
 TITLE_LIMIT = 200
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
@@ -33,8 +34,8 @@ class PullReport:
     comments: int = 0
     duplicates: int = 0
     recreated: int = 0  # mirrors forgotten because the forge repo was wiped; the push recreates their issues
-    skipped: List[str] = field(default_factory=list)
-    failures: List[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    failures: list[str] = field(default_factory=list)
     retry_after: float = 0.0  # seconds a rate-limited forge asked us to wait
     mode: str = ""  # how the issues were listed: conditional, incremental or full
     pages_fetched: int = 0  # conditional listing: pages that came over the wire
@@ -51,12 +52,12 @@ def clean_body(text: str) -> str:
     return _CONTROL.sub("", text.replace("\r\n", "\n"))
 
 
-def clean_labels(labels) -> List[str]:
+def clean_labels(labels: Iterable[str]) -> list[str]:
     return sorted({l for l in labels if l and not any(c.isspace() or c == "," for c in l) and len(l) <= 60})
 
 
-def _list(ledger: Ledger, target, report: PullReport, cursor: Optional[pull_cursor.Cursor], started: datetime,
-          full: bool) -> Tuple[list, bool]:
+def _list(ledger: Ledger, target: Target, report: PullReport, cursor: pull_cursor.Cursor | None, started: datetime,
+          full: bool) -> tuple[list[RemoteIssue], bool]:
     """(issues, complete): the whole set through conditional pages when the forge sends ETags, else a `since` listing."""
     cached = {} if full else page_cache.load(ledger.read_page_files(target.slug))
     try:
@@ -73,7 +74,7 @@ def _list(ledger: Ledger, target, report: PullReport, cursor: Optional[pull_curs
     return target.forge.list_issues(since), not since
 
 
-def wiped(mirrored, remote_numbers) -> bool:
+def wiped(mirrored: Collection[int], remote_numbers: Collection[int]) -> bool:
     """A complete listing holding none of at least two mirrored issues is a deleted and recreated repository.
 
     One missing issue stays a divergence for a human; the ledger is the source of truth, so recreating many is safe.
@@ -81,7 +82,7 @@ def wiped(mirrored, remote_numbers) -> bool:
     return len(mirrored) >= 2 and not set(mirrored) & set(remote_numbers)
 
 
-def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], datetime] = instants.now) -> PullReport:
+def pull_target(ledger: Ledger, target: Target, full: bool = False, clock: Callable[[], datetime] = instants.now) -> PullReport:
     """Pull one target. `full` ignores the cursor and every cached page. The cursor advances only when the whole pull succeeded."""
     report = PullReport(target.slug)
     started = clock()
@@ -98,7 +99,7 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
     snapshot = ledger.snapshot()
     aliases = ledger.aliases()
     by_number = {issue.number: issue for issue in remote}
-    mirrored: Dict[int, str] = {}
+    mirrored: dict[int, str] = {}
     for item_id in snapshot.items:
         for record in ledger.load_mirrors(item_id):
             if record["_target"] == target.slug and record.get("kind") == "issue":
@@ -115,7 +116,7 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
             if issue is None and not complete:
                 continue  # unchanged since the cursor; only the complete set can show a deletion
             _pull_item(ledger, snapshot, target, report, item_id, issue)
-        twins: Dict[str, List[Tuple[RemoteIssue, str]]] = {}
+        twins: dict[str, list[tuple[RemoteIssue, str]]] = {}
         for issue in () if target.read_only else remote:
             if issue.number in mirrored:
                 continue
@@ -138,7 +139,7 @@ def pull_target(ledger: Ledger, target, full: bool = False, clock: Callable[[], 
     return report
 
 
-def pull_items(ledger: Ledger, target, item_ids) -> PullReport:
+def pull_items(ledger: Ledger, target: Target, item_ids: Iterable[str]) -> PullReport:
     """Pull only the named items' issues (one read each): forge-side edits land before the push can overwrite them.
 
     New issues and deletions are the full pull's job; this is the cheap pass that follows a write.
@@ -171,8 +172,8 @@ _MARKER = re.compile(r"<!-- qew:([A-Za-z0-9][A-Za-z0-9._-]*) -->")
 DUPLICATE_GRACE_SECONDS = 600
 
 
-def _settle_twins(ledger: Ledger, target, report: PullReport, item_id: str, found: List[Tuple[RemoteIssue, str]],
-                  mirrored: Dict[int, str], snapshot: Snapshot, started: datetime, complete: bool) -> None:
+def _settle_twins(ledger: Ledger, target: Target, report: PullReport, item_id: str, found: list[tuple[RemoteIssue, str]],
+                  mirrored: dict[int, str], snapshot: Snapshot, started: datetime, complete: bool) -> None:
     """Issues carrying the marker of an item but not mirrored for it (a crash orphan, another checkout's create).
 
     The mirror is the authority: an open twin above the mirrored issue closes at once. One below it closes too, but only
@@ -204,24 +205,23 @@ def _settle_twins(ledger: Ledger, target, report: PullReport, item_id: str, foun
 def _mirror_is_settled(ledger: Ledger, item_id: str, slug: str, started: datetime) -> bool:
     """True once the recorded mirror is older than the grace; a mirror without a local sync time (a fresh clone) is settled."""
     record = next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug and m.get("kind") == "issue"), None)
-    at = instants.parse_instant(str((record or {}).get("synced_at") or ""))
+    at = instants.parse_instant(str(record.get("synced_at") or "") if record else "")
     return at is None or (started - at).total_seconds() > DUPLICATE_GRACE_SECONDS
 
 
-def _record(ledger: Ledger, item_id: str, slug: str) -> dict:
+def _record(ledger: Ledger, item_id: str, slug: str) -> MirrorRecord:
     return next(m for m in ledger.load_mirrors(item_id) if m["_target"] == slug)
 
 
-def _save(ledger: Ledger, item_id: str, slug: str, record: dict, seen: dict) -> None:
-    clean = {k: v for k, v in record.items() if k != "_target"}
-    ledger.write_mirror(item_id, slug, {**clean, "seen": seen})
+def _save(ledger: Ledger, item_id: str, slug: str, record: MirrorRecord, seen: Seen) -> None:
+    ledger.write_mirror(item_id, slug, updated(record, seen=seen))
 
 
 def _already_open(snapshot: Snapshot, item_id: str, field_name: str, forge_value: str) -> bool:
     return any(e.get("field") == field_name and e.get("forge") == forge_value for e in snapshot.folds[item_id].divergences)
 
 
-def _diverge(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, item_id: str, number: int,
+def _diverge(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, item_id: str, number: int,
              field_name: str, forge_value: str, ledger_value: str, close_reason: str = "") -> None:
     if _already_open(snapshot, item_id, field_name, forge_value):
         return
@@ -239,8 +239,8 @@ def _apply_header(ledger: Ledger, item: Item, key: str, value: str) -> Item:
     return updated
 
 
-def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, item_id: str,
-               issue: Optional[RemoteIssue]) -> None:
+def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, item_id: str,
+               issue: RemoteIssue | None) -> None:
     record = _record(ledger, item_id, target.slug)
     seen = record.get("seen")
     if seen is not None:  # baselines written before a prefix became managed may still hold such labels
@@ -252,7 +252,7 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
     for stale in snapshot.folds[item_id].divergences:  # the issue is back: a missing-issue divergence is over
         if stale.get("field") == "exists":
             ledger.append_event(item_id, "divergence_rejected", ref=stale.id, reason="the issue exists on the forge again")
-    current = sync_plan.seen_of(issue, (seen or {}).get("comments", []))
+    current = sync_plan.seen_of(issue, seen["comments"] if seen else [])
     if seen is None:
         # No baseline on this machine (new checkout, or a mirror from before pulling existed): we cannot tell who changed
         # what, so a difference is a divergence for a human to settle, never something a later push overwrites.
@@ -262,7 +262,7 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
         labels = clean_labels(current["labels"])
         if labels != sorted(item.labels):
             _diverge(ledger, snapshot, target, report, item_id, issue.number, "labels", " ".join(labels), " ".join(item.labels))
-        _save(ledger, item_id, target.slug, {**record, "baselined": True}, current)
+        _save(ledger, item_id, target.slug, updated(record, baselined=True), current)
         return
     if target.read_only:
         _pull_state_only(ledger, snapshot, target, report, item_id, record, issue, seen, current)
@@ -318,8 +318,8 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, i
                                                       "comments": comment_ids})
 
 
-def _pull_state_only(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, item_id: str, record: dict,
-                     issue: RemoteIssue, seen: dict, current: dict) -> None:
+def _pull_state_only(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, item_id: str, record: MirrorRecord,
+                     issue: RemoteIssue, seen: Seen, current: Seen) -> None:
     """A one-way mirror: edits made there are not imported; only a close or reopen is flagged."""
     if issue.open == seen["open"]:
         return
@@ -341,7 +341,7 @@ def append_forge_close(ledger: Ledger, item_id: str, reason: str) -> None:
     ledger.append_event(item_id, "completed", provenance="forge-import")
 
 
-def _import_issue(ledger: Ledger, snapshot: Snapshot, target, report: PullReport, issue: RemoteIssue) -> None:
+def _import_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, issue: RemoteIssue) -> None:
     from qew.ledger_item import from_header
     from qew.ledger_store import now
 

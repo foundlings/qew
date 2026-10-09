@@ -10,7 +10,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import cast
 
 from qew import ledger_config
 from qew.ledger_config import Config, Mirror
@@ -22,7 +22,7 @@ def remote_name(slug: str) -> str:
     return "qew-" + re.sub(r"[^A-Za-z0-9.-]", "-", slug)
 
 
-def url_problem(url: object) -> Optional[str]:
+def url_problem(url: object) -> str | None:
     if not isinstance(url, str) or not url or re.search(r"[\s\x00-\x1f\x7f]", url):
         return "must be a clone URL or path without whitespace"
     if url.startswith("-") or "::" in url:
@@ -30,7 +30,7 @@ def url_problem(url: object) -> Optional[str]:
     return None
 
 
-def _git(path: Path, *arguments: str) -> subprocess.CompletedProcess:
+def _git(path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", "-C", str(path), *arguments], capture_output=True, text=True, timeout=PUSH_TIMEOUT_S,
                           env={**os.environ, "GIT_TERMINAL_PROMPT": "0"}, check=False)
 
@@ -58,7 +58,7 @@ def _push_one(path: Path, branch: str, name: str, url: str) -> str:
     return f"pushed {branch}"
 
 
-def push_target(config: Config, mirror: Mirror) -> List[str]:
+def push_target(config: Config, mirror: Mirror) -> list[str]:
     slug = ledger_config.mirror_slug(mirror)
     name = remote_name(slug)
     wanted = [("code", config.root, config.target, mirror.options.get("git_url")),
@@ -70,12 +70,12 @@ def push_target(config: Config, mirror: Mirror) -> List[str]:
         if url is None or (label == "code" and config.root == config.ledger_path):
             continue
         problem = url_problem(url)
-        outcome = f"failed: {'git_url' if label == 'code' else 'ledger_git_url'} {problem}" if problem else _push_one(path, branch, name, url)
+        outcome = f"failed: {'git_url' if label == 'code' else 'ledger_git_url'} {problem}" if problem else _push_one(path, branch, name, cast(str, url))
         lines.append(f"repos {slug} {label}: {outcome}")
     return lines
 
 
-def push_everywhere(config: Config) -> List[str]:
+def push_everywhere(config: Config) -> list[str]:
     """Report lines for every target; offline runs and ledgers without targets do nothing."""
     if config.replication.offline or not (config.root / ledger_config.CONFIG).is_file():
         return []
