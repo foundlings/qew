@@ -223,11 +223,44 @@ Everything below is best-effort and offline-first: no network failure ever fails
 7. **Config.** `.qew/config.toml`: `[replication] auto_commit = true, auto_push = true, auto_forge_sync = true,
    timeout_s = 5`. `QEW_OFFLINE=1` forces offline: no fetch, push or forge calls (writes still commit locally).
    Agent hooks never block qew's own replication.
-8. **Concurrency.** A lock file in the ledger checkout (`.qew.lock`, ignored by the VCS, advisory flock) serializes
-   writers on one machine; several machines write concurrently through the VCS merge.
+8. **Concurrency.** See "Concurrency" below: kernel locks that die with their holder, idempotent verbs, repository
+   locks named and never deleted. Several machines write concurrently through the VCS merge.
 
 New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence`, `divergence_accepted`,
 `divergence_rejected`; `provenance` may be `import`, `forge-import` or `forge` where the event came from a forge.
+
+### Concurrency (ten agents on one machine)
+Decision: the primitive is a kernel advisory lock, nothing else, so nothing is ever stale.
+- **One module, `filelock.py`** (stdlib only): POSIX `flock` on the whole file, Windows `msvcrt.locking` on one byte far
+  past the holder text. No other module imports `fcntl`/`msvcrt` or calls `flock` (a source gate in
+  `tests/test_filelock_walk.py` fails otherwise). Pid files and `O_EXCL` sentinel files are never used as locks.
+- **Death releases.** The kernel frees the lock when the holder ends by any means, `kill -9` and power loss included. The
+  lock FILES (`.qew/lock` write lock, `.qew/push.lock` push lock, `.qew/sync.lock` worker) stay on disk, inert; nothing
+  detects, ages or clears them. They live in the VCS-excluded `.qew/` cache.
+- **The holder text is courtesy only.** The holder writes `{pid, host, verb, who, since}` into the file after it locks;
+  a waiter reads it only to word the timeout (`the ledger X is locked by agent3's `complete` (pid 123, 12s)`, exit 3).
+  It is never consulted to decide whether the lock is free.
+- **Waiting.** Bounded by `LOCK_WAIT_SECONDS` (60) with exponential backoff (10 ms to 250 ms) plus jitter, so ten
+  waiters do not stampede. There is no queue: ordering is fair only on average. Locks are not re-entrant: a nested hold
+  on one path times out loudly. Push runs outside the write lock; the worker's own commit waits on the push lock.
+- **Idempotent verbs.** A repeated command after a crash, timeout or agent retry never duplicates:
+  `create --key KEY` (same key and content returns the first item with the same line, a key under other content is exit 2;
+  it reuses the plan adoption markers, so a run killed between its event and its item file is adopted),
+  `comment --key KEY` (same key and text posts nothing, `(unchanged)`), `evidence` for a change already recorded,
+  `draft approve` with the words that already released it, `release` and `close` repeated by the same actor, and
+  `complete` of completed work all print `(unchanged)` with exit 0 and write nothing. `start` by the holder is the
+  established exit 5. A different quote on live work, or another reason on closed work, stays a loud refusal (exit 2).
+  Events are appended under the write lock with the next id after the newest, created exclusively (`os.link`), so a replay
+  never overwrites one.
+- **Repository locks.** git keeps `index.lock` and ref locks as sentinel files, so a crashed git leaves one behind. qew's
+  git/jj calls retry on a lock error with backoff up to `QEW_REPO_LOCK_WAIT_S` (default 20). A lock older than 60 s while no
+  git process runs on the machine is reported as stale (exit 3, file named and age) and left in place; a lock still
+  held after the wait is reported as held. qew never deletes a repository lock; the person removes it. jj's working-copy
+  and operation locks are kernel locks held for one command, so a dead jj frees them and jj itself waits.
+- **Walks.** `tests/test_ten_agents_walk.py` runs ten agents on a git and on a jj ledger with a bare remote, kills
+  writers mid-session, and asserts one item per key, no tracebacks, clean history, an unblocked fresh writer and a
+  converged remote. Not covered: network filesystems (their lock semantics vary), and Windows is exercised through a
+  stubbed `msvcrt`, not a Windows run.
 
 ### Background sync
 
@@ -254,7 +287,7 @@ New event types: `commented` (`text`, `author`, `remote_ref`), `forge_divergence
   `ID completed; ready: ID...` (the work the completion released), `ID approved`. The backlog is in `qew status`.
 - The worker takes a lock in the ledger checkout's `.qew/` cache dir (VCS-ignored), writes `.qew/sync.log`
   (bounded, rotated), and stops after `timeout_s` per target. A second writer finding the lock held does nothing
-  (no double sync); a worker that dies leaves its stale lock, which the next command detects by pid and clears.
+  (no double sync); a worker that dies frees its lock with its process (see Concurrency), nothing is cleared.
 - Offline or failing forges leave the derived pending state; the next command retries silently and
   `qew status` shows the backlog and the last log line. `[replication] background_sync = true` (default);
   `QEW_OFFLINE=1` or `background_sync = false` disables it. Tests and `qew sync` run the same worker in the

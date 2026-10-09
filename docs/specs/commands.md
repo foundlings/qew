@@ -146,7 +146,8 @@ shape prime: additional_context context_bytes schema_version
 ## Work
 - `qew create [--kind K] --title T [--key KEY] [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
   [--body-file F | --edit] [--quote Q] [--from-file F [--draft] [--dry-run]] [--json]`: a draft unless `--quote` carries a human's words
-  (`"Name: 'their words'"`), which files it approved. `--from-file` takes a plan: JSON Lines, one JSON object or an array (or `-`
+  (`"Name: 'their words'"`), which files it approved. `--key KEY` (one word, not with `--from-file`) makes a retry safe: the same key and content returns the first item
+  with the same output line, the same key under other content is exit 2. `--from-file` takes a plan: JSON Lines, one JSON object or an array (or `-`
   for stdin). The whole plan is validated before the first write (exit 2, naming the line): regular UTF-8
   file, not a symlink; no unknown fields; unique `ref`s; `@ref` entries in `needs`/`parent` resolve in any
   order; no cycle, bad nesting or self edge; `id` (imports keep it), `created` allowed. `--body-file` refuses a symlink (exit 2). An entry with a valid

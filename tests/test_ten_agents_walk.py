@@ -18,7 +18,8 @@ from tests.ledger_harness import PROJECT_ROOT, QUOTE, World, git, jj, jj_availab
 AGENTS = 10
 KILLS = 4
 GOOD = {"start": {0, 5}}  # a repeated start is exit 5: already yours, nothing written
-SUBJECT = re.compile(r"^(qew: [a-z-]+( [A-Za-z0-9]+| \d+ items)? by \S+|init ledger|.*merge.*)$", re.IGNORECASE)
+# a writer killed between writing and committing leaves files the next writer commits as `qew: recover N files`
+SUBJECT = re.compile(r"^(qew: [a-z-]+( [A-Za-z0-9]+| \d+ items)? by \S+|qew: recover \d+ files?|init ledger|.*merge.*)$", re.IGNORECASE)
 
 
 class Fleet:
@@ -117,6 +118,7 @@ class TenAgentsWalk(unittest.TestCase):
         self.assertEqual(len(results), AGENTS, f"agents still running after {elapsed:.0f}s")
         failures = {agent: outcome for agent, outcome in results.items() if not re.fullmatch(r"[0-9a-z]{9}", str(outcome))}
         self.assertEqual(failures, {})
+        self.assertGreaterEqual(sum(1 for _, _, code, _ in fleet.log if code is not None and code < 0), 1, "no writer was killed")
         for agent, code, err in [(a, c, e) for a, _, c, e in fleet.log if c is not None]:
             self.assertNotIn("Traceback", err, f"agent {agent}")
         settle = world.run("create", "--title", "Settle", "--quote", QUOTE)  # a fresh writer proceeds at once
