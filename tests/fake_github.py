@@ -136,6 +136,16 @@ class FakeGitHub:
         """Record a modification: edits, comments and label changes all bump updated_at, as on GitHub."""
         issue["updated_at"] = instants.format_instant(self.clock())
 
+    def set_state(self, issue: Dict[str, Any], state: str, reason: Optional[str]) -> None:
+        """Open or close an issue as GitHub does: a close without a reason is `completed`; the timeline keeps every close."""
+        if state == "closed":
+            reason = reason or "completed"
+            issue["timeline"].append({"event": "closed", "state_reason": reason})
+        elif issue["state"] == "closed":
+            issue["timeline"].append({"event": "reopened", "state_reason": "reopened"})
+            reason = None
+        issue["state"], issue["state_reason"] = state, reason
+
     def delete_issue(self, number: int) -> None:
         """An admin deletes the issue; later issues keep their numbers."""
         del self.issues[number]
@@ -158,7 +168,7 @@ class FakeGitHub:
             "id": self.next_id, "node_id": f"I_{number}", "number": number,
             "title": payload["title"], "body": payload.get("body"), "state": "open",
             "state_reason": None, "labels": list(payload.get("labels", [])),
-            "assignee": (payload.get("assignees") or [None])[0], "blocked_by": [], "discussion": [],
+            "assignee": (payload.get("assignees") or [None])[0], "blocked_by": [], "discussion": [], "timeline": [],
         }
         self.touch(issue)
         self.issues[number] = issue
@@ -636,9 +646,11 @@ class _Handler(BaseHTTPRequestHandler):
                 and body["state_reason"] != issue["state_reason"]):  # real GitHub refuses to switch the reason of a closed issue
             return self._send(422, {"message": "Validation Failed", "errors": [
                 {"resource": "Issue", "code": "custom", "field": "state_reason", "message": "state_reason Cannot transition to this state"}]})
-        for key in ("title", "body", "labels", "state", "state_reason", "milestone"):
+        for key in ("title", "body", "labels", "milestone"):
             if key in body:
                 issue[key] = body[key]
+        if "state" in body and (body["state"] != issue["state"] or body.get("state_reason")):
+            self.fake.set_state(issue, body["state"], body.get("state_reason"))
         if "assignees" in body:
             issue["assignee"] = body["assignees"][0] if body["assignees"] else None
         self.fake.touch(issue)
@@ -651,6 +663,10 @@ class _Handler(BaseHTTPRequestHandler):
         comments = [self.fake.comment_json(c) for c in issue["discussion"]]
         window, link = self._page(comments, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{number}/comments")
         self._send(200, window, link)
+
+    def _get_events(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        issue = self.fake.issues.get(int(number))
+        self._send(404, {"message": "Not Found"}) if issue is None else self._send(200, list(issue["timeline"]))
 
     def _post_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
         if int(number) not in self.fake.issues:
@@ -777,6 +793,7 @@ _ROUTES = (
     (r"/issues", "issues"),
     (r"/issues/(\d+)", "issue"),
     (r"/issues/(\d+)/comments", "comments"),
+    (r"/issues/(\d+)/events", "events"),
     (r"/issues/(\d+)/dependencies/blocked_by", "blocked_by"),
     (r"/pulls", "pulls"),
     (r"/pulls/(\d+)", "pull"),
