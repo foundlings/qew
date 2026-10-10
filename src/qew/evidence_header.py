@@ -6,6 +6,7 @@ reader of the item sees.
 """
 
 from qew.jsontypes import JsonObject
+from qew.ledger_item import MAX_EVIDENCE_IDS
 
 IMPORTED_REASON = "imported without resolvable evidence"
 Header = tuple[tuple[str, ...], str]  # (change ids, absence `KIND: reason`)
@@ -19,7 +20,7 @@ def header_values(data: JsonObject) -> Header | None:
     """(evidence, evidence_absent) the completed event's data stands for, or None when it says nothing about proof."""
     cited = data.get("evidence")
     if isinstance(cited, list) and cited:
-        return tuple(str(c) for c in cited), ""
+        return tuple(str(c) for c in cited[:MAX_EVIDENCE_IDS]), ""
     absent = data.get("absent")
     if isinstance(absent, str) and absent:
         return (), f"{absent}: {one_line(str(data.get('absent_reason', '')))}"
@@ -29,7 +30,7 @@ def header_values(data: JsonObject) -> Header | None:
         return (), f"children: {one_line(str(data.get('reason') or 'all children finished'))}"
     delivered = data.get("delivered_by")
     if isinstance(delivered, list) and delivered:
-        return tuple(str(c) for c in delivered), ""
+        return tuple(str(c) for c in delivered[:MAX_EVIDENCE_IDS]), ""
     if data.get("provenance") in ("import", "forge-import"):
         return (), f"historical: {one_line(str(data.get('reason') or IMPORTED_REASON))}"
     return None

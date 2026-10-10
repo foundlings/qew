@@ -6,13 +6,14 @@ completion was recorded (no code, children, imported, or a bulk completion). Whe
 cited ids are kept as they are and `qew check` resolves them later.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from qew import evidence_header
 from qew.code_vcs import Landing
 from qew.evidence_resolve import Resolver
 from qew.ledger_event import Event, State
-from qew.ledger_item import Kind
+from qew.errors import QewError
+from qew.ledger_item import MAX_EVIDENCE_IDS, Kind, parse_item, render_item
 from qew.ledger_store import Ledger, Snapshot
 
 BULK_REASON = "completed in bulk on a human's quote without delivery evidence"
@@ -24,6 +25,7 @@ class Filled:
     item_id: str
     evidence: tuple[str, ...]
     absent: str
+    omitted: int = 0  # cited ids beyond MAX_EVIDENCE_IDS: the events keep them, the header does not list them
 
     @property
     def kind(self) -> str:
@@ -69,16 +71,17 @@ def plan(snapshot: Snapshot, resolve: Resolver | None) -> list[Filled]:
         if not completions:
             continue
         kept = [change for change, vcs in _cited(events) if resolve is None or resolve(change, vcs) is not Landing.NOT_ANCESTOR]  # unknown here: kept, `qew check` says so
-        if kept:
-            filled.append(Filled(item_id, tuple(kept), ""))
-        else:
-            filled.append(Filled(item_id, (), _absence(item.kind, completions[-1])))
+        each = (Filled(item_id, tuple(kept[:MAX_EVIDENCE_IDS]), "", max(0, len(kept) - MAX_EVIDENCE_IDS)) if kept
+                else Filled(item_id, (), _absence(item.kind, completions[-1])))
+        try:  # the header must read back as written: a dry run finds out here, not only the real run
+            parse_item(render_item(replace(item, evidence=each.evidence, evidence_absent=each.absent)), item_id)
+        except QewError as error:
+            raise QewError(f"{item_id}: its evidence header cannot be written: {error}", 1) from None
+        filled.append(each)
     return filled
 
 
 def apply(ledger: Ledger, filled: list[Filled]) -> None:
-    from dataclasses import replace
-
     for each in filled:
         ledger.write_item(replace(ledger.load_item(each.item_id), evidence=each.evidence, evidence_absent=each.absent), overwrite=True)
 
@@ -87,4 +90,6 @@ def summary(filled: list[Filled]) -> str:
     counts: dict[str, int] = {}
     for each in filled:
         counts[each.kind] = counts.get(each.kind, 0) + 1
-    return ", ".join(f"{n} {kind}" for kind, n in sorted(counts.items())) or "none"
+    text = ", ".join(f"{n} {kind}" for kind, n in sorted(counts.items())) or "none"
+    cut = sum(1 for each in filled if each.omitted)
+    return text + (f"; {cut} item(s) truncated to the first {MAX_EVIDENCE_IDS} ids (the events keep all)" if cut else "")

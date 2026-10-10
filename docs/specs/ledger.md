@@ -83,7 +83,7 @@ Strict evidence (schema 4, the default; `evidence = "lenient"` in `qew-ledger.to
 (delivered outside the repository), `historical` (done before the ledger or imported without a resolvable id),
 `superseded-by:ITEM` or `children` (an epic finished by its children), never silently neither. The header is set by whatever
 writes the `completed` event (`evidence` / `absent` + `absent_reason` fields; imports and forge-side closes record `historical`);
-events stay the history. `qew check` requires the header, that every id is cited by an event, and (where the code repository
+events stay the history. The header lists at most 1000 ids (the events keep every one) and may be up to 64 KiB. `qew check` requires the header, that every id is cited by an event, and (where the code repository
 is at hand) that every id resolves and landed on the target; the cited change cannot be the one recording the completion
 when the ledger lives inside the code repository.
 
