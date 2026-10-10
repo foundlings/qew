@@ -13,7 +13,7 @@ being down never blocks reading, planning or finishing work.
 - Readiness, blocked work and the dependency graph are derived from files: no network, no tokens spent.
 - `qew complete` is gated: claimed, children done, and evidence whose changes are ancestors of the target branch. `qew repair-evidence` rebuilds a missing evidence header from the events. Strict evidence is the default: a completed item shows its proof in its header (`evidence: ids`, or a typed `evidence_absent`; `qew complete --absent KIND --reason TEXT`). `qew complete --manifest FILE --quote Q` is the audited bulk exception: many approved items in one commit on a human's quoted words.
 - Only a human's quoted words release a draft to approved work.
-- Items carry named fields beside labels (`qew create --field phase=12`, `qew set --field`, `qew list --field`, `set --manifest` rows); a mirror's `project_fields` shows them as board fields (`field:NAME`), and `qew sync --prune-labels --all-labels` deletes labels nothing uses. Schema 5 (`qew migrate-layout`).
+- Items carry named fields beside labels (`qew create --field phase=12`, `qew set --field`, `qew list --field`, `set --manifest` rows); a mirror's `project_fields` shows them as board fields (`field:NAME`), and `qew sync --prune-labels` deletes the labels qew retired. Schema 5 (`qew migrate-layout`).
 - Replication: every write commits to the ledger, pushes it and syncs the forges in a background worker; checkouts on
   several machines converge, and a forge can be the single authority for who owns what.
 - `qew sync` mirrors issues, labels (coloured; priorities `P0`..`P4`, plain `epic`/`task`, `author:NAME`), dependencies, pull requests and project boards to each forge, and pulls forge-side
@@ -78,7 +78,7 @@ step; the work is pushed and mirrored the next time you are online. `QEW_TRACE=1
   `qew set ITEM --field wp=WP-7 | --clear-field wp`, `qew list --field phase=12`, `qew set --manifest` rows
   (`{"item": ID, "fields": {"phase": "12"}, "remove_label": "phase:12"}`) and plan-file entries (`"fields": {...}`).
   A mirror shows them on the board: `project_fields = { Phase = "field:phase" }`; `qew project ensure` creates the
-  missing text fields. Fields are never labels. `qew sync --prune-labels --all-labels` deletes labels nothing uses.
+  missing text fields. Fields are never labels. `qew sync --prune-labels` deletes the labels qew retired (a converted prefix such as `phase:12`, its own `author:old`), never a label that is merely unused.
 - **Identity.** The actor comes from `QEW_ACTOR`, else the git or jj `user.name`; never the operating-system login.
 
 Contracts: `docs/specs/ledger.md` and `docs/specs/forges.md`.
@@ -126,7 +126,7 @@ Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook
 
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--chains`, `--state`, `--change`, `--vcs`,
-`--reason`, `--where`, `--problem`, `--goal`, `--fix`, `--approach`, `--done-when`, `--edit`, `--draft`, `--discovered-from`, `--no-parent`, `--add-label`, `--remove-label`, `--field`, `--clear-field`, `--all-labels` (`qew sync --prune-labels`: every unused label, not only qew's), `--on`, `--no-commit`, `--landed-on`, `--delivered-by`, `--of`, `--by`, `--note`, `--key` (`qew create`, `qew comment`: idempotency key), `--take-over`, `--offline` (`qew start`: provisional claim), `--lane`, `--workspace`, `--force`, `--tree`, `--closed`, `--stale` (`qew unlock`: a human-approved removal of a dead git lock), `--target`, `--item`, `--dry-run`, `--full` (`qew sync`: re-read the whole forge), `--prune-labels` (`qew sync`: delete unused managed labels), `--after` (`qew next-id`, `qew item rename`: a letter reserved outside the ledger), `--count` (`qew next-id`), `--head`, `--base`, `--ready`, `--claude`, `--codex`,
+`--reason`, `--where`, `--problem`, `--goal`, `--fix`, `--approach`, `--done-when`, `--edit`, `--draft`, `--discovered-from`, `--no-parent`, `--add-label`, `--remove-label`, `--field`, `--clear-field`, `--on`, `--no-commit`, `--landed-on`, `--delivered-by`, `--of`, `--by`, `--note`, `--key` (`qew create`, `qew comment`: idempotency key), `--take-over`, `--offline` (`qew start`: provisional claim), `--lane`, `--workspace`, `--force`, `--tree`, `--closed`, `--stale` (`qew unlock`: a human-approved removal of a dead git lock), `--target`, `--item`, `--dry-run`, `--full` (`qew sync`: re-read the whole forge), `--prune-labels` (`qew sync`: delete unused managed labels), `--after` (`qew next-id`, `qew item rename`: a letter reserved outside the ledger), `--count` (`qew next-id`), `--head`, `--base`, `--ready`, `--claude`, `--codex`,
 `--compact`, `--name`, `--columns`, `--sort`, `--group-by`, `--filter`, `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`, `--read-only`, `--tracks`, `--pr`, `--primary`, `--remove-old`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.

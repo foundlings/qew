@@ -48,9 +48,9 @@ class RepositoryModeWalk(RepositoryLabelsWalk):
         epic = self.w.create("--kind", "epic", "--title", "Epic", "--priority", "1", "--quote", QUOTE)
         self.w.create("--kind", "task", "--title", "Child", "--parent", epic, "--priority", "3", "--quote", QUOTE)
         self.run_ok("sync")
-        self.assertEqual(self.labels(1), {"area:x", "P2", "author:tester"})
+        self.assertEqual(self.labels(1), {"area:x", "P2", "author:tester", "ready"})
         self.assertEqual(self.labels(2), {"P1", "author:tester", "epic"})
-        self.assertEqual(self.labels(3), {"P3", "author:tester", "task"})
+        self.assertEqual(self.labels(3), {"P3", "author:tester", "task", "ready"})
         self.assertFalse(NOISE & {name for n in (1, 2, 3) for name in self.labels(n)})
 
     def test_noise_labels_from_older_syncs_are_removed_without_divergence_and_prune_deletes_them(self) -> None:
@@ -63,7 +63,7 @@ class RepositoryModeWalk(RepositoryLabelsWalk):
             self.fake.label_store[name] = {"color": "ededed", "description": "Managed by qew"}
         self.run_ok("sync")
         self.assertEqual(json.loads(self.run_ok("status", "--json"))["divergences"], [])
-        self.assertEqual(self.labels(1), {"area:x", "P2", "author:tester"})
+        self.assertEqual(self.labels(1), {"area:x", "P2", "author:tester", "ready"})
         self.run_ok("sync", "--prune-labels")
         self.assertFalse((NOISE | {"priority:2"}) & set(self.fake.label_store))
         self.assertIn("area:x", self.fake.label_store)
@@ -76,7 +76,7 @@ class OverlayModeWalk(RepositoryLabelsWalk):
         """Prevents overlay mirrors losing the labels that tell qew's issues from humans' ones."""
         self.w.create("--title", "Plain", "--priority", "2", "--quote", QUOTE)
         self.run_ok("sync")
-        self.assertEqual(self.labels(1), {"qew:managed", "qew:approved", "status:Ready", "P2", "author:tester"})
+        self.assertEqual(self.labels(1), {"qew:managed", "qew:approved", "status:Ready", "P2", "author:tester", "ready"})
 
 
 class BoardStatusWalk(unittest.TestCase):

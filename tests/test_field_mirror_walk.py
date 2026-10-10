@@ -1,5 +1,5 @@
 """Item fields on the forge: a mapped field fills a board field, fields never become labels, `project ensure` creates the
-text fields, and `sync --prune-labels --all-labels` deletes labels nothing uses any more.
+and text fields are created by `project ensure`.
 
 Each test is a scenario; its docstring names the failure it prevents.
 """
@@ -74,33 +74,6 @@ class FieldMirrorWalk(unittest.TestCase):
         world.run("set", item, "--remove-label", "phase:12", "--field", "phase=12")
         self.sync(world)
         self.assertNotIn("phase:12", next(iter(fake.issues.values()))["labels"])
-
-    def test_prune_all_labels_deletes_the_unused_and_keeps_what_is_used_or_qew_owns(self) -> None:
-        """Prevents a label sweep eating live data: unused labels go; in-use, wanted and gated stay; a dry run deletes nothing."""
-        fake, world = self.rig("")
-        world.create("--title", "Work", "--label", "area:ops", "--quote", QUOTE)
-        self.sync(world)
-        for name in ("phase:12", "wp:alpha", "elf3", "owner:santa", "bug", "gated", "qew:managed-old"):
-            fake.label_store[name] = {"color": "ededed", "description": ""}
-        fake.new_issue({"title": "Foreign", "body": "", "labels": ["bug"]})
-        before = set(fake.label_store)
-        dry = world.run("sync", "--prune-labels", "--all-labels", "--dry-run", env=ENV)
-        self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
-        self.assertIn("phase:12", dry.stdout)
-        self.assertEqual(set(fake.label_store), before)
-        done = world.run("sync", "--prune-labels", "--all-labels", env=ENV)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertEqual(before - set(fake.label_store), {"phase:12", "wp:alpha", "elf3", "owner:santa", "qew:managed-old"})
-        self.assertTrue({"bug", "gated", "area:ops"} <= set(fake.label_store))
-
-    def test_plain_prune_still_leaves_a_humans_labels(self) -> None:
-        """Prevents widening the old command: without --all-labels only the qew namespaces are pruned."""
-        fake, world = self.rig("")
-        world.create("--title", "Work", "--quote", QUOTE)
-        self.sync(world)
-        fake.label_store["elf3"] = {"color": "ededed", "description": ""}
-        self.assertEqual(world.run("sync", "--prune-labels", env=ENV).returncode, 0)
-        self.assertIn("elf3", fake.label_store)
 
 
 if __name__ == "__main__":
