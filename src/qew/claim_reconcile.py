@@ -54,11 +54,12 @@ def provisional_claims(snapshot: Snapshot) -> list[tuple[str, Event]]:
         done = settled_refs(events)
         completed_under = {e.get("provisional_claim") for e in events if e.type == "completed"}
         folded = snapshot.folds[item_id]
+        contested = {claim_id for claim_id, _ in folded.lost_claims}  # a rival's claim already sorts before it
         for event in events:
             if event.type != "claimed" or not event.get("provisional") or event.id in done:
                 continue
             holds = folded.state == State.CLAIMED and folded.owner == event.get("owner")
-            if holds or event.id in completed_under:
+            if holds or event.id in completed_under or event.id in contested:
                 found.append((item_id, event))
     return found
 
