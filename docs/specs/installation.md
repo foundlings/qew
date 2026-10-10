@@ -1,15 +1,15 @@
 # Installation
 
-- Requirements: Python 3.15+, git and/or jj for the code repo. Qew has no Python runtime dependencies.
+- Requirements: git and/or jj for the code repo, and a Python 3.15+ interpreter, which macOS does not ship (`brew install python@3.15`; `scripts/install.sh` tries the Homebrew locations first, then `python3` on PATH). Qew uses only the standard library: no third-party packages.
   Forge tokens come from the environment (`GITHUB_TOKEN`, `FORGEJO_TOKEN`/`GITEA_TOKEN`, `GITLAB_TOKEN`, or
   the mirror's `token_env`); for github.com `gh auth token` is a fallback.
 - Linux and macOS: `sh scripts/install.sh` finds a Python 3.15+ (macOS ships an older one; Homebrew locations are tried) and runs
   `scripts/setup_user.py`, which installs the checkout into a virtual environment under
   `$XDG_DATA_HOME/qew/venv` (default `~/.local/share`) and symlinks its `qew` entry point into
-  `~/.local/bin`.
+  `~/.local/bin`. A venv bound to another interpreter is repaired in place, so running agents keep a working `qew`: `venv --upgrade` for another build of the same minor version (a release candidate, a different install), `--clear` for another minor version.
 - The script replaces only its own symlink and refuses any other file at that path. Other systems are
   refused (exit 2); failed environment or install commands exit 3.
-- The package builds a real wheel (`qew-VERSION-py3-none-any.whl`, no runtime requirements) whose `qew` console script is
+- The package builds a real wheel (`qew-VERSION-py3-none-any.whl`, `Requires-Python >=3.15`, no third-party requirements) whose `qew` console script is
   `qew.cli:main`; `tests/test_distribution_walk.py` builds it with the pinned tools, installs it into a clean venv and runs it
   outside the checkout (skipped when `setuptools` is not installed).
 
@@ -20,4 +20,4 @@
 - `scripts/rewrite-identity.sh [--dry-run] [--push] OLD NEW REPO...` removes one identity from a repository's whole history
   (authors, committers, messages, file revisions, via `git-filter-repo`) and puts another in, re-adding `origin` and
   re-initialising a colocated jj repo. `--push` force-pushes all refs; collaborators must re-clone afterwards.
-- Developers: `python3 scripts/typecheck.py` runs `mypy --strict` on `src/qew` from a pinned environment in `.venv-typecheck/` (requirements/typecheck.txt; created on first run, needs network once). It is part of the test suite and needs a Python 3.15 interpreter on PATH.
+- Developers: `python3 scripts/typecheck.py` runs `mypy --strict` on `src/qew` from a pinned environment in `.venv-typecheck/` (requirements/typecheck.txt; created on first run, needs network once). It is part of the test suite; it builds the environment with the Homebrew `python3.15` when present, else the interpreter that runs it, which must be 3.15.

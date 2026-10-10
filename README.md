@@ -23,7 +23,7 @@ being down never blocks reading, planning or finishing work.
 
 ## Install
 
-Python 3.15+, no runtime dependencies (the type checker is a developer tool). On Linux and macOS `sh scripts/install.sh` installs `qew` into `~/.local/bin`
+Python 3.15+ (macOS: `brew install python@3.15`) and nothing else at runtime: no third-party packages (the type checker is a developer tool). On Linux and macOS `sh scripts/install.sh` installs `qew` into `~/.local/bin`
 (details: `docs/specs/installation.md`).
 
 ## Quickstart

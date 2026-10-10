@@ -22,5 +22,6 @@ and never completable; `qew list` still shows it (the ledger is a database, not 
 - No `qew plan create`: `qew create --kind epic` then `qew set ITEM... --parent EPIC` (several items, all
   validated before the first write) files a plan and attaches existing items without a second command. A failed
   attach cannot duplicate the plan because the epic already exists and `set` is re-runnable.
-- No structured body composition (`where`, `fix`, `done-when`, `--edit`): no current requirement. Bodies are
-  `--body`, `--body-file` or a `body` field; `done-when` items are child tasks filed with the plan.
+- A body is `--body`, `--body-file`, `--edit` (in `$VISUAL`/`$EDITOR`), the structured flags (`--where`, `--problem` or `--goal`,
+  `--fix` or `--approach`, `--done-when`) or a plan entry's `body` field, one way per item. `done-when` items that need their own
+  tracking are child tasks filed with the plan.
