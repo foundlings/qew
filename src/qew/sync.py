@@ -14,7 +14,7 @@ import time
 from typing import cast
 from collections.abc import Callable, Mapping, Sequence
 
-from qew import sync_milestones, sync_plan
+from qew import attachment_links, sync_milestones, sync_plan
 from qew.pacing import PaceState, PaceStop, Pacer
 from qew.forge import (
     DUPLICATE_MARKER,
@@ -36,6 +36,7 @@ class Target:
     slug: str
     forge: Forge
     read_only: bool = False  # a one-way mirror: pull never imports its edits
+    attachment_link: attachment_links.Link | None = None  # filled by sync_target: where an attachment's stored file can be viewed
 
 
 @dataclass
@@ -60,6 +61,7 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
                 deadline: float | None = None, tick: Callable[[], None] | None = None) -> TargetReport:
     snapshot = ledger.snapshot()
     report = TargetReport(target.slug)
+    target = replace(target, attachment_link=_attachment_link(ledger, target, config))
     assignees = {str(k): str(v) for k, v in dict(cast(Mapping[str, object], target.mirror.options.get("assignees", {}))).items()}
     ids = sync_plan.topological(snapshot, sync_plan.selected(snapshot, target.mirror.select))
     wanted = [only] if isinstance(only, str) else list(only or ())
@@ -94,6 +96,13 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
     if layout is not None and layout != cached_layout:
         ledger.write_board_layout(target.slug, layout)
     return report
+
+
+def _attachment_link(ledger: Ledger, target: Target, config: Config) -> attachment_links.Link:
+    """Links into the ledger repository's web view: the mirror's `ledger_web_url`, else the ledger checkout's origin."""
+    address = target.mirror.options.get("ledger_web_url")
+    base = attachment_links.web_base(address if isinstance(address, str) else attachment_links.origin_of(ledger.path))
+    return attachment_links.link_for(base, config.replication.branch, target.forge.blob_url)
 
 
 def _merge(report: TargetReport, local: TargetReport) -> None:
@@ -288,7 +297,7 @@ def _sync_item(
     pace: Callable[[], None] = lambda: None,
 ) -> None:
     item = snapshot.items[item_id]
-    spec = sync_plan.issue_spec(snapshot, item, numbers, assignees, target.mirror.mode == "overlay")
+    spec = sync_plan.issue_spec(snapshot, item, numbers, assignees, target.mirror.mode == "overlay", target.attachment_link)
     column = sync_plan.column(snapshot, item_id)
     record = _read_mirror(ledger, item_id, target.slug)
     fingerprint = sync_plan.fingerprint(spec, column if board else None)

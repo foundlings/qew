@@ -318,6 +318,10 @@ class GitLab(Forge):
                 raise LabelNotPersisted(absent)
 
     @override
+    def blob_url(self, base: str, ref: str, path: str) -> str:
+        return f"{base}/-/blob/{ref}/{path}"
+
+    @override
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         self._ensure_issue_labels(spec.labels)
         payload: dict[str, Any] = {

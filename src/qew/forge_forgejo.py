@@ -335,6 +335,10 @@ class Forgejo(Forge):
         return _parse_issue(data)
 
     @override
+    def blob_url(self, base: str, ref: str, path: str) -> str:
+        return f"{base}/src/branch/{ref}/{path}"
+
+    @override
     def create_issue(self, spec: IssueSpec) -> RemoteIssue:
         payload: dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": self._label_ids(spec.labels)}
         if spec.assignee:
