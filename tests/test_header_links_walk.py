@@ -30,7 +30,7 @@ class HeaderLinksWalk(unittest.TestCase):
         self.work = self.world.create("--title", "The work", "--quote", QUOTE)
 
     def item_file(self, item: str) -> str:
-        return (self.world.ledger / "items" / f"{item}.md").read_text()
+        return (self.world.ledger / "items" / f"{item}" / "item.md").read_text()
 
     def test_show_resolves_a_link_to_the_forge_url_from_the_mirror_index(self) -> None:
         """Prevents forge URLs being stored in items: the header holds the ledger id and show finds the URL in mirrors/."""
@@ -49,7 +49,7 @@ class HeaderLinksWalk(unittest.TestCase):
         self.assertEqual(self.world.run("check").returncode, 0)
         self.world.run("set", self.work, "--tracks", "")
         for value in ("https://github.com/o/r/issues/278", "#278", "nothere"):
-            path = self.world.ledger / "items" / f"{self.work}.md"
+            path = self.world.ledger / "items" / f"{self.work}" / "item.md"
             clean = self.item_file(self.work)
             path.write_text(clean.replace("owner:", f"tracks: {value}\nowner:", 1))
             result = self.world.run("check")

@@ -124,6 +124,6 @@ class CampaignProgressWalk(unittest.TestCase):
     def test_no_command_is_printed_beside_a_rewritten_title(self) -> None:
         """A runnable command next to a hostile title could be read as an instruction."""
         epic = self.epic_with("Finished", 1, 1)
-        path = self.world.ledger / "items" / f"{epic}.md"
+        path = self.world.ledger / "items" / f"{epic}" / "item.md"
         path.write_text(path.read_text().replace("title: Finished", "title: Fin ished"))
         self.assertNotIn("qew complete", self.world.run("list", "--kind", "epic").stdout)

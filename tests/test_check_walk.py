@@ -34,7 +34,7 @@ class CheckWalk(unittest.TestCase):
     def test_unknown_header_key_fails(self) -> None:
         w = self.world
         item = w.create("--kind", "issue", "--title", "A")
-        path = w.ledger / "items" / f"{item}.md"
+        path = w.ledger / "items" / f"{item}" / "item.md"
         path.write_text(path.read_text().replace("\n---\n", "\nstatus: done\n---\n", 1))
         self._fails("unknown header key")
 
@@ -42,14 +42,14 @@ class CheckWalk(unittest.TestCase):
         w = self.world
         a = w.create("--kind", "issue", "--title", "A")
         b = w.create("--kind", "issue", "--title", "B", "--needs", a)
-        path = w.ledger / "items" / f"{a}.md"  # `set` refuses to write a cycle; a hand merge can still produce one
+        path = w.ledger / "items" / f"{a}" / "item.md"  # `set` refuses to write a cycle; a hand merge can still produce one
         path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
         self._fails("cycle")
 
     def test_a_dangling_need_fails(self) -> None:
         w = self.world
         a = w.create("--kind", "issue", "--title", "A")
-        path = w.ledger / "items" / f"{a}.md"
+        path = w.ledger / "items" / f"{a}" / "item.md"
         path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
         self._fails("dangling")
 
@@ -94,7 +94,7 @@ class CheckReportWalk(unittest.TestCase):
         return json.loads(result.stdout)
 
     def set_needs(self, item: str, needs: str) -> None:
-        path = self.world.ledger / "items" / f"{item}.md"
+        path = self.world.ledger / "items" / f"{item}" / "item.md"
         lines = [f"needs: {needs}" if line.startswith("needs:") else line for line in path.read_text().split("\n")]
         path.write_text("\n".join(lines))
 

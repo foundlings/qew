@@ -27,7 +27,7 @@ class IdempotentCreateWalk(unittest.TestCase):
         again = self.w.run("create", "--title", "Parse headers", "--key", "task-17", "--quote", QUOTE)
         self.assertEqual((first.returncode, again.returncode), (0, 0), first.stderr + again.stderr)
         self.assertEqual(first.stdout, again.stdout)
-        ids = [path.stem for path in (self.w.ledger / "items").glob("*.md")]
+        ids = [path.parent.name for path in (self.w.ledger / "items").glob("*/item.md")]
         self.assertEqual(len(ids), 1)
         self.assertEqual(types(self.w, ids[0]), ["approved"])
 
@@ -39,13 +39,13 @@ class IdempotentCreateWalk(unittest.TestCase):
         self.assertEqual(other.returncode, 2)
         self.assertIn(item, other.stderr)
         self.assertIn("task-17", other.stderr)
-        self.assertEqual(len(list((self.w.ledger / "items").glob("*.md"))), 1)
+        self.assertEqual(len(list((self.w.ledger / "items").glob("*/item.md"))), 1)
 
     def test_different_keys_and_no_key_stay_independent(self) -> None:
         """Prevents the key colliding unrelated items: another key, or none, files a new item."""
         for args in (("--key", "a"), ("--key", "b"), ()):
             self.assertEqual(self.w.run("create", "--title", "Same title", *args, "--quote", QUOTE).returncode, 0)
-        self.assertEqual(len(list((self.w.ledger / "items").glob("*.md"))), 3)
+        self.assertEqual(len(list((self.w.ledger / "items").glob("*/item.md"))), 3)
 
     def test_a_key_must_be_one_word_and_cannot_come_with_a_plan_file(self) -> None:
         """Prevents ambiguous keys: whitespace, a leading @ and --from-file (which has its own refs) are refused."""
@@ -61,7 +61,7 @@ class IdempotentCreateWalk(unittest.TestCase):
         one = self.w.run("create", "--title", "Idea", "--key", "idea-1", "--draft")
         two = self.w.run("create", "--title", "Idea", "--key", "idea-1", "--draft")
         self.assertEqual((one.returncode, two.returncode, one.stdout), (0, 0, two.stdout))
-        self.assertEqual(len(list((self.w.ledger / "items").glob("*.md"))), 1)
+        self.assertEqual(len(list((self.w.ledger / "items").glob("*/item.md"))), 1)
 
 
 class IdempotentVerbWalk(unittest.TestCase):

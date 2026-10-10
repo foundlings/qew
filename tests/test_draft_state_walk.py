@@ -50,7 +50,7 @@ class DraftStateWalk(unittest.TestCase):
         """State comes from events only: a label, owner or forge-side record claiming approval changes nothing."""
         w = self.world
         draft = w.create("--title", "Draft")
-        path = w.ledger / "items" / f"{draft}.md"
+        path = w.ledger / "items" / f"{draft}" / "item.md"
         path.write_text(path.read_text().replace("labels: \n", "labels: approved state-approved\n", 1))
         mirrors = w.ledger / "mirrors" / draft
         mirrors.mkdir(parents=True)

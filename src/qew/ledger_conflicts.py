@@ -9,6 +9,7 @@ issue is closed by the pull, a lost claim is final, mirror-only merge conflicts 
 from dataclasses import dataclass
 from enum import Enum
 
+from qew.ledger_aliases import item_of_path
 from qew import ledger_item
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -109,7 +110,7 @@ def _differences(repo: LedgerRepo, pending: MergeConflict) -> tuple[Difference, 
     for relative in pending.files:
         ours, theirs = repo.file_at(pending.ours, relative), repo.file_at(pending.theirs, relative)
         try:
-            if ours is None or theirs is None or not relative.startswith("items/"):
+            if ours is None or theirs is None or item_of_path(relative) is None:
                 raise QewError("not an item file", 1)
             left, right = ledger_item.parse_item(ours, relative), ledger_item.parse_item(theirs, relative)
         except QewError:
@@ -128,8 +129,7 @@ def merge_conflict(config: Config) -> Conflict | None:
     if pending is None:
         return None
     owned = all(relative.split("/")[0] in OWNED for relative in pending.files)
-    item = next((relative[len("items/"):-len(".md")] for relative in pending.files
-                 if relative.startswith("items/") and relative.endswith(".md")), "")
+    item = next((owner for owner in map(item_of_path, pending.files) if owner), "")
     return Conflict(ConflictKind.LEDGER_MERGE, LEDGER_REFERENCE, item, "ledger", "files", "", "", tuple(pending.files),
                     _differences(repo, pending), owned)
 

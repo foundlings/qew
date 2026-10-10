@@ -12,7 +12,7 @@ from tests.ledger_harness import World
 
 
 def retitle(world: World, item: str, title: str) -> None:
-    path = world.ledger / "items" / f"{item}.md"
+    path = world.ledger / "items" / f"{item}" / "item.md"
     lines = path.read_text(encoding="utf-8").split("\n")
     lines = [f"title: {title}" if line.startswith("title:") else line for line in lines]
     path.write_text("\n".join(lines), encoding="utf-8")

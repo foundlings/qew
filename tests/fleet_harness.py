@@ -111,7 +111,7 @@ def run_fleet(test, vcs: str) -> None:
     test.assertEqual(settle.returncode, 0, settle.stderr)
     check = world.run("check")
     test.assertEqual(check.returncode, 0, check.stdout)
-    items = sorted(path.stem for path in (world.ledger / "items").glob("*.md"))
+    items = sorted(path.parent.name for path in (world.ledger / "items").glob("*/item.md"))
     test.assertEqual(len(items), AGENTS + 1, "one item per key, even after kill and retry")
     test.assertEqual(len(set(items)), len(items))
     listing = [json.loads(line) for line in world.run("list", "--json").stdout.splitlines()]

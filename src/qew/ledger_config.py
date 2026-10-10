@@ -2,9 +2,11 @@
 
 from dataclasses import dataclass
 from enum import Enum
+from contextlib import contextmanager
 import os
 import re
 from pathlib import Path
+from collections.abc import Iterator
 import re
 import tomllib
 from typing import cast
@@ -303,8 +305,20 @@ def _ledger_from_environment(start: Path | None) -> Path | None:
     return None
 
 
-SCHEMA_VERSIONS = (1, 2)  # 2 declares the attachment layout (items/ID/ beside items/ID.md); `qew migrate-layout` moves 1 to 2
-CURRENT_SCHEMA = 2
+SCHEMA_VERSIONS = (1, 2, 3)  # this qew reads the latest layout only; `qew migrate-layout` moves 1 or 2 straight to 3
+CURRENT_SCHEMA = 3  # items live at items/<ID>/item.md; 1 and 2 kept items/<ID>.md (2 added attachment directories)
+_old_layout_allowed = False
+
+
+@contextmanager
+def old_layout_allowed(allowed: bool) -> Iterator[None]:
+    """Let `load` accept a ledger of an older layout (only `qew migrate-layout` does, to migrate it)."""
+    global _old_layout_allowed
+    previous, _old_layout_allowed = _old_layout_allowed, allowed
+    try:
+        yield
+    finally:
+        _old_layout_allowed = previous
 
 
 def ledger_schema(ledger: Path) -> int:
@@ -331,6 +345,9 @@ def _ledger_prefix(ledger: Path) -> str:
     if version not in SCHEMA_VERSIONS or isinstance(version, bool):
         raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version!r} is not supported by this qew "
                        f"({', '.join(map(str, SCHEMA_VERSIONS))}); upgrade qew", 2)
+    if version < CURRENT_SCHEMA and not _old_layout_allowed:
+        raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version} keeps each item in items/ID.md; run `qew migrate-layout` "
+                       f"once to move every item file into its own directory (items/ID/item.md, schema_version {CURRENT_SCHEMA})", 2)
     prefix = data.get("prefix", "")
     if not isinstance(prefix, str):
         raise QewError(f"{ledger / LEDGER_FILE}: prefix must be a string", 1)

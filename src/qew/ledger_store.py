@@ -16,7 +16,8 @@ from collections.abc import Iterable
 from qew import attachments, ledger_aliases
 from qew.errors import QewError
 from qew.mirror_types import MirrorRecord
-from qew.ledger_config import CURRENT_SCHEMA, LEDGER_FILE, ledger_schema
+from qew.ledger_aliases import ITEM_FILE
+from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, valid_actor
 from qew.ledger_item import Item, parse_item, read_item_text, render_item
 from qew.jsontypes import JsonObject
@@ -82,7 +83,11 @@ class Ledger:
         if not self.items_dir.is_dir():
             return []
         stale = self.aliases().superseded
-        return sorted(path.stem for path in self.items_dir.glob("*.md") if path.stem not in stale)
+        return sorted(path.name for path in self.items_dir.iterdir() if (path / ITEM_FILE).is_file() and path.name not in stale)
+
+    def item_path(self, item_id: str) -> Path:
+        """The item file: `items/<ID>/item.md`; the id is only in the directory name."""
+        return self.items_dir / item_id / ITEM_FILE
 
     def attachments_dir(self, item_id: str) -> Path:
         return self.items_dir / item_id / attachments.DIRECTORY
@@ -99,9 +104,6 @@ class Ledger:
         """Copy `source` to the item's immutable blob file: False when those bytes are already stored there.
 
         Journaled like every write, so a failed command removes what it created."""
-        if ledger_schema(self.path) < CURRENT_SCHEMA:
-            raise QewError("this ledger is schema_version 1, which cannot hold attachments; run `qew migrate-layout` first "
-                           "(it only declares the layout and rewrites nothing)", 2)
         target = self.attachments_dir(item_id) / blob
         if target.exists():
             return False
@@ -129,14 +131,14 @@ class Ledger:
         return [root / name for name in (item_id, *self.aliases().of(item_id))]
 
     def load_item(self, item_id: str) -> Item:
-        path = self.items_dir / f"{item_id}.md"
+        path = self.item_path(item_id)
         try:
             text = read_item_text(path, str(path))
         except (OSError, UnicodeError) as error:
             raise QewError(f"{path}: {error}", 1) from None
         item = parse_item(text, str(path))
         if item.id != item_id:
-            raise QewError(f"{path}: header id {item.id} does not match the file name", 1)
+            raise QewError(f"{path}: header id {item.id} does not match the directory name", 1)
         return item
 
     def load_events(self, item_id: str) -> list[Event]:
@@ -222,8 +224,8 @@ class Ledger:
 
     # -- writing
     def write_item(self, item: Item, overwrite: bool = False) -> None:
-        self.items_dir.mkdir(parents=True, exist_ok=True)
-        path = self.items_dir / f"{item.id}.md"
+        path = self.item_path(item.id)
+        path.parent.mkdir(parents=True, exist_ok=True)
         _write(path, render_item(item), exclusive=not overwrite)
 
     def append_event(self, item_id: str, event_type: str, at: str = "", by: str = "", **data: Any) -> Event:
@@ -432,7 +434,7 @@ def journal_rollback(entries: list[tuple[Path, str | None]]) -> None:
     for path, previous in reversed(entries):
         if previous is None:
             path.unlink(missing_ok=True)
-            if path.parent.parent.name in ("events", "mirrors"):  # the per-item directory the write created
+            if path.parent.parent.name in ("events", "mirrors", "items"):  # the per-item directory the write created
                 try:
                     path.parent.rmdir()
                 except OSError:
@@ -444,6 +446,7 @@ def journal_rollback(entries: list[tuple[Path, str | None]]) -> None:
                     except OSError:
                         break
         else:
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(previous, encoding="utf-8")
         ledger_aliases.note_change(path)
 
@@ -453,7 +456,29 @@ def discard(path: Path) -> None:
     if JOURNAL is not None:
         JOURNAL.append((path, path.read_text(encoding="utf-8") if path.exists() else None))
     path.unlink(missing_ok=True)
+    if path.name == ITEM_FILE:  # an item directory left empty goes with its file (attachments keep it)
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
     ledger_aliases.note_change(path)
+
+
+def read_text_exact(path: Path) -> str:
+    """A ledger file's text with its line endings exactly as stored."""
+    with open(path, encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def write_new(path: Path, text: str) -> None:
+    """Create a ledger file (and its directory); journaled, and refused when the file exists."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write(path, text, exclusive=True)
+
+
+def write_replacing(path: Path, text: str) -> None:
+    """Replace a ledger file whole; journaled so a failed command restores it."""
+    _write(path, text, exclusive=False)
 
 
 def _write_local(path: Path, text: str) -> None:

@@ -63,7 +63,7 @@ class World:
             '[ledger]\npath = "../ledger"\nprefix = "TST"\n' + mirrors + replication, encoding="utf-8"
         )
         (self.ledger / "qew-ledger.toml").write_text(
-            'name = "test"\nprefix = "TST"\nschema_version = 2\n', encoding="utf-8"
+            'name = "test"\nprefix = "TST"\nschema_version = 3\n', encoding="utf-8"
         )
         if ledger_vcs:
             self._init_ledger(ledger_vcs, remote)

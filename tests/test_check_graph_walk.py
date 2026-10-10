@@ -53,7 +53,7 @@ class CheckGraphWalk(unittest.TestCase):
             spec("C", parent="E", labels=["area:b"]),
             spec("U", parent="E"),
         )
-        self.failing("items/C.md: area b differs from parent E (area a)", counts(c=1))
+        self.failing("items/C/item.md: area b differs from parent E (area a)", counts(c=1))
 
     def test_a_needs_chain_deeper_than_the_limit_is_a_warning_reported_once_at_its_deepest_item(self) -> None:
         """Thirty edges pass silently; the thirty-first warns on one line and never fails the check (real corpora chain this deep)."""
@@ -65,7 +65,7 @@ class CheckGraphWalk(unittest.TestCase):
         load(self.world, spec("N31", needs=["N30"]))
         warned = self.world.run("check")
         self.assertEqual(warned.returncode, 0, warned.stdout + warned.stderr)
-        self.assertIn("items/N31.md: needs chain of 31 edges exceeds the limit of 30", warned.stdout)
+        self.assertIn("items/N31/item.md: needs chain of 31 edges exceeds the limit of 30", warned.stdout)
         self.assertIn(counts(d=1), warned.stdout)
 
     def test_work_waiting_on_a_closed_item_is_reported_as_unreachable(self) -> None:
@@ -73,7 +73,7 @@ class CheckGraphWalk(unittest.TestCase):
         load(self.world, spec("X"), spec("P", needs=["X"]), spec("Q", needs=["X"]))
         self.assertEqual(self.world.run("close", "X", "--reason", "not_planned").returncode, 0)
         self.assertEqual(self.world.run("close", "Q", "--reason", "not_planned").returncode, 0)
-        self.failing("items/P.md: needs closed item X", counts(n=1))
+        self.failing("items/P/item.md: needs closed item X", counts(n=1))
 
 
 if __name__ == "__main__":

@@ -78,7 +78,7 @@ class MigrateIdsWalk(unittest.TestCase):
         shutil.copytree(self.template.ledger, self.world.ledger)
 
     def ids(self) -> list:
-        return sorted(path.stem for path in (self.world.ledger / "items").glob("*.md"))
+        return sorted(path.parent.name for path in (self.world.ledger / "items").glob("*/item.md"))
 
     def show(self, reference: str) -> dict:
         result = self.world.run("show", reference, "--json")
@@ -104,7 +104,7 @@ class MigrateIdsWalk(unittest.TestCase):
             self.assertEqual(sorted(path.name for path in (w.ledger / "events" / now).glob("*.json")), names[old], f"event ids of {old}")
             self.assertEqual([(e["type"], e["at"], e["actor"]) for e in w.events(now)], before[old], f"events of {old}")
             self.assertFalse((w.ledger / "events" / old).exists())
-        self.assertIn("aliases: B", (w.ledger / "items" / f"{first['id']}.md").read_text())
+        self.assertIn("aliases: B", (w.ledger / "items" / f"{first['id']}" / "item.md").read_text())
 
     def test_an_old_id_still_resolves_and_the_answer_names_the_new_id(self) -> None:
         """Prevents notes, commits and branches that cite the old id from going dead."""
@@ -231,7 +231,7 @@ class MigrateMirrorWalk(unittest.TestCase):
         sync_target(self.ledger, self.target, self.config)
         self.assertIn(marker_for("A"), self.forge.issues[1].body)
         self.assertEqual(self.world.run("migrate-ids", "--to", "base35-time").returncode, 0)
-        self.new = next((self.world.ledger / "items").glob("*.md")).stem
+        self.new = next((self.world.ledger / "items").glob("*/item.md")).parent.name
 
     def test_the_mirror_follows_the_item_and_the_next_sync_rewrites_only_the_marker(self) -> None:
         """Prevents a second forge issue for a migrated item, or a forge number changing."""
@@ -260,7 +260,7 @@ class MigrateMirrorWalk(unittest.TestCase):
         ledger = open_ledger(self.world.ledger, "TST")
         pull_target(ledger, self.target)
         import_target(ledger, self.target)
-        self.assertEqual([p.stem for p in (self.world.ledger / "items").glob("*.md")], [self.new])
+        self.assertEqual([p.parent.name for p in (self.world.ledger / "items").glob("*/item.md")], [self.new])
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ qew check                                      # validate the ledger
 
 ```
 qew-ledger.toml                 name, schema_version, id_mode
-items/<ID>.md                   fixed header ended by `---`, then a Markdown body
+items/<ID>/item.md              fixed header ended by `---`, then a Markdown body
 events/<ID>/<EVENT-ID>.json     append-only facts; state is their fold
 mirrors/<ID>/<target>.json      one file per (item, mirror target)
 boards/<target>.json            board recorded by `qew project ensure`
@@ -51,7 +51,7 @@ Header keys: `id kind title parent needs tracks pr labels owner priority created
 ledger ids of the tracking issue or pull request item, never forge numbers or URLs; `aliases` lists the ids the item had
 before `qew migrate-ids`, and `qew show OLD` still resolves them). Kinds: epic, issue, task. States:
 draft, approved, claimed, completed, closed. IDs come from `id_mode` per kind (defaults: epics `letters`, issues and tasks `base35-time`, 9 chars):
-`letters` (A, B .. Z, AA .. ZZ, AAA, in strict order; `qew next-id` prints the next free ids) or `counter`; imports keep their IDs. `qew migrate-layout [--dry-run]` declares the attachment layout (schema_version 2) without rewriting anything; `qew migrate-ids --to base35-time [--dry-run]` rewrites every
+`letters` (A, B .. Z, AA .. ZZ, AAA, in strict order; `qew next-id` prints the next free ids) or `counter`; imports keep their IDs. `qew migrate-layout [--dry-run]` moves an older ledger straight to the latest layout (each item file into its own directory, items/ID/item.md) in one commit; `qew migrate-ids --to base35-time [--dry-run]` rewrites every
 id that is not a base35-time id (and every reference to it) in one commit, keeping the old id as an alias. Details: `docs/specs/ledger.md`.
 
 ## Replication and authority

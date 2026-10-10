@@ -20,7 +20,7 @@ what it created. Nothing requires a forge to be up.
 ## Ledger layout
 ```
 qew-ledger.toml            # ledger metadata: name, id prefix, schema_version
-items/<ID>.md              # one file per item: fixed header + human body
+items/<ID>/item.md         # one file per item, in its own directory: fixed header + human body
 events/<ID>/<EVENT-ID>.json  # append-only; one tiny file per event, never edited
 mirrors/<ID>/<forge>-<host>-<repo-slug>.json  # one file per (item, mirror target)
 mirrors/<ID>/<target>-pr-<N>.json            # one per pull request opened for the item (kind: pr; opener, covered items, draft, state)
@@ -46,7 +46,7 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
   alias is superseded by the renamed one. Reads canonicalise through the alias map, so a half-finished migration is valid.
 
 ## Attachments
-- An item owns a directory `items/ID/` beside `items/ID.md`. Attachment bytes are immutable files
+- An item owns a directory `items/ID/` that holds its `item.md` and its `attachments/`. Attachment bytes are immutable files
   `items/ID/attachments/HASH.EXT` (sha256 hex plus the original short extension, so a forge web view previews images).
   They are never edited in place, so two machines cannot write the same path with different bytes.
 - Names are events: `attached` (`path`, `hash`, `size`, `blob`) and `detached` (`path`). The tree is every event applied
@@ -58,7 +58,7 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
   event type loudly.
 - Limits: 100 MiB per file (a warning above 25 MiB), 500 MiB of distinct bytes per item; git-lfs is out of scope.
 
-## Item file (`items/<ID>.md`)
+## Item file (`items/<ID>/item.md`)
 Header = first lines, `key: value`, one per line, terminated by a line `---`. Parsers read the
 header only and stop at `---` (bounded bytes). Body after `---` is free Markdown for humans.
 ```
@@ -142,7 +142,7 @@ select = "kind:epic"
 ```
 - `[qew] minimum_version = "MAJOR.MINOR.PATCH"` makes an older qew refuse every command (exit 2, names both
   versions and `scripts/setup_user.py`); malformed values are refused. Unknown keys and mirror options are
-  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1; this qew reads 1 and 2, an older qew refuses 2). Schema 2 declares the attachment layout: an item may own the directory `items/<ID>/` beside `items/<ID>.md` (attachments, later files), named by events; nothing else changes, so migrating rewrites no item, event or mirror. `qew init` writes 2; attaching to a schema 1 ledger is refused until `qew migrate-layout`. A symlinked config is refused.
+  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1; this qew reads 1, 2 and 3 but works only on 3; any command on an older ledger refuses naming `qew migrate-layout`, and an older qew refuses 3). Schema 1 and 2 kept each item in `items/<ID>.md` (2 added attachment directories); schema 3 keeps it in `items/<ID>/item.md`, so the ID is only in the directory name and the directory also holds `attachments/`. `qew init` writes 3. A symlinked config is refused.
 - `project` is a positive integer board number (title strings, numeric strings, 0, negatives, booleans, floats
   are refused at load, exit 2); `project_title` must not be empty. Repository URLs that differ only in case or a
   `.git` suffix are one target (the slug is casefolded).

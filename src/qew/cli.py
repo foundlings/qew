@@ -68,7 +68,7 @@ Setup
   qew init        create the config and the ledger
   qew ledger      fork the ledger into a new identity
   qew migrate-ids rewrite letter, counter and imported ids to base35-time ids (old ids stay as aliases)
-  qew migrate-layout declare the attachment layout (schema_version 2); rewrites nothing
+  qew migrate-layout move an older ledger to the latest layout: each item file into its own directory
   qew hook        install | remove agent hooks; the events agents call
 
 Exit codes: 0 ok, 1 invalid ledger or forge failure, 2 refusal or usage, 3 ownership conflict or environment,
@@ -322,7 +322,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser(_wanted_modules(argv)).parse_args(argv)
     arguments.json = outcome.wants_json(arguments)
     try:
-        with replication.session(arguments):
+        with ledger_config.old_layout_allowed(arguments.command == "migrate-layout"), replication.session(arguments):
             _run(arguments)
     except QewError as error:
         print(f"qew: {error}", file=sys.stderr)

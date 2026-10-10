@@ -69,11 +69,11 @@ def rename(ledger: Ledger, renames: list[tuple[str, str]], dry_run: bool = False
         if apply:
             item = ledger.load_item(old)
             ledger.write_item(replace(item, id=new, aliases=(*item.aliases, old)))
-            ledger_store.discard(ledger.items_dir / f"{old}.md")
+            ledger_store.discard(ledger.item_path(old))
     for stem in sorted(aliases.superseded):
         rewritten += 1
         if apply:
-            ledger_store.discard(ledger.items_dir / f"{stem}.md")
+            ledger_store.discard(ledger.item_path(stem))
     rewritten += _follow_links(ledger, mapping, {old for old, _ in renames}, apply)
     rewritten += _move_event_files(ledger, mapping, apply)
     rewritten += _move_mirror_files(ledger, mapping, apply)

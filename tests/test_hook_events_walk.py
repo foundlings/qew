@@ -140,7 +140,8 @@ class HostileInputWalk(unittest.TestCase):
     def test_an_unparseable_ledger_keeps_post_tool_silent(self) -> None:
         """A broken ledger must not fail the agent's push."""
         (self.world.ledger / "items").mkdir()
-        (self.world.ledger / "items" / "TST-BROKEN.md").write_text("not a header", encoding="utf-8")
+        (self.world.ledger / "items" / "TST-BROKEN" / "item.md").parent.mkdir(exist_ok=True)
+        (self.world.ledger / "items" / "TST-BROKEN" / "item.md").write_text("not a header", encoding="utf-8")
         result = feed(self.world, "post-tool", "claude", "git push")
         self.assertEqual((result.returncode, result.stdout), (0, ""))
 

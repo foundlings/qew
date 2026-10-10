@@ -250,7 +250,8 @@ class SessionStartWalk(unittest.TestCase):
         result = outside("hook", "session-start", "--agent", "claude", stdin="{}")
         self.assertEqual((result.returncode, result.stdout), (0, ""))
         (self.world.ledger / "items").mkdir()
-        (self.world.ledger / "items" / "TST-BROKEN.md").write_text("not a header", encoding="utf-8")
+        (self.world.ledger / "items" / "TST-BROKEN" / "item.md").parent.mkdir(exist_ok=True)
+        (self.world.ledger / "items" / "TST-BROKEN" / "item.md").write_text("not a header", encoding="utf-8")
         broken = feed(self.world, "session-start", "claude", raw="{}")
         self.assertEqual((broken.returncode, broken.stdout), (0, ""))
 

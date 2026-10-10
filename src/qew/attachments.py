@@ -1,6 +1,6 @@
 """Item attachments: names, limits and the immutable files that hold the bytes.
 
-An item owns a directory `items/ID/` beside `items/ID.md`. Attachment bytes are immutable files
+An item owns a directory `items/ID/` holding its `item.md` and its `attachments/`. Attachment bytes are immutable files
 `items/ID/attachments/HASH.EXT` (content hash, original extension kept so a forge web view can preview images); the
 item names them through `attached` and `detached` events (a relative path with subdirectories, mapped to a hash; the
 last event by id wins). Two machines can therefore never write the same path with different bytes, and a merge has

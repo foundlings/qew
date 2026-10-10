@@ -26,6 +26,15 @@ class Aliases:
         return self.owned.get(item_id, ())
 
 
+ITEM_FILE = "item.md"  # the item file inside items/<ID>/; only the directory carries the id
+
+
+def item_of_path(relative: str) -> str | None:
+    """The item id of a ledger-relative path `items/<ID>/item.md`; None for any other path."""
+    parts = relative.split("/")
+    return parts[1] if len(parts) == 3 and parts[0] == "items" and parts[2] == ITEM_FILE else None
+
+
 def _header_values(path: Path) -> dict[str, str]:
     try:
         with path.open("rb") as stream:
@@ -53,7 +62,7 @@ class _Index:
 
     def refresh(self, stamp: int, changed: set[str], items_dir: Path) -> None:
         for stem in changed:
-            found = _read(items_dir / f"{stem}.md")
+            found = _read(items_dir / stem / ITEM_FILE)
             if found is None:
                 self.headers.pop(stem, None)
             else:
@@ -72,13 +81,13 @@ _changed: dict[str, set[str]] = {}  # item stems this process wrote or removed s
 
 def note_change(path: Path) -> None:
     """This process wrote or removed `path`: an item file is re-read on the next scan, not the whole directory."""
-    if path.parent.name == "items" and path.suffix == ".md":
-        _changed.setdefault(str(path.parent), set()).add(path.stem)
+    if path.name == ITEM_FILE and path.parent.parent.name == "items":
+        _changed.setdefault(str(path.parent.parent), set()).add(path.parent.name)
 
 
 def _read(path: Path) -> tuple[str, ...] | None:
     header = _header_values(path)
-    if header.get("id") != path.stem:
+    if header.get("id") != path.parent.name:
         return None  # a mismatch is `qew check`'s to report
     return tuple(header.get("aliases", "").split())
 
@@ -106,10 +115,10 @@ def scan(items_dir: Path) -> Aliases:
     index = _indexes.get(key)
     if index is None or (not changed and index.stamp != stamp):
         headers = {}
-        for path in sorted(items_dir.glob("*.md")):
-            found = _read(path)
+        for directory in sorted(p for p in items_dir.iterdir() if p.is_dir()):
+            found = _read(directory / ITEM_FILE)
             if found is not None:
-                headers[path.stem] = found
+                headers[directory.name] = found
         index = _indexes[key] = _Index(stamp, headers)
     elif changed:
         index.refresh(stamp, changed, items_dir)
