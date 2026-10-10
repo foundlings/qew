@@ -11,13 +11,14 @@ import os
 import stat
 import sys
 
+from qew import ledger_fields
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_item import title_is_one_line
 
 KINDS = ("epic", "issue", "task")
 # `events` is validated by the importer, `quote` and `approved` by the release rule.
-FIELDS = ("kind", "title", "parent", "needs", "labels", "priority", "body", "ref", "id", "created", "events", "quote", "approved", "discovered_from", "attachments", "comments")
+FIELDS = ("kind", "title", "parent", "needs", "labels", "fields", "priority", "body", "ref", "id", "created", "events", "quote", "approved", "discovered_from", "attachments", "comments")
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,10 @@ def _checked(value: JsonObject, label: str) -> JsonObject:
         items = value.get(key, [])
         if not isinstance(items, list) or not all(isinstance(item, str) and item for item in items):
             raise QewError(f"{label}: {key} must be a list of non-empty strings", 2)
+    if "fields" in value:
+        if not isinstance(value["fields"], dict):
+            raise QewError(f"{label}: fields must be an object of NAME: value-or-list", 2)
+        ledger_fields.normalise(value["fields"], f"{label}: fields")
     for key in ("parent", "ref", "id", "created", "body", "quote", "discovered_from"):
         if key in value and value[key] is not None and not isinstance(value[key], str):
             raise QewError(f"{label}: {key} must be a string", 2)

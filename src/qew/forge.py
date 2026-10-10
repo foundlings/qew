@@ -7,7 +7,7 @@ ledgers. A capability a forge lacks raises `Unsupported`, never a faked result.
 
 from abc import ABC
 from dataclasses import dataclass
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Literal, get_args
 
 from qew.jsontypes import JsonObject
@@ -434,6 +434,10 @@ class Forge(ABC):
     def read_board_fields(self, board: Board) -> Mapping[int, Mapping[str, str]]:
         """Every field value (single-select option name or text) each of this repository's issues shows on the board."""
         raise Unsupported("read_board_fields")
+
+    def ensure_text_fields(self, board: Board, names: Sequence[str]) -> list[str]:
+        """Create a text field for each name the board lacks (an existing field of any type stays); returns the names created."""
+        raise Unsupported("ensure_text_fields")
 
     def set_card_fields(self, board: Board, number: int, values: Mapping[str, str]) -> None:
         """Set the named custom fields of the issue's card (single-select by option name, text as given)."""

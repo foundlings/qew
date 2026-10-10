@@ -50,7 +50,8 @@ def search(snapshot: Snapshot, terms: list[str]) -> list[str]:
         if snapshot.folds[item_id].state in (None, State.DRAFT):
             continue
         title = read_filter.fold(item.title)
-        fields = [read_filter.fold(item_id), title, *(read_filter.fold(label) for label in item.labels)]
+        fields = [read_filter.fold(item_id), title, *(read_filter.fold(label) for label in item.labels),
+                  *(read_filter.fold(value) for _, values in item.fields for value in values)]
         if not all(any(term in field for field in fields) for term in wanted):
             continue
         if title == whole:

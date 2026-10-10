@@ -1,13 +1,13 @@
 """Change labels and priorities of many items in one ledger write; a gate carries its reason.
 
-Used by `qew set --manifest`. Rows are {item, add_label?, remove_label?, priority?, reason?}; every row is checked first
+Used by `qew set --manifest`. Rows are {item, add_label?, remove_label?, fields?, priority?, reason?}; every row is checked first
 (finished work, a bad label or priority, a gate without a reason refuse the whole manifest), a row that changes nothing is
 `unchanged`, and the writes are the same audited `field` events a single `qew set` makes.
 """
 
 from dataclasses import dataclass
 
-from qew import ledger_graph, ledger_labels
+from qew import ledger_fields, ledger_graph, ledger_labels
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_check import MAX_PRIORITY
@@ -15,7 +15,7 @@ from qew.ledger_event import State
 from qew.ledger_item import Item, check_header_values
 from qew.ledger_store import Ledger, Snapshot, actor
 
-ROW_KEYS = {"add_label", "remove_label", "priority", "reason"}
+ROW_KEYS = {"add_label", "remove_label", "priority", "reason", "fields"}
 Change = tuple[str, str, str]  # key, old, new
 
 
@@ -62,9 +62,16 @@ def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]]) -> Batch:
             if type(raw["priority"]) is not int or not 0 <= raw["priority"] <= MAX_PRIORITY:
                 raise QewError(f"{where}: `priority` is a whole number from 0 to {MAX_PRIORITY}", 2)
             wanted["priority"] = str(raw["priority"])
+        if "fields" in raw:
+            if not isinstance(raw["fields"], dict):
+                raise QewError(f"{where}: `fields` is an object of NAME: value-or-list (an empty list removes the field)", 2)
+            try:
+                wanted["fields"] = ledger_fields.encode(ledger_fields.changed(item.fields, raw["fields"]))
+            except QewError as error:
+                raise QewError(f"{where}: {error}", 2) from None
         changes: list[Change] = []
         new_item = item
-        for key in ("labels", "priority"):
+        for key in ("labels", "fields", "priority"):
             if wanted[key] != item.header()[key]:
                 try:
                     new_item = new_item.with_value(key, wanted[key])

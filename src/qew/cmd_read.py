@@ -4,7 +4,7 @@ import argparse
 import sys
 from typing import cast
 
-from qew import show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import ledger_fields, show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
@@ -44,6 +44,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     list_.add_argument("--kind", choices=["epic", "issue", "task"], help="only this kind")
     list_.add_argument("--state", choices=["draft", "approved", "claimed", "completed", "closed"], help="only this state")
     list_.add_argument("--work-state", choices=ledger_graph.WORK_STATES, help="only this derived work state")
+    list_.add_argument("--field", action="append", default=[], metavar="NAME[=VALUE]", help="only items holding this field (repeat: every one)")
     list_.add_argument("--label", action="append", default=[], help="only items carrying this label (repeat: every label)")
     list_.add_argument("--owner", help="only items this person currently holds")
     list_.add_argument("--author", help="only items this person created")
@@ -125,6 +126,8 @@ def list_items(snapshot: Snapshot, arguments: argparse.Namespace, as_json: bool)
         ids = [i for i in ids if ledger_graph.work_state(snapshot, i) == arguments.work_state]
     if arguments.label:
         ids = [i for i in ids if read_filter.has_all_labels(snapshot.items[i].labels, arguments.label)]
+    if arguments.field:
+        ids = [i for i in ids if all(ledger_fields.matches(snapshot.items[i].fields, wanted) for wanted in arguments.field)]
     if arguments.owner:
         ids = [i for i in ids if read_filter.fold(snapshot.folds[i].owner) == read_filter.fold(arguments.owner)]
     if arguments.author:
@@ -292,6 +295,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     for key, values in (("parent", [item.parent] if item.parent else []), ("needs", needs), ("children", kids), ("blocks", blocks), ("labels", item.labels)):
         if values:
             print(f"{key}: {' '.join(values)}")
+    for name, values in item.fields:
+        print(f"field {name}: {', '.join(untrusted_text.show(v).text for v in values)}")
     if epic:
         print(f"progress: {_progress_text(snapshot, item_id, kids, epic, draft)}")
         if "next" in epic:

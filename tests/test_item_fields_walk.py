@@ -97,7 +97,7 @@ class ItemFieldsWalk(unittest.TestCase):
         path.write_text(json.dumps({"item": other, "fields": {"phase": "9"}}) + "\n" + json.dumps({"item": item, "fields": {"Bad Name": "1"}}) + "\n")
         before = self.commits()
         self.assertEqual(self.world.run("set", "--manifest", str(path)).returncode, 2)
-        self.assertEqual((self.commits(), self.show(other)["fields"]), (before, {}))
+        self.assertEqual((self.commits(), self.show(other).get("fields", {})), (before, {}))
         path.write_text(json.dumps({"item": item, "fields": {"wp": []}}) + "\n")
         self.assertEqual(self.world.run("set", "--manifest", str(path)).returncode, 0)
         self.assertEqual(self.show(item)["fields"], {"phase": ["1"]})

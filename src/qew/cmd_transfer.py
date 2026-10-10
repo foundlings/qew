@@ -8,7 +8,7 @@ import argparse
 import json
 from pathlib import Path
 
-from qew import cmd_items, cmd_read, graph_rules, ledger_config, ledger_graph, ledger_labels, untrusted_text
+from qew import cmd_items, cmd_read, graph_rules, ledger_config, ledger_fields, ledger_graph, ledger_labels, untrusted_text
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_aliases import ITEM_FILE
@@ -80,6 +80,7 @@ def _spec(item: Item) -> JsonObject:
         "parent": item.parent,
         "needs": list(item.needs),
         "labels": list(item.labels),
+        **({"fields": ledger_fields.as_dict(item.fields)} if item.fields else {}),
         "priority": item.priority,
         "created": item.created,
         "body": item.body,

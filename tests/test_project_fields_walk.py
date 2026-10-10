@@ -24,6 +24,8 @@ class ProjectFieldsWalk(unittest.TestCase):
         world = World(mirrors, replication=OFF)
         self.addCleanup(world.close)
         self.assertEqual(world.run("project", "ensure", env=ENV).returncode, 0)
+        fields = fake.project("1")["fields"]
+        fields[:] = [f for f in fields if f["name"] not in ("Area", "Kind")]  # ensure made them as text; the walk wants its own types
         fake.add_field("1", "Area")
         fake.add_field("1", "Kind", ("issue", "epic"))
         return fake, world

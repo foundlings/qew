@@ -9,7 +9,7 @@ from pathlib import Path
 from types import ModuleType
 from collections.abc import Sequence
 
-from qew import __version__, body_sections, evidence_resolve, code_prose, editor, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
+from qew import __version__, body_sections, ledger_fields, evidence_resolve, code_prose, editor, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
 from qew.command_modules import COMMAND_MODULE, CORE_COMMANDS
 from qew.errors import QewError
 from qew.ledger_item import title_is_one_line
@@ -143,6 +143,7 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     create.add_argument("--key", help="idempotency key (one word): a retry with the same key and content returns the first item")
     create.add_argument("--needs", nargs="*", default=[], help="items this one is blocked by")
     create.add_argument("--label", action="append", default=[], help="label, repeatable")
+    create.add_argument("--field", action="append", default=[], metavar="NAME=VALUE", help="a field, repeatable (a repeated NAME holds several values)")
     create.add_argument("--priority", type=int, default=2, help="lower is sooner")
     create.add_argument("--body", help="Markdown body")
     create.add_argument("--body-file", help="read the body from a file, or - for stdin")
@@ -172,6 +173,8 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     set_.add_argument("--tracks", help="ledger id of the tracking issue item (empty clears it)")
     set_.add_argument("--pr", help="ledger id of the pull request item (empty clears it)")
     set_.add_argument("--labels", nargs="*", help="replace the labels")
+    set_.add_argument("--field", action="append", default=[], metavar="NAME=VALUE", help="set a field, repeatable (a repeated NAME holds several values; replaces that field)")
+    set_.add_argument("--clear-field", action="append", default=[], metavar="NAME", help="remove a field, repeatable")
     set_.add_argument("--priority", type=int, help="new priority")
     set_.add_argument("--due", help="due date YYYY-MM-DD (an epic milestone's due date)")
     set_.add_argument("--body", help="replace the body")
@@ -235,6 +238,7 @@ def _plan(arguments: argparse.Namespace) -> plan_file.Plan:
             "parent": arguments.parent,
             "needs": arguments.needs,
             "labels": arguments.label,
+            **({"fields": ledger_fields.parse_pairs(arguments.field)} if arguments.field else {}),
             "priority": arguments.priority,
             "body": body or "",
             **({"discovered_from": arguments.discovered_from} if arguments.discovered_from else {}),
@@ -272,7 +276,7 @@ def _run(arguments: argparse.Namespace) -> None:
         print("\n".join(lines))
     elif command == "set" and arguments.manifest:
         if arguments.items or any(getattr(arguments, key) is not None for key in ("title", "parent", "priority", "kind", "tracks", "pr", "due", "needs", "labels", "body", "body_file")) \
-                or arguments.add_label or arguments.remove_label or arguments.edit or arguments.no_parent or arguments.reason:
+                or arguments.add_label or arguments.remove_label or arguments.field or arguments.clear_field or arguments.edit or arguments.no_parent or arguments.reason:
             raise QewError("--manifest replaces ITEM and the other options: give the manifest alone", 2)
         print(cmd_items.set_manifest(config, Path(arguments.manifest), arguments.dry_run))
     elif command == "set":
@@ -303,7 +307,8 @@ def _run(arguments: argparse.Namespace) -> None:
             body = editor.edit_body()
         code_prose.warn([body or ""])
         changed = cmd_items.set_fields(
-            config, arguments.items, changes, body, arguments.closed, arguments.add_label, arguments.remove_label, arguments.reason
+            config, arguments.items, changes, body, arguments.closed, arguments.add_label, arguments.remove_label, arguments.reason,
+            ledger_fields.parse_pairs(arguments.field), arguments.clear_field,
         )
         if arguments.json:
             print(json.dumps({"changed": [{"item": i, "key": k, "old": o, "new": n} for i, k, o, n in changed]}))

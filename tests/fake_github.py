@@ -326,6 +326,12 @@ class FakeGitHub:
         project["fields"].append(field)
         return {"data": {"createProjectV2Field": {"projectV2Field": {"id": field["id"]}}}}
 
+    def gql_CreateTextField(self, variables: dict[str, Any]) -> dict[str, Any]:
+        project = self.projects[variables["projectId"]]
+        field = {"id": f"PVTF_{len(project['fields'])}", "name": variables["name"], "options": [], "text": True}
+        project["fields"].append(field)
+        return {"data": {"createProjectV2Field": {"projectV2Field": {"id": field["id"]}}}}
+
     def gql_UpdateStatusField(self, variables: dict[str, Any]) -> dict[str, Any]:
         for project in self.projects.values():
             for field in project["fields"]:

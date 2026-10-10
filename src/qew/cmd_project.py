@@ -47,7 +47,10 @@ def ensure(config: Config, wanted: str | None, build: Callable[[Mirror], Forge] 
     for mirror in choose(mirrors_with_boards(ledger, config), wanted):
         slug = ledger_config.mirror_slug(mirror)
         try:
-            board = build(mirror).ensure_board(COLUMNS, sync_plan.managed_filter(mirror.mode))
+            forge = build(mirror)
+            board = forge.ensure_board(COLUMNS, sync_plan.managed_filter(mirror.mode))
+            mapped = mirror.options.get("project_fields")
+            made = forge.ensure_text_fields(board, sorted(map(str, mapped))) if isinstance(mapped, dict) and mapped else []
         except Unsupported:
             lines.append(f"{slug}: boards unsupported")
             continue
@@ -58,6 +61,7 @@ def ensure(config: Config, wanted: str | None, build: Callable[[Mirror], Forge] 
         ledger.write_board(slug, {"id": board.id, "url": board.url, "columns": list(board.columns)})
         lines.append(f"{slug}: board {board.id} {board.url}" + (f" {untrusted_text.show(board.title).text}" if board.title else ""))
         lines.extend(f"{slug}: {untrusted_text.show(note).text}" for note in board.notes)
+        lines.extend(f"{slug}: created text field {untrusted_text.show(name).text}" for name in made)
     if failed:
         print("\n".join(lines))
         raise QewError("project ensure finished with failures", 1)

@@ -5,6 +5,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
 
+from qew import ledger_fields
 from qew.errors import QewError
 from qew.ledger_ids import valid_id
 
@@ -20,8 +21,8 @@ class Kind(str, Enum):
 
 
 # The schema: header keys in file order. Unknown keys are refused, never ignored.
-KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "owner", "priority", "due", "created", "discovered_from", "aliases", "evidence", "evidence_absent")
-LINK_KEYS = ("tracks", "pr", "due", "discovered_from", "aliases", "evidence", "evidence_absent")  # tracking issue / pull request item ids and a YYYY-MM-DD due date; optional, omitted when empty
+KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "fields", "owner", "priority", "due", "created", "discovered_from", "aliases", "evidence", "evidence_absent")
+LINK_KEYS = ("fields", "tracks", "pr", "due", "discovered_from", "aliases", "evidence", "evidence_absent")  # tracking issue / pull request item ids and a YYYY-MM-DD due date; optional, omitted when empty
 REQUIRED = ("id", "kind", "title", "created")
 LIST_KEYS = ("needs", "labels")
 DEFAULT_PRIORITY = 2
@@ -53,6 +54,7 @@ class Item:
     parent: str = ""
     needs: tuple[str, ...] = ()
     labels: tuple[str, ...] = ()
+    fields: ledger_fields.Fields = ()  # named values beside the labels (see ledger_fields)
     owner: str = ""
     priority: int = DEFAULT_PRIORITY
     body: str = field(default="", compare=False)
@@ -74,6 +76,7 @@ class Item:
             "tracks": self.tracks,
             "pr": self.pr,
             "labels": " ".join(self.labels),
+            "fields": ledger_fields.encode(self.fields),
             "owner": self.owner,
             "priority": str(self.priority),
             "due": self.due,
@@ -154,6 +157,7 @@ def from_header(header: dict[str, str], body: str = "", where: str = "item") -> 
             raise QewError(f"{where}: `{key}` must be an item id (a ledger link, never a forge number or URL)", 1)
     needs = tuple(header.get("needs", "").split())
     labels = tuple(header.get("labels", "").split())
+    fields = ledger_fields.decode(header.get("fields", ""), where)
     for need in needs:
         if not valid_id(need):
             raise QewError(f"{where}: `{need}` in needs is not an item id", 1)
@@ -180,6 +184,7 @@ def from_header(header: dict[str, str], body: str = "", where: str = "item") -> 
         parent=header.get("parent", ""),
         needs=needs,
         labels=labels,
+        fields=fields,
         owner=header.get("owner", ""),
         priority=int(priority),
         body=body,

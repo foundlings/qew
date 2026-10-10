@@ -39,7 +39,7 @@ class CommitVerifyWalk(unittest.TestCase):
             (world.ledger / "items" / f"A{number}").mkdir(parents=True)
             (world.ledger / "items" / f"A{number}" / "item.md").write_text("x\n")
         toml = world.ledger / "qew-ledger.toml"
-        toml.write_text(toml.read_text().replace("schema_version = 4", "schema_version = 5"))
+        toml.write_text(toml.read_text().replace("schema_version = 5", "schema_version = 5  # edited"))
         repo = LedgerRepo(world.ledger, "main")
         paths = [f"items/A{n}/item.md" for n in range(3)] + ["qew-ledger.toml"]
         with mock.patch.object(ledger_repo, "JJ_FILESET_BYTES", 10):

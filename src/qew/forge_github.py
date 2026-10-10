@@ -77,6 +77,12 @@ query ProjectFields($projectId: ID!) {
     }
   }
 }"""
+_CREATE_TEXT_FIELD = """
+mutation CreateTextField($projectId: ID!, $name: String!) {
+  createProjectV2Field(input: {projectId: $projectId, dataType: TEXT, name: $name}) {
+    projectV2Field { ... on ProjectV2Field { id } }
+  }
+}"""
 _SET_CARD_FIELD = """
 mutation SetCardField($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
   updateProjectV2ItemFieldValue(input: {projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value}) { projectV2Item { id } }
@@ -1233,6 +1239,17 @@ class GitHub(Forge):
                 return found
             cursor = _str(info, "endCursor", "pageInfo")
         raise ForgeRejected(200, f"more than {MAX_PAGES} pages of board items; refusing a truncated listing")
+
+    @override
+    def ensure_text_fields(self, board: Board, names: Sequence[str]) -> list[str]:
+        project = self._board_project(board)
+        have = self._custom_fields(project.id)
+        made = [name for name in names if name not in have]
+        for name in made:
+            self._wire.graphql(_CREATE_TEXT_FIELD, {"projectId": project.id, "name": name})
+        if made:
+            self._field_defs.pop(project.id, None)
+        return made
 
     @override
     def set_card_fields(self, board: Board, number: int, values: Mapping[str, str]) -> None:

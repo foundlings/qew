@@ -2,7 +2,7 @@
 
 import re
 
-from qew import ledger_graph, stale_claims, text_findings, untrusted_text
+from qew import ledger_fields, ledger_graph, stale_claims, text_findings, untrusted_text
 from qew.ledger_event import State
 from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
@@ -53,6 +53,8 @@ def row_data(snapshot: Snapshot, item_id: str, work_state: bool = False, progres
         "priority": item.priority,
         "labels": sorted(item.labels),
     }
+    if item.fields:
+        row["fields"] = ledger_fields.as_dict(item.fields)
     if hidden:
         row["text_findings"] = text_findings.title_findings(item.title)
     if progress and item.kind == Kind.EPIC:

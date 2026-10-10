@@ -161,8 +161,16 @@ item stays open: other open issues with its marker are closed (a lower-numbered 
 item with no mirror adopts its lowest-numbered marker issue. GitLab and Forgejo search by marker on the server, so their
 lookup was never limited to the newest issues.
 
+## Board fields
+A mirror's `project_fields = { "Board field" = "source" }` fills custom Projects v2 fields on each card. A source is `kind`, `priority`,
+`state`, `field:NAME` (an item field's values joined by `, `) or `label:PREFIX` (the rest of the first label with that prefix). A text field
+is set as given; a single-select field needs an option of that name. `qew project ensure` creates a text field for each mapped name the board
+lacks (a field that exists, of any type, stays), so adding a field later is one `project_fields` entry and an ensure. A value a human changed on
+the card is a divergence, as for any mirrored fact. Fields are not labels: once a label is replaced by a field the next sync removes it from the
+issue, and `qew sync --prune-labels --all-labels` deletes the definition when nothing carries it any more.
+
 ## Label pruning
-`Forge` has three calls for `qew sync --prune-labels`: `list_repo_labels()` (every definition), `labels_in_use()` (names carried by any
+`Forge` has three calls for `qew sync --prune-labels` (`--all-labels` lifts the managed-prefix limit; `gated` and `needs:approval` stay): `list_repo_labels()` (every definition), `labels_in_use()` (names carried by any
 issue or pull request, open or closed; GitHub and Forgejo list pull requests among issues, GitLab reads issues and merge requests) and
 `delete_label(name)` (a missing label is fine). Deleting a label also removes it from whatever carried it, so the command only deletes
 names `labels_in_use()` did not return. A closed issue whose body carries `<!-- qew-duplicate -->` (a retired twin) does not count as carrying anything.

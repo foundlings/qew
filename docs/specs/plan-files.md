@@ -16,7 +16,7 @@ or entry (array).
 
 ## Fields
 `title` (required, one line), `kind` (`epic`, `issue` default, `task`), `parent`, `needs` (list), `labels`
-(list), `priority` (non-negative integer, default 2), `body`, `ref`, `id`, `created`, `quote`, `approved`,
+(list), `fields` (object of `NAME: value-or-list`), `priority` (non-negative integer, default 2), `body`, `ref`, `id`, `created`, `quote`, `approved`,
 `events`. Any other field is refused. Names follow the item header keys.
 
 - `ref` names an entry; `@ref` in `parent` or `needs` points at it, in any order. An entry without a `ref` is
