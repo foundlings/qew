@@ -22,11 +22,11 @@ BOB = {"QEW_ACTOR": "bob"}
 
 def plan(world: World):
     """An approved epic with an issue, a task under the issue, a draft child and a child blocked on the issue."""
-    epic = world.create("--kind", "epic", "--title", "Plan")
-    issue = world.create("--kind", "issue", "--title", "Issue", "--parent", epic)
-    task = world.create("--kind", "task", "--title", "Task", "--parent", issue)
-    blocked = world.create("--kind", "issue", "--title", "Blocked", "--parent", epic, "--needs", issue)
-    draft = world.create("--kind", "issue", "--title", "Draft", "--parent", epic)
+    epic = world.create("--kind", "epic", "--title", "Plan", "--draft")
+    issue = world.create("--kind", "issue", "--title", "Issue", "--parent", epic, "--draft")
+    task = world.create("--kind", "task", "--title", "Task", "--parent", issue, "--draft")
+    blocked = world.create("--kind", "issue", "--title", "Blocked", "--parent", epic, "--needs", issue, "--draft")
+    draft = world.create("--kind", "issue", "--title", "Draft", "--parent", epic, "--draft")
     world.approve(epic, issue, task, blocked)
     return epic, issue, task, blocked, draft
 

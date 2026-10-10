@@ -32,7 +32,7 @@ class IdentityWalk(unittest.TestCase):
         self.addCleanup(w.close)
         with tempfile.TemporaryDirectory() as empty:
             env = {**NO_ACTOR, "HOME": empty, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1", "JJ_CONFIG": "/dev/null"}
-            result = w.run("create", "--title", "Nameless", env=env)
+            result = w.run("create", "--title", "Nameless", "--draft", env=env)
         self.assertEqual(result.returncode, 2)
         self.assertIn("user.name", result.stderr)
         self.assertFalse((w.ledger / "items").exists())

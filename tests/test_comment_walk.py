@@ -14,7 +14,7 @@ class CommentWalk(unittest.TestCase):
     def setUp(self) -> None:
         self.world = World()
         self.addCleanup(self.world.close)
-        self.item = self.world.create("--title", "Discuss me")
+        self.item = self.world.create("--title", "Discuss me", "--draft")
         self.world.approve(self.item)
 
     def comments(self) -> list:

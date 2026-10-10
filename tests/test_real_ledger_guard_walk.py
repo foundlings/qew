@@ -22,7 +22,7 @@ class RealLedgerGuardWalk(unittest.TestCase):
             (real / "qew-ledger.toml").write_text('name = "x"\nschema_version = 1\n')
             config = w.code / ".qew" / "config.toml"
             config.write_text('[ledger]\npath = "%s"\n' % real)
-            result = w.run("create", "--title", "Must not land")
+            result = w.run("create", "--title", "Must not land", "--draft")
             self.assertEqual(result.returncode, 2)
             self.assertIn("temporary", result.stderr)
             self.assertFalse((real / "items").exists())

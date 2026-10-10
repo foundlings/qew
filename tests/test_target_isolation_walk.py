@@ -43,7 +43,7 @@ class TargetIsolationWalk(unittest.TestCase):
     def test_two_targets_use_their_own_boards(self) -> None:
         """Ensure on both records two boards; each sync places cards only on its own target's board."""
         w = self.world
-        w.create("--kind", "epic", "--title", "E")
+        w.create("--kind", "epic", "--title", "E", "--draft")
         ensure(self.config, None, self.build)
         self.assertIn('"A1"', self.board_file(self.slug_a).read_text())
         self.assertIn('"B7"', self.board_file(self.slug_b).read_text())
@@ -54,8 +54,8 @@ class TargetIsolationWalk(unittest.TestCase):
     def test_select_is_per_target(self) -> None:
         """Target B selects epics only; target A, with no select, still mirrors the plain issue."""
         w = self.world
-        w.create("--kind", "epic", "--title", "E")
-        w.create("--kind", "issue", "--title", "I")
+        w.create("--kind", "epic", "--title", "E", "--draft")
+        w.create("--kind", "issue", "--title", "I", "--draft")
         sync_command(self.config, None, None, False, build=self.build)
         self.assertEqual(len(self.forges["a.example"].issues), 2)
         self.assertEqual(len(self.forges["b.example"].issues), 1)

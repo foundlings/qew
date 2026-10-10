@@ -49,7 +49,7 @@ class EditWalk(unittest.TestCase):
     def test_missing_or_blank_editor_is_refused(self) -> None:
         """No VISUAL and no EDITOR (or only blanks): exit 2 naming both, ledger untouched."""
         before = snapshot_of(self.world)
-        result = self.world.run("create", "--title", "T", "--edit", env={"VISUAL": " ", "EDITOR": ""})
+        result = self.world.run("create", "--title", "T", "--edit", "--draft", env={"VISUAL": " ", "EDITOR": ""})
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("VISUAL", result.stderr)
         self.assertIn("EDITOR", result.stderr)
@@ -80,7 +80,7 @@ class EditWalk(unittest.TestCase):
         empty.write_text("")
         before = snapshot_of(self.world)
         for path in (link, empty):
-            result = self.world.run("create", "--title", "T", "--body-file", str(path))
+            result = self.world.run("create", "--title", "T", "--body-file", str(path), "--draft")
             self.assertEqual(result.returncode, 2, path)
         self.assertEqual(snapshot_of(self.world), before)
 
@@ -91,7 +91,7 @@ class EditWalk(unittest.TestCase):
 
     def test_set_with_no_change_writes_nothing_and_a_closed_item_needs_a_flag(self) -> None:
         """`set` with no change appends no event; editing closed work is explicit."""
-        item = self.world.create("--title", "T")
+        item = self.world.create("--title", "T", "--draft")
         before = snapshot_of(self.world)
         self.assertIn("unchanged", self.world.run("set", item, "--title", "T").stdout)
         self.assertEqual(snapshot_of(self.world), before)

@@ -53,8 +53,8 @@ class SyncWalk(unittest.TestCase):
 
     def test_golden_walk_mirrors_per_target_and_a_second_sync_is_a_no_op(self) -> None:
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Epic")
-        issue = w.create("--kind", "issue", "--title", "Issue", "--parent", epic)
+        epic = w.create("--kind", "epic", "--title", "Epic", "--draft")
+        issue = w.create("--kind", "issue", "--title", "Issue", "--parent", epic, "--draft")
         reports = self.sync()
         self.assertEqual([r.created for r in reports], [2, 1], "select = kind:epic keeps the issue off the second target")
         mirror = json.loads((w.ledger / "mirrors" / issue / "forgejo-git.example-o-r.json").read_text())
@@ -68,9 +68,9 @@ class SyncWalk(unittest.TestCase):
 
     def test_select_values_may_list_alternatives_with_commas(self) -> None:
         w = self.world
-        w.create("--kind", "epic", "--title", "E")
-        w.create("--kind", "issue", "--title", "I")
-        w.create("--kind", "task", "--title", "T")
+        w.create("--kind", "epic", "--title", "E", "--draft")
+        w.create("--kind", "issue", "--title", "I", "--draft")
+        w.create("--kind", "task", "--title", "T", "--draft")
         config, all_targets = targets(w, [self.a, self.b])
         mirror = all_targets[0].mirror
         from dataclasses import replace
@@ -82,7 +82,7 @@ class SyncWalk(unittest.TestCase):
 
     def test_a_header_change_updates_the_mirror_once(self) -> None:
         w = self.world
-        item = w.create("--kind", "epic", "--title", "Old")
+        item = w.create("--kind", "epic", "--title", "Old", "--draft")
         self.sync()
         w.run("set", item, "--title", "New")
         report = self.sync("forgejo-git.example-o-r")[0]
@@ -94,7 +94,7 @@ class SyncWalk(unittest.TestCase):
         w = self.world
         path = w.code / ".qew" / "config.toml"
         path.write_text(path.read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nmode = "overlay"'))
-        item = w.create("--kind", "epic", "--title", "E")
+        item = w.create("--kind", "epic", "--title", "E", "--draft")
         self.sync("forgejo-git.example-o-r")
         self.assertIn("qew:draft", self.a.issues[1].labels)
         self.assertTrue(self.a.issues[1].open)
@@ -115,7 +115,7 @@ class SyncWalk(unittest.TestCase):
         from dataclasses import replace
 
         w = self.world
-        w.create("--kind", "epic", "--title", "E")
+        w.create("--kind", "epic", "--title", "E", "--draft")
         config, all_targets = targets(w, [self.a, self.b])
         plain = all_targets[0]
         self.assertEqual(plain.mirror.mode, "repository")
@@ -151,7 +151,7 @@ class SyncWalk(unittest.TestCase):
 
     def test_a_dead_forge_does_not_block_another_and_leaves_no_mirror_file(self) -> None:
         w = self.world
-        item = w.create("--kind", "epic", "--title", "E")
+        item = w.create("--kind", "epic", "--title", "E", "--draft")
         self.a.down = True
         reports = self.sync()
         self.assertTrue(reports[0].failures)
@@ -162,7 +162,7 @@ class SyncWalk(unittest.TestCase):
 
     def test_a_crash_after_create_adopts_the_existing_issue_instead_of_duplicating(self) -> None:
         w = self.world
-        w.create("--kind", "epic", "--title", "E")
+        w.create("--kind", "epic", "--title", "E", "--draft")
         self.sync("forgejo-git.example-o-r")
         for path in (w.ledger / "mirrors").rglob("forgejo-*.json"):
             path.unlink()
@@ -173,7 +173,7 @@ class SyncWalk(unittest.TestCase):
     def test_a_concurrent_creator_leaves_exactly_one_open_issue_and_the_lowest_number_wins(self) -> None:
         """Prevents duplicate issues when two checkouts sync one new item at once (seen live): the later one closes itself."""
         w = self.world
-        item = w.create("--kind", "epic", "--title", "Raced")
+        item = w.create("--kind", "epic", "--title", "Raced", "--draft")
         from qew.forge import IssueSpec, marker_for
 
         self.a.create_issue(IssueSpec("Raced", marker_for(item) + "\n\nbody", (), True))  # the other checkout's issue, number 1
@@ -190,16 +190,16 @@ class SyncWalk(unittest.TestCase):
 
     def test_a_rejected_item_is_reported_and_the_rest_still_sync(self) -> None:
         w = self.world
-        w.create("--kind", "epic", "--title", "bad one")
-        w.create("--kind", "epic", "--title", "good one")
+        w.create("--kind", "epic", "--title", "bad one", "--draft")
+        w.create("--kind", "epic", "--title", "good one", "--draft")
         self.a.reject_title = "bad"
         report = self.sync("forgejo-git.example-o-r")[0]
         self.assertEqual((report.created, len(report.failures)), (1, 1))
 
     def test_dependencies_are_linked_when_supported_and_skipped_loudly_when_not(self) -> None:
         w = self.world
-        first = w.create("--kind", "epic", "--title", "First")
-        w.create("--kind", "epic", "--title", "Second", "--needs", first)
+        first = w.create("--kind", "epic", "--title", "First", "--draft")
+        w.create("--kind", "epic", "--title", "Second", "--needs", first, "--draft")
         self.sync()
         self.assertEqual(self.a.links, [(2, 1)])
         self.b.supports_links = False

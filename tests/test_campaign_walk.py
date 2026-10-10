@@ -21,8 +21,8 @@ class CampaignCompleteWalk(unittest.TestCase):
 
     def finished_epic(self):
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Epic")
-        child = w.create("--kind", "issue", "--title", "Child", "--parent", epic)
+        epic = w.create("--kind", "epic", "--title", "Epic", "--draft")
+        child = w.create("--kind", "issue", "--title", "Child", "--parent", epic, "--draft")
         w.approve(epic, child)
         w.run("start", epic)
         w.run("start", child)
@@ -39,9 +39,9 @@ class CampaignCompleteWalk(unittest.TestCase):
     def test_epic_with_open_children_is_refused_without_writing(self) -> None:
         """The refusal counts the open children and adds no event."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Epic")
+        epic = w.create("--kind", "epic", "--title", "Epic", "--draft")
         for title in ("A", "B"):
-            w.approve(w.create("--kind", "issue", "--title", title, "--parent", epic))
+            w.approve(w.create("--kind", "issue", "--title", title, "--parent", epic, "--draft"))
         w.approve(epic)
         w.run("start", epic)
         before = event_count(w, epic)
@@ -53,7 +53,7 @@ class CampaignCompleteWalk(unittest.TestCase):
     def test_epic_without_children_is_refused(self) -> None:
         """An empty plan has no completed work; completing it would prove nothing."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Empty")
+        epic = w.create("--kind", "epic", "--title", "Empty", "--draft")
         w.approve(epic)
         w.run("start", epic)
         result = w.run("complete", epic)
@@ -82,8 +82,8 @@ class CampaignProgressWalk(unittest.TestCase):
 
     def epic_with(self, title: str, children: int, done: int) -> str:
         w = self.world
-        epic = w.create("--kind", "epic", "--title", title)
-        kids = [w.create("--kind", "issue", "--title", f"{title} {n}", "--parent", epic) for n in range(children)]
+        epic = w.create("--kind", "epic", "--title", title, "--draft")
+        kids = [w.create("--kind", "issue", "--title", f"{title} {n}", "--parent", epic, "--draft") for n in range(children)]
         w.approve(epic, *kids)
         w.run("start", epic)
         for kid in kids[:done]:
@@ -100,7 +100,7 @@ class CampaignProgressWalk(unittest.TestCase):
         """Only the finished epic is completable and carries the command; a closed epic leaves the default list."""
         finished = self.epic_with("Finished", 2, 2)
         partial = self.epic_with("Partial", 2, 1)
-        closed = self.world.create("--kind", "epic", "--title", "Closed")
+        closed = self.world.create("--kind", "epic", "--title", "Closed", "--draft")
         self.world.run("close", closed, "--reason", "not_planned")
         rows = self.rows()
         self.assertNotIn(closed, rows)
@@ -116,7 +116,7 @@ class CampaignProgressWalk(unittest.TestCase):
 
     def test_empty_epic_is_not_completable(self) -> None:
         """Zero children is never completable, so no complete command is suggested."""
-        epic = self.world.create("--kind", "epic", "--title", "Empty")
+        epic = self.world.create("--kind", "epic", "--title", "Empty", "--draft")
         self.world.approve(epic)
         self.assertIs(self.rows()[epic]["completable"], False)
         self.assertNotIn("qew complete", self.world.run("list", "--kind", "epic").stdout)

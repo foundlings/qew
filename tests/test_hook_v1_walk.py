@@ -223,7 +223,7 @@ class SessionStartWalk(unittest.TestCase):
         specs.append({"title": "second wait", "needs": ["@a"]})
         made = self.world.run("create", "--from-file", "-", "--quote", QUOTE, stdin=json.dumps(specs))
         self.assertEqual(made.returncode, 0, made.stderr)
-        self.world.run("create", "--title", "just a draft")
+        self.world.run("create", "--title", "just a draft", "--draft")
         for agent in ("claude", "codex", "cursor"):
             text = self.context(agent)
             self.assertLessEqual(len(text.encode("utf-8")), 2000)

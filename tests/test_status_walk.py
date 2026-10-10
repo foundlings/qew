@@ -29,7 +29,7 @@ class StatusWalk(unittest.TestCase):
 
     def test_a_clean_synced_ledger_reports_nothing_pending(self) -> None:
         """Prevents status being noisy when all is well: every counter is zero and the mode is online."""
-        self.w.create("--kind", "issue", "--title", "A")
+        self.w.create("--kind", "issue", "--title", "A", "--draft")
         self.w.run("sync", env={"FORGEJO_TOKEN": TOKEN})
         data = json.loads(self.status("--json"))
         self.assertEqual(data["ledger"], {"uncommitted": 0, "unpushed": 0, "mode": "online", "remote": "ok"})
@@ -39,7 +39,7 @@ class StatusWalk(unittest.TestCase):
 
     def test_every_problem_class_appears_with_its_count(self) -> None:
         """Prevents hidden backlog: offline commits, stray files and unsynced items each show up."""
-        item = self.w.run("create", "--kind", "issue", "--title", "Offline", env=OFFLINE).stdout.split()[0]
+        item = self.w.run("create", "--kind", "issue", "--title", "Offline", "--draft", env=OFFLINE).stdout.split()[0]
         (self.w.ledger / "events" / item / "ZZZZZZZZZ.json").write_text(
             '{"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "x"}\n')
         text = self.status()
@@ -55,14 +55,14 @@ class StatusWalk(unittest.TestCase):
     def test_an_unreachable_remote_shows_as_offline_after_the_attempt(self) -> None:
         """Prevents an outage looking like a healthy ledger: the failed push is remembered and shown."""
         self.w.remote.rename(self.w.remote.with_name("away.git"))
-        self.w.run("create", "--kind", "issue", "--title", "While away")
+        self.w.run("create", "--kind", "issue", "--title", "While away", "--draft")
         text = self.status()
         self.assertIn("remote=offline", text)
         self.assertIn("unpushed=1", text)
 
     def test_many_divergences_print_a_bounded_summary_and_json_stays_complete(self) -> None:
         """Prevents 171 divergence lines costing an agent its context (seen live): text is capped, --json is complete."""
-        item = self.w.create("--kind", "issue", "--title", "Noisy")
+        item = self.w.create("--kind", "issue", "--title", "Noisy", "--draft")
         for n in range(25):
             (self.w.ledger / "events" / item / f"ZZZZZZ{n:03d}.json").write_text(json.dumps(
                 {"type": "forge_divergence", "at": "2026-01-01T00:00:00Z", "actor": "x", "target": "t", "field": "labels",

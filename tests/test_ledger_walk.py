@@ -18,8 +18,8 @@ class LedgerWalk(unittest.TestCase):
 
     def test_golden_walk_from_draft_to_ready_to_blocked(self) -> None:
         w = self.world
-        first = w.create("--kind", "issue", "--title", "Build parser", "--priority", "1")
-        second = w.create("--kind", "issue", "--title", "Use parser", "--needs", first)
+        first = w.create("--kind", "issue", "--title", "Build parser", "--priority", "1", "--draft")
+        second = w.create("--kind", "issue", "--title", "Use parser", "--needs", first, "--draft")
         self.assertRegex(first, r"^[0-9a-km-z]{9}$")
         self.assertLess(first, second)
 
@@ -41,7 +41,7 @@ class LedgerWalk(unittest.TestCase):
 
     def test_item_file_is_a_fixed_header_ending_at_a_rule(self) -> None:
         w = self.world
-        item = w.create("--kind", "task", "--title", "Write it", "--label", "area:erp", "--body", "Body text")
+        item = w.create("--kind", "task", "--title", "Write it", "--label", "area:erp", "--body", "Body text", "--draft")
         text = (w.ledger / "items" / f"{item}" / "item.md").read_text(encoding="utf-8")
         header, _, body = text.partition("\n---\n")
         keys = [line.split(":", 1)[0] for line in header.splitlines()]
@@ -52,8 +52,8 @@ class LedgerWalk(unittest.TestCase):
 
     def test_show_resolves_a_short_alias_and_reports_derived_edges(self) -> None:
         w = self.world
-        first = w.create("--kind", "issue", "--title", "A")
-        second = w.create("--kind", "issue", "--title", "B", "--needs", first)
+        first = w.create("--kind", "issue", "--title", "A", "--draft")
+        second = w.create("--kind", "issue", "--title", "B", "--needs", first, "--draft")
         shown = w.run("show", first).stdout
         self.assertIn(first, shown)
         self.assertIn("state: draft", shown)
@@ -61,8 +61,8 @@ class LedgerWalk(unittest.TestCase):
 
     def test_list_filters_and_json_output(self) -> None:
         w = self.world
-        w.create("--kind", "epic", "--title", "Big")
-        issue = w.create("--kind", "issue", "--title", "Small")
+        w.create("--kind", "epic", "--title", "Big", "--draft")
+        issue = w.create("--kind", "issue", "--title", "Small", "--draft")
         rows = [json.loads(line) for line in w.run("list", "--kind", "issue", "--json").stdout.splitlines()]
         self.assertEqual([row["id"] for row in rows], [issue])
         self.assertEqual(rows[0]["state"], "draft")
@@ -88,7 +88,7 @@ class LedgerWalk(unittest.TestCase):
 
     def test_set_changes_the_header_and_records_an_audit_event(self) -> None:
         w = self.world
-        item = w.create("--kind", "issue", "--title", "Old")
+        item = w.create("--kind", "issue", "--title", "Old", "--draft")
         result = w.run("set", item, "--title", "New", "--priority", "0")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("title: New", (w.ledger / "items" / f"{item}" / "item.md").read_text())

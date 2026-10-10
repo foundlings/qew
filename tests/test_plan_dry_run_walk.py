@@ -20,7 +20,7 @@ class PlanDryRunWalk(unittest.TestCase):
     def test_golden_dry_run_lists_the_operations_in_order_and_writes_nothing(self) -> None:
         """The preview must be exact enough to review and must leave the ledger byte-identical."""
         w = self.world
-        existing = w.create("--title", "Existing")
+        existing = w.create("--title", "Existing", "--draft")
         text = jsonl(
             {"ref": "e", "kind": "epic", "title": "Epic"},
             {"ref": "a", "kind": "issue", "title": "First", "parent": "@e", "needs": [existing]},
@@ -35,27 +35,28 @@ class PlanDryRunWalk(unittest.TestCase):
         self.assertEqual(
             report["operations"],
             [
-                {"op": "create", "ref": "e", "kind": "epic", "title": "Epic", "draft": True},
-                {"op": "create", "ref": "a", "kind": "issue", "title": "First", "draft": True},
+                {"op": "create", "ref": "e", "kind": "epic", "title": "Epic", "draft": False},
+                {"op": "create", "ref": "a", "kind": "issue", "title": "First", "draft": False},
                 {"op": "parent", "ref": "a", "parent": "e"},
                 {"op": "need", "ref": "a", "needs": existing},
-                {"op": "create", "ref": "b", "kind": "issue", "title": "Second", "draft": True},
+                {"op": "create", "ref": "b", "kind": "issue", "title": "Second", "draft": False},
                 {"op": "parent", "ref": "b", "parent": "e"},
                 {"op": "need", "ref": "b", "needs": "a"},
             ],
         )
         self.assertEqual(snapshot(w), before)
         plain = w.run("create", "--from-file", "-", "--dry-run", stdin=text)
-        self.assertIn("create a issue 'First' draft", plain.stdout)
+        self.assertIn("create a issue 'First'", plain.stdout)
+        self.assertNotIn("draft", plain.stdout)
         self.assertIn("need b -> a", plain.stdout)
 
     def test_a_dry_run_shows_whether_each_item_would_be_a_draft(self) -> None:
-        """Surprise releases must be visible in the preview: quoted entries are not drafts, `--draft` makes all drafts."""
-        text = jsonl({"ref": "x", "title": "Quoted", "quote": QUOTE}, {"ref": "y", "title": "Plain"})
+        """Surprise releases must be visible in the preview: quoted and plain entries go to the queue, `approved: false` and `--draft` make drafts."""
+        text = jsonl({"ref": "x", "title": "Quoted", "quote": QUOTE}, {"ref": "y", "title": "Plain"}, {"ref": "z", "title": "Asked", "approved": False})
         released = json.loads(self.world.run("create", "--from-file", "-", "--dry-run", "--json", stdin=text).stdout)
-        self.assertEqual([op["draft"] for op in released["operations"]], [False, True])
+        self.assertEqual([op["draft"] for op in released["operations"]], [False, False, True])
         drafts = json.loads(self.world.run("create", "--from-file", "-", "--dry-run", "--draft", "--json", stdin=text).stdout)
-        self.assertEqual([op["draft"] for op in drafts["operations"]], [True, True])
+        self.assertEqual([op["draft"] for op in drafts["operations"]], [True, True, True])
 
     def test_a_dry_run_of_an_invalid_plan_fails_with_the_same_message_as_a_real_run(self) -> None:
         """A dry run that passes what the real run refuses defeats its purpose."""

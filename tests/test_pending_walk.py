@@ -28,8 +28,8 @@ class PendingWalk(unittest.TestCase):
     def test_pending_follows_the_newest_event_against_the_mirror(self) -> None:
         """Prevents lost updates and repeat pushes: new item = create, behind = update, current = nothing, selected-out = never."""
         w = self.world
-        item = w.create("--kind", "issue", "--title", "A")
-        w.create("--kind", "epic", "--title", "Not selected")
+        item = w.create("--kind", "issue", "--title", "A", "--draft")
+        w.create("--kind", "epic", "--title", "Not selected", "--draft")
         self.assertEqual(self.pending(), ["create"])
         w.run("sync", env=ENV)
         self.assertEqual(self.pending(), [])
@@ -41,7 +41,7 @@ class PendingWalk(unittest.TestCase):
     def test_a_mirror_claiming_a_future_event_is_a_check_problem(self) -> None:
         """Prevents a hand-edited synced_event hiding pending work forever."""
         w = self.world
-        item = w.create("--kind", "issue", "--title", "A")
+        item = w.create("--kind", "issue", "--title", "A", "--draft")
         w.run("sync", env=ENV)
         path = next((w.ledger / ".qew" / "state").rglob(f"{item}.json"))
         data = json.loads(path.read_text())

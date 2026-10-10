@@ -26,8 +26,8 @@ def finish(world: World, item: str, **env) -> None:
 
 
 def make_epic(world: World, *children: str):
-    epic = world.create("--kind", "epic", "--title", "Epic")
-    ids = [world.create("--kind", "issue", "--title", title, "--parent", epic) for title in children]
+    epic = world.create("--kind", "epic", "--title", "Epic", "--draft")
+    ids = [world.create("--kind", "issue", "--title", title, "--parent", epic, "--draft") for title in children]
     world.approve(epic, *ids)
     return (epic, *ids)
 
@@ -67,10 +67,10 @@ class DerivedEpicClaimWalk(unittest.TestCase):
     def test_only_open_direct_non_epic_children_count(self) -> None:
         """Prevents every linked epic reading as in progress: grandchildren, child epics and needs do not count."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Epic")
-        sub = w.create("--kind", "epic", "--title", "Sub")
-        grand = w.create("--kind", "issue", "--title", "Grand", "--parent", sub)
-        linked = w.create("--kind", "issue", "--title", "Linked", "--needs", grand)
+        epic = w.create("--kind", "epic", "--title", "Epic", "--draft")
+        sub = w.create("--kind", "epic", "--title", "Sub", "--draft")
+        grand = w.create("--kind", "issue", "--title", "Grand", "--parent", sub, "--draft")
+        linked = w.create("--kind", "issue", "--title", "Linked", "--needs", grand, "--draft")
         w.approve(epic, sub, grand, linked)
         w.run("start", grand)
         self.assertEqual(self.holders(epic), [])

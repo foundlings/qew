@@ -14,8 +14,8 @@ class EpicCompleteWalk(unittest.TestCase):
         self.world = World()
         self.addCleanup(self.world.close)
         w = self.world
-        self.epic = w.create("--kind", "epic", "--title", "Plan")
-        self.child = w.create("--kind", "issue", "--title", "Child", "--parent", self.epic)
+        self.epic = w.create("--kind", "epic", "--title", "Plan", "--draft")
+        self.child = w.create("--kind", "issue", "--title", "Child", "--parent", self.epic, "--draft")
         w.approve(self.epic, self.child)
         w.run("start", self.epic)
 
@@ -43,7 +43,7 @@ class EpicCompleteWalk(unittest.TestCase):
         self.assertIn("1 open child", result.stderr)
         self.assertIn(self.child, result.stderr)
         self.assertEqual(self.types(self.epic), before)
-        second = self.world.create("--kind", "issue", "--title", "Second", "--parent", self.epic)
+        second = self.world.create("--kind", "issue", "--title", "Second", "--parent", self.epic, "--draft")
         again = self.world.run("complete", self.epic)
         self.assertIn("2 open children", again.stderr)
         self.assertIn(second, again.stderr)
@@ -51,7 +51,7 @@ class EpicCompleteWalk(unittest.TestCase):
     def test_a_draft_child_blocks_completion_like_any_open_child(self) -> None:
         """Unreleased work under an approved plan must not be hidden by closing the plan."""
         self.finish(self.child)
-        draft = self.world.create("--kind", "issue", "--title", "Not yet released", "--parent", self.epic)
+        draft = self.world.create("--kind", "issue", "--title", "Not yet released", "--parent", self.epic, "--draft")
         result = self.world.run("complete", self.epic)
         self.assertEqual(result.returncode, 2)
         self.assertIn(draft, result.stderr)

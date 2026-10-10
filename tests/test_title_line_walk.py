@@ -22,7 +22,7 @@ class TitleLineWalk(unittest.TestCase):
         """A CR, form feed, NEL or paragraph separator in --title is refused before any file is written."""
         w = self.world
         for title in ("a\rb", "a\x0cb", "a\x85b", "a b", "a b"):
-            result = w.run("create", "--title", title)
+            result = w.run("create", "--title", title, "--draft")
             self.assertEqual(result.returncode, 2, (repr(title), result.stdout, result.stderr))
             self.assertIn("one line", result.stderr)
         self.assertEqual(self._items(), [])
@@ -33,7 +33,7 @@ class TitleLineWalk(unittest.TestCase):
         bulk = w.run("create", "--from-file", "-", stdin=json.dumps([{"title": "a\rb"}]))
         self.assertEqual(bulk.returncode, 2, bulk.stderr)
         self.assertIn("one line", bulk.stderr)
-        item = w.create("--title", "Fine")
+        item = w.create("--title", "Fine", "--draft")
         result = w.run("set", item, "--title", "x\ry")
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("one line", result.stderr)
@@ -42,7 +42,7 @@ class TitleLineWalk(unittest.TestCase):
     def test_check_names_an_item_whose_file_already_carries_a_carriage_return_title(self) -> None:
         """A file corrupted before the rule (or by hand) is reported by check with the cause, not a malformed header line."""
         w = self.world
-        item = w.create("--title", "Fine")
+        item = w.create("--title", "Fine", "--draft")
         path = w.ledger / "items" / f"{item}" / "item.md"
         path.write_bytes(path.read_bytes().replace(b"title: Fine", b"title: a\rb", 1))
         result = w.run("check")

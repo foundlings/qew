@@ -65,7 +65,7 @@ class StartWalk(unittest.TestCase):
     def test_start_refuses_draft_blocked_finished_and_unknown_items_with_exit_2(self) -> None:
         """Prevents claiming work that may not start; every refusal writes nothing."""
         w = self.world
-        draft = w.create("--title", "Draft")
+        draft = w.create("--title", "Draft", "--draft")
         first = approved(w, title="First")
         second = approved(w, "--needs", first, title="Second")
         closed = approved(w, title="Closed")

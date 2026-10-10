@@ -25,7 +25,7 @@ class ReleaseBase(unittest.TestCase):
 
     def draft(self, title: str, kind: str = "issue", parent: str = "") -> str:
         extra = ["--parent", parent] if parent else []
-        return self.world.create("--kind", kind, "--title", title, *extra)
+        return self.world.create("--kind", kind, "--title", title, *extra, "--draft")
 
     def plan(self) -> dict:
         """Epic with a draft issue holding a draft task, an approved sibling issue and a closed draft issue."""
@@ -210,7 +210,7 @@ class RevertWalk(ReleaseBase):
         """A lossy round trip would lose a quote, and a dependent must not run ahead of a blocker that is a draft."""
         w = self.world
         blocker = self.draft("Blocker")
-        dependent = w.create("--kind", "issue", "--title", "Dependent", "--needs", blocker)
+        dependent = w.create("--kind", "issue", "--title", "Dependent", "--needs", blocker, "--draft")
         w.approve(blocker, dependent)
         self.assertEqual(self.revert(blocker, "--reason", "rethink").returncode, 0)
         self.assertEqual(w.run("start", dependent).returncode, 2)

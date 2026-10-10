@@ -32,14 +32,14 @@ class ActorWalk(unittest.TestCase):
         """A newline would forge extra lines in rendered output and commit messages."""
         w = self.world
         before = snapshot(w)
-        result = w.run("create", "--title", "Other", env={"QEW_ACTOR": "mallory\nsecond line"})
+        result = w.run("create", "--title", "Other", "--draft", env={"QEW_ACTOR": "mallory\nsecond line"})
         self.assertEqual(result.returncode, 3)
         self.assertEqual(snapshot(w), before)
 
     def test_check_flags_a_planted_event_whose_actor_is_not_a_token(self) -> None:
         """A hand-merged event with an unsafe actor must be found, not trusted."""
         w = self.world
-        item = w.create("--title", "Work")
+        item = w.create("--title", "Work", "--draft")
         planted = {"type": "commented", "at": "2026-01-01T00:00:00Z", "actor": "evil, admin", "text": "x"}
         (w.ledger / "events" / item / ("z" * 26 + ".json")).write_text(json.dumps(planted))
         result = w.run("check")

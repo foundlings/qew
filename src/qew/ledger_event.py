@@ -31,7 +31,7 @@ class State(str, Enum):
 # type -> (required string fields, allowed source states; None = initial event only)
 _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     "drafted": ((), None),
-    "approved": (("quote",), (State.DRAFT,)),
+    "approved": ((), (State.DRAFT,)),  # needs `quote` (a human) or `filed_by` (an agent filing into the queue)
     "reverted": (("reason", "quote"), (State.APPROVED,)),
     "claimed": (("owner",), (State.APPROVED,)),
     "released": ((), (State.CLAIMED,)),
@@ -121,6 +121,8 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
     for key in _RULES[kind][0]:
         if key not in value or value[key] in ("", None) or (isinstance(value[key], str) and not value[key].strip()):
             raise QewError(f"{where}: `{kind}` event is missing `{key}`", 1)
+    if kind == "approved" and not any(isinstance(value.get(key), str) and value[key].strip() for key in ("quote", "filed_by")):
+        raise QewError(f"{where}: `approved` event is missing `quote` or `filed_by`", 1)
     if kind == "completed" and "bulk_quote" in value and (not isinstance(value["bulk_quote"], str) or not value["bulk_quote"].strip()):
         raise QewError(f"{where}: `bulk_quote` must be a human's words", 1)
     if kind == "closed" and value["reason"] not in CLOSE_REASONS:

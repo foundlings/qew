@@ -26,7 +26,7 @@ class StatusModelWalk(unittest.TestCase):
         return sync_plan.column(snapshot, item_id)
 
     def make(self, *arguments: str) -> str:
-        return self.world.create("--title", "T", *arguments)
+        return self.world.create("--title", "T", *arguments, *([] if "--quote" in arguments else ["--draft"]))
 
     def test_the_seven_statuses_in_board_order(self) -> None:
         """Prevents a board whose option order or names drift from the documented model."""

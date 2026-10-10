@@ -29,7 +29,7 @@ class StatusPrecedenceWalk(unittest.TestCase):
     def test_closed_work_is_done_even_when_it_was_a_draft(self) -> None:
         """Prevents stale Draft or Ready cards for work that was closed."""
         w = self.world
-        draft = w.create("--title", "never approved")
+        draft = w.create("--title", "never approved", "--draft")
         approved = w.create("--title", "approved", "--quote", QUOTE)
         for item in (draft, approved):
             self.assertEqual(w.run("close", item, "--reason", "not_planned").returncode, 0)

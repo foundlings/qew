@@ -27,19 +27,19 @@ class LedgerRemoteWalk(unittest.TestCase):
 
     def test_a_write_is_pushed_to_the_remote(self) -> None:
         """Prevents work staying on one machine: the commit reaches the remote with the write."""
-        item = self.a.create("--title", "Shared")
+        item = self.a.create("--title", "Shared", "--draft")
         self.assertEqual(remote_subjects(self.a)[0], f"qew: create {item} by tester")
 
     def test_another_agent_sees_the_work_on_its_next_command(self) -> None:
         """Prevents agent B working from a stale ledger: any command fetches and merges first."""
-        item = self.a.create("--title", "From A")
+        item = self.a.create("--title", "From A", "--draft")
         self.assertIn(item, self.b.run("list").stdout)
 
     def test_two_agents_writing_independently_converge_without_conflicts(self) -> None:
         """Prevents lost or conflicting work when agents write while apart: one file per item and event merges cleanly."""
         offline = {"QEW_OFFLINE": "1"}
-        first = self.a.run("create", "--title", "A offline", env=offline).stdout.split()[0]
-        second = self.b.run("create", "--title", "B offline", env=offline).stdout.split()[0]
+        first = self.a.run("create", "--title", "A offline", "--draft", env=offline).stdout.split()[0]
+        second = self.b.run("create", "--title", "B offline", "--draft", env=offline).stdout.split()[0]
         self.assertEqual(remote_subjects(self.a)[0], "init ledger")
         for agent in (self.a, self.b, self.a):  # reconnect: A pushes, B merges and pushes, A merges
             self.assertEqual(agent.run("ready").returncode, 0)
@@ -54,22 +54,22 @@ class LedgerRemoteWalk(unittest.TestCase):
         """Prevents a network outage blocking work: the commit stays local and is pushed once the remote returns."""
         hidden = self.a.remote.with_name("hidden.git")
         self.a.remote.rename(hidden)
-        item = self.a.run("create", "--title", "While down")
+        item = self.a.run("create", "--title", "While down", "--draft")
         self.assertEqual(item.returncode, 0, item.stderr)
         hidden.rename(self.a.remote)
-        self.a.run("create", "--title", "Back up")
+        self.a.run("create", "--title", "Back up", "--draft")
         self.assertEqual([s.split()[1] for s in remote_subjects(self.a)[:2]], ["create", "create"])
         self.assertEqual(len(remote_subjects(self.a)), 3)
 
     def test_qew_offline_makes_no_remote_traffic_but_still_commits(self) -> None:
         """Prevents QEW_OFFLINE being ignored: the remote stays untouched while the local commit is made."""
-        self.a.run("create", "--title", "Quiet", env={"QEW_OFFLINE": "1"})
+        self.a.run("create", "--title", "Quiet", "--draft", env={"QEW_OFFLINE": "1"})
         self.assertEqual(remote_subjects(self.a), ["init ledger"])
         self.assertEqual(self.a.ledger_log()[0].split()[1], "create")
 
     def test_a_real_text_conflict_is_reported_loudly_and_never_auto_resolved(self) -> None:
         """Prevents silent corruption: a hand edit of the same item file on both sides stops writes with the files named."""
-        item = self.a.create("--title", "Contested")
+        item = self.a.create("--title", "Contested", "--draft")
         self.b.run("list")
         path_a = self.a.ledger / "items" / f"{item}" / "item.md"
         path_b = self.b.ledger / "items" / f"{item}" / "item.md"
@@ -78,7 +78,7 @@ class LedgerRemoteWalk(unittest.TestCase):
         git(self.a.ledger, "commit", "-qam", "hand edit A")
         git(self.a.ledger, "push", "-q", "origin", "main")
         git(self.b.ledger, "commit", "-qam", "hand edit B")
-        result = self.b.run("create", "--title", "Blocked by conflict")
+        result = self.b.run("create", "--title", "Blocked by conflict", "--draft")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("conflict", result.stderr)
         self.assertIn(item, result.stderr)
@@ -92,7 +92,7 @@ class MirrorConflictWalk(unittest.TestCase):
         a = World(ledger_vcs="git", remote=True, replication=every)
         self.addCleanup(a.close)
         b = a.clone("b", replication=every)
-        item = a.create("--title", "Mirrored")
+        item = a.create("--title", "Mirrored", "--draft")
         b.run("list")
         for world, stamp in ((a, "A"), (b, "B")):
             directory = world.ledger / "mirrors" / item
@@ -101,7 +101,7 @@ class MirrorConflictWalk(unittest.TestCase):
             git(world.ledger, "add", "-A")
             git(world.ledger, "commit", "-qm", f"old-format mirror from {stamp}")
         git(a.ledger, "push", "-q", "origin", "main")
-        result = b.run("create", "--title", "After the clash")
+        result = b.run("create", "--title", "After the clash", "--draft")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('"synced_at": "A"', (b.ledger / "mirrors" / item / "t.json").read_text())
         self.assertEqual(b.ledger_dirty(), [])

@@ -17,7 +17,7 @@ def _safe(text: str, keep_lines: bool = False) -> str:
 def approvals(events: list[Event]) -> list[JsonObject]:
     """Every release and withdrawal in order: {type, at, actor, quote, reason}."""
     return [
-        {"type": e.type, "at": e.at, "actor": e.actor, "quote": e.get("quote"), "reason": e.get("reason", None)}
+        {"type": e.type, "at": e.at, "actor": e.actor, "quote": e.get("quote"), "filed_by": e.get("filed_by"), "reason": e.get("reason", None)}
         for e in sorted(events, key=lambda e: e.id)
         if e.type in ("approved", "reverted")
     ]
@@ -32,5 +32,7 @@ def release_lines(events: list[Event]) -> list[str]:
     quote = _safe(last["quote"])
     where = f"(by {last['actor']} at {last['at']})"
     if last["type"] == "approved":
+        if last.get("filed_by") and not last["quote"]:
+            return [f"released: filed by {_safe(last['filed_by'])} into the queue {where}"]
         return [f"released: {quote} {where}"]
     return [f"withdrawn: {_safe(last['reason'])} - {quote} {where}"]

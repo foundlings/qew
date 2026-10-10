@@ -30,7 +30,7 @@ class BoardConfigWalk(unittest.TestCase):
         w.create("--kind", "issue", "--title", "b-ready", "--priority", "1", "--quote", QUOTE)
         w.create("--kind", "issue", "--title", "a-ready", "--priority", "3", "--quote", QUOTE)
         w.create("--kind", "task", "--title", "a-task", "--quote", QUOTE)
-        w.create("--kind", "issue", "--title", "drafty")
+        w.create("--kind", "issue", "--title", "drafty", "--draft")
         self.run_ok("board", "create", "review", "--columns", "Ready,Draft", "--sort", "title", "--filter", "kind:issue")
         self.assertIn("review", self.run_ok("board", "list"))
         data = json.loads(self.run_ok("board", "--name", "review", "--json"))

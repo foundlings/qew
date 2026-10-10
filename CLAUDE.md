@@ -26,8 +26,9 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
   what qew has no command for: releases and posting a pull request review.
 - When qew cannot do what the work needs, that is a qew bug or missing feature: file it in the ledger, fix it
   through the normal workflow, report the gap instead of bypassing it.
-- Work that is not human-approved is a draft. Only a human's words release it: `qew draft approve ... --quote
-  "Name: 'their words'"`. When unsure, file a draft.
+- Agents file work straight into the queue: `qew create` is Ready, or Backlog while it has unmet needs, and records
+  the creator (author, `filed_by`, `--discovered-from`). A draft exists only when a human asks for one (`--draft`);
+  only a human's words release it: `qew draft approve ... --quote "Name: 'their words'"`.
 - jj is the VCS (colocated): `jj new`, `jj describe`, `jj bookmark set`, `jj git push --bookmark`. Never squash
   RED/GREEN history; merge a moved base instead of rebasing a long stack.
 

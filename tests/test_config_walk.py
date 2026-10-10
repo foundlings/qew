@@ -29,7 +29,7 @@ class ConfigWalk(unittest.TestCase):
     def test_unknown_config_fields_are_ignored(self) -> None:
         """A future top-level table and a future mirror option must not break an older qew."""
         w = self.world('[future]\nkey = 1\n[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/o/r"\nfuture_option = "x"\n')
-        w.create("--title", "T")
+        w.create("--title", "T", "--draft")
         self.assertEqual(w.run("sync", "--dry-run").returncode, 0)
 
     def test_older_qew_than_the_minimum_is_refused_before_any_call(self) -> None:
@@ -124,7 +124,7 @@ class TargetIdentityWalk(unittest.TestCase):
         w = World('[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/Acme/Widgets.git"\n'
                   '[[mirror]]\nforge = "forgejo"\nrepo = "https://GIT.example/acme/widgets"\n', replication=NOSYNC)
         self.addCleanup(w.close)
-        w.create("--title", "T")
+        w.create("--title", "T", "--draft")
         lines = [l for l in w.run("sync", "--dry-run").stdout.splitlines() if l.startswith("create")]
         self.assertEqual(len(lines), 1, lines)
 

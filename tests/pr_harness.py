@@ -45,7 +45,7 @@ class PrWorld:
     # -- items -------------------------------------------------------------------
     def item(self, title: str = "Work", kind: str = "issue", claim: bool = True, draft: bool = False,
              parent: str | None = None, body: str = "", sync: bool = True, by: str | None = None) -> str:
-        specs = [{"kind": kind, "title": title, "parent": parent or "", "body": body}]
+        specs = [{"kind": kind, "title": title, "parent": parent or "", "body": body, **({"approved": False} if draft else {})}]
         with self._env(by):
             created = cmd_items.create(self.config, specs, None if draft else QUOTE, False)
             item_id = created[0].split()[0]

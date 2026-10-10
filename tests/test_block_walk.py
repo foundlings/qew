@@ -16,7 +16,7 @@ class BlockWalk(unittest.TestCase):
         self.world = World()
         self.addCleanup(self.world.close)
         w = self.world
-        self.a, self.b = w.create("--title", "A"), w.create("--title", "B")
+        self.a, self.b = w.create("--title", "A", "--draft"), w.create("--title", "B", "--draft")
         w.approve(self.a, self.b)
 
     def fields(self, item: str) -> list:
@@ -57,7 +57,7 @@ class BlockWalk(unittest.TestCase):
     def test_unblock_removes_the_edge_and_the_item_is_ready_again_and_an_absent_edge_is_a_no_op(self) -> None:
         """Removing a dependency must not resurrect others, and removing nothing must not write."""
         w = self.world
-        third = w.create("--title", "C")
+        third = w.create("--title", "C", "--draft")
         w.approve(third)
         w.run("block", self.a, "--on", self.b)
         w.run("block", self.a, "--on", third)

@@ -16,7 +16,7 @@ class GraphWriteWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def item(self, title: str, *extra: str, kind: str = "issue") -> str:
-        return self.world.create("--kind", kind, "--title", title, *extra)
+        return self.world.create("--kind", kind, "--title", title, *extra, "--draft")
 
     def refused(self, *arguments: str, fragment: str = "") -> None:
         before = snapshot(self.world)

@@ -11,7 +11,7 @@ from tests.ledger_harness import World, git, jj, jj_available
 
 
 def started(world: World, *arguments: str) -> str:
-    item = world.create("--kind", "issue", "--title", "Work", *arguments)
+    item = world.create("--kind", "issue", "--title", "Work", *arguments, "--draft")
     world.approve(item)
     assert world.run("start", item).returncode == 0
     return item
@@ -58,7 +58,7 @@ class FlowWalk(unittest.TestCase):
     def test_complete_is_refused_over_unfinished_child_tasks(self) -> None:
         w = self.world
         parent = started(w)
-        task = w.create("--kind", "task", "--title", "Step", "--parent", parent)
+        task = w.create("--kind", "task", "--title", "Step", "--parent", parent, "--draft")
         w.approve(task)
         sha = w.commit()
         w.run("evidence", parent, "--change", sha)
@@ -72,8 +72,8 @@ class FlowWalk(unittest.TestCase):
 
     def test_an_epic_completes_over_finished_children_without_its_own_evidence(self) -> None:
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Epic")
-        child = w.create("--kind", "issue", "--title", "Child", "--parent", epic)
+        epic = w.create("--kind", "epic", "--title", "Epic", "--draft")
+        child = w.create("--kind", "issue", "--title", "Child", "--parent", epic, "--draft")
         w.approve(epic, child)
         w.run("start", epic)
         self.assertNotEqual(w.run("complete", epic).returncode, 0)
@@ -85,10 +85,10 @@ class FlowWalk(unittest.TestCase):
 
     def test_start_refuses_drafts_and_blocked_work(self) -> None:
         w = self.world
-        draft = w.create("--kind", "issue", "--title", "Draft")
+        draft = w.create("--kind", "issue", "--title", "Draft", "--draft")
         self.assertEqual(w.run("start", draft).returncode, 2)
-        first = w.create("--kind", "issue", "--title", "First")
-        second = w.create("--kind", "issue", "--title", "Second", "--needs", first)
+        first = w.create("--kind", "issue", "--title", "First", "--draft")
+        second = w.create("--kind", "issue", "--title", "Second", "--needs", first, "--draft")
         w.approve(first, second)
         blocked = w.run("start", second)
         self.assertEqual(blocked.returncode, 2)
@@ -108,7 +108,7 @@ class FlowWalk(unittest.TestCase):
 
     def test_draft_revert_returns_unclaimed_work_to_draft_only(self) -> None:
         w = self.world
-        item = w.create("--kind", "issue", "--title", "Maybe")
+        item = w.create("--kind", "issue", "--title", "Maybe", "--draft")
         w.approve(item)
         quote = "Alexander: 'hold this one back until we decide more'"
         self.assertEqual(w.run("draft", "revert", item, "--reason", "undecided", "--quote", quote).returncode, 0)
@@ -120,7 +120,7 @@ class FlowWalk(unittest.TestCase):
 
     def test_approve_without_a_human_quote_is_refused(self) -> None:
         w = self.world
-        item = w.create("--kind", "issue", "--title", "Needs a human")
+        item = w.create("--kind", "issue", "--title", "Needs a human", "--draft")
         result = w.run("draft", "approve", item, "--quote", "ok")
         self.assertEqual(result.returncode, 2)
         self.assertEqual([e["type"] for e in w.events(item)], ["drafted"])
