@@ -49,7 +49,7 @@ shape prime: additional_context context_bytes schema_version
   trailers cite an item without evidence for that commit (exit 2, the exact `qew evidence` command on stderr); see hooks.md.
 
 ## Read
-- `qew show ITEM [--json]`: the first line is the row (`ID STATE pN kind title`), so a draft says draft; then
+- `qew show ITEM [--json]` (also prints `references: owner/repo#123 ...`, the distinct references to other repositories' issues found in the body and comments, as plain text: never followed, never an edge or a path; `references` in `--json`): the first line is the row (`ID STATE pN kind title`), so a draft says draft; then
   header, state, owner, evidence, mirrors, comments (index, author, time, text) and body. JSON adds
   `draft`, and neighbours as `{id, state, title}` objects (`state: missing` for a dangling edge):
   `blocked_by` (unmet needs), `blocking`, `children`, `parent`. An epic also gets `children_open`,
