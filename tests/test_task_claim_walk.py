@@ -47,7 +47,8 @@ class TaskClaimWalk(unittest.TestCase):
         self.assertEqual(self.world.run("start", self.task, env=ENV).returncode, 0)
         rival = self.world.run("start", self.task, env={**ENV, "QEW_ACTOR": "rival"})
         self.assertNotEqual(rival.returncode, 0, rival.stdout + rival.stderr)
-        self.assertEqual(self.world.run("release", self.task, env=ENV).returncode, 0)
+        freed = self.world.run("release", self.task, "--reason", "done for now", env=ENV)
+        self.assertEqual(freed.returncode, 0, freed.stdout + freed.stderr)
         self.assertTrue(any(f"qew:release {self.task}" in body for body in self.comments()))
         self.assertEqual(self.world.run("start", self.task, env={**ENV, "QEW_ACTOR": "rival"}).returncode, 0)
 
