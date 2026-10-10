@@ -65,6 +65,7 @@ class Ledger:
     path: Path
     prefix: str = ""
     id_modes: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODES))
+    schema: int = 5  # the declared schema_version; `fields` need 5 (see ledger_config.WORKABLE_SCHEMA)
     evidence_strict: bool = True  # qew-ledger.toml `evidence = "lenient"` opts out of the proof-or-typed-absence rule
 
     @property
@@ -225,6 +226,8 @@ class Ledger:
 
     # -- writing
     def write_item(self, item: Item, overwrite: bool = False) -> None:
+        if item.fields and self.schema < 5:
+            raise QewError(f"{item.id}: fields need schema_version 5; run `qew migrate-layout` first (an older qew cannot read the header key)", 2)
         path = self.item_path(item.id)
         path.parent.mkdir(parents=True, exist_ok=True)
         _write(path, render_item(item), exclusive=not overwrite)
@@ -420,7 +423,8 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
     mode = data.get("evidence", "strict")
     if mode not in ("strict", "lenient"):
         raise QewError(f'{path / LEDGER_FILE}: evidence must be "strict" or "lenient"', 1)
-    return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")), mode == "strict")
+    declared = data.get("schema_version", 1)
+    return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")), declared if type(declared) is int else 1, mode == "strict")
 
 
 MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items")

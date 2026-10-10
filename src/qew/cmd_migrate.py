@@ -62,8 +62,9 @@ def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
     fixed = _VERSION_LINE.sub(lambda m: m.group(1) + str(latest), text, count=1) if _VERSION_LINE.search(text) else f"{declared}\n{text}"
     ledger_store.write_replacing(path, fixed)
     snapshot = ledger.snapshot()
-    id_migration.refuse_foreign_claims(snapshot, actor(), "the layout is")
-    filled = evidence_backfill.plan(snapshot, resolve)
+    if current < 4:  # a step that moves files or fills headers waits for other logins' claims; 4 to 5 changes one line and keeps them all
+        id_migration.refuse_foreign_claims(snapshot, actor(), "the layout is")
+    filled = evidence_backfill.plan(snapshot, resolve) if current < 4 else []
     evidence_backfill.apply(ledger, filled)
     problems = ledger_check.check(ledger)
     if problems:
