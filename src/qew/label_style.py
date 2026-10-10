@@ -35,9 +35,12 @@ def is_priority(name: str) -> bool:
     return _PRIORITY_LABEL.match(name) is not None
 
 
+STATUS_HEX = {"ready": "0969da", "in-progress": "fbca04", "gated": "d73a4a"}  # the Status colours of Ready, In progress and Gated
+
+
 def is_managed(name: str) -> bool:
-    """A label sync owns: a managed namespace, a kind label or one of P0..P4."""
-    return name.startswith(MANAGED_PREFIXES) or name in KIND_LABELS or is_priority(name)
+    """A label sync owns: a managed namespace, a kind label, one of P0..P4, or a status label (`ready`, `in-progress`, `gated`)."""
+    return name.startswith(MANAGED_PREFIXES) or name in KIND_LABELS or is_priority(name) or name in STATUS_HEX
 
 
 def managed_style(name: str) -> LabelStyle | None:
@@ -47,6 +50,8 @@ def managed_style(name: str) -> LabelStyle | None:
         return LabelStyle(_PRIORITY_HEX[colour], description)
     if name in _KIND_HEX:
         return LabelStyle(_KIND_HEX[name], LABEL_DESCRIPTION)
+    if name in STATUS_HEX:
+        return LabelStyle(STATUS_HEX[name], f"Status {name}: derived from the board column by qew, never set by hand")
     if name == "qew:diverged":
         return LabelStyle("d73a4a", "Changed on the forge behind qew's back; off the board until the divergence is settled")
     for prefix, colour in _PREFIX_HEX.items():

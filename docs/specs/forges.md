@@ -165,6 +165,13 @@ item stays open: other open issues with its marker are closed (a lower-numbered 
 item with no mirror adopts its lowest-numbered marker issue. GitLab and Forgejo search by marker on the server, so their
 lookup was never limited to the newest issues.
 
+## Status labels
+The column also shows as a label, for an issue list without the board: `ready` (Ready), `in-progress` (In progress) and `gated` (Gated), added and
+removed by sync from the same `sync_plan.column` that places the card, so label and column cannot disagree; any other column, and every finished or
+closed item, carries none. They are display only: the ledger's own `gated` label stays the source of truth for the item's own gate and is shown only
+while the item sits in Gated (a gated epic, issue or task always does); `ready` and `in-progress` are reserved ledger names. All three are managed
+labels: a pull never imports them as a human's edit, and a hand-added or hand-removed one is put right by the next sync (no divergence, no event).
+
 ## Rate limits and locks
 A call GitHub refuses as rate limited (a GraphQL `RATE_LIMITED` answer, or a REST 429 or 403 naming a rate limit) was not applied, so a
 repeatable call (never a create: the pacer learns the pace from that block) waits and is sent again: the `Retry-After` the forge named, else 30 s

@@ -42,3 +42,4 @@ def prune(ledger: Ledger, config: Config, mirrors: list[Mirror], dry_run: bool, 
                 forge.delete_label(name)
             lines.append(f"{slug}: {'would delete' if dry_run else 'deleted'} label {name}")
     return "\n".join(lines)
+

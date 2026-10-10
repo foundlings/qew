@@ -5,9 +5,9 @@ from collections.abc import Iterable
 from qew.errors import QewError
 
 MAX_LABEL = 50
-# Sync writes `qew:STATE`, `qew:managed`, `status:STATUS`, `epic`/`task`, `P0`..`P4` and `author:LOGIN` itself.
+# Sync writes `qew:STATE`, `qew:managed`, `status:STATUS`, `epic`/`task`, `P0`..`P4`, `author:LOGIN` and the status labels `ready` and `in-progress` (and `gated` while an item is gated) itself.
 RESERVED_PREFIXES = ("qew:", "kind:", "priority:", "status:", "author:")
-RESERVED_NAMES = ("in-progress", "epic", "task", "p0", "p1", "p2", "p3", "p4")  # the reference board's claim label, the kind labels and the priority labels
+RESERVED_NAMES = ("in-progress", "ready", "epic", "task", "p0", "p1", "p2", "p3", "p4")  # the reference board's claim label, the kind labels and the priority labels
 
 
 def problem(label: str) -> str | None:

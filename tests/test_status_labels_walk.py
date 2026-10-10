@@ -1,6 +1,5 @@
 """Derived status labels: `ready`, `in-progress` and `gated` on a mirrored issue come from the same status as its board column,
 come off when the work finishes, are never written into the ledger, and a human's edit of them is recomputed, not a divergence.
-`sync --prune-labels --all-labels --strip-pulls` also clears the labels closed pull requests still carry.
 
 Each test is a scenario; its docstring names the failure it prevents.
 """
@@ -54,7 +53,7 @@ class StatusLabelsWalk(unittest.TestCase):
         self.sync()
         self.assertEqual(self.derived("Work"), {"in-progress"})
         self.assertEqual(self.world.run("set", task, "--add-label", "gated", "--reason", "waits on a key").returncode, 0)
-        self.world.run("release", task)
+        self.assertEqual(self.world.run("release", task, "--reason", "waiting on the key").returncode, 0)
         self.sync()
         self.assertEqual(self.derived("Work"), {"gated"})
         self.assertEqual(self.world.run("set", task, "--remove-label", "gated", "--reason", "key arrived").returncode, 0)
@@ -104,49 +103,6 @@ class StatusLabelsWalk(unittest.TestCase):
         for label in ("ready", "in-progress"):
             self.assertEqual(self.world.run("set", item, "--add-label", label).returncode, 2, label)
         self.assertEqual(self.world.run("set", item, "--add-label", "gated", "--reason", "waits").returncode, 0)
-
-
-class ClosedPullLabelsWalk(unittest.TestCase):
-    def setUp(self) -> None:
-        self.fake = FakeGitHub().start()
-        self.addCleanup(self.fake.stop)
-        mirrors = f'\n[[mirror]]\nforge = "github"\nrepo = "{self.fake.repo_url}"\napi = "{self.fake.api}"\n'
-        self.world = World(mirrors, replication=OFF)
-        self.addCleanup(self.world.close)
-        self.world.create("--title", "Work", "--label", "area:ops", "--quote", QUOTE)
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
-        for name in ("elf1", "owner:elf1", "held-for-2262", "active", "unowned"):
-            self.fake.label_store[name] = {"color": "ededed", "description": ""}
-        self.closed = self.pull("Old pull", ["elf1", "owner:elf1", "held-for-2262", "active", "area:ops"], "closed")
-        self.open = self.pull("Live pull", ["unowned"], "open")
-
-    def pull(self, title: str, labels: list[str], state: str) -> int:
-        issue = self.fake.new_issue({"title": title, "body": "", "labels": labels})
-        issue["pull_request"] = {}
-        issue["state"] = state
-        return issue["number"]
-
-    def run_prune(self, *arguments: str):
-        result = self.world.run("sync", "--prune-labels", "--all-labels", *arguments, env=ENV)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        return result
-
-    def test_closed_pull_requests_lose_non_qew_labels_and_the_definitions_go(self) -> None:
-        """Prevents the PR-ownership labels outliving their pull requests: opt in, and closed ones are stripped, open ones kept."""
-        before = set(self.fake.label_store)
-        self.run_prune()
-        self.assertEqual(set(self.fake.issues[self.closed]["labels"]), {"elf1", "owner:elf1", "held-for-2262", "active", "area:ops"}, "no flag, no stripping")
-        preview = self.run_prune("--strip-pulls", "--dry-run")
-        self.assertIn("closed pull", preview.stdout)
-        self.assertEqual(set(self.fake.label_store), before)
-        self.assertEqual(set(self.fake.issues[self.closed]["labels"]), {"elf1", "owner:elf1", "held-for-2262", "active", "area:ops"})
-        self.run_prune("--strip-pulls")
-        self.assertEqual(self.fake.issues[self.closed]["labels"], [])
-        self.assertEqual(self.fake.issues[self.open]["labels"], ["unowned"])
-        remaining = set(self.fake.label_store)
-        self.assertTrue({"elf1", "owner:elf1", "held-for-2262", "active"}.isdisjoint(remaining), remaining)
-        self.assertIn("unowned", remaining)
-        self.assertIn("area:ops", remaining)
 
 
 if __name__ == "__main__":

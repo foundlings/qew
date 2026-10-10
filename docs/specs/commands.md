@@ -371,7 +371,7 @@ shape prime: additional_context context_bytes schema_version
   (code repo) and `ledger_git_url` (ledger repo), never derived from `repo`; a target with neither gets one
   `repos SLUG: set git_url ...` report line and no remote. Each target and repo is isolated: `repos SLUG code|ledger:
   failed: WHY` reports an unreachable or rejecting remote without blocking the rest. The forge repositories must exist.
-  `qew sync --prune-labels [--all-labels] [--target T] [--dry-run]` does not sync (`--all-labels` widens the sweep from qew's namespaces to every label that no issue or pull request carries and no item wants, a forge default or a label a field replaced; `gated` and `needs:approval` always stay): it deletes, per target, the label definitions with a managed prefix
+  `qew sync --prune-labels [--all-labels] [--target T] [--dry-run]` does not sync (`--all-labels` widens the sweep from qew's namespaces to every label that no issue or pull request carries and no item wants, a forge default or a label a field replaced; `gated` and `needs:approval` always stay; a label that any issue or pull request still carries is never deleted, so labels a team keeps on its pull requests stay): it deletes, per target, the label definitions with a managed prefix
   (`qew:` `kind:` `priority:` `status:` `author:`, `epic`, `task`, `P0`..`P4`) that no issue or pull request (open or closed) carries and no item's label set wants
   (`qew:managed` is unwanted in repository mode). It prints `TARGET: deleted label NAME` (`would delete` with `--dry-run`, which reads the
   forge but deletes nothing) or `TARGET: no unused managed labels`. It refuses a read-only target (exit 2) before any call, and takes neither

@@ -88,12 +88,12 @@ def column(snapshot: Snapshot, item_id: str) -> str:
     if state == State.DRAFT or state is None:
         return DRAFT
     rolled = _rolled_up(snapshot, item_id)
-    if item.kind == Kind.EPIC:
-        return rolled or BACKLOG
     if ledger_graph.APPROVAL_LABEL in item.labels:
         return NEEDS_APPROVAL
     if ledger_graph.GATED_LABEL in item.labels:
-        return GATED
+        return GATED  # whatever the kind: an item labelled gated never sits in another column
+    if item.kind == Kind.EPIC:
+        return rolled or BACKLOG
     if _has_open_pull_request(snapshot, item_id):
         return IN_REVIEW
     if state == State.CLAIMED:
@@ -170,8 +170,19 @@ def managed_filter(mode: str) -> str:
     return MANAGED_FILTER if mode == "overlay" else ""
 
 
+STATUS_LABELS = {READY: "ready", IN_PROGRESS: "in-progress", GATED: "gated"}  # the columns that also show as a label
+DERIVED_LABELS = frozenset(STATUS_LABELS.values())
+
+
+def status_label(snapshot: Snapshot, item_id: str) -> str | None:
+    """The label that shows the item's board column in an issue list, or None: one status drives column and label."""
+    return STATUS_LABELS.get(column(snapshot, item_id))
+
+
 def labels(snapshot: Snapshot, item: Item, overlay: bool = False, diverged: bool = False) -> tuple[str, ...]:
-    """The item's own labels, its priority, its author and `epic`/`task`; overlay mirrors add the state and Status labels.
+    """The item's own labels, its priority, its author and `epic`/`task`, and the label of its status (`ready`,
+    `in-progress`, `gated`: derived, display only; the ledger's own `gated` shows only while the item sits in Gated);
+    overlay mirrors add the state and Status labels.
 
     Repository mode keeps the tracker quiet: the board's Status field carries state, so no `qew:` or `status:` label.
     """
@@ -190,7 +201,9 @@ def labels(snapshot: Snapshot, item: Item, overlay: bool = False, diverged: bool
         if problem:
             raise InvalidAuthor(item.id, problem)
         managed.append(f"author:{author}")
-    return tuple(dict.fromkeys((*item.labels, *managed)))
+    shown = status_label(snapshot, item.id)
+    own = [label for label in item.labels if label not in DERIVED_LABELS]
+    return tuple(dict.fromkeys((*own, *managed, *([shown] if shown else []))))
 
 
 def issue_spec(
@@ -290,6 +303,11 @@ def fingerprint(spec: IssueSpec, extra: object = None) -> str:
 def user_labels(labels: Iterable[str]) -> list[str]:
     """Labels qew does not manage: the ones a human may add on the forge."""
     return sorted(l for l in labels if not label_style.is_managed(l))
+
+
+def imported_labels(labels: Iterable[str]) -> list[str]:
+    """The labels of a forge issue that become ledger labels when it is imported: a human's, and `gated` (the ledger's own gate)."""
+    return sorted({*user_labels(labels), *(l for l in labels if l == ledger_graph.GATED_LABEL)})
 
 
 def body_from_remote(text: str) -> str:
