@@ -196,6 +196,7 @@ class FakeGitHub:
             "body": issue["body"], "labels": [{"name": name} for name in issue["labels"]],
             "assignee": None if not issue["assignee"] else {"login": issue["assignee"]},
             "comments": len(issue["discussion"]),
+            **({"parent_issue_url": f"{self.base}{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{issue['parent']}"} if issue.get("parent") else {}),
         }
 
     def add_comment(self, number: int, login: str, body: Optional[str]) -> Dict[str, Any]:
@@ -692,6 +693,25 @@ class _Handler(BaseHTTPRequestHandler):
         issue = self.fake.issues.get(int(number))
         self._send(404, {"message": "Not Found"}) if issue is None else self._send(200, list(issue["timeline"]))
 
+    def _post_sub_issues(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        parent = self.fake.issues.get(int(number))
+        child = next((i for i in self.fake.issues.values() if i["id"] == body.get("sub_issue_id")), None)
+        if parent is None or child is None:
+            return self._send(404, {"message": "Not Found"})
+        if child.get("parent") and child["parent"] != int(number) and not body.get("replace_parent"):
+            return self._send(422, {"message": "Validation Failed", "errors": [{"message": "Issue may not have more than one parent"}]})
+        child["parent"] = int(number)
+        self.fake.touch(child)
+        self._send(201, self.fake.issue_json(parent))
+
+    def _delete_sub_issue(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        child = next((i for i in self.fake.issues.values() if i["id"] == body.get("sub_issue_id")), None)
+        if child is None or child.get("parent") != int(number):
+            return self._send(404, {"message": "Not Found"})
+        child["parent"] = None
+        self.fake.touch(child)
+        self._send(200, self.fake.issue_json(self.fake.issues[int(number)]))
+
     def _find_comment(self, comment_id: str):
         for issue in self.fake.issues.values():
             for comment in issue["discussion"]:
@@ -839,6 +859,8 @@ _ROUTES = (
     (r"/milestones/(\d+)", "milestone"),
     (r"/issues", "issues"),
     (r"/issues/(\d+)", "issue"),
+    (r"/issues/(\d+)/sub_issues", "sub_issues"),
+    (r"/issues/(\d+)/sub_issue", "sub_issue"),
     (r"/issues/(\d+)/comments", "comments"),
     (r"/issues/comments/(\d+)", "issue_comment"),
     (r"/issues/(\d+)/events", "events"),

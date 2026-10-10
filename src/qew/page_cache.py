@@ -19,7 +19,7 @@ def to_json(page: CachedPage) -> JsonObject:
 def _issue_json(issue: RemoteIssue) -> JsonObject:
     return {"number": issue.number, "url": issue.url, "node_id": issue.node_id, "open": issue.open, "title": issue.title,
             "body": issue.body, "labels": list(issue.labels), "assignee": issue.assignee, "comments": issue.comments,
-            "milestone": issue.milestone, "close_reason": issue.close_reason}
+            "milestone": issue.milestone, "close_reason": issue.close_reason, "issue_id": issue.issue_id, "parent": issue.parent}
 
 
 def from_json(value: object) -> CachedPage | None:
@@ -47,7 +47,8 @@ def _issue(entry: object) -> RemoteIssue | None:
     close_reason = entry.get("close_reason")
     return RemoteIssue(entry["number"], entry["url"], entry["node_id"], entry["open"], entry["title"], entry["body"],
                        tuple(labels), entry["assignee"], entry["comments"], entry["milestone"],
-                       close_reason_of(close_reason))
+                       close_reason_of(close_reason), entry["issue_id"] if type(entry.get("issue_id")) is int else 0,
+                       entry["parent"] if type(entry.get("parent")) is int else 0)
 
 
 def load(files: Mapping[int, object]) -> dict[int, CachedPage]:

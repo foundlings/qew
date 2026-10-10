@@ -144,6 +144,8 @@ class RemoteIssue:
     comments: int = 0  # user comment count when the listing reports one (cheap change signal for pull)
     milestone: int = 0  # the milestone the issue sits in (0: none)
     close_reason: CloseReason = ""  # why a closed issue closed, where the forge says
+    issue_id: int = 0  # the forge's numeric id (GitHub sub-issues are linked by it), 0 where unknown
+    parent: int = 0  # the number of the issue this one is a sub-issue of, 0 for none
 
 
 @dataclass(frozen=True)
@@ -303,6 +305,10 @@ class Forge(ABC):
     def blob_url(self, base: str, ref: str, path: str) -> str:
         """The web URL of a file in a repository on this kind of forge (GitHub's scheme by default)."""
         return f"{base}/blob/{ref}/{path}"
+
+    def set_parent(self, number: int, parent: int | None, previous: int | None) -> None:
+        """Make issue `number` a sub-issue of `parent` (None removes the relation, leaving `previous`)."""
+        raise Unsupported("set_parent")
 
     def create_pace(self) -> tuple[int, int]:
         """(creates per minute, creates per hour) this backend allows before it blocks content creation; 0 means no limit."""

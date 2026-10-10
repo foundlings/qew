@@ -41,6 +41,7 @@ class MirrorState(TypedDict, total=False):
     state: str
     pr_url: str
     milestone_closed: bool
+    parent_number: int  # the issue number last set as this issue's parent (0: none); absent: never set by this machine
     cmap: dict[str, CommentLink]  # forge comment id -> link; local state, never committed
     _target: str
 

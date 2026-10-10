@@ -98,6 +98,25 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
     return report
 
 
+def _sub_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, numbers: dict[str, int],
+               record: MirrorRecord) -> MirrorRecord:
+    """Show the ledger parent as the forge's own parent relation, set once and again only when the ledger parent moves."""
+    item = snapshot.items[item_id]
+    desired = numbers.get(item.parent, 0) if item.parent else 0
+    recorded = record.get("parent_number")
+    if recorded == desired or (recorded is None and desired == 0):
+        return record
+    try:
+        target.forge.set_parent(record["number"], desired or None, recorded or None)
+    except Unsupported as error:
+        if error.capability not in report.skipped:
+            report.skipped.append(error.capability)
+        return record
+    fresh = updated(record, parent_number=desired)
+    ledger.write_mirror(item_id, target.slug, fresh)
+    return fresh
+
+
 def _attachment_link(ledger: Ledger, target: Target, config: Config) -> attachment_links.Link:
     """Links into the ledger repository's web view: the mirror's `ledger_web_url`, else the ledger checkout's origin."""
     address = target.mirror.options.get("ledger_web_url")
@@ -335,6 +354,7 @@ def _sync_item(
     _link(ledger, snapshot, target, report, item_id, numbers, record)
     if record.get("kind") == "issue":
         record = comment_sync.push(ledger, snapshot, target, report, item_id, record, pace)
+        record = _sub_issue(ledger, snapshot, target, report, item_id, numbers, record)
     if board is not None:
         _place(ledger, snapshot, target, report, item_id, board, column, record, placements, fresh=unchecked)
     if unchecked:
