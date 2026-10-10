@@ -15,7 +15,7 @@ from collections.abc import Callable, Collection, Iterable
 
 from qew.forge_text import clean_body, clean_line
 from qew.assignees import assignees_after
-from qew import comment_sync, review_sync, instants, page_cache, pull_cursor, sync_plan
+from qew import comment_sync, forge_divergence, review_sync, instants, page_cache, pull_cursor, sync_plan
 from qew.mirror_types import MirrorRecord, Seen, updated
 from qew.forge import DUPLICATE_MARKER, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_event import State, valid_actor
@@ -211,18 +211,10 @@ def _save(ledger: Ledger, item_id: str, slug: str, record: MirrorRecord, seen: S
     ledger.write_mirror(item_id, slug, updated(record, seen=seen))
 
 
-def _already_open(snapshot: Snapshot, item_id: str, field_name: str, forge_value: str) -> bool:
-    return any(e.get("field") == field_name and e.get("forge") == forge_value for e in snapshot.folds[item_id].divergences)
-
-
 def _diverge(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, item_id: str, number: int,
              field_name: str, forge_value: str, ledger_value: str, close_reason: str = "") -> None:
-    if _already_open(snapshot, item_id, field_name, forge_value):
-        return
-    extra = {"forge_reason": close_reason} if close_reason else {}
-    ledger.append_event(item_id, "forge_divergence", target=target.slug, field=field_name, forge=forge_value,
-                        ledger=ledger_value, remote_ref=str(number), provenance="forge", **extra)
-    report.divergences += 1
+    if forge_divergence.record(ledger, snapshot, target.slug, item_id, number, field_name, forge_value, ledger_value, close_reason):
+        report.divergences += 1
 
 
 def _state_changed(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, item_id: str, issue: RemoteIssue) -> None:

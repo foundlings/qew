@@ -429,6 +429,14 @@ class Forge(ABC):
         """Where every issue of this repository sits on the board, from one listing (number -> placement)."""
         raise Unsupported("read_board_placements")
 
+    def read_board_fields(self, board: Board) -> Mapping[int, Mapping[str, str]]:
+        """Every field value (single-select option name or text) each of this repository's issues shows on the board."""
+        raise Unsupported("read_board_fields")
+
+    def set_card_fields(self, board: Board, number: int, values: Mapping[str, str]) -> None:
+        """Set the named custom fields of the issue's card (single-select by option name, text as given)."""
+        raise Unsupported("set_card_fields")
+
     def place_on_board(self, board: Board, number: int, column: str, priority: str = "") -> None:
         """Put the issue on the board in `column` (and `priority` where the board has one), idempotent."""
         raise Unsupported("place_on_board")

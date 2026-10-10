@@ -14,7 +14,7 @@ import time
 from typing import cast
 from collections.abc import Callable, Mapping, Sequence
 
-from qew import attachment_links, comment_sync, sync_milestones, sync_plan
+from qew import attachment_links, comment_sync, forge_divergence, sync_milestones, sync_plan
 from qew.pacing import PaceState, PaceStop, Pacer
 from qew.forge import (
     DUPLICATE_MARKER,
@@ -37,6 +37,7 @@ class Target:
     forge: Forge
     read_only: bool = False  # a one-way mirror: pull never imports its edits
     attachment_link: attachment_links.Link | None = None  # filled by sync_target: where an attachment's stored file can be viewed
+    card_fields: dict[int, dict[str, str]] | None = None  # filled by sync_target when `project_fields` is mapped: what each card shows
 
 
 @dataclass
@@ -83,6 +84,15 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
     placements = _listing(target, report, board) if board is not None and chosen is None else None
     if report.stopped:
         return report  # type: ignore[unreachable]  # `_listing` sets it; mypy keeps the earlier narrowing
+    if board is not None and chosen is None and isinstance(target.mirror.options.get("project_fields"), dict):
+        try:
+            target = replace(target, card_fields={n: dict(v) for n, v in target.forge.read_board_fields(board).items()})
+        except Unsupported as error:
+            report.skipped.append(error.capability)
+        except ForgeError as error:
+            report.failures.append(f"board fields: {error.detail}")
+            _stop(report, error)
+            return report
     # a targeted sync also refreshes the mirrored items whose card the change moves (dependents, parent epics)
     refresh = {*chosen, *(i for one in chosen for i in sync_plan.moved_by(snapshot, one) if i in numbers)} if chosen is not None else None
     todo = [item_id for item_id in ids if refresh is None or item_id in refresh]
@@ -362,6 +372,7 @@ def _sync_item(
         record = _sub_issue(ledger, snapshot, target, report, item_id, numbers, record, pace)
     if board is not None:
         _place(ledger, snapshot, target, report, item_id, board, column, record, placements, fresh=unchecked)
+        _card_fields(ledger, snapshot, target, report, item_id, board)
     if unchecked:
         _settle_duplicate(ledger, snapshot, target, report, item_id, numbers, assignees, board, column, record, spec, fingerprint, placements)
 
@@ -422,6 +433,7 @@ def _settle_duplicate(ledger: Ledger, snapshot: Snapshot, target: Target, report
     _link(ledger, snapshot, target, report, item_id, numbers, adopted)
     if board is not None:
         _place(ledger, snapshot, target, report, item_id, board, column, adopted, placements)
+        _card_fields(ledger, snapshot, target, report, item_id, board)
 
 
 def new_record(target: Target, remote: RemoteIssue, snapshot: Snapshot, item_id: str, fingerprint: str) -> MirrorRecord:
@@ -505,6 +517,28 @@ def _place(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetRep
             report.skipped.append(error.capability)
         return
     _record_placement(ledger, target, item_id, current, wanted)
+
+
+def _card_fields(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, board: Board) -> None:
+    """Set the card's mapped custom fields when the ledger side changed; a value a human changed on the card is a divergence."""
+    mapping = target.mirror.options.get("project_fields")
+    wanted = sync_plan.project_field_values(mapping, snapshot, snapshot.items[item_id])
+    current = _read_mirror(ledger, item_id, target.slug)
+    if not wanted or current is None:
+        return
+    if current.get("fields") == wanted:
+        shown = (target.card_fields or {}).get(current["number"], {})
+        for name, value in wanted.items():
+            if name in shown and shown[name] != value:
+                forge_divergence.record(ledger, snapshot, target.slug, item_id, current["number"], f"project:{name}", shown[name], value)
+        return
+    try:
+        target.forge.set_card_fields(board, current["number"], wanted)
+    except Unsupported as error:
+        if error.capability not in report.skipped:
+            report.skipped.append(error.capability)
+        return
+    ledger.write_mirror(item_id, target.slug, updated(current, fields=wanted))
 
 
 def _visible(forge: Forge, board: Board, number: int, wanted: Placement) -> bool:

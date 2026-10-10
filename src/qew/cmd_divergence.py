@@ -130,6 +130,8 @@ def reject(config: Config, reference: str | list[str] | tuple[str, ...], note: s
             if divergence.get("field") == "parent":  # the push compares the ledger parent with what is on the forge now
                 forge_parent = str(divergence.get("forge"))
                 record = updated(record, parent_number=int(forge_parent[1:]) if forge_parent.startswith("#") else 0)
+            if str(divergence.get("field")).startswith("project:"):
+                record = updated(record, fields={})  # forget the pushed values so the next sync sets the card field again
             ledger.write_mirror(item_id, slug, updated(record, synced_hash=""))  # forces the next push to rewrite the forge
     return f"{item_id} rejected {divergence.get('field')}={divergence.get('forge')}"
 

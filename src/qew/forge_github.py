@@ -7,7 +7,7 @@ missing or mistyped field raises `ForgeRejected` rather than becoming a default.
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, override
+from typing import Any, TypedDict, override
 from collections.abc import Iterator, Mapping, Sequence
 from urllib.parse import quote
 
@@ -69,6 +69,18 @@ query OwnerProjects($owner: String!, $cursor: String) {
     }
   }
 }"""
+_PROJECT_FIELDS = """
+query ProjectFields($projectId: ID!) {
+  node(id: $projectId) {
+    ... on ProjectV2 {
+      fields(first: 50) { nodes { ... on ProjectV2Field { id name dataType } ... on ProjectV2SingleSelectField { id name dataType options { id name } } } }
+    }
+  }
+}"""
+_SET_CARD_FIELD = """
+mutation SetCardField($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+  updateProjectV2ItemFieldValue(input: {projectId: $projectId, itemId: $itemId, fieldId: $fieldId, value: $value}) { projectV2Item { id } }
+}"""
 _BODY_HISTORY = """
 query IssueBodyHistory($id: ID!) {
   node(id: $id) { ... on Issue { userContentEdits(first: 50) { nodes { editor { login } editedAt diff } } } }
@@ -111,7 +123,7 @@ query ItemPlacement($contentId: ID!) {
         nodes {
           id
           project { number }
-          fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+          fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } } } }
         }
       }
     }
@@ -125,7 +137,7 @@ query ProjectCards($projectId: ID!, $cursor: String) {
         nodes {
           id
           content { ... on Issue { number repository { nameWithOwner } } }
-          fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+          fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } } } }
         }
         pageInfo { hasNextPage endCursor }
       }
@@ -142,7 +154,7 @@ query BoardItems($owner: String!, $number: Int!, $cursor: String) {
           nodes {
             id
             content { ... on Issue { number repository { nameWithOwner } } }
-            fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } } }
+            fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } } ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } } } }
           }
         }
       }
@@ -427,6 +439,12 @@ class _Option:
     description: str
 
 
+class CustomField(TypedDict):
+    id: str
+    type: str  # GraphQL dataType: TEXT, SINGLE_SELECT, ...
+    options: dict[str, str]  # option name -> option id (single-select only)
+
+
 @dataclass(frozen=True)
 class _Field:
     id: str
@@ -578,6 +596,7 @@ class GitHub(Forge):
         self._nodes: dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
         self._projects: dict[int, _Project] = {}  # project number -> structure read this run
         self._raw_projects: dict[int, dict[str, Any]] = {}  # project number -> the structure node as GitHub sent it
+        self._field_defs: dict[str, dict[str, CustomField]] = {}  # project id -> custom fields, read on first use
         self._adopted: set[int] = set()  # project numbers whose structure came from a cache, not from this run
         self._known_labels: set[str] = set()
         self._labels_read = False  # the repository's label list was read this run
@@ -1179,8 +1198,16 @@ class GitHub(Forge):
     @override
     def read_board_placements(self, board: Board) -> dict[int, Placement]:
         """One paged listing of the board: this repository's issues and the Status and Priority each shows."""
+        return {number: Placement(values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""))
+                for number, values in self._board_values(board).items()}
+
+    @override
+    def read_board_fields(self, board: Board) -> dict[int, dict[str, str]]:
+        return self._board_values(board)
+
+    def _board_values(self, board: Board) -> dict[int, dict[str, str]]:
         wanted = _project_number(board.id)
-        found: dict[int, Placement] = {}
+        found: dict[int, dict[str, str]] = {}
         cursor: str | None = None
         for _ in range(MAX_PAGES):
             data = self._wire.graphql(_BOARD_ITEMS, {"owner": self._owner, "number": wanted, "cursor": cursor})
@@ -1197,13 +1224,48 @@ class GitHub(Forge):
                 repository = _obj(content.get("repository"), "item.repository")
                 if _str(repository, "nameWithOwner", "item.repository") != f"{self._owner}/{self._repo}":
                     continue
-                values = _field_values(entry)
-                found[_int(content, "number", "item.content")] = Placement(values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""))
+                found[_int(content, "number", "item.content")] = _field_values(entry)
             info = _obj(listing.get("pageInfo"), "pageInfo")
             if not _bool(info, "hasNextPage", "pageInfo"):
                 return found
             cursor = _str(info, "endCursor", "pageInfo")
         raise ForgeRejected(200, f"more than {MAX_PAGES} pages of board items; refusing a truncated listing")
+
+    @override
+    def set_card_fields(self, board: Board, number: int, values: Mapping[str, str]) -> None:
+        project = self._board_project(board)
+        defs = self._custom_fields(project.id)
+        item_id = self._item_on_board(board, project, number, self._node_id(number))
+        for name, text in values.items():
+            field = defs.get(name)
+            if field is None:
+                raise ForgeRejected(400, f"board has no `{name}` field; add it to the project or fix the mirror's project_fields")
+            if field["type"] == "TEXT":
+                value: dict[str, str] = {"text": text}
+            else:
+                option = field["options"].get(text)
+                if option is None:
+                    raise ForgeRejected(400, f"board field `{name}` has no `{text}` option")
+                value = {"singleSelectOptionId": option}
+            self._wire.graphql(_SET_CARD_FIELD, {"projectId": project.id, "itemId": item_id, "fieldId": field["id"], "value": value})
+
+    def _custom_fields(self, project_id: str) -> dict[str, CustomField]:
+        """The project's fields by name with their type and option ids, read once per backend instance."""
+        if project_id not in self._field_defs:
+            data = self._wire.graphql(_PROJECT_FIELDS, {"projectId": project_id})
+            nodes = _array(_obj(_obj(data.get("node"), "node").get("fields"), "fields").get("nodes"), "fields.nodes")
+            defs: dict[str, CustomField] = {}
+            for node in nodes:
+                node = _obj(node, "project field")
+                if not node:
+                    continue
+                options = node.get("options")
+                defs[_str(node, "name", "field")] = {
+                    "id": _str(node, "id", "field"), "type": _str(node, "dataType", "field"),
+                    "options": {_str(_obj(o, "option"), "name", "option"): _str(o, "id", "option") for o in options} if isinstance(options, list) else {},
+                }
+            self._field_defs[project_id] = defs
+        return self._field_defs[project_id]
 
     def _placement(self, board: Board, number: int) -> tuple[str, Placement] | None:
         data = self._wire.graphql(_ITEM_PLACEMENT, {"contentId": self._node_id(number)})
@@ -1314,12 +1376,12 @@ def _check_reason(spec: IssueSpec) -> None:
 
 
 def _field_values(entry: dict[str, Any]) -> dict[str, str]:
-    """Field name -> chosen option name for the single-select values of a project item."""
+    """Field name -> chosen option name (single-select) or text for the values of a project item."""
     values: dict[str, str] = {}
     for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
         value = _obj(value, "field value")
         if value:  # other field kinds match no fragment and arrive as {}
-            values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name", "value")
+            values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name" if "name" in value else "text", "value")
     return values
 
 

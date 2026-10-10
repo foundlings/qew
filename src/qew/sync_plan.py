@@ -217,6 +217,32 @@ def issue_type_for(mapping: object, item: Item) -> str:
     return ""
 
 
+def project_field_values(mapping: object, snapshot: Snapshot, item: Item) -> dict[str, str]:
+    """Card field -> value for a mirror's `project_fields` map. A source is `kind`, `priority`, `state` or `label:PREFIX`
+    (the part after `PREFIX:` of the item's first such label); a source that gives nothing sets nothing."""
+    if not isinstance(mapping, dict):
+        return {}
+    folded = snapshot.folds[item.id]
+    found: dict[str, str] = {}
+    for field_name, source in sorted(mapping.items()):
+        if not isinstance(source, str):
+            continue
+        if source == "kind":
+            value = item.kind.value if hasattr(item.kind, "value") else str(item.kind)
+        elif source == "priority":
+            value = priority_option(item.priority)[0]
+        elif source == "state":
+            value = folded.state.value if folded.state else ""
+        elif source.startswith("label:"):
+            prefix = source[len("label:"):] + ":"
+            value = next((l[len(prefix):] for l in item.labels if l.startswith(prefix)), "")
+        else:
+            value = ""
+        if value:
+            found[str(field_name)] = value
+    return found
+
+
 def fingerprint(spec: IssueSpec, extra: object = None) -> str:
     fields = {k: v for k, v in spec.__dict__.items() if k != "issue_type" or v}  # an unmapped type leaves existing fingerprints alone
     payload = json.dumps([fields, extra], sort_keys=True, default=str)
