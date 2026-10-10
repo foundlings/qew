@@ -6,6 +6,7 @@ A finding is `{"source": "body", "zero_width": true}`; comments and labels also 
 
 
 from qew import textscan, untrusted_text
+from qew.comments import comments_after
 from qew.ledger_store import Snapshot
 
 _WORDS = {**{kind: textscan.describe(kind) for kind in textscan.KINDS}, "control": "contains control characters"}
@@ -24,9 +25,10 @@ def title_findings(title: str) -> list[dict[str, object]]:
 
 
 def comments_of(snapshot: Snapshot, item_id: str) -> list[dict[str, object]]:
-    """The item's comments in order: `{index, author, at, text}`."""
-    found = [e for e in sorted(snapshot.events[item_id], key=lambda e: e.id) if e.type == "commented"]
-    return [{"index": n, "author": e.get("author") or e.actor, "at": e.at, "text": e.get("text")} for n, e in enumerate(found, 1)]
+    """The item's comments in order: `{index, id, author, at, text, reply_to, edited, deleted}`; a deleted comment has no text."""
+    return [{"index": n, "id": c.id, "author": c.author, "at": c.at, "text": "" if c.deleted else c.text,
+             "reply_to": c.reply_to, "edited": c.edited, "deleted": c.deleted}
+            for n, c in enumerate(comments_after(snapshot.events[item_id]), 1)]
 
 
 def item_findings(snapshot: Snapshot, item_id: str, *, comments: bool = True, body: bool = True) -> list[dict[str, object]]:
@@ -37,6 +39,8 @@ def item_findings(snapshot: Snapshot, item_id: str, *, comments: bool = True, bo
     found += [f for n, label in enumerate(item.labels, 1) for f in (sparse("label", label, index=n),) if f]
     if comments:
         for entry in comments_of(snapshot, item_id):
+            if entry["deleted"]:
+                continue
             hit = sparse("comment", str(entry["text"]), index=entry["index"], author=entry["author"])
             if hit:
                 found.append(hit)

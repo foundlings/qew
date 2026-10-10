@@ -249,6 +249,13 @@ shape prime: additional_context context_bytes schema_version
   (`--after ID` counts a letter reserved outside the ledger, such as a phase document, as taken). Refused with exit 3 while
   another login holds a claim on it, exit 2 for an unknown item, a taken id or a letter out of order. One ledger commit.
 - `qew item extract ITEM DEST`: write the attached tree to `DEST` (absent or empty) as real files, verifying every hash first.
+- `qew comment ITEM (--body TEXT | --body-file F) [--key KEY] [--reply-to COMMENT]`, `qew comment ITEM --edit COMMENT
+  (--body TEXT | --body-file F) [--force]`, `qew comment ITEM --delete COMMENT [--force]`: a comment's id is its `commented`
+  event id (printed as `commented on ITEM as ID`; a unique prefix works). A reply names its parent and `qew show` threads it
+  beneath it; an edit appends `comment_edited` and a delete `comment_deleted` (the original stays in history, the last event by
+  id wins, so two machines never write the same file). Only the author edits or deletes; another login needs `--force`, recorded
+  as `forced`. `qew check` fails on an edit, delete or reply naming no comment of the item, an unforced change by someone
+  else, and a comment linking `attachment:NAME` to a name that is not attached.
 - `qew comment ITEM (--body TEXT | --body-file F) [--key KEY]`: append a `commented` event (text kept verbatim, `-` reads
   stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
   Comment text is data and never a state change; unmarked code-shaped text warns on stderr. `--key KEY` (one word) makes a
