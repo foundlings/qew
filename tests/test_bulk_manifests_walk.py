@@ -78,7 +78,7 @@ class ManifestWalk(unittest.TestCase):
                              ([{"item": one, "title": "x"}], "title"),
                              ([{"item": one, "add_label": "a:b"}, {"item": two, "add_label": "gated"}], "reason"),
                              ([{"item": finished, "add_label": "a:b"}], finished[:8]),
-                             ([{"item": one, "priority": 9}], "priority")):
+                             ([{"item": one, "priority": 10}], "priority")):
             with self.subTest(needle=needle):
                 self.manifest(*rows)
                 refused = self.world.run("set", "--manifest", str(self.path))

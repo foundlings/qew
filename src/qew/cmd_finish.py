@@ -10,8 +10,8 @@ import json
 import sys
 from pathlib import Path
 
-from qew import claim_reconcile, code_vcs, complete_batch, ledger_graph, outcome
-from qew.cmd_claim import holding
+from qew import claim_reconcile, code_vcs, complete_batch, evidence_batch, ledger_graph, manifest_rows, outcome
+from qew.cmd_claim import holding, holds_ancestor
 from qew.cmd_items import ledger_for
 from qew.code_vcs import Landing
 from qew.errors import QewError
@@ -28,7 +28,9 @@ _FINISHED_WORK = "finished work: qew complete ITEM, or qew close ITEM --delivere
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     evidence = commands.add_parser("evidence", help="record the code changes that deliver an item")
-    evidence.add_argument("item", help="item id or alias")
+    evidence.add_argument("item", nargs="?", help="item id or alias (not with --manifest)")
+    evidence.add_argument("--manifest", metavar="FILE", help="instead of ITEM: a JSON Lines file of {item, change_ids} rows, recorded in one commit")
+    evidence.add_argument("--dry-run", action="store_true", help="with --manifest: say what would be recorded and write nothing")
     evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
     evidence.add_argument("--vcs", choices=["jj", "git"], help="override the detected VCS")
     complete = commands.add_parser("complete", help="finish claimed work once the gate passes")
@@ -62,7 +64,16 @@ def run(arguments: argparse.Namespace) -> bool:
     from qew import ledger_config
 
     config = ledger_config.load()
+    if arguments.command == "evidence" and arguments.manifest:
+        if arguments.item or arguments.change or arguments.vcs:
+            raise QewError("--manifest replaces ITEM and the single-item options: give the manifest alone", 2)
+        print(evidence_manifest(config, Path(arguments.manifest), arguments.dry_run))
+        return True
     if arguments.command == "evidence":
+        if not arguments.item:
+            raise QewError("give ITEM, or --manifest FILE", 2)
+        if arguments.dry_run:
+            raise QewError("--dry-run belongs to --manifest", 2)
         print(evidence(config, arguments.item, arguments.change, arguments.vcs))
         return True
     if arguments.command == "complete" and arguments.manifest:
@@ -122,17 +133,6 @@ def _branch(name: str) -> str:
     return name
 
 
-def _holds_ancestor(snapshot: Snapshot, item_id: str, who: str) -> bool:
-    """True when `who` holds an epic above the item (the cascade of an epic claim is theirs to work)."""
-    seen, cursor = set(), snapshot.items[item_id].parent
-    while cursor and cursor in snapshot.items and cursor not in seen:
-        seen.add(cursor)
-        if snapshot.folds[cursor].state == State.CLAIMED and snapshot.folds[cursor].owner == who:
-            return True
-        cursor = snapshot.items[cursor].parent
-    return False
-
-
 def complete_manifest(config: Config, manifest: Path, quote: str | None, dry_run: bool) -> str:
     """Complete the manifest's items in one write on a human's quote; checked whole first, a rerun is unchanged."""
     verified = require_quote(quote)
@@ -164,12 +164,24 @@ def complete_manifest(config: Config, manifest: Path, quote: str | None, dry_run
     return complete_batch.summary(batch, "would complete" if dry_run else "completed")
 
 
+def evidence_manifest(config: Config, manifest: Path, dry_run: bool) -> str:
+    """Record evidence for many items in one write; checked whole first (see evidence_batch)."""
+    ledger = ledger_for(config)
+    snapshot = ledger.snapshot()
+    rows = manifest_rows.read(ledger, manifest, list(snapshot.items), evidence_batch.ROW_KEYS)
+    vcs = code_vcs.detect(config.root)
+    batch = evidence_batch.plan(snapshot, rows, vcs, code_vcs.repository_url(config.root))
+    if not dry_run:
+        evidence_batch.apply(ledger, batch)
+    return evidence_batch.summary(batch, "would record" if dry_run else "recorded")
+
+
 def evidence(config: Config, reference: str, changes: list[str], vcs: str | None) -> str:
     ledger, snapshot, item_id = _load(config, reference)
     if snapshot.folds[item_id].state not in (State.APPROVED, State.CLAIMED):
         raise _refuse(snapshot, item_id, "record evidence for", "an approved or claimed item")
     folded = snapshot.folds[item_id]
-    if folded.state == State.CLAIMED and folded.owner != actor() and not _holds_ancestor(snapshot, item_id, actor()):
+    if folded.state == State.CLAIMED and folded.owner != actor() and not holds_ancestor(snapshot, item_id, actor()):
         raise QewError(f"cannot record evidence for {item_id}: it is claimed by {holding(snapshot, item_id)}; "
                        "evidence needs the claim or the claim of its epic", 3)
     kind = vcs or code_vcs.detect(config.root)
@@ -198,7 +210,7 @@ def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> str | No
         raise QewError(f"cannot complete {item_id}: it is unclaimed; claim it first with `qew start {item_id}`", 2)
     if folded.state != State.CLAIMED:
         raise _refuse(snapshot, item_id, "complete", "a claimed item")
-    if folded.owner == actor() or _holds_ancestor(snapshot, item_id, actor()):
+    if folded.owner == actor() or holds_ancestor(snapshot, item_id, actor()):
         if take_over:
             raise QewError(f"nothing to take over: you already hold {item_id}", 2)
         return None

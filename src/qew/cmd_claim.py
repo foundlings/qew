@@ -65,6 +65,17 @@ def _config() -> Config:
     return ledger_config.load()
 
 
+def holds_ancestor(snapshot: Snapshot, item_id: str, who: str) -> bool:
+    """True when `who` holds an epic above the item (the cascade of an epic claim is theirs to work)."""
+    seen, cursor = set(), snapshot.items[item_id].parent
+    while cursor and cursor in snapshot.items and cursor not in seen:
+        seen.add(cursor)
+        if snapshot.folds[cursor].state == State.CLAIMED and snapshot.folds[cursor].owner == who:
+            return True
+        cursor = snapshot.items[cursor].parent
+    return False
+
+
 def holding(snapshot: Snapshot, item_id: str) -> str:
     """Who holds the claim, with the lane when it has one."""
     folded = snapshot.folds[item_id]
