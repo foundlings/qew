@@ -45,6 +45,15 @@ class RateLimitWalk(unittest.TestCase):
         self.assertEqual(self.value(fake), "12")
         self.assertIn("rate limited", result.stdout + result.stderr)
 
+    def test_github_names_the_limit_only_in_the_message_and_it_is_still_waited_out(self) -> None:
+        """Prevents the real answer slipping through: GitHub sends 'API rate limit already exceeded' with no RATE_LIMITED type."""
+        fake, world = self.rig()
+        world.create("--title", "Phased", "--field", "phase=12", "--quote", QUOTE)
+        fake.fail_next(200, "/graphql", count=3, skip=2, body={"errors": [{"message": "API rate limit already exceeded for user ID 5199263."}]})
+        result = world.run("sync", env=ENV)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.value(fake), "12")
+
     def test_a_rest_secondary_limit_on_an_update_is_waited_out(self) -> None:
         """Prevents a PATCH answered 403 'secondary rate limit' failing the item: it is not a create, so it is repeated."""
         fake, world = self.rig()
