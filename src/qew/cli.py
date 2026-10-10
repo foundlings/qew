@@ -44,7 +44,8 @@ Work
   qew comment     discuss any item without changing it
   qew block       make an item wait for another
   qew unblock     stop an item waiting for another
-  qew reopen      reopen completed or closed work
+  qew reopen      reopen completed or closed work (one item, or --manifest)
+  qew correct-author credit items to their human author, the tool kept as via
 Drafts (only a human's quoted words release work)
   qew draft       list | approve | revert
 Pull requests
@@ -86,7 +87,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
-_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id")
+_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author")
 
 
 def top_level_commands() -> list[str]:
@@ -160,6 +161,7 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     create.add_argument("--draft", action="store_true", help="file as a draft a human asked for, released only by `qew draft approve --quote` (refuses --quote and approved lines)")
     create.add_argument("--dry-run", action="store_true", help="validate and print the operations without writing")
     create.add_argument("--json", action="store_true", help="machine-readable output")
+    create.add_argument("--as", dest="as_author", metavar="ACTOR", help="with --import: credit the entries' events to this author; the actor the file names (the tool) is kept as `via`")
     create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")
 
     set_ = commands.add_parser("set", help="change an item's header fields")
@@ -272,6 +274,7 @@ def _run(arguments: argparse.Namespace) -> None:
         lines = plan_apply.apply(
             config, plan, arguments.quote, arguments.draft, arguments.import_events,
             mark=bool(arguments.from_file) or arguments.key is not None, as_json=arguments.json, dry_run=arguments.dry_run,
+            as_author=arguments.as_author or "",
         )
         print("\n".join(lines))
     elif command == "set" and arguments.manifest:

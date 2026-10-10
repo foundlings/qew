@@ -248,6 +248,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     epic = _epic_facts(snapshot, item_id, kids) if item.kind == Kind.EPIC else {}
     data = read_view.row_data(snapshot, item_id, progress=True)
     data["author"] = ledger_author.author(snapshot, item_id) or "unknown"
+    if tool := ledger_author.via(snapshot, item_id):
+        data["via"] = tool
     links = read_view.link_urls(snapshot, item_id)
     data["draft"] = draft
     data.pop("text_findings", None)
@@ -288,7 +290,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     needs = [n if n in snapshot.items else f"{n} (missing)" for n in item.needs]
     for link in links:
         print(" ".join([f"{link['key']}: {link['item']}", *cast(list[str], link["urls"])]))
-    print(f"author: {data['author']}")
+    print(f"author: {data['author']}" + (f" (via {data['via']})" if "via" in data else ""))
     for key in ("children_open", "children_done", "completable"):
         if key in data:
             print(f"{key}: {str(data[key]).lower() if isinstance(data[key], bool) else data[key]}")
