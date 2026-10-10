@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import re
 
-from qew import attach_batch, comment_batch, graph_rules, ledger_labels
+from qew import evidence_backfill, evidence_resolve, attach_batch, comment_batch, graph_rules, ledger_labels
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -292,6 +292,9 @@ def apply(
                 case Drafted():
                     ledger.append_event(p.item.id, "drafted", **extra)
         ledger.write_item(p.item)
+    imported = {p.item.id for p in planned if p.events is not None}
+    if imported:  # imported history shows its proof in the item header like a live completion: ids that landed, else `historical`
+        evidence_backfill.apply(ledger, [f for f in evidence_backfill.plan(ledger.snapshot(), evidence_resolve.resolver(config)) if f.item_id in imported])
     requests = [request for p in planned for request in p.attachments]
     if requests:
         attach_batch.apply(ledger, attach_batch.plan(ledger, requests))
