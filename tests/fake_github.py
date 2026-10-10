@@ -121,6 +121,8 @@ class FakeGitHub:
             values = []
             for field in project["fields"]:
                 chosen = item.get("values", {}).get(field["id"])
+                if field.get("text") and chosen is not None:
+                    values.append({"text": chosen, "field": {"name": field["name"]}})
                 for option in field["options"]:
                     if option["id"] == chosen:
                         values.append({"name": option["name"], "field": {"name": field["name"]}})
@@ -273,6 +275,8 @@ class FakeGitHub:
     def project_json(self, project: Dict[str, Any]) -> Dict[str, Any]:
         fields = []
         for field in project["fields"]:
+            if field.get("text"):
+                continue  # real GitHub shows a text field to the single-select fragment as {}
             fields.append({
                 "id": field["id"], "name": field["name"],
                 "options": [
@@ -375,6 +379,8 @@ class FakeGitHub:
             values = []
             for field in project["fields"]:
                 chosen = item.get("values", {}).get(field["id"])
+                if field.get("text") and chosen is not None:
+                    values.append({"text": chosen, "field": {"name": field["name"]}})
                 for option in field["options"]:
                     if option["id"] == chosen:
                         values.append({"name": option["name"], "field": {"name": field["name"]}})
@@ -396,6 +402,8 @@ class FakeGitHub:
             values = []
             for field in project["fields"]:
                 chosen = item.get("values", {}).get(field["id"])
+                if field.get("text") and chosen is not None:
+                    values.append({"text": chosen, "field": {"name": field["name"]}})
                 for option in field["options"]:
                     if option["id"] == chosen:
                         values.append({"name": option["name"], "field": {"name": field["name"]}})
@@ -442,6 +450,29 @@ class FakeGitHub:
                 return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": item["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "item not found"}]}
 
+    def gql_ProjectFields(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        project = self.projects.get(variables["projectId"])
+        if project is None:
+            return {"errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a node with the global id"}]}
+        nodes = [{"id": f["id"], "name": f["name"], "dataType": "TEXT" if f.get("text") else "SINGLE_SELECT",
+                  "options": [{"id": o["id"], "name": o["name"]} for o in f["options"]]} for f in project["fields"]]
+        return {"data": {"node": {"fields": {"nodes": nodes}}}}
+
+    def gql_SetCardField(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        project = self.projects.get(variables["projectId"])
+        field = None if project is None else next((f for f in project["fields"] if f["id"] == variables["fieldId"]), None)
+        item = None if project is None else next((i for i in project["items"].values() if i["id"] == variables["itemId"]), None)
+        if field is None or item is None:
+            return {"errors": [{"type": "NOT_FOUND", "message": "field or item not found"}]}
+        value = variables["value"]
+        if field.get("text"):
+            item.setdefault("values", {})[field["id"]] = value["text"]
+        elif value.get("singleSelectOptionId") in {o["id"] for o in field["options"]}:
+            item.setdefault("values", {})[field["id"]] = value["singleSelectOptionId"]
+        else:
+            return {"errors": [{"type": "NOT_FOUND", "message": "option not found"}]}
+        return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": item["id"]}}}}
+
     def gql_SetCard(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         """Status and Priority of one card in a single request (two aliased updateProjectV2ItemFieldValue fields)."""
         for field, option in (("statusField", "statusOption"), ("priorityField", "priorityOption")):
@@ -469,6 +500,30 @@ class FakeGitHub:
 
     def project(self, number: str) -> Dict[str, Any]:
         return next(p for p in self.projects.values() if str(p["number"]) == number)
+
+    def add_field(self, number: str, name: str, options: Tuple[str, ...] = ()) -> None:
+        """A custom Projects v2 field: single-select when options are given, else text."""
+        project = self.project(number)
+        field = {"id": f"PVTF_{len(project['fields'])}", "name": name, "options": [], "text": not options}
+        self._set_options(field, [{"name": o} for o in options])
+        project["fields"].append(field)
+
+    def set_field_value(self, number: str, issue_node_id: str, field_name: str, value: str) -> None:
+        """What a human does in the Projects UI."""
+        project = self.project(number)
+        field = next(f for f in project["fields"] if f["name"] == field_name)
+        project["items"][issue_node_id].setdefault("values", {})[field["id"]] = (
+            value if field.get("text") else next(o["id"] for o in field["options"] if o["name"] == value))
+
+    def field_value(self, number: str, issue_node_id: str, field_name: str) -> Optional[str]:
+        """The text or option name the issue holds in the named custom field, or None."""
+        project = self.project(number)
+        item = project["items"].get(issue_node_id)
+        field = next((f for f in project["fields"] if f["name"] == field_name), None)
+        if item is None or field is None:
+            return None
+        chosen = item.get("values", {}).get(field["id"])
+        return chosen if field.get("text") else next((o["name"] for o in field["options"] if o["id"] == chosen), None)
 
     def item_value(self, number: str, issue_node_id: str, field_name: str) -> Optional[str]:
         """The option name the issue holds in the named single-select field, or None."""
