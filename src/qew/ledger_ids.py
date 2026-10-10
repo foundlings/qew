@@ -73,6 +73,31 @@ def event_id(after: str = "") -> str:
     return _encode(seconds, _TIME_WIDTH) + _encode(pair, 2)
 
 
+LETTER_JUMP = 3 * 26 * 26  # ranks: a gap wider than three blocks of two-letter ids ends the main run; what lies beyond is an outlier
+
+
+def letter_rank(value: str) -> int:
+    """A=1 .. Z=26, AA=27 .. ZZ=702, AAA=703 ..: the position in the letter sequence."""
+    rank = 0
+    for character in value:
+        rank = rank * 26 + (ord(character) - 64)
+    return rank
+
+
+def letters_head(ids: Iterable[str]) -> str | None:
+    """The last id of the main run of letter ids: from the lowest id on, each next id is at most `LETTER_JUMP` ranks away (ADF to PID is about 10,000).
+    Hand-named outliers far past the run (PIE after ADF) are not the sequence and do not move its head."""
+    ranked = sorted((letter_rank(i), i) for i in ids if re.fullmatch(r"[A-Z]+", i))
+    if not ranked:
+        return None
+    head = ranked[0]
+    for rank, name in ranked[1:]:
+        if rank - head[0] > LETTER_JUMP:
+            break
+        head = (rank, name)
+    return head[1]
+
+
 def letters_after(value: str | None) -> str:
     """A, B .. Z, AA, AB .. ZZ, AAA .. (the spreadsheet column after `value`)."""
     if not value:
@@ -96,8 +121,10 @@ def next_id(mode: str, existing: Iterable[str]) -> str:
         newest = max((i for i in taken if _TIME_ID.fullmatch(i)), default="")
         return event_id(newest)
     if mode == "letters":
-        letters = [i for i in taken if re.fullmatch(r"[A-Z]+", i)]
-        return letters_after(max(letters, key=lambda i: (len(i), i)) if letters else None)
+        candidate = letters_after(letters_head(taken))
+        while candidate in taken:  # an outlier sits exactly on the next letter
+            candidate = letters_after(candidate)
+        return candidate
     if mode == "counter":
         numbers = [int(i) for i in taken if i.isdigit()]
         return str(max(numbers, default=0) + 1)

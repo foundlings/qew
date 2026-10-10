@@ -17,7 +17,7 @@ from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import Event, State, fold, parse_event
-from qew.ledger_ids import valid_id
+from qew.ledger_ids import next_id, valid_id
 from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
 from qew.ledger_store import Ledger, now
 from qew.plan_file import KEY_SOURCE, Entry, Plan
@@ -156,6 +156,12 @@ def prepare(
                 raise QewError(f"{entry.label}: `{imported}` is not a valid id", 2)
             if imported.lower() in taken:
                 raise QewError(f"{entry.label}: item {imported} already exists", 2)
+            kind = entry.spec.get("kind", "issue")
+            if not import_events and ledger.id_modes[kind] == "letters":
+                expected = next_id("letters", [*existing, *ids.values()])
+                if imported != expected:
+                    raise QewError(f"{entry.label}: {kind} ids run in strict letter order, so the next is {expected}, not {imported} "
+                                   f"(leave the id out, or ask `qew next-id --kind {kind}`)", 2)
             ids[entry.key] = imported
         else:
             kind = entry.spec.get("kind", "issue")

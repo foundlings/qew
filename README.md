@@ -51,7 +51,7 @@ Header keys: `id kind title parent needs tracks pr labels owner priority created
 ledger ids of the tracking issue or pull request item, never forge numbers or URLs; `aliases` lists the ids the item had
 before `qew migrate-ids`, and `qew show OLD` still resolves them). Kinds: epic, issue, task. States:
 draft, approved, claimed, completed, closed. IDs come from `id_mode` per kind: `base35-time` (default, 9 chars),
-`letters` (A, B .. AA) or `counter`; imports keep their IDs. `qew migrate-ids --to base35-time [--dry-run]` rewrites every
+`letters` (A, B .. Z, AA .. ZZ, AAA, in strict order; `qew next-id` prints the next free ids) or `counter`; imports keep their IDs. `qew migrate-ids --to base35-time [--dry-run]` rewrites every
 id that is not a base35-time id (and every reference to it) in one commit, keeping the old id as an alias. Details: `docs/specs/ledger.md`.
 
 ## Replication and authority
@@ -108,7 +108,7 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 
 - Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew plan status`, `qew check`, `qew export`, `qew inbox`
 - Board (offline kanban): `qew board`, `qew board columns`, `qew board list`, `qew board create`, `qew board set`
-- Work: `qew create`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew block`, `qew unblock`
+- Work: `qew create`, `qew next-id`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew block`, `qew unblock`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open` (adopts an orphan pull request already open on its head), `qew pr check`, `qew pr ready`, `qew pr close`, `qew pr merge` (deletes the merged head branch), `qew land` once one merged, and `qew branch` (group), `qew branch prune` (`--base`, `--dry-run`) to clear the backlog of merged branches
 - Mirrors: `qew sync`, `qew mirror` (group), `qew mirror add`, `qew mirror remove`, `qew mirror list`, `qew forge` (group), `qew forge migrate`, `qew status`, `qew accept`, `qew reject`, `qew conflicts`, `qew resolve`, `qew unlock --stale`, `qew repair-closes`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`, `qew project status`, `qew project prune`
@@ -118,7 +118,7 @@ Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook
 
 Flags (all documented in `--help`): `--ledger`, `--kind`, `--title`, `--parent`, `--needs`, `--label`, `--labels`,
 `--priority`, `--body`, `--body-file`, `--quote`, `--from-file`, `--import`, `--json`, `--format`, `--chains`, `--state`, `--change`, `--vcs`,
-`--reason`, `--where`, `--problem`, `--goal`, `--fix`, `--approach`, `--done-when`, `--edit`, `--draft`, `--discovered-from`, `--no-parent`, `--add-label`, `--remove-label`, `--on`, `--no-commit`, `--landed-on`, `--delivered-by`, `--of`, `--by`, `--note`, `--key` (`qew create`, `qew comment`: idempotency key), `--take-over`, `--offline` (`qew start`: provisional claim), `--lane`, `--workspace`, `--force`, `--tree`, `--closed`, `--stale` (`qew unlock`: a human-approved removal of a dead git lock), `--target`, `--item`, `--dry-run`, `--full` (`qew sync`: re-read the whole forge), `--prune-labels` (`qew sync`: delete unused managed labels), `--head`, `--base`, `--ready`, `--claude`, `--codex`,
+`--reason`, `--where`, `--problem`, `--goal`, `--fix`, `--approach`, `--done-when`, `--edit`, `--draft`, `--discovered-from`, `--no-parent`, `--add-label`, `--remove-label`, `--on`, `--no-commit`, `--landed-on`, `--delivered-by`, `--of`, `--by`, `--note`, `--key` (`qew create`, `qew comment`: idempotency key), `--take-over`, `--offline` (`qew start`: provisional claim), `--lane`, `--workspace`, `--force`, `--tree`, `--closed`, `--stale` (`qew unlock`: a human-approved removal of a dead git lock), `--target`, `--item`, `--dry-run`, `--full` (`qew sync`: re-read the whole forge), `--prune-labels` (`qew sync`: delete unused managed labels), `--after` (`qew next-id`: a letter reserved outside the ledger), `--count` (`qew next-id`), `--head`, `--base`, `--ready`, `--claude`, `--codex`,
 `--compact`, `--name`, `--columns`, `--sort`, `--group-by`, `--filter`, `--cursor`, `--opencode`, `--agent`, `--completed`, `--from`, `--to`, `--forge`, `--repo`, `--api`, `--history`, `--read-only`, `--tracks`, `--pr`, `--primary`, `--remove-old`.
 Hook flags: `--git`, `--pre-push`, `--revisions`, `--message-file`.
 Pull request flags: `--what`, `--why`, `--testing`, `--all`, `--list`, `--auto`, `--admin`, `--other-author`.
