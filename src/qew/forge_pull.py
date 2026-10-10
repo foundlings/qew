@@ -331,6 +331,9 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
         changed = True
     if _assignees_changed(ledger, snapshot, target, report, item_id, issue, seen):
         changed = True
+    if dict(issue.reactions) != record.get("reactions", {}):  # interest is shown, never work state: no event, no divergence
+        record = updated(record, reactions=dict(issue.reactions))
+        changed = True
     comment_ids = list(seen["comments"])
     if issue.comments > len(comment_ids) or record.get("cmap"):  # a new comment, or linked ones that may have been edited or removed
         comment_ids, links = comment_sync.pull(ledger, snapshot, target, report, item_id, issue.number, record, comment_ids)

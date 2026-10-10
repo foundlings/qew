@@ -4,6 +4,7 @@ Each test is a scenario; its docstring names the failure it prevents. The counts
 reads, are kept in the local mirror state, and `qew show` prints them.
 """
 
+import json
 import os
 import sys
 import unittest
@@ -55,8 +56,8 @@ class ReactionsWalk(unittest.TestCase):
         self.assertIn("divergences=0", status)
         self.assertIn("pending=0", status)
         self.assertEqual(len(self.world.events(self.item)), events)
-        data = self.world.run("show", self.item, "--json").stdout
-        self.assertIn('"hooray": 2', data)
+        data = json.loads(self.world.run("show", self.item, "--json").stdout)
+        self.assertEqual(data["reactions"], {"hooray": 2})
 
 
 if __name__ == "__main__":

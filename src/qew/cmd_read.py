@@ -246,11 +246,12 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     data.update(epic)
     tree = attachments_after(snapshot.events[item_id])
     extra_assignees = assignees_after(snapshot.events[item_id])
+    reactions: dict[str, int] = next((m["reactions"] for m in ledger.load_mirrors(item_id) if m.get("reactions")), {})
     related = (
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
         ("blocking", [read_view.related(snapshot, b) for b in blocks]),
         ("children", [read_view.related(snapshot, k) for k in kids]),
-        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("body", item.body),
+        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("reactions", reactions), ("body", item.body),
     )
     for key, value in related:
         if value:
@@ -296,6 +297,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         print(line)
     if extra_assignees:
         print(f"assignees: {' '.join(extra_assignees)}")
+    if reactions:
+        print("reactions: " + ", ".join(f"{name} {count}" for name, count in reactions.items()))
     if tree:
         print("attachments:")
         for path, row in sorted(tree.items()):

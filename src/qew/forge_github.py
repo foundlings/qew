@@ -244,6 +244,13 @@ def _assignee_logins(issue: dict[str, Any]) -> tuple[str, ...]:
     return (str(single["login"]),) if isinstance(single, dict) and isinstance(single.get("login"), str) else ()
 
 
+def _reaction_counts(summary: object) -> tuple[tuple[str, int], ...]:
+    """(name, count) for every reaction with a positive count in the payload's `reactions` summary."""
+    if not isinstance(summary, dict):
+        return ()
+    return tuple((name, count) for name, count in summary.items() if name not in ("url", "total_count") and type(count) is int and count > 0)
+
+
 def _wanted_assignees(spec: IssueSpec) -> list[str]:
     """The owner first, then the extra assignees, each once."""
     return list(dict.fromkeys(login for login in (spec.assignee, *spec.assignees) if login))
@@ -280,6 +287,7 @@ def parse_issue(data: Any) -> RemoteIssue:
         milestone=0 if issue.get("milestone") is None else _int(_obj(issue["milestone"], "issue.milestone"), "number", "milestone"),
         close_reason=close_reason_of(reason) if state == "closed" else "",
         assignees=_assignee_logins(issue),
+        reactions=_reaction_counts(issue.get("reactions")),
         issue_id=issue["id"] if type(issue.get("id")) is int else 0,
         parent=_parent_number(issue.get("parent_issue_url")),
     )
