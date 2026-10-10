@@ -7,13 +7,13 @@ import tempfile
 from dataclasses import replace
 from collections.abc import Sequence
 
-from qew import graph_rules, ledger_config, ledger_labels
+from qew import graph_rules, ledger_config, ledger_graph, ledger_labels
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
 from qew.ledger_event import State
 from qew.ledger_item import title_is_one_line
-from qew.ledger_store import Ledger, open_ledger
+from qew.ledger_store import Ledger, actor, open_ledger
 
 
 def ledger_for(config: Config) -> Ledger:
@@ -80,6 +80,7 @@ def set_fields(
     allow_closed: bool = False,
     add_labels: Sequence[str] = (),
     remove_labels: Sequence[str] = (),
+    reason: str | None = None,
 ) -> list[Change]:
     """Change header fields and the body of one or more items; every change is audited and read back."""
     if "title" in changes and (not changes["title"].strip() or not title_is_one_line(changes["title"])):
@@ -100,6 +101,10 @@ def set_fields(
             raise QewError(f"{item_id} is {state.value}; pass --closed to edit finished work", 2)
     proposed = dict(snapshot.items)
     audit: list[Change] = []  # in write order
+    newly_gated = [i for i in ids if ledger_graph.GATED_LABEL not in snapshot.items[i].labels
+                   and ledger_graph.GATED_LABEL in (changes["labels"].split() if "labels" in changes else add_labels)]
+    if newly_gated and not (reason and reason.strip()):
+        raise QewError("a gated item needs --reason TEXT: what outside the repository it waits on (keys, credentials, hardware, an account)", 2)
     for item_id in ids:
         item = proposed[item_id]
         wanted = dict(changes)
@@ -132,6 +137,8 @@ def set_fields(
                 if key == "needs":
                     write_edges(ledger, item_id, snapshot.items[item_id].needs, proposed[item_id].needs)
                 ledger.append_event(item_id, "field", key=key, old=old, new=new)
+            if item_id in newly_gated and reason:
+                ledger.append_event(item_id, "commented", text=f"gated: {reason.strip()}", author=actor())
             stored = ledger.load_item(item_id)
             if stored != wanted_item or stored.body.rstrip("\n") != wanted_item.body.rstrip("\n"):
                 raise QewError(f"{item_id}: the item did not read back as written", 3)

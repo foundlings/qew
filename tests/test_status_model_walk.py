@@ -31,7 +31,7 @@ class StatusModelWalk(unittest.TestCase):
     def test_the_seven_statuses_in_board_order(self) -> None:
         """Prevents a board whose option order or names drift from the documented model."""
         self.assertEqual(
-            COLUMNS, ("Draft", "Backlog", "Ready", "Needs approval", "In progress", "In review", "Done")
+            COLUMNS, ("Draft", "Backlog", "Ready", "Needs approval", "Gated", "In progress", "In review", "Done")
         )
 
     def test_one_ledger_shows_every_status(self) -> None:

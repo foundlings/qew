@@ -15,7 +15,7 @@ from qew.ledger_item import Item, Kind
 from qew.ledger_store import Ledger, now
 from tests.ledger_harness import QUOTE, World
 
-STATUSES = ["Draft", "Backlog", "Ready", "Needs approval", "In progress", "In review", "Done"]
+STATUSES = ["Draft", "Backlog", "Ready", "Needs approval", "Gated", "In progress", "In review", "Done"]
 DEAD_FORGE = '[[mirror]]\nforge = "github"\nrepo = "http://127.0.0.1:9/o/r"\napi = "http://127.0.0.1:9/api/v3"\n'
 
 
@@ -89,7 +89,7 @@ class BoardWalk(unittest.TestCase):
         w.create("--kind", "issue", "--title", "A", "--quote", QUOTE)
         w.create("--kind", "issue", "--title", "B", "--draft")
         out = w.run("board", "columns").stdout.splitlines()
-        self.assertEqual(out, [f"{name} {n}" for name, n in zip(STATUSES, [1, 0, 1, 0, 0, 0, 0])])
+        self.assertEqual(out, [f"{name} {n}" for name, n in zip(STATUSES, [1, 0, 1, 0, 0, 0, 0, 0])])
 
     def test_compact_output_is_fixed_format_and_small_for_two_hundred_cards(self) -> None:
         """Prevents agent output from outgrowing a token budget."""
