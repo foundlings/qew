@@ -25,17 +25,20 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     sync.add_argument("--dry-run", action="store_true", help="show what would change; reads the forge listing but writes nothing (with --prune-labels: deletes nothing)")
     sync.add_argument("--prune-labels", action="store_true",
                       help="instead of syncing, delete the unused qew: kind: priority: status: author: labels from the target(s)")
+    sync.add_argument("--all-labels", action="store_true", help="with --prune-labels: delete every unused label, not only qew's (gated and needs:approval stay)")
 
 
 def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "sync":
         return False
     config = ledger_config.load()
+    if arguments.all_labels and not arguments.prune_labels:
+        raise QewError("--all-labels belongs to --prune-labels", 2)
     if arguments.prune_labels:
         if arguments.item or arguments.full:
             raise QewError("--prune-labels works on whole targets; it takes neither --item nor --full", 2)
         mirrors = choose(mirrors_with_boards(ledger_for(config), config), arguments.target)
-        print(label_prune.prune(ledger_for(config), config, mirrors, arguments.dry_run) if mirrors else "no mirror targets configured")
+        print(label_prune.prune(ledger_for(config), config, mirrors, arguments.dry_run, arguments.all_labels) if mirrors else "no mirror targets configured")
         return True
     if os.environ.get("QEW_BACKGROUND") and not arguments.dry_run:
         syncworker.run_worker(config, lambda: _worker_round(config, arguments))

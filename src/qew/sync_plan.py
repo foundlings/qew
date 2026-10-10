@@ -243,8 +243,8 @@ def issue_type_for(mapping: object, item: Item) -> str:
 
 
 def project_field_values(mapping: object, snapshot: Snapshot, item: Item) -> dict[str, str]:
-    """Card field -> value for a mirror's `project_fields` map. A source is `kind`, `priority`, `state` or `label:PREFIX`
-    (the part after `PREFIX:` of the item's first such label); a source that gives nothing sets nothing."""
+    """Card field -> value for a mirror's `project_fields` map. A source is `kind`, `priority`, `state`, `field:NAME`
+    (the field's values joined by `, `) or `label:PREFIX` (the part after `PREFIX:` of the item's first such label); a source that gives nothing sets nothing."""
     if not isinstance(mapping, dict):
         return {}
     folded = snapshot.folds[item.id]
@@ -258,6 +258,8 @@ def project_field_values(mapping: object, snapshot: Snapshot, item: Item) -> dic
             value = priority_option(item.priority)[0]
         elif source == "state":
             value = folded.state.value if folded.state else ""
+        elif source.startswith("field:"):
+            value = ", ".join(next((values for name, values in item.fields if name == source[len("field:"):]), ()))
         elif source.startswith("label:"):
             prefix = source[len("label:"):] + ":"
             value = next((l[len(prefix):] for l in item.labels if l.startswith(prefix)), "")

@@ -7,7 +7,7 @@ import tempfile
 from dataclasses import replace
 from collections.abc import Sequence
 
-from qew import graph_rules, ledger_config, ledger_graph, ledger_labels
+from qew import graph_rules, ledger_config, ledger_fields, ledger_graph, ledger_labels
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import CONFIG, LEDGER_FILE, Config
@@ -61,7 +61,7 @@ def init(ledger: str | None) -> str:
     if not marker.exists():
         _write_atomic(
             marker,
-            f'name = "{config.ledger_path.name}"\nschema_version = 4\n\n[id_mode]\nepic = "letters"  # phases: A, B .. Z, AA ..; or "base35-time" / "counter"\nissue = "base35-time"\ntask = "base35-time"\n',
+            f'name = "{config.ledger_path.name}"\nschema_version = 5\n\n[id_mode]\nepic = "letters"  # phases: A, B .. Z, AA ..; or "base35-time" / "counter"\nissue = "base35-time"\ntask = "base35-time"\n',
         )
         created.append(str(marker))
     if not created:
@@ -81,6 +81,8 @@ def set_fields(
     add_labels: Sequence[str] = (),
     remove_labels: Sequence[str] = (),
     reason: str | None = None,
+    field_puts: dict[str, list[str]] | None = None,
+    field_clears: Sequence[str] = (),
 ) -> list[Change]:
     """Change header fields and the body of one or more items; every change is audited and read back."""
     if "title" in changes and (not changes["title"].strip() or not title_is_one_line(changes["title"])):
@@ -111,6 +113,8 @@ def set_fields(
         if add_labels or remove_labels:
             kept = [label for label in item.labels if label not in remove_labels]
             wanted["labels"] = " ".join(kept + [label for label in dict.fromkeys(add_labels) if label not in kept])
+        if field_puts or field_clears:
+            wanted["fields"] = ledger_fields.encode(ledger_fields.changed(item.fields, field_puts or {}, field_clears))
         for key, value in wanted.items():
             if key in ("needs", "parent", "tracks", "pr"):
                 value = " ".join(ledger.resolve(part, list(snapshot.items)) for part in value.split())

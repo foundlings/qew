@@ -153,7 +153,7 @@ select = "kind:epic"
 ```
 - `[qew] minimum_version = "MAJOR.MINOR.PATCH"` makes an older qew refuse every command (exit 2, names both
   versions and `scripts/setup_user.py`); malformed values are refused. Unknown keys and mirror options are
-  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1; this qew reads 1, 2 and 3 but works only on 3; any command on an older ledger refuses naming `qew migrate-layout`, and an older qew refuses 3). Schema 1 and 2 kept each item in `items/<ID>.md` (2 added attachment directories); schema 3 keeps it in `items/<ID>/item.md`, so the ID is only in the directory name and the directory also holds `attachments/`. `qew init` writes 3. A symlinked config is refused.
+  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1; this qew reads 1 to 5 but works only on 5; any command on an older ledger refuses naming `qew migrate-layout`, and an older qew refuses 5). Schema 1 and 2 kept each item in `items/<ID>.md` (2 added attachment directories); schema 3 keeps it in `items/<ID>/item.md`, so the ID is only in the directory name and the directory also holds `attachments/`. Schema 4 added the evidence header and schema 5 the `fields` header key. `qew init` writes 5. A symlinked config is refused.
 - `project` is a positive integer board number (title strings, numeric strings, 0, negatives, booleans, floats
   are refused at load, exit 2); `project_title` must not be empty. Repository URLs that differ only in case or a
   `.git` suffix are one target (the slug is casefolded).
@@ -209,6 +209,7 @@ select = "kind:epic"
   commas, and never start (casefolded) with `qew:`, `kind:`, `priority:`, `status:` or `author:` nor equal `epic`, `task` or
   `P0`..`P4`: create, set, imports refuse them (exit 2, "reserved") before any write and `qew check` flags them in files.
   Label colours: see forges.md.
+- Fields (header key `fields`, schema 5): named values beside the labels, one compact JSON object on one line (`{"phase":"12","plan":["a","b"]}`), omitted when the item has none. A name is lower-case letters, digits, `-` and `_` (at most 32, starting with a letter); a value is one printable line of at most 200 characters; a field holds 1 to 50 values in order. Fields are never labels: sync does not mirror them as labels. A mirror's `project_fields` map shows them on the board (forges.md). `qew create --field`, `qew set --field`/`--clear-field`, `set --manifest` rows and plan-file entries write them; each change is a `field` event with key `fields`; `qew list --field`, `qew search`, `qew show` and `--json` read them.
 - Sync is push-only; forge numbers are recorded, forge state is never read back as truth.
 - `qew index` (local cache) is not built: reads are fast enough from files.
 - Pull requests never carry a closing keyword.

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import re
 
-from qew import evidence_backfill, evidence_resolve, attach_batch, comment_batch, graph_rules, ledger_labels
+from qew import evidence_backfill, evidence_resolve, attach_batch, comment_batch, graph_rules, ledger_fields, ledger_labels
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -212,6 +212,7 @@ def prepare(
             "parent": reference(spec["parent"]) if spec.get("parent") else "",
             "needs": " ".join(reference(need) for need in spec.get("needs", [])),
             "labels": " ".join(spec.get("labels", [])),
+            "fields": ledger_fields.encode(ledger_fields.normalise(spec.get("fields", {}), f"{entry.label}: fields")),
             "owner": "",
             "priority": str(spec.get("priority", DEFAULT_PRIORITY)),
             "created": spec.get("created") or now(),

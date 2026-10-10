@@ -308,8 +308,8 @@ def _ledger_from_environment(start: Path | None) -> Path | None:
     return None
 
 
-SCHEMA_VERSIONS = (1, 2, 3, 4)  # this qew works on the latest layout only; `qew migrate-layout` moves any older one straight to 4
-CURRENT_SCHEMA = 4  # items live at items/<ID>/item.md (3) and completed items carry their proof in the header (4); 1 and 2 kept items/<ID>.md
+SCHEMA_VERSIONS = (1, 2, 3, 4, 5)  # this qew works on the latest layout only; `qew migrate-layout` moves any older one straight to 5
+CURRENT_SCHEMA = 5  # items live at items/<ID>/item.md (3), completed items carry their proof in the header (4), items carry named fields (5); 1 and 2 kept items/<ID>.md
 _old_layout_allowed = False
 
 

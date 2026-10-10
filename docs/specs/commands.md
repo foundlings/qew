@@ -59,8 +59,8 @@ shape prime: additional_context context_bytes schema_version
   lists hidden-text findings of the title, body, labels and comments; a title with any is withheld in rows.
   A `tracks:` or `pr:` link prints `KEY: ID URL...`, the linked item's forge URLs read from its `mirrors/` files (header values
   are ledger ids only; `check` flags a URL, a forge number or an unknown id there).
-- `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--owner NAME] [--author NAME] [--parent ID]
-  [--limit N] [--json]`: actionable work first. Every `--label` must match; labels and names fold ASCII case
+- `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--field NAME[=VALUE]]... [--owner NAME] [--author NAME] [--parent ID]
+  [--limit N] [--json]`: actionable work first. Every `--label` must match, and every `--field` (an item holding the field `NAME`, or `NAME=VALUE` among its values); labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
   of the creating event. `work_state` (JSON rows) is the derived class, in list order: `ready`, `blocked`
   (open work with an unmet need, claimed or not: a stuck claim is the more urgent fact), `claimed`, `plan`
@@ -144,7 +144,7 @@ shape prime: additional_context context_bytes schema_version
   DIRECTORY and `--json`.
 
 ## Work
-- `qew create [--kind K] --title T [--key KEY] [--parent ID] [--needs ID...] [--label L] [--priority N] [--body TEXT]
+- `qew create [--kind K] --title T [--key KEY] [--parent ID] [--needs ID...] [--label L] [--field NAME=VALUE]... [--priority N] [--body TEXT]
   [--body-file F | --edit] [--quote Q] [--from-file F [--draft] [--dry-run]] [--json]`: filed into the queue: approved with `filed_by` the creator (Ready, or Backlog while it has unmet needs), or with `--quote` carrying a human's words
   (`"Name: 'their words'"`) recorded as the approval. `--draft` files a draft a human asked for. `--key KEY` (one word, not with `--from-file`) makes a retry safe: the same key and content returns the first item
   with the same output line, the same key under other content is exit 2. `--from-file` takes a plan: JSON Lines, one JSON object or an array (or `-`
@@ -169,18 +169,18 @@ shape prime: additional_context context_bytes schema_version
   `--force`, `/etc/hosts`, `git push`, `gh pr`, `python -m`, `pipx install`). Each distinct token prints
   `warning: unmarked code-shaped text: TOKEN` on stderr, in order of appearance; the write still succeeds. Inline
   code, backtick or tilde fences (an unclosed fence runs to the end) and URLs are not reported.
-- `qew set --manifest FILE [--dry-run]`: change labels and priorities of many items in one commit. FILE is JSON Lines of
-  `{item, add_label?, remove_label?, priority?, reason?}` (a label or a list of labels; priority 0 to 9). Every row is checked
+- `qew set --manifest FILE [--dry-run]`: change labels, fields and priorities of many items in one commit. FILE is JSON Lines of
+  `{item, add_label?, remove_label?, fields?, priority?, reason?}` (a label or a list of labels; `fields` is `{NAME: value-or-list}`, which replaces those fields and removes one given `[]`; priority 0 to 9). Every row is checked
   before the first write and one bad row refuses all, naming its line (exit 2): an unknown or duplicate item, an unknown field,
   finished work, an invalid label or priority, a `gated` label added without a `reason` (kept as a comment `gated: TEXT`). A row
   that changes nothing is `unchanged`, so a rerun adds nothing. The writes are the audited `field` events of `qew set`.
-- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--priority N] [--due YYYY-MM-DD]
+- `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--field NAME=VALUE]... [--clear-field NAME]... [--priority N] [--due YYYY-MM-DD]
   [--body TEXT | --edit] [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--reason TEXT] [--closed] [--json]`: edits the header; adding the label `gated` (work blocked outside the repository: keys, credentials, hardware, an account) needs `--reason TEXT`, kept as a comment `gated: TEXT`, and moves the item to the Gated column, out of `qew ready`; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
   need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
   `--closed`. Several items may share parent, needs, labels or priority; `--title` and `--body` take one item.
-  `--add-label`/`--remove-label` are additive and idempotent (never with `--labels`); `--kind` is revalidated
+  `--field NAME=VALUE` (repeatable) sets a field to those values, replacing it (a repeated NAME is one field with several values), `--clear-field NAME` removes one; the change is one `field` event with `key` `fields`. `--add-label`/`--remove-label` are additive and idempotent (never with `--labels`); `--kind` is revalidated
   against the nesting rules; one `field` event per changed key, and the item is re-read and compared (exit 3
   on a mismatch).
   `qew create` applies the same edge rules before writing.
@@ -370,7 +370,7 @@ shape prime: additional_context context_bytes schema_version
   (code repo) and `ledger_git_url` (ledger repo), never derived from `repo`; a target with neither gets one
   `repos SLUG: set git_url ...` report line and no remote. Each target and repo is isolated: `repos SLUG code|ledger:
   failed: WHY` reports an unreachable or rejecting remote without blocking the rest. The forge repositories must exist.
-  `qew sync --prune-labels [--target T] [--dry-run]` does not sync: it deletes, per target, the label definitions with a managed prefix
+  `qew sync --prune-labels [--all-labels] [--target T] [--dry-run]` does not sync (`--all-labels` widens the sweep from qew's namespaces to every label that no issue or pull request carries and no item wants, a forge default or a label a field replaced; `gated` and `needs:approval` always stay): it deletes, per target, the label definitions with a managed prefix
   (`qew:` `kind:` `priority:` `status:` `author:`, `epic`, `task`, `P0`..`P4`) that no issue or pull request (open or closed) carries and no item's label set wants
   (`qew:managed` is unwanted in repository mode). It prints `TARGET: deleted label NAME` (`would delete` with `--dry-run`, which reads the
   forge but deletes nothing) or `TARGET: no unused managed labels`. It refuses a read-only target (exit 2) before any call, and takes neither
@@ -514,7 +514,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   `--after ID` (letters kinds) counts a letter reserved outside the ledger, such as a phase document, as taken. A plan
   that names a letter id for a letters kind outside `--import` may not jump far past the end of the sequence (more than three
   blocks of two-letter ids), else exit 2 naming the next letter: hand-named ids like PIE after ADF are refused.
-- `qew migrate-layout [--dry-run]`: move a ledger of any older schema straight to the latest (4) in one commit; schema 4 adds the evidence header: every completed item gets `evidence` from the ids its events cite that still resolve and landed on the target (kept as cited where there is no code repository here), else the typed absence its completion recorded (`no-code`, `children`, or `historical` with the importer's or bulk path's reason). Before that, for schema 1 or 2: each `items/ID.md` becomes `items/ID/item.md` with identical bytes, and the `schema_version` line becomes 3. It refuses (exit 1) when an item already has both paths, and any failure rolls the whole step back: the claim check (exit 3, another login holds a claim) and `qew check` run on the result. A ledger already at the latest prints that and changes nothing. Every other command on an older ledger refuses (exit 2) naming this command; a qew older than the layout refuses schema 3. Run it with all writers pushed and quiet: an unpushed edit to an item file in another clone conflicts with the move.
+- `qew migrate-layout [--dry-run]`: move a ledger of any older schema straight to the latest (5) in one commit; schema 5 adds the item `fields` header key (an existing item file is unchanged, so 4 to 5 only moves the `schema_version` line); schema 4 adds the evidence header: every completed item gets `evidence` from the ids its events cite that still resolve and landed on the target (kept as cited where there is no code repository here), else the typed absence its completion recorded (`no-code`, `children`, or `historical` with the importer's or bulk path's reason). Before that, for schema 1 or 2: each `items/ID.md` becomes `items/ID/item.md` with identical bytes, and the `schema_version` line becomes 3. It refuses (exit 1) when an item already has both paths, and any failure rolls the whole step back: the claim check (exit 3, another login holds a claim) and `qew check` run on the result. A ledger already at the latest prints that and changes nothing. Every other command on an older ledger refuses (exit 2) naming this command; a qew older than the layout refuses schema 3. Run it with all writers pushed and quiet: an unpushed edit to an item file in another clone conflicts with the move.
 - `qew migrate-ids --to base35-time [--dry-run]`: rename every item whose id is not a base35-time id (letters, counter, imported) to a
   new base35-time id, ordered by creation, and carry every reference: item headers (`parent needs tracks pr discovered_from`),
   event directories and the ids cited in `edge`, `closed` and link `field` events, mirror directories and pull request
