@@ -48,6 +48,8 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     # Extra assignees beside the claim owner (docs/specs/ledger.md, Assignees): forge logins.
     "assigned": (("login",), tuple(State)),
     "unassigned": (("login",), tuple(State)),
+    # What the forge's own timeline recorded before the issue reached the ledger (docs/specs/ledger.md, Forge timeline): history only.
+    "forge_timeline": (("kind", "who", "when"), tuple(State)),
     "forge_divergence": (("target", "field"), tuple(State)),
     "divergence_accepted": (("ref",), tuple(State)),
     "divergence_rejected": (("ref",), tuple(State)),
@@ -188,6 +190,12 @@ def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None
     elif kind in ("assigned", "unassigned"):
         if not isinstance(value["login"], str) or not valid_actor(value["login"]):
             raise QewError(f"{where}: `login` must be one word without spaces or commas", 1)
+    elif kind == "forge_timeline":
+        for key in ("kind", "who", "when"):
+            if not isinstance(value[key], str) or not value[key].strip():
+                raise QewError(f"{where}: `{key}` must be non-empty text", 1)
+        if "detail" in value and not isinstance(value["detail"], str):
+            raise QewError(f"{where}: `detail` must be text", 1)
     elif kind in ("commented", "comment_edited", "comment_deleted"):
         for key in ("reply_to", "ref", "key"):
             if key in value and (not isinstance(value[key], str) or not value[key].strip()):

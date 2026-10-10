@@ -37,10 +37,10 @@ class TimelineImportWalk(unittest.TestCase):
     def test_the_timeline_of_an_imported_issue_is_recorded_once_and_listed(self) -> None:
         """Prevents lost provenance on import: who labeled, assigned and renamed, with times, once and without state effect."""
         fake, world = self.rig()
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        r = world.run("sync", env=ENV); self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         item = self.imported(world)
         events = [e for e in world.events(item) if e["type"] == "forge_timeline"]
-        self.assertEqual([(e["kind"], e["actor"], e["when"]) for e in events], [
+        self.assertEqual([(e["kind"], e["who"], e["when"]) for e in events], [
             ("labeled", "dana", "2025-03-01T09:00:00Z"), ("assigned", "erik", "2025-03-02T09:00:00Z"), ("renamed", "dana", "2025-03-03T09:00:00Z")])
         shown = world.run("show", item).stdout
         self.assertIn("2025-03-01T09:00:00Z dana labeled bug", shown)
