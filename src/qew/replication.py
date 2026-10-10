@@ -9,6 +9,7 @@ forge already accepted.
 import argparse
 from contextlib import contextmanager
 import os
+import sys
 from pathlib import Path
 import time
 from typing import Any
@@ -296,6 +297,8 @@ def _note(config: Config, result: str, reason: str = "") -> None:
         (cache / "remote-state").write_text(result, encoding="utf-8")
         if result == "offline" and reason:
             (cache / "remote-error").write_text(reason + "\n", encoding="utf-8")
+            if "timed out" in reason:  # not an unreachable remote the user already knows about: say it, the work is saved
+                print(f"qew: warning: {reason}; the ledger commit is saved and the next write or `qew sync` pushes it", file=sys.stderr)
         else:
             (cache / "remote-error").unlink(missing_ok=True)
 

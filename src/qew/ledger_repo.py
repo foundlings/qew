@@ -109,6 +109,25 @@ def held_lock_error(stderr: str, waited: float) -> RepoLocked:
                       "(raise QEW_REPO_LOCK_WAIT_S to wait longer); the lock was not removed")
 
 
+JJ_MIN_TIMEOUT = 60.0  # seconds: a jj command snapshots the whole working copy first, so the network timeout is too tight for it
+
+
+def jj_timeout_floor() -> float:
+    """The least time a jj command gets; `QEW_JJ_TIMEOUT_S` overrides it."""
+    value = os.environ.get("QEW_JJ_TIMEOUT_S", "")
+    try:
+        return float(value) if value and float(value) > 0 else JJ_MIN_TIMEOUT
+    except ValueError:
+        return JJ_MIN_TIMEOUT
+
+
+class CommandTimeout(QewError):
+    """A git or jj command ran out of time. Fetch and push treat it like an unreachable remote."""
+
+    def __init__(self, argv: Sequence[str], timeout: float | None) -> None:
+        super().__init__(f"`{' '.join(argv[:3])}` timed out after {timeout}s", 3)
+
+
 MERGE_MARKER = "merge-conflict.json"  # in the ledger's local-only .qew/ cache
 MAX_DISCARDED_CHARS = 20_000
 
@@ -172,6 +191,8 @@ class LedgerRepo:
             stdin: str | None = None) -> subprocess.CompletedProcess[str]:
         started = time.monotonic()
         attempt = 0
+        if timeout is not None and argv and argv[0] == "jj":
+            timeout = max(timeout, jj_timeout_floor())
         while True:
             result = self._run_once(argv, timeout, stdin)
             if result.returncode == 0 or not LOCK_ERROR.search(result.stderr or ""):
@@ -195,7 +216,7 @@ class LedgerRepo:
                 timeout=timeout, check=False, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
         except subprocess.TimeoutExpired:
-            raise QewError(f"`{' '.join(argv[:3])}` timed out after {timeout}s", 3) from None
+            raise CommandTimeout(argv, timeout) from None
         except OSError as error:
             raise QewError(f"cannot run `{argv[0]}`: {error}", 3) from None
 
@@ -263,6 +284,9 @@ class LedgerRepo:
         try:
             with self._remote_refs():
                 result = self._git_fetch_merge(timeout) if self.vcs == "git" else self._jj_fetch_merge(timeout)
+        except CommandTimeout as slow:
+            self.last_failure = str(slow)
+            return "offline"
         except LedgerConflict as conflict:
             self._marker().parent.mkdir(exist_ok=True)
             self._marker().write_text(json.dumps({"remote": conflict.remote, "files": conflict.files,
@@ -489,11 +513,15 @@ class LedgerRepo:
         """Push the branch. Returns `ok`, `no-remote` or `offline`."""
         if not self.has_remote():
             return "no-remote"
-        with self._remote_refs():
-            if self.vcs == "git":
-                pushed = self.run(["git", "push", "-q", "origin", f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
-            else:
-                pushed = self.run(["jj", "--no-pager", "git", "push", "--bookmark", self.branch], timeout=timeout, check=False)
+        try:
+            with self._remote_refs():
+                if self.vcs == "git":
+                    pushed = self.run(["git", "push", "-q", "origin", f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
+                else:
+                    pushed = self.run(["jj", "--no-pager", "git", "push", "--bookmark", self.branch], timeout=timeout, check=False)
+        except CommandTimeout as slow:
+            self.last_failure = str(slow)  # the commit is local; the next write or `qew sync` pushes it
+            return "offline"
         if pushed.returncode != 0:
             self._remember_failure(pushed)
         return "ok" if pushed.returncode == 0 else "offline"
