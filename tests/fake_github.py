@@ -196,6 +196,7 @@ class FakeGitHub:
             "body": issue["body"], "labels": [{"name": name} for name in issue["labels"]],
             "assignee": None if not issue["assignee"] else {"login": issue["assignee"]},
             "assignees": [{"login": login} for login in issue.get("assignees", [])],
+            "reactions": {"url": "x", "total_count": sum(issue.get("reactions", {}).values()), **issue.get("reactions", {})},
             "comments": len(issue["discussion"]),
             **({"parent_issue_url": f"{self.base}{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{issue['parent']}"} if issue.get("parent") else {}),
         }

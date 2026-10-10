@@ -146,6 +146,7 @@ class RemoteIssue:
     milestone: int = 0  # the milestone the issue sits in (0: none)
     close_reason: CloseReason = ""  # why a closed issue closed, where the forge says
     assignees: tuple[str, ...] = ()  # every login assigned (assignee is the first)
+    reactions: tuple[tuple[str, int], ...] = ()  # (reaction, count) with a count above zero, in the forge's order
     issue_id: int = 0  # the forge's numeric id (GitHub sub-issues are linked by it), 0 where unknown
     parent: int = 0  # the number of the issue this one is a sub-issue of, 0 for none
 
