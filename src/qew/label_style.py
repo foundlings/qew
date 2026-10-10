@@ -47,6 +47,8 @@ def managed_style(name: str) -> LabelStyle | None:
         return LabelStyle(_PRIORITY_HEX[colour], description)
     if name in _KIND_HEX:
         return LabelStyle(_KIND_HEX[name], LABEL_DESCRIPTION)
+    if name == "qew:diverged":
+        return LabelStyle("d73a4a", "Changed on the forge behind qew's back; off the board until the divergence is settled")
     for prefix, colour in _PREFIX_HEX.items():
         if name.startswith(prefix):
             return LabelStyle(colour, LABEL_DESCRIPTION)

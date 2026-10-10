@@ -801,6 +801,9 @@ class GitHub(Forge):
             payload["type"] = spec.issue_type
         if not spec.open and spec.close_reason:
             payload["state_reason"] = spec.close_reason
+        if spec.keep_state:  # the forge's open or closed state stays as it is
+            payload.pop("state", None)
+            payload.pop("state_reason", None)
         path = f"{self._repo_path}/issues/{number}"
         try:
             return self._remember(parse_issue(self._wire.rest("PATCH", path, payload)))
