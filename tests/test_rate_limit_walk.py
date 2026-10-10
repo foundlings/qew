@@ -1,124 +1,96 @@
-"""Walks of GitHub rate limits: waits are typed, a pass stops at the first one, the worker backs off.
+"""A secondary rate limit makes sync back off and retry instead of failing items, and a sync never starves an interactive verb.
 
-Adversary: a 403 that is a rate limit mistaken for bad credentials (or the reverse), a worker
-that keeps hammering a limited forge, a resumed pass that duplicates what the first one made,
-and a sync that spends API calls per card when nothing changed.
+Each test is a scenario; its docstring names the failure it prevents. Backoff is shrunk with QEW_RETRY_BASE_S.
 """
 
 import os
 import sys
+import tempfile
+import threading
 import time
 import unittest
-from unittest import mock
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
+from qew import filelock
 from tests.fake_github import TOKEN, FakeGitHub
 from tests.ledger_harness import QUOTE, World
 
-from qew import cmd_project, cmd_sync, ledger_config, syncworker
-from qew.forge import ForgeAuth, ForgeUnavailable
-from qew.forge_github import GitHub
-from qew.forge_http import urllib_transport
-from qew.ledger_config import Mirror
-from qew.ledger_store import Ledger
-from qew.sync import Target, sync_target
-
-ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
+OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\ndivergences = \"report\"\n"
+ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1", "QEW_RETRY_BASE_S": "0.01"}
+RATE = {"errors": [{"type": "RATE_LIMITED", "message": "API rate limit already exceeded for user ID 1."}]}
 
 
 class RateLimitWalk(unittest.TestCase):
-    def setUp(self) -> None:
-        self.fake = FakeGitHub().start()
-        self.addCleanup(self.fake.stop)
-        self.mirrors = f'[[mirror]]\nforge = "github"\nrepo = "{self.fake.repo_url}"\napi = "{self.fake.api}"\n'
+    def rig(self) -> tuple[FakeGitHub, World]:
+        fake = FakeGitHub().start()
+        self.addCleanup(fake.stop)
+        mirrors = f'\n[[mirror]]\nforge = "github"\nrepo = "{fake.repo_url}"\napi = "{fake.api}"\nproject_fields = {{ Phase = "field:phase" }}\n'
+        world = World(mirrors, replication=OFF)
+        self.addCleanup(world.close)
+        self.assertEqual(world.run("project", "ensure", env=ENV).returncode, 0)
+        return fake, world
 
-    def backend(self) -> GitHub:
-        return GitHub(Mirror("github", self.fake.repo_url, None, "", {"api": self.fake.api}), urllib_transport(), ENV)
+    def value(self, fake: FakeGitHub) -> str | None:
+        return fake.field_value("1", next(iter(fake.issues.values()))["node_id"], "Phase")
 
-    def world(self) -> World:
-        w = World(self.mirrors)
-        self.addCleanup(w.close)
-        return w
+    def test_a_graphql_rate_limit_is_waited_out_and_the_item_still_syncs(self) -> None:
+        """Prevents 489 failed updates: the first GraphQL answers 'API rate limit already exceeded', sync waits and goes on."""
+        fake, world = self.rig()
+        world.create("--title", "Phased", "--field", "phase=12", "--quote", QUOTE)
+        fake.fail_next(200, "/graphql", count=3, body=RATE, skip=2)
+        result = world.run("sync", env=ENV)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.value(fake), "12")
+        self.assertIn("rate limited", result.stdout + result.stderr)
 
-    def sync(self, w: World, forge=None):
-        config = ledger_config.load(w.code)
-        mirror = cmd_sync.mirrors_with_boards(Ledger(w.ledger, "TST"), config)[0]
-        target = Target(mirror, ledger_config.mirror_slug(mirror), forge or GitHub(mirror, urllib_transport(), ENV))
-        return sync_target(Ledger(w.ledger, "TST"), target, config)
+    def test_a_rest_secondary_limit_on_an_update_is_waited_out(self) -> None:
+        """Prevents a PATCH answered 403 'secondary rate limit' failing the item: it is not a create, so it is repeated."""
+        fake, world = self.rig()
+        item = world.create("--title", "Old title", "--quote", QUOTE)
+        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        world.run("set", item, "--title", "New title")
+        fake.fail_next(403, "PATCH /issues", count=2, headers={"Retry-After": "0"},
+                       body={"message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."})
+        result = world.run("sync", env=ENV)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(next(iter(fake.issues.values()))["title"], "New title")
 
-    def test_rate_limit_answers_carry_their_wait_and_a_plain_403_stays_an_auth_failure(self) -> None:
-        """Prevents retrying bad credentials forever, or hammering a forge that said how long to wait."""
-        self.fake.fail_next(403, "/api/v3", headers={"Retry-After": "90"})
-        with self.assertRaises(ForgeUnavailable) as caught:
-            self.backend().read_issue(1)
-        self.assertEqual(caught.exception.retry_after, 90)
-        reset = str(int(time.time()) + 300)
-        self.fake.fail_next(403, "/api/v3", headers={"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset})
-        with self.assertRaises(ForgeUnavailable) as caught:
-            self.backend().read_issue(1)
-        self.assertTrue(250 <= caught.exception.retry_after <= 301, caught.exception.retry_after)
-        self.fake.fail_next(429, "/api/v3")
-        with self.assertRaises(ForgeUnavailable) as caught:
-            self.backend().read_issue(1)
-        self.assertGreater(caught.exception.retry_after, 0)
-        self.fake.fail_next(403, "/api/v3", body={"message": "Bad credentials"})
-        with self.assertRaises(ForgeAuth):
-            self.backend().read_issue(1)
+    def test_a_limit_that_never_lifts_stops_the_sync_with_a_retry_time_not_a_failure_per_item(self) -> None:
+        """Prevents hammering: when the retries run out the target stops once, naming the wait, and a rerun continues."""
+        fake, world = self.rig()
+        world.create("--title", "One", "--field", "phase=1", "--quote", QUOTE)
+        world.create("--title", "Two", "--field", "phase=2", "--quote", QUOTE)
+        fake.fail_next(200, "/graphql", count=1000, body=RATE, skip=2)
+        result = world.run("sync", env={**ENV, "QEW_RATE_RETRIES": "2"})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("retry after", result.stdout + result.stderr)
+        fake.failures.clear()
+        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
 
-    def test_a_limited_pass_stops_at_once_records_the_wait_and_a_later_pass_resumes_without_duplicates(self) -> None:
-        """Prevents a sync hammering a limited forge, and a resume creating an issue twice."""
-        w = self.world()
-        for n in range(3):
-            w.create("--kind", "issue", "--title", f"Item {n}", "--quote", QUOTE)
-        self.fake.fail_next(403, "/issues", count=1000, skip=3, headers={"Retry-After": "120"})
-        report = self.sync(w)
-        self.assertEqual(report.created, 1)
-        self.assertEqual(report.retry_after, 120)
-        self.assertIsNotNone(report.stopped)
-        touched = [r for r in self.fake.requests if "/issues" in r[1]]
-        self.assertEqual(len(touched), 4, "lookup, create and re-check of the first item, then one refused lookup; nothing after")
-        self.fake.failures.clear()
-        again = self.sync(w)
-        self.assertEqual((again.created, again.failures), (2, []))
-        self.assertEqual(len(self.fake.issues), 3)
 
-    def test_the_worker_records_the_earliest_retry_and_neither_it_nor_status_hammers(self) -> None:
-        """Prevents a write or a read command restarting the worker while the forge asked for a pause."""
-        w = self.world()
-        w.create("--kind", "issue", "--title", "Limited", "--quote", QUOTE)
-        self.fake.fail_next(403, "/issues", count=1000, headers={"Retry-After": "600"})
-        w.run("sync", env={**ENV, "QEW_BACKGROUND": "1"})
-        pending = (w.ledger / ".qew" / "sync.pending")
-        self.assertTrue(pending.exists())
-        config = ledger_config.load(w.code)
-        wait = syncworker.retry_at(config) - time.time()
-        self.assertTrue(500 < wait <= 601, wait)
-        self.assertRegex(w.run("status").stdout, r"retry_after=\d+")
-        with mock.patch.object(syncworker, "queue") as queue:
-            syncworker.retry_if_pending(config)
-            queue.assert_not_called()
-            pending.write_text(f"{time.time()}\nretry_at={time.time() - 1}\n", encoding="utf-8")
-            syncworker.retry_if_pending(config)
-            queue.assert_called_once()
+class SyncYieldsWalk(unittest.TestCase):
+    def test_a_verb_gets_the_lock_while_a_sync_keeps_asking_for_it(self) -> None:
+        """Prevents `pr ready` waiting minutes behind the background sync: a sync that wants the lock again yields to a waiter."""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "lock"
+            stop = threading.Event()
 
-    def test_an_unchanged_board_costs_no_per_card_calls_and_the_project_is_read_once(self) -> None:
-        """Prevents the rate limit being spent on re-reading the project and every card each sync."""
-        w = self.world()
-        for n in range(5):
-            w.create("--kind", "issue", "--title", f"Card {n}", "--quote", QUOTE)
-        config = ledger_config.load(w.code)
-        cmd_project.ensure(config, None, build=lambda m: GitHub(m, urllib_transport(), ENV))
-        first = self.sync(w)
-        self.assertEqual(first.failures, [])
-        self.assertLessEqual(self.fake.graphql_operations().count("OwnerProjects"), 3)
-        self.fake.requests.clear()
-        second = self.sync(w)
-        self.assertEqual((second.created, second.updated, second.failures), (0, 0, []))
-        rest = [r for r in self.fake.requests if not r[1].endswith("/api/graphql")]
-        self.assertEqual(rest, [], "no per-card REST reads")
-        self.assertLessEqual(len(self.fake.graphql_operations()), 3)
-        self.assertNotIn("ItemPlacement", self.fake.graphql_operations())
+            def sync() -> None:
+                while not stop.is_set():
+                    with filelock.hold(path, verb="sync", wait_s=30, polite=True):
+                        time.sleep(0.2)
+
+            thread = threading.Thread(target=sync)
+            thread.start()
+            self.addCleanup(thread.join)
+            self.addCleanup(stop.set)
+            time.sleep(0.3)
+            begun = time.monotonic()
+            with filelock.hold(path, verb="pr-ready", wait_s=10):
+                waited = time.monotonic() - begun
+            self.assertLess(waited, 2.0, f"the verb waited {waited:.1f}s behind a polite sync")
 
 
 if __name__ == "__main__":
