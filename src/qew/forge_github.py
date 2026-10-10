@@ -1297,11 +1297,7 @@ class GitHub(Forge):
                 content = _obj(entry.get("content"), "card.content")
                 if not content:  # a pull request or draft card is not an issue of ours
                     continue
-                values: dict[str, str] = {}
-                for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
-                    value = _obj(value, "field value")
-                    if value:
-                        values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name", "value")
+                values = _field_values(entry)
                 cards.append(Card(
                     _str(entry, "id", "card"), _str(_obj(content.get("repository"), "card.repository"), "nameWithOwner", "card.repository"),
                     _int(content, "number", "card.content"), values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""),
@@ -1381,7 +1377,9 @@ def _field_values(entry: dict[str, Any]) -> dict[str, str]:
     for value in _array(_obj(entry.get("fieldValues"), "fieldValues").get("nodes"), "fieldValues.nodes"):
         value = _obj(value, "field value")
         if value:  # other field kinds match no fragment and arrive as {}
-            values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = _str(value, "name" if "name" in value else "text", "value")
+            shown = value.get("name") if "name" in value else value.get("text")
+            if isinstance(shown, str):  # an emptied text field arrives as null: it shows nothing
+                values[_str(_obj(value.get("field"), "value.field"), "name", "value.field")] = shown
     return values
 
 
