@@ -66,6 +66,15 @@ class RateLimitWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(next(iter(fake.issues.values()))["title"], "New title")
 
+    def test_a_create_refused_by_the_plain_rate_limit_is_waited_out_but_a_secondary_one_is_not_repeated(self) -> None:
+        """Prevents a refused create failing the item: 'API rate limit exceeded' was not applied, so it is sent again, once."""
+        fake, world = self.rig()
+        world.create("--title", "Only", "--quote", QUOTE)
+        fake.fail_next(403, "POST /issues", count=2, body={"message": "API rate limit exceeded for user ID 1. Please wait."})
+        result = world.run("sync", env=ENV)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([i["title"] for i in fake.issues.values()], ["Only"])
+
     def test_a_limit_that_never_lifts_stops_the_sync_with_a_retry_time_not_a_failure_per_item(self) -> None:
         """Prevents hammering: when the retries run out the target stops once, naming the wait, and a rerun continues."""
         fake, world = self.rig()
