@@ -523,6 +523,10 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   claimed by another login. Idempotent: a finished ledger prints `nothing to migrate`; a run that stopped midway leaves a
   ledger `qew check` accepts (aliases resolve what is not yet rewritten) and the rerun finishes it. `--dry-run` lists the
   items (`would migrate ID`) and writes nothing. `--to` accepts only `base35-time`.
+- `qew repair-evidence [--dry-run]`: rebuild the missing evidence header of completed items from their events, with the schema 4
+  migration's rule (ids that did not visibly fail to land stay as cited, else the typed absence `historical`), in one commit; an
+  imported history entry (`qew create --from-file --import`) gets its header the same way at import. Prints `nothing to repair`
+  when every header is there.
 - `qew repair-closes [--dry-run]`: restore items an older pull recorded as `closed not_planned` (provenance `forge-import`)
   although the forge's first close of the issue (its event timeline, not the current reason a push may have rewritten) was
   completed or gave no reason: appends `reopened` and `completed` (both `forge-import`), then syncs those items so the forge

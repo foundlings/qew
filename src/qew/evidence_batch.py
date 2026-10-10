@@ -58,7 +58,7 @@ def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]], vcs: str, 
             raise QewError(f"{where}: cannot record evidence for {item_id}: it is claimed by {holding(snapshot, item_id)}", 3)
         recorded = {c for e in snapshot.events[item_id] if e.type == "evidence" and e.get("vcs") == vcs for c in e.get("change_ids", [])}
         if folded.state == State.COMPLETED:
-            recorded |= set(item.evidence)
+            recorded = set(item.evidence)  # what the header shows decides, not what the events cite
             if resolve is None:
                 raise QewError(f"{where}: recovering evidence for completed {item_id} needs the code repository (run from the code checkout)", 2)
             for change in cited:
@@ -73,7 +73,10 @@ def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]], vcs: str, 
 
 def apply(ledger: Ledger, batch: Batch) -> None:
     for each in batch.rows:
-        ledger.append_event(each.item_id, "evidence", vcs=batch.vcs, change_ids=list(each.changes), repo=batch.repo)
+        cited = {str(c) for e in ledger.load_events(each.item_id) if e.type == "evidence" for c in e.get("change_ids", [])}
+        fresh = [c for c in each.changes if c not in cited]
+        if fresh:  # ids an event already cites only reach the header
+            ledger.append_event(each.item_id, "evidence", vcs=batch.vcs, change_ids=fresh, repo=batch.repo)
         item = ledger.load_item(each.item_id)
         if ledger.snapshot().folds[each.item_id].state == State.COMPLETED:  # recovered proof: the header shows it, the historical absence goes
             ledger.write_item(replace(item, evidence=tuple(dict.fromkeys((*item.evidence, *each.changes))), evidence_absent=""), overwrite=True)

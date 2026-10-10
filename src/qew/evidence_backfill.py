@@ -47,7 +47,7 @@ def _cited(events: list[Event]) -> list[tuple[str, str]]:
     return list(found.items())
 
 
-def _absence(item_kind: Kind, completion: Event) -> str:
+def _absence(item_kind: Kind, completion: Event, cited: bool = False) -> str:
     shown = evidence_header.header_values(completion.data)
     if shown is not None and shown[1]:
         return shown[1]
@@ -55,7 +55,7 @@ def _absence(item_kind: Kind, completion: Event) -> str:
         return "children: all children completed"
     if completion.get("bulk_quote"):
         return f"historical: {evidence_header.one_line(str(completion.get('reason') or BULK_REASON))}"
-    return f"historical: {UNDATED_REASON}"
+    return f"historical: {evidence_header.IMPORTED_REASON if cited else UNDATED_REASON}"
 
 
 def plan(snapshot: Snapshot, resolve: Resolver | None) -> list[Filled]:
@@ -72,7 +72,7 @@ def plan(snapshot: Snapshot, resolve: Resolver | None) -> list[Filled]:
             continue
         kept = [change for change, vcs in _cited(events) if resolve is None or resolve(change, vcs) is not Landing.NOT_ANCESTOR]  # unknown here: kept, `qew check` says so
         each = (Filled(item_id, tuple(kept[:MAX_EVIDENCE_IDS]), "", max(0, len(kept) - MAX_EVIDENCE_IDS)) if kept
-                else Filled(item_id, (), _absence(item.kind, completions[-1])))
+                else Filled(item_id, (), _absence(item.kind, completions[-1], bool(_cited(events)))))
         try:  # the header must read back as written: a dry run finds out here, not only the real run
             parse_item(render_item(replace(item, evidence=each.evidence, evidence_absent=each.absent)), item_id)
         except QewError as error:

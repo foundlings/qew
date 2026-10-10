@@ -9,7 +9,7 @@ being down never blocks reading, planning or finishing work.
 - Items, dependencies, state and evidence are plain files in a ledger repository (any git or jj repo).
   Every write adds a file or edits one item's own file, so concurrent branches merge cleanly.
 - Readiness, blocked work and the dependency graph are derived from files: no network, no tokens spent.
-- `qew complete` is gated: claimed, children done, and evidence whose changes are ancestors of the target branch. Strict evidence is the default: a completed item shows its proof in its header (`evidence: ids`, or a typed `evidence_absent`; `qew complete --absent KIND --reason TEXT`). `qew complete --manifest FILE --quote Q` is the audited bulk exception: many approved items in one commit on a human's quoted words.
+- `qew complete` is gated: claimed, children done, and evidence whose changes are ancestors of the target branch. `qew repair-evidence` rebuilds a missing evidence header from the events. Strict evidence is the default: a completed item shows its proof in its header (`evidence: ids`, or a typed `evidence_absent`; `qew complete --absent KIND --reason TEXT`). `qew complete --manifest FILE --quote Q` is the audited bulk exception: many approved items in one commit on a human's quoted words.
 - Only a human's quoted words release a draft to approved work.
 - Replication: every write commits to the ledger, pushes it and syncs the forges in a background worker; checkouts on
   several machines converge, and a forge can be the single authority for who owns what.

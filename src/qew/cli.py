@@ -64,6 +64,7 @@ Mirrors
   qew conflicts   list every open sync conflict with both sides and how to settle it
   qew resolve     settle a sync conflict by taking one side, with a recorded reason
   qew repair-closes restore items a pull wrongly closed as not planned (the forge's first close decides)
+  qew repair-evidence rebuild the missing evidence header of completed items from their events
   qew unlock      remove a stale repository lock a crashed git left, with a human's quoted approval
 Setup
   qew init        create the config and the ledger
