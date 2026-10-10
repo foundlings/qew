@@ -9,6 +9,7 @@ titles are flattened to one safe line, bodies lose control characters.
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+import hashlib
 import re
 from collections.abc import Callable, Collection, Iterable
 
@@ -366,6 +367,26 @@ def append_forge_close(ledger: Ledger, item_id: str, reason: str) -> None:
     ledger.append_event(item_id, "completed", provenance="forge-import")
 
 
+BODY_REVISION_LIMIT = 4000  # characters of an earlier wording kept; the hash covers the whole text
+
+
+def _record_body_history(ledger: Ledger, target: Target, item_id: str, issue: RemoteIssue) -> None:
+    """Earlier wordings of a newly imported issue's body, once; the current body stays the item body."""
+    if target.mirror.options.get("body_history", True) is False:
+        return
+    try:
+        revisions = target.forge.body_history(issue)
+    except Unsupported:
+        return
+    for revision in revisions:
+        who, when = clean_line(revision.editor).replace(" ", "_"), clean_line(revision.when)
+        if not who or not when:
+            continue
+        text = clean_body(revision.text)
+        ledger.append_event(item_id, "body_revision", who=who, when=when, hash=hashlib.sha256(text.encode()).hexdigest(),
+                            text=text[:BODY_REVISION_LIMIT], provenance="forge-import")
+
+
 TIMELINE_LIMIT = 200  # entries kept per imported issue
 
 
@@ -402,6 +423,7 @@ def _import_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: Pu
     if not issue.open:
         append_forge_close(ledger, item_id, issue.close_reason)
     _record_timeline(ledger, target, item_id, issue.number)
+    _record_body_history(ledger, target, item_id, issue)
     seen = sync_plan.seen_of(issue, [])
     seen = {**seen, "title": item.title, "body": item.body.strip(), "labels": labels}
     ledger.write_mirror(item_id, target.slug, {

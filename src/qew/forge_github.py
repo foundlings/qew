@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 from qew import label_style
 from qew.forge import (
+    BodyRevision,
     RemoteReview,
     RemoteReviewComment,
     TimelineEntry,
@@ -67,6 +68,10 @@ query OwnerProjects($owner: String!, $cursor: String) {
       }
     }
   }
+}"""
+_BODY_HISTORY = """
+query IssueBodyHistory($id: ID!) {
+  node(id: $id) { ... on Issue { userContentEdits(first: 50) { nodes { editor { login } editedAt diff } } } }
 }"""
 _ENABLE_AUTO_MERGE = """
 mutation EnableAutoMerge($id: ID!) {
@@ -816,6 +821,21 @@ class GitHub(Forge):
                     reason = event.get("state_reason")
                     found.append(reason if reason in ("completed", "not_planned", "duplicate") else "")
         return tuple(found)
+
+    @override
+    def body_history(self, issue: RemoteIssue) -> list[BodyRevision]:
+        answer = self._wire.graphql(_BODY_HISTORY, {"id": issue.node_id})
+        node = answer.get("node")
+        edits = node.get("userContentEdits") if isinstance(node, dict) else None
+        nodes = edits.get("nodes") if isinstance(edits, dict) else None
+        found: list[BodyRevision] = []
+        for entry in nodes if isinstance(nodes, list) else []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("editedAt"), str) or not isinstance(entry.get("diff"), str):
+                continue
+            editor = entry.get("editor")
+            login = editor.get("login") if isinstance(editor, dict) else None
+            found.append(BodyRevision(login if isinstance(login, str) else "unknown", entry["editedAt"], entry["diff"]))
+        return sorted(found, key=lambda r: r.when)
 
     @override
     def timeline(self, number: int) -> list[TimelineEntry]:
