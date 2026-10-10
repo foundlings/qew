@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 import json
 import tomllib
 
-from qew import attachments, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
+from qew import attachments, comments, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
@@ -177,6 +177,7 @@ def _check_attachments(snapshot: Snapshot, problems: list[str], deep: bool) -> N
                 problems.append(f"{where}: size {blob.stat().st_size} does not match the {row.size} bytes attached as `{path}`")
             elif deep and attachments.hash_file(blob)[0] != row.digest:
                 problems.append(f"{where}: the hash does not match attachment `{path}` (the file was changed)")
+        problems.extend(comments.problems(item_id, snapshot.events[item_id], set(tree)))
         for name in attachments.REFERENCE.findall(item.body):
             if name not in tree:
                 problems.append(f"items/{item_id}.md: the body links attachment:{name}, which is not attached")

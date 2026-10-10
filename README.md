@@ -137,7 +137,7 @@ Edge edits: `qew block ITEM --on BLOCKER` and `qew unblock ITEM --from BLOCKER` 
 
 Files: `qew item attach ITEM PATH [--as NAME]` attaches a file, or a directory with its subdirectories, to an item (bytes are immutable files named by their hash under `items/ID/attachments/`, the names are events, so merges never conflict); `qew item attach --manifest FILE` attaches many files to many items in one commit (JSON Lines of `{item, source, name}`; a create plan entry can carry `attachments` too); `qew item detach ITEM NAME` detaches a name or a directory of names; `qew item extract ITEM DIR` writes the attached tree out as real files; `qew item rename ITEM [NEW]` moves an item to another id (default the next free one) and keeps the old id as an alias; `qew show` lists them and `qew check` validates them and `[text](attachment:NAME)` links in the body.
 
-Discussion: `qew comment ITEM --body TEXT` (or `--body-file F`) appends a comment to the item's history; `qew show` lists it.
+Discussion: `qew comment ITEM --body TEXT` (or `--body-file F`) appends a comment to the item's history and prints its id; `--reply-to COMMENT` threads a reply, `--edit COMMENT` and `--delete COMMENT` (author only unless `--force`) append edit and delete events that keep the history; `qew show` lists the thread and `qew check` validates it.
 
 ## Hooks
 

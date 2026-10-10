@@ -42,6 +42,9 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     "field": (("key",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED, State.CLOSED)),
     # Forge replication (docs/specs/ledger.md, Replication): never change state by themselves.
     "commented": (("text",), tuple(State)),
+    # Comments as records (docs/specs/ledger.md, Comments): edits and deletes name a comment by its event id.
+    "comment_edited": (("ref", "text"), tuple(State)),
+    "comment_deleted": (("ref",), tuple(State)),
     "forge_divergence": (("target", "field"), tuple(State)),
     "divergence_accepted": (("ref",), tuple(State)),
     "divergence_rejected": (("ref",), tuple(State)),
@@ -179,6 +182,12 @@ def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None
     elif kind == "edge":
         if value["op"] not in ("add", "remove"):
             raise QewError(f"{where}: edge op must be add or remove", 1)
+    elif kind in ("commented", "comment_edited", "comment_deleted"):
+        for key in ("reply_to", "ref", "key"):
+            if key in value and (not isinstance(value[key], str) or not value[key].strip()):
+                raise QewError(f"{where}: `{key}` must be non-empty text", 1)
+        if "forced" in value and not isinstance(value["forced"], bool):
+            raise QewError(f"{where}: `forced` must be true or false", 1)
     elif kind in ("attached", "detached"):
         bad = attachments.path_error(value["path"]) if isinstance(value["path"], str) else "the path must be text"
         if kind == "attached":

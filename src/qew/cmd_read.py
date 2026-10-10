@@ -200,6 +200,28 @@ def _progress_text(snapshot: Snapshot, item_id: str, kids: list[str], facts: Jso
     return text + (" (draft epic)" if draft else "")
 
 
+def _threaded(entries: list[dict[str, object]], by_id: dict[str, dict[str, object]]) -> list[tuple[int, dict[str, object]]]:
+    """(depth, comment) with every reply right after its parent."""
+    children: dict[str, list[dict[str, object]]] = {}
+    roots: list[dict[str, object]] = []
+    for entry in entries:
+        parent = str(entry["reply_to"])
+        if parent and parent in by_id:
+            children.setdefault(parent, []).append(entry)
+        else:
+            roots.append(entry)
+    ordered: list[tuple[int, dict[str, object]]] = []
+
+    def walk(entry: dict[str, object], depth: int) -> None:
+        ordered.append((depth, entry))
+        for child in children.get(str(entry["id"]), []):
+            walk(child, depth + 1)
+
+    for root in roots:
+        walk(root, 0)
+    return ordered
+
+
 def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> None:
     ledger = snapshot.ledger
     item_id = ledger.resolve(reference, list(snapshot.items))
@@ -276,10 +298,14 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
             print(f"  {path}  {row.size} bytes  {row.digest[:12]}")
     if comments:
         print("comments:")
-        for entry in comments:
-            print(f"  {entry['index']} @{_plain(str(entry['author']))} {entry['at']}:")
-            for line in _plain(str(entry["text"])).rstrip("\n").split("\n"):
-                print(f"    {line}")
+        by_id = {str(entry["id"]): entry for entry in comments}
+        for depth, entry in _threaded(comments, by_id):
+            pad = "    " * depth
+            mark = " (edited)" if entry["edited"] else ""
+            print(f"  {pad}{entry['index']} @{_plain(str(entry['author']))} {entry['at']} [{str(entry['id'])[:9]}]{mark}:")
+            body = "[deleted]" if entry["deleted"] else _plain(str(entry["text"])).rstrip("\n")
+            for line in body.split("\n"):
+                print(f"  {pad}    {line}")
     if findings:
         print("text findings:")
         for finding in findings:
