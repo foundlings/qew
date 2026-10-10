@@ -10,10 +10,10 @@ import re
 import secrets
 from typing import Any
 
-from qew import forge_registry, ledger_config
+from qew import forge_registry, ledger_config, sync_plan
 from qew.errors import QewError
 from qew.forge import Forge, ForgeError, RemoteComment
-from qew.ledger_config import Config, OfflineClaims
+from qew.ledger_config import Config, Mirror, OfflineClaims
 from qew.ledger_repo import LedgerRepo
 from qew.ledger_store import Ledger
 
@@ -43,10 +43,30 @@ def holder(comments: list[RemoteComment], item_id: str) -> tuple[str, str] | Non
     return current
 
 
+def _issue_record(config: Config, ledger: Ledger, mirror: Mirror | None, item_id: str) -> Any:
+    """The primary's issue record for the item. An item its mirror does not select (a task when the mirror takes epics and
+    issues) has no issue by design and is reserved on the nearest ancestor's: the claim markers name the item id, so one
+    issue carries the markers of every descendant. An item the mirror does select but has not synced yet has no record."""
+    own = next((r for r in ledger.load_mirrors(item_id) if r["_target"] == config.authority and r.get("kind") == "issue"), None)
+    if own is not None or mirror is None:
+        return own
+    snapshot = ledger.snapshot()
+    if sync_plan.selects(snapshot, item_id, mirror.select):
+        return None
+    seen: set[str] = {item_id}
+    cursor = snapshot.items[item_id].parent
+    while cursor and cursor not in seen and cursor in snapshot.items:
+        seen.add(cursor)
+        record = next((r for r in ledger.load_mirrors(cursor) if r["_target"] == config.authority and r.get("kind") == "issue"), None)
+        if record is not None:
+            return record
+        cursor = snapshot.items[cursor].parent
+    return None
+
+
 def _primary_forge(config: Config, ledger: Ledger, item_id: str) -> tuple[Forge, Any]:
     mirror = next((m for m in config.mirrors if ledger_config.mirror_slug(m) == config.authority), None)
-    record = next((r for r in ledger.load_mirrors(item_id)
-                   if r["_target"] == config.authority and r.get("kind") == "issue"), None)
+    record = _issue_record(config, ledger, mirror, item_id)
     if mirror is None or record is None:
         raise QewError(f"cannot claim {item_id}: the primary forge has no issue for it yet; run `qew sync` first", 2)
     try:

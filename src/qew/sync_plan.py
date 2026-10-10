@@ -19,28 +19,38 @@ from qew.ledger_store import Snapshot
 _CLOSE_REASON: dict[str, CloseReason] = {"completed": "completed", "not_planned": "not_planned", "duplicate": "duplicate", "superseded": "duplicate"}
 
 
-def selected(snapshot: Snapshot, expression: str) -> list[str]:
-    """Item ids matching every space-separated `label:`, `kind:`, `state:` or `priority:` term."""
+def _select_terms(expression: str) -> list[tuple[str, str]]:
     terms = []
     for term in expression.split():
         key, colon, value = term.partition(":")
         if not colon or key not in ("label", "kind", "state", "priority") or not value:
             raise QewError(f"select term `{term}` must be label:X, kind:X, state:X or priority:N", 1)
         terms.append((key, value))
+    return terms
 
-    def matches(item_id: str) -> bool:
-        item = snapshot.items[item_id]
-        state = snapshot.folds[item_id].state
-        checks: dict[str, Callable[[str], bool]] = {
-            "label": lambda v: v in item.labels,
-            "kind": lambda v: item.kind.value == v,
-            "state": lambda v: state is not None and state.value == v,
-            "priority": lambda v: str(item.priority) == v,
-        }
-        # `kind:epic,issue` matches either; separate terms must all match.
-        return all(any(checks[key](option) for option in value.split(",")) for key, value in terms)
 
-    return [item_id for item_id in snapshot.items if matches(item_id)]
+def selects(snapshot: Snapshot, item_id: str, expression: str) -> bool:
+    """Whether a mirror's `select` expression takes this item (an empty expression takes every item)."""
+    return _matches(snapshot, item_id, _select_terms(expression))
+
+
+def _matches(snapshot: Snapshot, item_id: str, terms: list[tuple[str, str]]) -> bool:
+    item = snapshot.items[item_id]
+    state = snapshot.folds[item_id].state
+    checks: dict[str, Callable[[str], bool]] = {
+        "label": lambda v: v in item.labels,
+        "kind": lambda v: item.kind.value == v,
+        "state": lambda v: state is not None and state.value == v,
+        "priority": lambda v: str(item.priority) == v,
+    }
+    # `kind:epic,issue` matches either; separate terms must all match.
+    return all(any(checks[key](option) for option in value.split(",")) for key, value in terms)
+
+
+def selected(snapshot: Snapshot, expression: str) -> list[str]:
+    """Item ids matching every space-separated `label:`, `kind:`, `state:` or `priority:` term."""
+    terms = _select_terms(expression)
+    return [item_id for item_id in snapshot.items if _matches(snapshot, item_id, terms)]
 
 
 def topological(snapshot: Snapshot, ids: list[str]) -> list[str]:
