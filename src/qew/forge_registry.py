@@ -33,4 +33,10 @@ def build(mirror: Mirror, transport: Transport | None = None, env: Mapping[str, 
     from qew.forge_http import TIMEOUT_SECONDS, urllib_transport  # the HTTP stack loads only when a forge is built
 
     timeout = mirror.options.get("timeout", TIMEOUT_SECONDS)
-    return cast(Forge, backend(mirror, transport or urllib_transport(float(cast(str | float, timeout))), dict(os.environ if env is None else env)))
+    environment = dict(os.environ if env is None else env)
+    if transport is None:  # only the real HTTP transport retries; a transport handed in is used as given
+        from qew import forge_retry
+
+        retries, max_wait, base = forge_retry.settings(mirror.options, environment.get("QEW_RETRY_BASE_S", ""))
+        transport = forge_retry.retrying(urllib_transport(float(cast(str | float, timeout))), retries, max_wait, base)
+    return cast(Forge, backend(mirror, transport, environment))

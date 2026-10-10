@@ -142,6 +142,7 @@ class World:
     ) -> subprocess.CompletedProcess:
         environment = {**os.environ, **_GIT_ENV, "PYTHONPATH": str(PROJECT_ROOT / "src")}
         environment["QEW_ACTOR"] = "tester"
+        environment.setdefault("QEW_RETRY_BASE_S", "0.01")  # a forge that is down must not make a walk wait out real backoff
         if env:
             environment.update(env)
         return subprocess.run(
