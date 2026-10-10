@@ -10,6 +10,7 @@ from qew.errors import QewError
 
 _GIT_ID = re.compile(r"[0-9a-fA-F]{7,64}")
 _JJ_ID = re.compile(r"[a-z0-9]{4,64}")
+_JJ_READ = ["jj", "--ignore-working-copy", "--no-pager"]  # a resolution never needs the working copy snapshotted
 
 
 def detect(root: Path) -> str:
@@ -68,10 +69,10 @@ def is_ancestor(root: Path, vcs: str, change: str, target: str) -> bool:
         if _run(root, ["git", "rev-parse", "--verify", "--quiet", f"{change}^{{commit}}"]).returncode != 0:
             return False
         return _run(root, ["git", "merge-base", "--is-ancestor", change, target]).returncode == 0
-    probe = _run(root, ["jj", "log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
+    probe = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
     if probe.returncode != 0 or not probe.stdout.strip():
         raise QewError(f"target `{target}` does not exist in this repo", 3)
-    result = _run(root, ["jj", "log", "--no-graph", "-r", f"::({target}) & ({change})", "-T", 'commit_id ++ "\\n"'])
+    result = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({target}) & ({change})", "-T", 'commit_id ++ "\\n"'])
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
@@ -105,13 +106,72 @@ def landing(root: Path, vcs: str, change: str, target: str) -> tuple[Landing, st
             return Landing.UNKNOWN, ""
         merged = _run(root, ["git", "merge-base", "--is-ancestor", full, target]).returncode == 0
         return (Landing.LANDED if merged else Landing.NOT_ANCESTOR), full
-    probe = _run(root, ["jj", "log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
+    probe = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
     if probe.returncode != 0 or not probe.stdout.strip():
         raise QewError(f"target `{target}` does not exist in this repo", 3)
-    found = _run(root, ["jj", "log", "--no-graph", "-r", f"present({change})", "-T", 'commit_id ++ "\\n"'])
+    found = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({change})", "-T", 'commit_id ++ "\\n"'])
     ids = found.stdout.split() if found.returncode == 0 else []
     if not ids:
         return Landing.UNKNOWN, ""
-    inside = _run(root, ["jj", "log", "--no-graph", "-r", f"::({target}) & ({change})", "-T", 'commit_id ++ "\\n"'])
+    inside = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({target}) & ({change})", "-T", 'commit_id ++ "\\n"'])
     merged = inside.returncode == 0 and bool(inside.stdout.strip())
     return (Landing.LANDED if merged else Landing.NOT_ANCESTOR), ids[0]
+
+
+_HEX = re.compile(r"[0-9a-f]+")
+_CHUNK = 100  # ids per revset when the ones not on the target are looked up
+
+
+def landing_many(root: Path, vcs: str, changes: list[str], target: str) -> dict[str, tuple[Landing, str]]:
+    """`landing` for many changes in a few read-only calls: the target's ancestors once, then one revset for the rest."""
+    wanted = list(dict.fromkeys(changes))
+    if not valid_branch(target) or not all(valid_change(vcs, c) for c in wanted):
+        raise QewError(f"refusing to query the VCS with an unusable change or target `{target}`", 2)
+    if len(wanted) <= 2:
+        return {change: landing(root, vcs, change, target) for change in wanted}
+    if vcs == "git":
+        return _landing_many_git(root, wanted, target)
+    return _landing_many_jj(root, wanted, target)
+
+
+def _landing_many_git(root: Path, wanted: list[str], target: str) -> dict[str, tuple[Landing, str]]:
+    if _run(root, ["git", "rev-parse", "--verify", "--quiet", f"{target}^{{commit}}"]).returncode != 0:
+        raise QewError(f"target branch `{target}` does not exist in this repo", 3)
+    history = _run(root, ["git", "rev-list", target])
+    ancestors = set(history.stdout.split()) if history.returncode == 0 else set()
+    try:
+        checked = subprocess.run(["git", "cat-file", "--batch-check"], cwd=root, input="".join(f"{c}^{{commit}}\n" for c in wanted),
+                                 capture_output=True, text=True, check=False, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+    except OSError as error:
+        raise QewError(f"cannot run git: {error}", 3) from None
+    found: dict[str, tuple[Landing, str]] = {}
+    for change, line in zip(wanted, checked.stdout.splitlines(), strict=False):
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "commit":
+            found[change] = (Landing.LANDED if parts[0] in ancestors else Landing.NOT_ANCESTOR), parts[0]
+        else:
+            found[change] = (Landing.UNKNOWN, "")
+    return {change: found.get(change, (Landing.UNKNOWN, "")) for change in wanted}
+
+
+def _landing_many_jj(root: Path, wanted: list[str], target: str) -> dict[str, tuple[Landing, str]]:
+    probe = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
+    if probe.returncode != 0 or not probe.stdout.strip():
+        raise QewError(f"target `{target}` does not exist in this repo", 3)
+    history = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({target})", "-T", 'change_id ++ " " ++ commit_id ++ "\\n"'])
+    on_target = [tuple(line.split()) for line in history.stdout.splitlines() if len(line.split()) == 2] if history.returncode == 0 else []
+    found: dict[str, tuple[Landing, str]] = {}
+    for change in wanted:
+        hit = next((commit for change_id, commit in on_target if change_id.startswith(change) or commit.startswith(change)), None)
+        if hit is not None:
+            found[change] = (Landing.LANDED, hit)
+    rest = [c for c in wanted if c not in found]
+    for start in range(0, len(rest), _CHUNK):
+        chunk = rest[start:start + _CHUNK]
+        revset = " | ".join(f"change_id({c})" + (f" | commit_id({c})" if _HEX.fullmatch(c) else "") for c in chunk)
+        seen = _run(root, _JJ_READ + ["log", "--no-graph", "-r", revset, "-T", 'change_id ++ " " ++ commit_id ++ "\\n"'])
+        known = [tuple(line.split()) for line in seen.stdout.splitlines() if len(line.split()) == 2] if seen.returncode == 0 else []
+        for change in chunk:
+            hit = next((commit for change_id, commit in known if change_id.startswith(change) or commit.startswith(change)), None)
+            found[change] = (Landing.NOT_ANCESTOR, hit) if hit is not None else (Landing.UNKNOWN, "")
+    return found
