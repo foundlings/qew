@@ -34,7 +34,7 @@ Work
   qew next-id     print the next free id (or ids) for an item kind
   qew set         change header fields
   qew comment     add a comment to an item
-  qew item        attach | detach | extract: files and directories owned by an item
+  qew item        attach | detach | extract | rename: files owned by an item; move an item to another id
   qew start       claim work
   qew release     give a claim up
   qew evidence    record the code changes that deliver an item
