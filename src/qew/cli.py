@@ -185,7 +185,7 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     set_.add_argument("--reason", help="with --add-label gated (required then): what outside the repository the work waits on; kept as a comment")
     set_.add_argument("--json", action="store_true", help="machine-readable output")
     set_.add_argument("--edit", action="store_true", help="rewrite the body in $VISUAL or $EDITOR")
-    set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
+    set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work (also with --manifest)")
 
     check = commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
     check.add_argument("--json", action="store_true", help="machine-readable report: valid, cycles, contradictions, text_findings")
@@ -278,7 +278,7 @@ def _run(arguments: argparse.Namespace) -> None:
         if arguments.items or any(getattr(arguments, key) is not None for key in ("title", "parent", "priority", "kind", "tracks", "pr", "due", "needs", "labels", "body", "body_file")) \
                 or arguments.add_label or arguments.remove_label or arguments.field or arguments.clear_field or arguments.edit or arguments.no_parent or arguments.reason:
             raise QewError("--manifest replaces ITEM and the other options: give the manifest alone", 2)
-        print(cmd_items.set_manifest(config, Path(arguments.manifest), arguments.dry_run))
+        print(cmd_items.set_manifest(config, Path(arguments.manifest), arguments.dry_run, arguments.closed))
     elif command == "set":
         if not arguments.items:
             raise QewError("give ITEM..., or --manifest FILE", 2)

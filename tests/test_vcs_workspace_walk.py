@@ -33,7 +33,7 @@ class WorkspaceGitStoreWalk(unittest.TestCase):
         self.world = World()
         self.addCleanup(self.world.close)
         self.main = self.world.base / "main"
-        jj(self.world.base, "git", "init", str(self.main))
+        jj(self.world.base, "git", "init", "--no-colocate", str(self.main))  # newer jj colocates by default; this walk needs the plain jj store
         store = (self.main / ".jj" / "repo" / "store" / "git_target").read_text(encoding="utf-8").strip()
         self.git_dir = (self.main / ".jj" / "repo" / "store" / store).resolve()
         git(self.main, "--git-dir", str(self.git_dir), "remote", "add", "origin", "https://example.invalid/acme/widgets.git")
