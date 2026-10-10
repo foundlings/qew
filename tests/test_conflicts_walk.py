@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from tests.fake_forgejo import TOKEN, FakeForgejo
 from tests.ledger_harness import QUOTE, World, git, jj_available
 
-EVERY = "\n[replication]\nfetch_interval_s = 0\nauto_forge_sync = false\n"
+EVERY = "\n[replication]\nfetch_interval_s = 0\nauto_forge_sync = false\ndivergences = \"report\"\n"
 OFFLINE = {"QEW_OFFLINE": "1"}
 
 

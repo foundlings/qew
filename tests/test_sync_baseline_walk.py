@@ -15,7 +15,7 @@ from qew import ledger_config
 from tests.fake_github import TOKEN, FakeGitHub
 from tests.ledger_harness import QUOTE, World
 
-OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\n"
+OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\ndivergences = \"report\"\n"
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
 
 

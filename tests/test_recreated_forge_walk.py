@@ -17,7 +17,7 @@ from tests.ledger_harness import QUOTE, World
 from tests.memory_forge import MemoryForge
 
 MIRRORS = '\n[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/o/r"\n'
-OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\n"
+OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\ndivergences = \"report\"\n"
 
 
 class RecreatedForgeWalk(unittest.TestCase):
