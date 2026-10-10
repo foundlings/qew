@@ -238,6 +238,10 @@ def _sync_session(config: Config, repo: LedgerRepo, committing: bool, replicatin
                 _commit(repo, config, "sync", entries, rollback_on_failure=False)
                 if replicating:
                     repo.push(rep.timeout_s)
+        elif replicating and repo.unpushed():
+            # every write was checkpointed (committed on the way, never pushed): nothing is left to commit, but commits are
+            with _lock(config.ledger_path, "push.lock", "sync"):
+                repo.push(rep.timeout_s)
         if push_repos:
             from qew import repo_push
 
