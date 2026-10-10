@@ -10,6 +10,7 @@ from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.assignees import assignees_after
 from qew.ledger_event import State, attachments_after
+from qew.references import external_references
 from qew.ledger_item import Kind
 from qew.ledger_ids import sort_key
 from qew.ledger_store import Snapshot
@@ -246,12 +247,13 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     data.update(epic)
     tree = attachments_after(snapshot.events[item_id])
     extra_assignees = assignees_after(snapshot.events[item_id])
+    cross = external_references(item.body, *(str(c["text"]) for c in comments))
     reactions: dict[str, int] = next((m["reactions"] for m in ledger.load_mirrors(item_id) if m.get("reactions")), {})
     related = (
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
         ("blocking", [read_view.related(snapshot, b) for b in blocks]),
         ("children", [read_view.related(snapshot, k) for k in kids]),
-        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("reactions", reactions), ("body", item.body),
+        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("reactions", reactions), ("references", cross), ("body", item.body),
     )
     for key, value in related:
         if value:
@@ -297,6 +299,8 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         print(line)
     if extra_assignees:
         print(f"assignees: {' '.join(extra_assignees)}")
+    if cross:
+        print(f"references: {' '.join(cross)}")
     if reactions:
         print("reactions: " + ", ".join(f"{name} {count}" for name, count in reactions.items()))
     if tree:
