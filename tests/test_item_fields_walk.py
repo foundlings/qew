@@ -102,6 +102,19 @@ class ItemFieldsWalk(unittest.TestCase):
         self.assertEqual(self.world.run("set", "--manifest", str(path)).returncode, 0)
         self.assertEqual(self.show(item)["fields"], {"phase": ["1"]})
 
+    def test_a_manifest_changes_finished_items_only_with_closed(self) -> None:
+        """Prevents a conversion that cannot reach history: finished items refuse a manifest unless --closed is given."""
+        finished = self.world.create("--kind", "task", "--title", "Done work", "--label", "phase:3")
+        self.assertEqual(self.world.run("close", finished, "--reason", "not_planned").returncode, 0)
+        path = self.world.base / "m.jsonl"
+        path.write_text(json.dumps({"item": finished, "fields": {"phase": "3"}, "remove_label": "phase:3"}) + "\n")
+        self.assertEqual(self.world.run("set", "--manifest", str(path)).returncode, 2)
+        done = self.world.run("set", "--manifest", str(path), "--closed")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        data = self.show(finished)
+        self.assertEqual((data["fields"], data["labels"]), ({"phase": ["3"]}, []))
+        self.assertEqual(self.world.run("check").returncode, 0)
+
     def test_a_plan_file_creates_items_with_fields(self) -> None:
         """Prevents `create --from-file` dropping fields: each entry's `fields` object lands on its item."""
         plan = self.world.base / "plan.jsonl"
