@@ -616,7 +616,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _injected(self) -> dict[str, Any] | None:
         for failure in self.fake.failures:
-            if failure["left"] > 0 and failure["part"] in self.path:
+            method, _, part = failure["part"].rpartition(" ")  # "POST /issues" limits a failure to one method
+            if failure["left"] > 0 and part in self.path and (not method or method == self.command):
                 if failure.get("skip", 0) > 0:
                     failure["skip"] -= 1
                     return None
