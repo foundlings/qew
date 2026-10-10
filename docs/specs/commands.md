@@ -473,6 +473,9 @@ A pull request never carries a closing keyword (any `closes|fixes|resolves` form
 finishing work is `qew complete`, or `qew land` after the merge. The ledger records who opened a pull request
 and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own text is never that record.
 - `qew pr`: the group for `open`, `check`, `ready`, `close` and `merge`.
+- `qew pr open` for an item no mirror selects (a task when the mirror takes epics and issues): the pull request is recorded on the
+  item, and the issue it references and the target come from the nearest mirrored ancestor, as task claims do; ready, check and
+  merge then work as for any other item. An item the mirror does select but has not synced still asks for `qew sync`.
 - `qew pr open ITEM [--target T] [--head BRANCH] [--base BRANCH] [--ready] [--what TEXT] [--why TEXT]
   [--testing TEXT] [--body-file FILE] [--json]`: a draft assigned to its opener (the actor, or `QEW_FORGE_LOGIN` when the forge login differs; a login
   the forge refuses leaves it unassigned and prints a note on stderr); the mirror file is written only
