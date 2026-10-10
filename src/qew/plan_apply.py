@@ -17,7 +17,7 @@ from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import Event, State, fold, parse_event
-from qew.ledger_ids import next_id, valid_id
+from qew.ledger_ids import LETTER_JUMP, letter_rank, letters_head, next_id, valid_id
 from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
 from qew.ledger_store import Ledger, now
 from qew.plan_file import KEY_SOURCE, Entry, Plan
@@ -157,11 +157,13 @@ def prepare(
             if imported.lower() in taken:
                 raise QewError(f"{entry.label}: item {imported} already exists", 2)
             kind = entry.spec.get("kind", "issue")
-            if not import_events and ledger.id_modes[kind] == "letters":
-                expected = next_id("letters", [*existing, *ids.values()])
-                if imported != expected:
-                    raise QewError(f"{entry.label}: {kind} ids run in strict letter order, so the next is {expected}, not {imported} "
-                                   f"(leave the id out, or ask `qew next-id --kind {kind}`)", 2)
+            if not import_events and ledger.id_modes[kind] == "letters" and re.fullmatch(r"[A-Z]+", imported):
+                known = [*existing, *ids.values()]
+                head = letters_head(known)
+                if head is not None and letter_rank(imported) - letter_rank(head) > LETTER_JUMP:
+                    expected = next_id("letters", known)
+                    raise QewError(f"{entry.label}: {kind} ids run in letter order, so {imported} is far past the end of the sequence; "
+                                   f"the next is {expected} (leave the id out, or ask `qew next-id --kind {kind}`)", 2)
             ids[entry.key] = imported
         else:
             kind = entry.spec.get("kind", "issue")

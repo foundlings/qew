@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from qew.errors import QewError
 
 MODES = ("base35-time", "letters", "counter")
+DEFAULT_MODES = {"epic": "letters", "issue": "base35-time", "task": "base35-time"}  # phases read A, B .. AA; the rest merge-safe
 # 35 characters: digits and lowercase letters without `l`, which reads as `1`.
 _ALPHABET = "0123456789abcdefghijkmnopqrstuvwxyz"
 _EPOCH = 1_577_836_800  # 2020-01-01T00:00:00Z
@@ -137,8 +138,9 @@ def sort_key(item_id: str) -> tuple[int, str]:
 
 
 def parse_modes(value: object, kinds: Iterable[str]) -> dict[str, str]:
-    """`id_mode = "base35-time"` for every kind, or a table with one mode per kind (others default to base35-time)."""
-    modes = {kind: "base35-time" for kind in kinds}
+    """`id_mode = "base35-time"` for every kind, or a table with one mode per kind (a kind left out gets its default:
+    letters for epics, base35-time for issues and tasks)."""
+    modes = {kind: DEFAULT_MODES.get(kind, "base35-time") for kind in kinds}
     if value is None:
         return modes
     if isinstance(value, str):

@@ -48,7 +48,7 @@ class IdModeNameWalk(unittest.TestCase):
         result = self.world.run("init")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         text = self.config.read_text()
-        self.assertIn('id_mode = "base35-time"', text)
+        self.assertIn('issue = "base35-time"', text)
         self.assertNotIn('"time"', text)
 
 
