@@ -247,13 +247,14 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     data.update(epic)
     tree = attachments_after(snapshot.events[item_id])
     extra_assignees = assignees_after(snapshot.events[item_id])
+    timeline = [e.data for e in sorted((e for e in snapshot.events[item_id] if e.type == "forge_timeline"), key=lambda e: e.id)]
     cross = external_references(item.body, *(str(c["text"]) for c in comments))
     reactions: dict[str, int] = next((m["reactions"] for m in ledger.load_mirrors(item_id) if m.get("reactions")), {})
     related = (
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
         ("blocking", [read_view.related(snapshot, b) for b in blocks]),
         ("children", [read_view.related(snapshot, k) for k in kids]),
-        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("reactions", reactions), ("references", cross), ("body", item.body),
+        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("reactions", reactions), ("references", cross), ("timeline", timeline), ("body", item.body),
     )
     for key, value in related:
         if value:
@@ -299,6 +300,10 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         print(line)
     if extra_assignees:
         print(f"assignees: {' '.join(extra_assignees)}")
+    if timeline:
+        print("timeline:")
+        for e in timeline:
+            print("  " + " ".join(p for p in (str(e["when"]), str(e["who"]), str(e["kind"]), str(e.get("detail", ""))) if p))
     if cross:
         print(f"references: {' '.join(cross)}")
     if reactions:

@@ -366,6 +366,26 @@ def append_forge_close(ledger: Ledger, item_id: str, reason: str) -> None:
     ledger.append_event(item_id, "completed", provenance="forge-import")
 
 
+TIMELINE_LIMIT = 200  # entries kept per imported issue
+
+
+def _record_timeline(ledger: Ledger, target: Target, item_id: str, number: int) -> None:
+    """The forge's activity history, once, when the issue is first imported; text only, no effect on state."""
+    if target.mirror.options.get("timeline", True) is False:
+        return
+    try:
+        entries = target.forge.timeline(number)
+    except Unsupported:
+        return
+    for entry in entries[:TIMELINE_LIMIT]:
+        fields = {"kind": clean_line(entry.kind), "who": clean_line(entry.actor).replace(" ", "_") or "unknown",
+                  "when": clean_line(entry.when)}
+        if not all(fields.values()):
+            continue
+        detail = clean_line(entry.detail)
+        ledger.append_event(item_id, "forge_timeline", **fields, **({"detail": detail} if detail else {}), provenance="forge-import")
+
+
 def _import_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, issue: RemoteIssue) -> None:
     from qew.ledger_item import from_header
     from qew.ledger_store import now
@@ -381,6 +401,7 @@ def _import_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: Pu
     ledger.append_event(item_id, "drafted", provenance="forge-import")
     if not issue.open:
         append_forge_close(ledger, item_id, issue.close_reason)
+    _record_timeline(ledger, target, item_id, issue.number)
     seen = sync_plan.seen_of(issue, [])
     seen = {**seen, "title": item.title, "body": item.body.strip(), "labels": labels}
     ledger.write_mirror(item_id, target.slug, {

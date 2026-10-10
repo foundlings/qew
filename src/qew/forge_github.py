@@ -15,6 +15,7 @@ from qew import label_style
 from qew.forge import (
     RemoteReview,
     RemoteReviewComment,
+    TimelineEntry,
     CLOSE_REASONS,
     close_reason_of,
     is_dead_twin,
@@ -249,6 +250,20 @@ def _reaction_counts(summary: object) -> tuple[tuple[str, int], ...]:
     if not isinstance(summary, dict):
         return ()
     return tuple((name, count) for name, count in summary.items() if name not in ("url", "total_count") and type(count) is int and count > 0)
+
+
+def _timeline_detail(event: dict[str, Any]) -> str:
+    """What a timeline event changed, as plain text."""
+    for key in ("label", "assignee", "milestone", "assigner"):
+        named = event.get(key)
+        if isinstance(named, dict):
+            text = named.get("name") or named.get("login") or named.get("title")
+            if isinstance(text, str):
+                return text
+    rename = event.get("rename")
+    if isinstance(rename, dict) and isinstance(rename.get("from"), str) and isinstance(rename.get("to"), str):
+        return f"{rename['from']} -> {rename['to']}"
+    return ""
 
 
 def _wanted_assignees(spec: IssueSpec) -> list[str]:
@@ -801,6 +816,20 @@ class GitHub(Forge):
                     reason = event.get("state_reason")
                     found.append(reason if reason in ("completed", "not_planned", "duplicate") else "")
         return tuple(found)
+
+    @override
+    def timeline(self, number: int) -> list[TimelineEntry]:
+        found: list[TimelineEntry] = []
+        for page in self._wire.pages(f"{self._repo_path}/issues/{number}/events?per_page=100"):
+            for entry in _array(page, "issue event list"):
+                event = _obj(entry, "issue event")
+                kind, when = event.get("event"), event.get("created_at")
+                actor = event.get("actor")
+                if not isinstance(kind, str) or not isinstance(when, str):
+                    continue
+                login = actor.get("login") if isinstance(actor, dict) else None
+                found.append(TimelineEntry(kind, login if isinstance(login, str) else "unknown", when, _timeline_detail(event)))
+        return found
 
     @override
     def list_comments(self, number: int) -> list[RemoteComment]:

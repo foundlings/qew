@@ -182,6 +182,14 @@ class RemoteComment:
 
 
 @dataclass(frozen=True)
+class TimelineEntry:
+    kind: str  # the forge's event name (labeled, assigned, renamed, ...); untrusted text
+    actor: str
+    when: str  # ISO timestamp as the forge reports it
+    detail: str  # what changed, as plain text; "" when nothing more is known
+
+
+@dataclass(frozen=True)
 class RemoteReview:
     id: str
     author: str  # forge login; untrusted data like every forge field
@@ -362,6 +370,10 @@ class Forge(ABC):
 
     def create_comment(self, number: int, body: str) -> RemoteComment:
         raise Unsupported("create_comment")
+
+    def timeline(self, number: int) -> list[TimelineEntry]:
+        """The issue's activity history (who did what, when), oldest first."""
+        raise Unsupported("timeline")
 
     def list_reviews(self, number: int) -> list[RemoteReview]:
         """The reviews of a pull request in submission order."""
