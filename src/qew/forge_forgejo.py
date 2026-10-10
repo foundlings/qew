@@ -356,6 +356,8 @@ class Forgejo(Forge):
             "state": "open" if spec.open else "closed",
             "assignees": [spec.assignee] if spec.assignee else [],
         }
+        if spec.keep_state:
+            del payload["state"]
         self._call("PATCH", f"/issues/{number}", payload)
         self._call("PUT", f"/issues/{number}/labels", {"labels": label_ids})
         return self.read_issue(number)

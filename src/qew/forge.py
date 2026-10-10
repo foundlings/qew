@@ -132,6 +132,7 @@ class IssueSpec:
     assignee: str = ""  # forge login; "" clears
     assignees: tuple[str, ...] = ()  # further logins beside `assignee`
     issue_type: str = ""  # the forge's issue type name; "" leaves it alone
+    keep_state: bool = False  # an update leaves the forge's open or closed state as it is (a diverged issue waits for a human)
 
 
 @dataclass(frozen=True)

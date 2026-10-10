@@ -144,12 +144,22 @@ def priority_option(priority: int) -> tuple[str, bool]:
     return PRIORITY_OPTIONS[min(priority, last)][0], priority > last
 
 
+DIVERGED_LABEL = "qew:diverged"
+
+
+def diverged_fields(snapshot: Snapshot, item_id: str, slug: str) -> frozenset[str]:
+    """The fields with an open divergence on this target. A contested claim is arbitrated elsewhere, and a missing issue
+    (`exists`) has nothing to label or move: neither counts."""
+    return frozenset(str(e.get("field")) for e in snapshot.folds[item_id].divergences
+                     if e.type != "claimed" and e.get("target") == slug and e.get("field") != "exists")
+
+
 def managed_filter(mode: str) -> str:
     """Overlay mirrors keep human issues off the board; repository mode (qew owns the tracker) is bare."""
     return MANAGED_FILTER if mode == "overlay" else ""
 
 
-def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> tuple[str, ...]:
+def labels(snapshot: Snapshot, item: Item, overlay: bool = False, diverged: bool = False) -> tuple[str, ...]:
     """The item's own labels, its priority, its author and `epic`/`task`; overlay mirrors add the state and Status labels.
 
     Repository mode keeps the tracker quiet: the board's Status field carries state, so no `qew:` or `status:` label.
@@ -160,6 +170,9 @@ def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> tuple[str, 
     if overlay:
         state = snapshot.folds[item.id].state
         managed = ["qew:managed", f"qew:{state.value if state else 'unknown'}", f"status:{column(snapshot, item.id)}", *managed]
+    if diverged:  # a contested issue is marked, and a managed mirror stops claiming it (board views filter on qew:managed)
+        managed = [label for label in managed if label != "qew:managed"]
+        managed.append(DIVERGED_LABEL)
     author = ledger_author.author(snapshot, item.id)
     if author:
         problem = ledger_author.label_problem(author)
@@ -171,7 +184,7 @@ def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> tuple[str, 
 
 def issue_spec(
     snapshot: Snapshot, item: Item, numbers: dict[str, int], assignees: dict[str, str], overlay: bool = False,
-    link: Callable[[str, str], str | None] | None = None,
+    link: Callable[[str, str], str | None] | None = None, diverged: bool = False,
 ) -> IssueSpec:
     """The desired remote issue; `numbers` maps already-mirrored item ids to this target's issue numbers."""
     folded = snapshot.folds[item.id]
@@ -185,7 +198,7 @@ def issue_spec(
     return IssueSpec(
         title=item.title,
         body=_body(item, state, numbers, attachments_after(snapshot.events[item.id]), link),
-        labels=labels(snapshot, item, overlay),
+        labels=labels(snapshot, item, overlay, diverged),
         open=state not in (State.COMPLETED, State.CLOSED),
         close_reason=closed_reason,
         assignee=assignees.get(folded.owner, ""),

@@ -310,6 +310,26 @@ def _prune(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetRep
         report.pruned += 1
 
 
+def _take_off_board(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, board: Board,
+                    record: MirrorRecord) -> None:
+    """A diverged issue leaves the project board (its issue stays); settling the divergence puts the card back."""
+    current = _read_mirror(ledger, item_id, target.slug) or record
+    if "column" not in current or current.get("kind") != "issue":
+        return
+    try:
+        target.forge.remove_from_board(board, current["number"])
+    except Unsupported as error:
+        if error.capability not in report.skipped:
+            report.skipped.append(error.capability)
+        return
+    except ForgeError as error:
+        report.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+        return
+    clean = {k: v for k, v in current.items() if k not in ("_target", "column", "priority", "fields")}
+    ledger.write_mirror(item_id, target.slug, cast(MirrorRecord, clean))
+    report.pruned += 1
+
+
 def _read_mirror(ledger: Ledger, item_id: str, slug: str) -> MirrorRecord | None:
     return next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug), None)
 
@@ -350,8 +370,12 @@ def _sync_item(
     pace: Callable[[], None] = lambda: None,
 ) -> None:
     item = snapshot.items[item_id]
-    spec = sync_plan.issue_spec(snapshot, item, numbers, assignees, target.mirror.mode == "overlay", target.attachment_link)
+    held = sync_plan.diverged_fields(snapshot, item_id, target.slug)
+    diverged = bool(held)
+    spec = sync_plan.issue_spec(snapshot, item, numbers, assignees, target.mirror.mode == "overlay", target.attachment_link, diverged)
     spec = replace(spec, issue_type=sync_plan.issue_type_for(target.mirror.options.get("issue_types"), item))
+    if diverged:  # whatever was changed on the forge stays until a human accepts or rejects it
+        spec = replace(spec, keep_state=True, issue_type="" if "type" in held else spec.issue_type)
     column = sync_plan.column(snapshot, item_id)
     record = _read_mirror(ledger, item_id, target.slug)
     fingerprint = sync_plan.fingerprint(spec, column if board else None)
@@ -389,8 +413,11 @@ def _sync_item(
     _link(ledger, snapshot, target, report, item_id, numbers, record)
     if record.get("kind") == "issue":
         record = comment_sync.push(ledger, snapshot, target, report, item_id, record, pace)
-        record = _sub_issue(ledger, snapshot, target, report, item_id, numbers, record, pace)
-    if board is not None:
+        if "parent" not in held:
+            record = _sub_issue(ledger, snapshot, target, report, item_id, numbers, record, pace)
+    if board is not None and diverged:
+        _take_off_board(ledger, snapshot, target, report, item_id, board, record)
+    elif board is not None:
         _place(ledger, snapshot, target, report, item_id, board, column, record, placements, fresh=unchecked)
         _card_fields(ledger, snapshot, target, report, item_id, board)
     if unchecked:

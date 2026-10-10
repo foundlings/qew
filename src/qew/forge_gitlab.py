@@ -343,7 +343,7 @@ class GitLab(Forge):
             "title": spec.title, "description": spec.body, "labels": _csv((*spec.labels, *kept)),
             "assignee_ids": self._assignee_ids(spec.assignee),
         }
-        if current.open != spec.open:
+        if current.open != spec.open and not spec.keep_state:
             payload["state_event"] = "reopen" if spec.open else "close"
         return self._write_issue(number, payload)
 
