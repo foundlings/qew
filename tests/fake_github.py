@@ -286,6 +286,12 @@ class FakeGitHub:
             "views": {"nodes": [dict(v) for v in project.get("views", [])]},
         }
 
+    def gql_IssueBodyHistory(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+        issue = next((i for i in self.issues.values() if i["node_id"] == variables["id"]), None)
+        edits = [] if issue is None else issue.get("body_edits", [])
+        return {"data": {"node": {"userContentEdits": {"nodes": [
+            {"editor": {"login": e["editor"]}, "editedAt": e["at"], "diff": e["text"]} for e in edits]}}}}
+
     def gql_OwnerProjects(self, variables: Dict[str, Any]) -> Dict[str, Any]:
         if variables["owner"] != OWNER:
             return {"data": {"repositoryOwner": None}}

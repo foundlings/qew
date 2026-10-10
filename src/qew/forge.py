@@ -190,6 +190,13 @@ class TimelineEntry:
 
 
 @dataclass(frozen=True)
+class BodyRevision:
+    editor: str  # forge login; untrusted
+    when: str  # ISO timestamp
+    text: str  # the body as that edit left it
+
+
+@dataclass(frozen=True)
 class RemoteReview:
     id: str
     author: str  # forge login; untrusted data like every forge field
@@ -370,6 +377,10 @@ class Forge(ABC):
 
     def create_comment(self, number: int, body: str) -> RemoteComment:
         raise Unsupported("create_comment")
+
+    def body_history(self, issue: RemoteIssue) -> list[BodyRevision]:
+        """Earlier wordings of the issue body, oldest first."""
+        raise Unsupported("body_history")
 
     def timeline(self, number: int) -> list[TimelineEntry]:
         """The issue's activity history (who did what, when), oldest first."""

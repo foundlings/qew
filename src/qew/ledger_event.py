@@ -50,6 +50,8 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     "unassigned": (("login",), tuple(State)),
     # What the forge's own timeline recorded before the issue reached the ledger (docs/specs/ledger.md, Forge timeline): history only.
     "forge_timeline": (("kind", "who", "when"), tuple(State)),
+    # An earlier wording of the issue body, kept at import (docs/specs/ledger.md, Forge timeline): history only.
+    "body_revision": (("who", "when", "hash", "text"), tuple(State)),
     "forge_divergence": (("target", "field"), tuple(State)),
     "divergence_accepted": (("ref",), tuple(State)),
     "divergence_rejected": (("ref",), tuple(State)),
@@ -196,6 +198,10 @@ def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None
                 raise QewError(f"{where}: `{key}` must be non-empty text", 1)
         if "detail" in value and not isinstance(value["detail"], str):
             raise QewError(f"{where}: `detail` must be text", 1)
+    elif kind == "body_revision":
+        for key in ("who", "when", "hash", "text"):
+            if not isinstance(value[key], str):
+                raise QewError(f"{where}: `{key}` must be text", 1)
     elif kind in ("commented", "comment_edited", "comment_deleted"):
         for key in ("reply_to", "ref", "key"):
             if key in value and (not isinstance(value[key], str) or not value[key].strip()):
