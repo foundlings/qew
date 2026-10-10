@@ -308,6 +308,11 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
     if issue.open != seen["open"]:
         _state_changed(ledger, snapshot, target, report, item_id, issue)
         changed = True
+    recorded_parent = record.get("parent_number")
+    if recorded_parent is not None and issue.parent != recorded_parent:  # someone moved it on the forge: report it, never override silently
+        _diverge(ledger, snapshot, target, report, item_id, issue.number, "parent",
+                 f"#{issue.parent}" if issue.parent else "none", f"#{recorded_parent}" if recorded_parent else "none")
+        changed = True
     if issue.assignee != seen["assignee"]:
         _diverge(ledger, snapshot, target, report, item_id, issue.number, "assignee", issue.assignee or "(none)",
                  snapshot.folds[item_id].owner or "(none)")

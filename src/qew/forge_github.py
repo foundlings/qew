@@ -233,6 +233,14 @@ def _nullable_str(data: dict[str, Any], key: str, what: str) -> str:
     return value
 
 
+def _parent_number(url: object) -> int:
+    """The issue number at the end of GitHub's `parent_issue_url`, 0 when the issue has no parent."""
+    if not isinstance(url, str):
+        return 0
+    tail = url.rstrip("/").rsplit("/", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+
+
 def parse_issue(data: Any) -> RemoteIssue:
     issue = _obj(data, "issue")
     state = _str(issue, "state", "issue")
@@ -255,6 +263,8 @@ def parse_issue(data: Any) -> RemoteIssue:
         comments=_int(issue, "comments", "issue") if "comments" in issue else 0,
         milestone=0 if issue.get("milestone") is None else _int(_obj(issue["milestone"], "issue.milestone"), "number", "milestone"),
         close_reason=close_reason_of(reason) if state == "closed" else "",
+        issue_id=issue["id"] if type(issue.get("id")) is int else 0,
+        parent=_parent_number(issue.get("parent_issue_url")),
     )
 
 
@@ -513,6 +523,7 @@ class GitHub(Forge):
         self._repo = repo
         self._repo_path = f"/repos/{quote(namespace, safe='')}/{quote(repo, safe='')}"
         self._wire = _Wire(mirror, transport, env)
+        self._ids: dict[int, int] = {}  # issue number -> numeric id (sub-issues are linked by it)
         self._nodes: dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
         self._projects: dict[int, _Project] = {}  # project number -> structure read this run
         self._raw_projects: dict[int, dict[str, Any]] = {}  # project number -> the structure node as GitHub sent it
@@ -527,7 +538,24 @@ class GitHub(Forge):
     def _remember(self, issue: RemoteIssue) -> RemoteIssue:
         if issue.node_id:
             self._nodes[issue.number] = issue.node_id
+        if issue.issue_id:
+            self._ids[issue.number] = issue.issue_id
         return issue
+
+    def _issue_id(self, number: int) -> int:
+        if number not in self._ids:
+            self.read_issue(number)
+        if number not in self._ids:
+            raise ForgeRejected(422, f"issue #{number} has no numeric id")
+        return self._ids[number]
+
+    @override
+    def set_parent(self, number: int, parent: int | None, previous: int | None) -> None:
+        child = self._issue_id(number)
+        if parent:
+            self._wire.rest("POST", f"{self._repo_path}/issues/{parent}/sub_issues", {"sub_issue_id": child, "replace_parent": True})
+        elif previous:
+            self._wire.rest("DELETE", f"{self._repo_path}/issues/{previous}/sub_issue", {"sub_issue_id": child})
 
     def _node_id(self, number: int) -> str:
         if number not in self._nodes:

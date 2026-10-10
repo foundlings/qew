@@ -83,12 +83,33 @@ def accept(config: Config, reference: str, reason: str = "not_planned", complete
                 ledger.append_event(item_id, "closed", reason=reason, provenance="forge")
     elif field == "state" and forge == "open" and state in (State.CLOSED, State.COMPLETED):
         ledger.append_event(item_id, "reopened", provenance="forge")
+    elif field == "parent":
+        _accept_parent(ledger, item_id, divergence)
     elif field in ("title", "labels"):
         item = snapshot.items[item_id]
         ledger.write_item(item.with_value(field, forge), overwrite=True)
         ledger.append_event(item_id, "field", key=field, old=item.header()[field], new=forge, provenance="forge")
     ledger.append_event(item_id, "divergence_accepted", ref=divergence.id, **_why(note))
     return f"{item_id} accepted {field}={forge}"
+
+
+def _accept_parent(ledger: Ledger, item_id: str, divergence: Event) -> None:
+    """The forge's parent becomes the ledger's: the item mirrored as that issue number is the new parent."""
+    slug = divergence.get("target")
+    wanted = str(divergence.get("forge"))
+    number = int(wanted[1:]) if wanted.startswith("#") else 0
+    parent = ""
+    if number:
+        parent = next((other for other in ledger.item_ids() for record in ledger.load_mirrors(other)
+                       if record["_target"] == slug and record.get("number") == number and record.get("kind") == "issue"), "")
+        if not parent:
+            raise QewError(f"no ledger item is mirrored as issue #{number}; settle the parent on the forge or in the ledger by hand", 2)
+    item = ledger.load_item(item_id)
+    ledger.write_item(item.with_value("parent", parent), overwrite=True)
+    ledger.append_event(item_id, "field", key="parent", old=item.parent, new=parent, provenance="forge")
+    for record in ledger.load_mirrors(item_id):
+        if record["_target"] == slug:
+            ledger.write_mirror(item_id, slug, updated(record, parent_number=number))
 
 
 def _why(note: str) -> JsonObject:
@@ -106,6 +127,9 @@ def reject(config: Config, reference: str | list[str] | tuple[str, ...], note: s
     slug = divergence.get("target")
     for record in ledger.load_mirrors(item_id):
         if record["_target"] == slug:
+            if divergence.get("field") == "parent":  # the push compares the ledger parent with what is on the forge now
+                forge_parent = str(divergence.get("forge"))
+                record = updated(record, parent_number=int(forge_parent[1:]) if forge_parent.startswith("#") else 0)
             ledger.write_mirror(item_id, slug, updated(record, synced_hash=""))  # forces the next push to rewrite the forge
     return f"{item_id} rejected {divergence.get('field')}={divergence.get('forge')}"
 

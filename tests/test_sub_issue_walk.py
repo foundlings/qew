@@ -72,6 +72,19 @@ class SubIssueWalk(unittest.TestCase):
         self.assertEqual(self.parent_of("Work"), self.number("Phase"))
         self.assertIn("divergences=0", self.world.run("status").stdout)
 
+    def test_accepting_a_parent_moved_on_github_makes_it_the_ledger_parent(self) -> None:
+        """Prevents a one-way door: `qew accept` takes the human's move into the ledger and the next sync leaves it alone."""
+        self.sync()
+        self.fake.issues[self.number("Work")]["parent"] = self.number("Other phase")
+        self.sync()
+        self.assertEqual(self.world.run("accept", self.child).returncode, 0)
+        self.assertIn(f"parent: {self.other}", self.world.run("show", self.child).stdout)
+        calls = self.sub_issue_calls()
+        self.sync()
+        self.assertEqual(self.sub_issue_calls(), calls)
+        self.assertEqual(self.parent_of("Work"), self.number("Other phase"))
+        self.assertIn("divergences=0", self.world.run("status").stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
