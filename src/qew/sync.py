@@ -99,13 +99,17 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
 
 
 def _sub_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, numbers: dict[str, int],
-               record: MirrorRecord) -> MirrorRecord:
-    """Show the ledger parent as the forge's own parent relation, set once and again only when the ledger parent moves."""
+               record: MirrorRecord, pace: Callable[[], None]) -> MirrorRecord:
+    """Show the ledger parent as the forge's own parent relation, set once and again only when the ledger parent moves.
+    Each call is a mutation and counts against the create pacing; a mirror with `sub_issues = false` skips the mapping."""
+    if target.mirror.options.get("sub_issues") is False:
+        return record
     item = snapshot.items[item_id]
     desired = numbers.get(item.parent, 0) if item.parent else 0
     recorded = record.get("parent_number")
     if recorded == desired or (recorded is None and desired == 0):
         return record
+    pace()
     try:
         target.forge.set_parent(record["number"], desired or None, recorded or None)
     except Unsupported as error:
@@ -354,7 +358,7 @@ def _sync_item(
     _link(ledger, snapshot, target, report, item_id, numbers, record)
     if record.get("kind") == "issue":
         record = comment_sync.push(ledger, snapshot, target, report, item_id, record, pace)
-        record = _sub_issue(ledger, snapshot, target, report, item_id, numbers, record)
+        record = _sub_issue(ledger, snapshot, target, report, item_id, numbers, record, pace)
     if board is not None:
         _place(ledger, snapshot, target, report, item_id, board, column, record, placements, fresh=unchecked)
     if unchecked:
