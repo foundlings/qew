@@ -36,8 +36,8 @@ class Rig:
             previous = self.world.create("--kind", "issue", "--title", f"Child {n}", "--parent", epic, *extra, "--quote", QUOTE)
             self.titles.append(f"Child {n}")
 
-    def sync(self, *extra: str):
-        return self.world.run("sync", *extra, env=ENV)
+    def sync(self, *extra: str, env: dict[str, str] | None = None):
+        return self.world.run("sync", *extra, env=ENV if env is None else env)
 
     def shape(self) -> list[tuple[str, str, tuple[str, ...], tuple[str, ...]]]:
         """What the forge holds, independent of the numbers it handed out."""
@@ -72,7 +72,7 @@ class ParallelSyncWalk(unittest.TestCase):
         """Prevents workers hammering a rate-limited forge: after the first 429 no worker starts another item."""
         rig = Rig(self, 4)
         rig.fake.fail_next(429, "", count=1000, skip=12, headers={"Retry-After": "60"})
-        result = rig.sync()
+        result = rig.sync(env={**ENV, "QEW_RATE_RETRIES": "0"})  # waiting is tested in test_rate_limit_walk; here the limit never lifts
         total = len(rig.fake.requests)
         self.assertIn("retry after 60s", result.stdout + result.stderr)
         self.assertLess(total, 12 + 4 * 6, "workers kept sending requests after the limit")

@@ -161,6 +161,15 @@ item stays open: other open issues with its marker are closed (a lower-numbered 
 item with no mirror adopts its lowest-numbered marker issue. GitLab and Forgejo search by marker on the server, so their
 lookup was never limited to the newest issues.
 
+## Rate limits and locks
+A call GitHub refuses as rate limited (a GraphQL `RATE_LIMITED` answer, or a REST 429 or 403 naming a rate limit) was not applied, so a
+repeatable call (never a create: the pacer learns the pace from that block) waits and is sent again: the `Retry-After` the forge named, else 30 s
+doubling per attempt with jitter, at most `forge_rate_retries` times (mirror option, default 6; env `QEW_RATE_RETRIES`), each wait capped by
+`forge_rate_max_wait` (300 s in the background worker, 60 s otherwise). One worker's wait closes a gate that pauses every worker of the process,
+and the sync summary says `rate limited N times; waited Ns`. A limit that outlasts the retries stops the target once with its retry time, as before.
+A sync takes the ledger lock only to commit and yields to any verb waiting for it (a waiter leaves a marker beside the lock), so `qew pr ready`,
+`start` and `complete` are never queued behind a long background sync.
+
 ## Board fields
 A mirror's `project_fields = { "Board field" = "source" }` fills custom Projects v2 fields on each card. A source is `kind`, `priority`,
 `state`, `field:NAME` (an item field's values joined by `, `) or `label:PREFIX` (the rest of the first label with that prefix). A text field

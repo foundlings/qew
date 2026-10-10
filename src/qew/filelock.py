@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import random
 import socket
+import threading
 import time
 from types import ModuleType
 from typing import Any
@@ -107,19 +108,66 @@ def is_held(path: Path) -> bool:
         os.close(fd)
 
 
+POLITE_MAX_S = 120.0  # the longest a polite taker yields to waiters before it asks for the lock anyway
+WAITER_STALE_S = 600.0  # a waiter marker older than this belongs to a process that is gone
+
+
+def _marker(path: Path) -> Path:
+    return path.with_name(f"{path.name}.waiting.{os.getpid()}.{threading.get_ident()}")
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # exists, not ours to signal
+    return True
+
+
+def waiters(path: Path) -> int:
+    """How many other live processes are waiting for the lock at `path` (they leave a marker beside it while they wait)."""
+    found = 0
+    for marker in path.parent.glob(f"{path.name}.waiting.*"):
+        pid, _, thread = marker.name.rsplit(".waiting.", 1)[-1].partition(".")
+        try:
+            fresh = time.time() - marker.stat().st_mtime < WAITER_STALE_S
+        except OSError:
+            continue
+        if pid.isdigit() and thread != str(threading.get_ident()) and fresh and _alive(int(pid)):
+            found += 1
+    return found
+
+
 @contextmanager
-def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT_S, what: str = "the ledger") -> Iterator[None]:
-    """Hold the lock at `path` for the block; wait up to `wait_s` seconds with backoff and jitter, then raise LockTimeout."""
+def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT_S, what: str = "the ledger",
+         polite: bool = False) -> Iterator[None]:
+    """Hold the lock at `path` for the block; wait up to `wait_s` seconds with backoff and jitter, then raise LockTimeout.
+
+    A waiter leaves a marker beside the lock. A `polite` taker (the background sync, which asks again and again) lets
+    waiters go first, for at most POLITE_MAX_S, so a long sync never keeps an interactive verb out."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT | _BINARY, 0o600)
     started = time.monotonic()
     attempt = 0
+    marker = _marker(path)
     try:
+        if polite:
+            while waiters(path) and time.monotonic() - started < POLITE_MAX_S:
+                time.sleep(0.05)
+            started = time.monotonic()
         while not _try_lock(fd):
             if time.monotonic() - started >= wait_s:
                 raise LockTimeout(path, what, read_holder(path), time.monotonic() - started)
+            if not polite:
+                try:
+                    marker.touch()
+                except OSError:
+                    pass
             time.sleep(min(0.25, 0.01 * 2 ** min(attempt, 5)) + random.uniform(0, 0.02))
             attempt += 1
+        marker.unlink(missing_ok=True)
         try:
             text = json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "verb": verb, "who": who, "since": time.time()})
             os.ftruncate(fd, 0)
@@ -132,4 +180,5 @@ def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT
         finally:
             _unlock(fd)
     finally:
+        marker.unlink(missing_ok=True)
         os.close(fd)

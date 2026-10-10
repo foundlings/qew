@@ -323,7 +323,7 @@ class BoardWalk(GitHubWalk):
     def test_graphql_errors_are_typed(self) -> None:
         self.fake.fail_next(200, "/api/graphql", body={"errors": [{"type": "RATE_LIMITED", "message": "slow"}]})
         with self.assertRaises(ForgeUnavailable):
-            self.backend.ensure_board(COLUMNS)
+            self.build(env={**ENV, "QEW_RATE_RETRIES": "0"}).ensure_board(COLUMNS)  # no waiting: the retries are tested in test_rate_limit_walk
         self.fake.fail_next(200, "/api/graphql", body={"errors": [{"type": "INSUFFICIENT_SCOPES", "message": "scope"}]})
         with self.assertRaises(ForgeAuth):
             self.backend.ensure_board(COLUMNS)
