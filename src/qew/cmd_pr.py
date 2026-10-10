@@ -14,7 +14,7 @@ import re
 import sys
 from collections.abc import Callable, Iterator
 
-from qew import branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, untrusted_text, vcs
+from qew import sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -24,6 +24,7 @@ from qew.ledger_event import State
 from qew.ledger_ids import valid_id
 from qew.ledger_item import Kind
 from qew.ledger_store import Ledger, Snapshot, actor, now
+from qew.mirror_types import MirrorRecord
 from qew.pr_record import PrRecord
 from qew.pr_verify import Outcome, apply_and_verify
 
@@ -223,6 +224,24 @@ def _refuse_other_items_branch(snapshot: Snapshot, head: str, covered: list[str]
         )
 
 
+def _ancestor_issues(config: Config, ledger: Ledger, snapshot: Snapshot, item_id: str, target: str | None) -> list[MirrorRecord]:
+    """For each mirror that does not select the item, the issue record of its nearest ancestor that has one on that target."""
+    found: list[MirrorRecord] = []
+    for mirror in mirrors_with_boards(ledger, config):
+        slug = ledger_config.mirror_slug(mirror)
+        if (target and target not in slug) or sync_plan.selects(snapshot, item_id, mirror.select):
+            continue  # a selected item gets its own issue from `qew sync`
+        seen, cursor = {item_id}, snapshot.items[item_id].parent
+        while cursor and cursor not in seen and cursor in snapshot.items:
+            seen.add(cursor)
+            record = next((m for m in ledger.load_mirrors(cursor) if m.get("kind") == "issue" and m["_target"] == slug), None)
+            if record is not None:
+                found.append(record)
+                break
+            cursor = snapshot.items[cursor].parent
+    return found
+
+
 def open_pull_request(config: Config, reference: str, options: OpenOptions = OpenOptions(), build: Build | None = None) -> Opened:
     extra = _body_file(options.body_file)
     ledger = ledger_for(config)
@@ -245,6 +264,8 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     issues = [m for m in ledger.load_mirrors(item_id) if m.get("kind") == "issue"]
     if options.target:
         issues = [m for m in issues if options.target in m["_target"]]
+    if not issues:  # an item no mirror selects (a task under epics-and-issues mirrors) has no issue: its nearest mirrored ancestor's stands in
+        issues = _ancestor_issues(config, ledger, snapshot, item_id, options.target)
     if len(issues) != 1:
         raise QewError(f"{item_id} has {len(issues)} matching issue mirrors; run `qew sync` first or pass --target", 2)
     issue = issues[0]
