@@ -83,7 +83,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
-_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_attach", "cmd_next_id")
+_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id")
 
 
 def top_level_commands() -> list[str]:
