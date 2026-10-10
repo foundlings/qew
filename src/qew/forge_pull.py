@@ -231,6 +231,17 @@ def _diverge(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullRep
     report.divergences += 1
 
 
+def _state_changed(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, item_id: str, issue: RemoteIssue) -> None:
+    """The forge's open or closed state moved since the baseline. It is a divergence only when it disagrees with what the
+    ledger projects (an open item closed by a human, a done item reopened); when the forge already agrees, the baseline
+    was stale (the close landed after it was written) and the caller just records the new one."""
+    ledger_open = snapshot.folds[item_id].state not in (State.COMPLETED, State.CLOSED)
+    if issue.open == ledger_open:
+        return
+    _diverge(ledger, snapshot, target, report, item_id, issue.number, "state",
+             "open" if issue.open else "closed", "open" if ledger_open else "closed", issue.close_reason)
+
+
 def _apply_header(ledger: Ledger, item: Item, key: str, value: str) -> Item:
     old = item.header()[key]
     updated = item.with_value(key, value)
@@ -295,8 +306,7 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
             _diverge(ledger, snapshot, target, report, item_id, issue.number, "labels", " ".join(labels), " ".join(item.labels))
         changed = True
     if issue.open != seen["open"]:
-        _diverge(ledger, snapshot, target, report, item_id, issue.number, "state",
-                 "open" if issue.open else "closed", "open" if seen["open"] else "closed", issue.close_reason)
+        _state_changed(ledger, snapshot, target, report, item_id, issue)
         changed = True
     if issue.assignee != seen["assignee"]:
         _diverge(ledger, snapshot, target, report, item_id, issue.number, "assignee", issue.assignee or "(none)",
@@ -323,8 +333,7 @@ def _pull_state_only(ledger: Ledger, snapshot: Snapshot, target: Target, report:
     """A one-way mirror: edits made there are not imported; only a close or reopen is flagged."""
     if issue.open == seen["open"]:
         return
-    _diverge(ledger, snapshot, target, report, item_id, issue.number, "state",
-             "open" if issue.open else "closed", "open" if seen["open"] else "closed", issue.close_reason)
+    _state_changed(ledger, snapshot, target, report, item_id, issue)
     _save(ledger, item_id, target.slug, record, {**seen, "open": issue.open})
 
 
