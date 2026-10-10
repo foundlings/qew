@@ -123,6 +123,37 @@ class ManifestWalk(unittest.TestCase):
                 self.assertIn(needle, refused.stderr)
                 self.assertEqual(self.commits(), before)
 
+    def test_evidence_manifest_recovers_ids_for_historical_completions_only(self) -> None:
+        """Prevents lost proof staying lost: a historical completion gets real ids in its header; stated absences are refused."""
+        one, two, three = self.items
+        for item, kind in ((one, "historical"), (two, "no-code")):
+            self.assertEqual(self.world.run("complete", "--manifest", self.write_complete(item, kind), "--quote", "Alexander: 'done per the old board'").returncode, 0)
+        sha = self.world.commit("the real work")
+        self.manifest({"item": one, "change_ids": [sha]})
+        result = self.world.run("evidence", "--manifest", str(self.path))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text = (self.world.ledger / "items" / one / "item.md").read_text()
+        self.assertIn(f"evidence: {sha}", text)
+        self.assertNotIn("evidence_absent", text)
+        self.assertIn("unchanged 1", self.world.run("evidence", "--manifest", str(self.path)).stdout)
+        three_done = self.world.run("complete", "--manifest", self.write_complete(three, "historical"), "--quote", "Alexander: 'done per the old board'")
+        self.assertEqual(three_done.returncode, 0, three_done.stdout + three_done.stderr)
+        self.manifest({"item": three, "change_ids": ["0123456789abcdef0123456789abcdef01234567"]})
+        unknown = self.world.run("evidence", "--manifest", str(self.path))
+        self.assertEqual(unknown.returncode, 2, unknown.stdout + unknown.stderr)
+        self.assertIn("does not resolve", unknown.stderr)
+        self.assertIn("historical", (self.world.ledger / "items" / three / "item.md").read_text())
+        self.manifest({"item": two, "change_ids": [sha]})
+        refused = self.world.run("evidence", "--manifest", str(self.path))
+        self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+        self.assertIn("no-code", refused.stderr)
+        self.assertEqual(self.world.run("check").returncode, 0)
+
+    def write_complete(self, item: str, kind: str) -> str:
+        path = self.world.base / f"complete-{kind}.jsonl"
+        path.write_text(json.dumps({"item": item, "absent": kind, "reason": "recorded earlier"}) + "\n", encoding="utf-8")
+        return str(path)
+
 
 if __name__ == "__main__":
     unittest.main()

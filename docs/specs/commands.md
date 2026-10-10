@@ -286,7 +286,9 @@ shape prime: additional_context context_bytes schema_version
 - `qew evidence --manifest FILE [--dry-run]`: record delivery evidence for many items in one commit. FILE is JSON Lines of
   `{item, change_ids: [..]}`. Every row is checked first (exit 2: unknown or duplicate item, a malformed change id, an item that is
   not approved or claimed; exit 3: another login's claim) and a row whose changes are already recorded is `unchanged`. Whether the
-  changes landed is `qew complete`'s check, as with the single form.
+  changes landed is `qew complete`'s check, as with the single form. A row may also name a completed item whose header says
+  `evidence_absent: historical` (or that has ids): the evidence is recorded and the header gets the ids, replacing the historical
+  absence (recovered proof); other stated absences are refused.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete --manifest FILE --quote "Name: 'their words'" [--dry-run]`: complete many approved items in one commit on a human's
   quote, without claims or evidence. FILE is JSON Lines of `{item, change_ids?, absent?, reason?}`: strict ledgers need `change_ids` (the work's changes) or `absent` (no-code, historical, children or superseded-by:ITEM, with a `reason`) on every row. Every row is checked before the first write and one

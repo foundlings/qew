@@ -36,7 +36,7 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     "reverted": (("reason", "quote"), (State.APPROVED,)),
     "claimed": (("owner",), (State.APPROVED,)),
     "released": ((), (State.CLAIMED,)),
-    "evidence": (("vcs", "repo"), (State.APPROVED, State.CLAIMED)),
+    "evidence": (("vcs", "repo"), (State.APPROVED, State.CLAIMED, State.COMPLETED)),  # after completion: recovered proof for a historical completion
     "completed": ((), (State.CLAIMED,)),  # also from approved when delivered elsewhere or by its children
     "reopened": ((), (State.COMPLETED, State.CLOSED)),
     "closed": (("reason",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED)),
