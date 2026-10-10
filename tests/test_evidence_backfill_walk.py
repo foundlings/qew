@@ -82,6 +82,35 @@ class EvidenceBackfillWalk(unittest.TestCase):
         self.assertEqual(w.run("check").returncode, 0, w.run("check").stdout)
         self.assertIn("already", w.run("migrate-layout").stdout)
 
+    def many_ids(self, count: int):
+        w = self.world
+        item = started(w, title="Big epic-like item")
+        ids = [f"kk{n:010d}" for n in range(count)]  # well-formed ids this checkout does not know
+        w.run("evidence", item, *[x for i in ids for x in ("--change", i)])
+        inject(w, item, "completed", evidence=ids)
+        strip_to_schema_3(w)
+        return item, ids
+
+    def test_an_item_citing_hundreds_of_changes_migrates_with_every_id_in_its_header(self) -> None:
+        """Prevents one large epic blocking the migration: 700 ids is a ~9 KB header line, still readable, still all cited."""
+        item, ids = self.many_ids(700)
+        preview = self.world.run("migrate-layout", "--dry-run")
+        self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
+        done = self.world.run("migrate-layout")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(header(self.world, item)["evidence"].split(), ids)
+        self.assertEqual(self.world.run("check").returncode, 0)
+
+    def test_more_ids_than_a_header_holds_keep_the_first_ones_and_say_so(self) -> None:
+        """Prevents an unreadable item file: past 1000 ids the header lists the first 1000, the events keep all, the run says so."""
+        item, ids = self.many_ids(1200)
+        done = self.world.run("migrate-layout")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("1 item", done.stdout)
+        self.assertIn("truncated", done.stdout)
+        self.assertEqual(header(self.world, item)["evidence"].split(), ids[:1000])
+        self.assertEqual(self.world.run("check").returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
