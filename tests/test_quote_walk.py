@@ -42,7 +42,7 @@ class QuoteWalk(unittest.TestCase):
     def test_create_without_a_quote_drafts_and_with_one_approves_with_the_trimmed_words(self) -> None:
         """Approved work must carry the exact words that released it; a missing quote must stay a draft."""
         w = self.world
-        draft = w.create("--title", "Unreleased")
+        draft = w.create("--title", "Unreleased", "--draft")
         released = w.create("--title", "Released", "--quote", f"  {QUOTE}  ")
         self.assertEqual([e["type"] for e in w.events(draft)], ["drafted"])
         self.assertEqual([e["type"] for e in w.events(released)], ["approved"])
@@ -64,7 +64,7 @@ class QuoteWalk(unittest.TestCase):
     def test_approve_quote_table_leaves_the_item_a_draft(self) -> None:
         """An approval with no human words must never produce an `approved` event."""
         w = self.world
-        item = w.create("--title", "Needs a human")
+        item = w.create("--title", "Needs a human", "--draft")
         result = w.run("draft", "approve", item)
         self.assertNotEqual(result.returncode, 0, "the quote flag is required")
         for name, quote in BAD_QUOTES.items():

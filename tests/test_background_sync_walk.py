@@ -40,7 +40,7 @@ class BackgroundSyncWalk(unittest.TestCase):
         """Prevents agents waiting on forges or reading sync chatter: the command returns at once with its one result line and no sync banner."""
         self.fake.delay = 1.0
         w = self.world()
-        result = w.run("create", "--title", "Live", env=ENV)
+        result = w.run("create", "--title", "Live", "--draft", env=ENV)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.strip().splitlines()
         self.assertEqual(len(lines), 1, lines)
@@ -51,7 +51,7 @@ class BackgroundSyncWalk(unittest.TestCase):
         """Prevents duplicate forge issues when several writes each start a worker: one lock, one issue per item."""
         w = self.world()
         for n in range(4):
-            w.run("create", "--title", f"Burst {n}", env=ENV)
+            w.run("create", "--title", f"Burst {n}", "--draft", env=ENV)
         self.assertTrue(wait_for(lambda: len(self.fake.issues) == 4))
         time.sleep(1.0)
         self.assertEqual(len(self.fake.issues), 4)
@@ -61,7 +61,7 @@ class BackgroundSyncWalk(unittest.TestCase):
         """Prevents a forge outage losing updates: the backlog persists and a later command syncs it."""
         w = self.world("\n[replication]\nsync_retry_s = 0\nfetch_interval_s = 0\n")
         self.fake.down = True
-        w.run("create", "--title", "Outage", env=ENV)
+        w.run("create", "--title", "Outage", "--draft", env=ENV)
         self.assertTrue(wait_for(lambda: (w.ledger / ".qew" / "sync.pending").exists()))
         self.assertEqual(self.fake.issues, {})
         self.fake.down = False
@@ -71,10 +71,10 @@ class BackgroundSyncWalk(unittest.TestCase):
     def test_offline_mode_and_the_switch_spawn_nothing(self) -> None:
         """Prevents surprise network traffic: QEW_OFFLINE and background_sync = false mean no worker."""
         w = self.world("\n[replication]\nbackground_sync = false\nauto_forge_sync = false\n")
-        result = w.run("create", "--title", "Quiet", env=ENV)
+        result = w.run("create", "--title", "Quiet", "--draft", env=ENV)
         self.assertEqual(len(result.stdout.strip().splitlines()), 1)
         off = self.world()
-        quiet = off.run("create", "--title", "Quiet", env={**ENV, "QEW_OFFLINE": "1"})
+        quiet = off.run("create", "--title", "Quiet", "--draft", env={**ENV, "QEW_OFFLINE": "1"})
         self.assertEqual(len(quiet.stdout.strip().splitlines()), 1)
         time.sleep(1.0)
         self.assertEqual(self.fake.issues, {})
@@ -82,13 +82,13 @@ class BackgroundSyncWalk(unittest.TestCase):
     def test_without_the_background_worker_the_sync_runs_inline_within_the_write(self) -> None:
         """Prevents auto_forge_sync meaning nothing when the worker is off: the inline path syncs before returning."""
         w = self.world("\n[replication]\nbackground_sync = false\n")
-        w.run("create", "--title", "Inline", env=ENV)
+        w.run("create", "--title", "Inline", "--draft", env=ENV)
         self.assertEqual(len(self.fake.issues), 1)
 
     def test_the_worker_writes_a_log_and_its_mirrors_are_committed(self) -> None:
         """Prevents mirror files stuck uncommitted after a background run and a log nobody can read."""
         w = self.world()
-        w.run("create", "--title", "Logged", env=ENV)
+        w.run("create", "--title", "Logged", "--draft", env=ENV)
         self.assertTrue(wait_for(lambda: len(self.fake.issues) == 1))
         self.assertTrue(wait_for(lambda: any(s.startswith("qew: sync") for s in w.ledger_log())))
         self.assertTrue((w.ledger / ".qew" / "sync.log").exists())

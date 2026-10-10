@@ -15,7 +15,7 @@ class CodeProseWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def create(self, body: str):
-        return self.world.run("create", "--title", "Item", "--body", body)
+        return self.world.run("create", "--title", "Item", "--body", body, "--draft")
 
     def warnings(self, result) -> list:
         prefix = "warning: unmarked code-shaped text: "
@@ -40,7 +40,7 @@ class CodeProseWalk(unittest.TestCase):
 
     def test_edits_and_bulk_files_warn_the_same_way(self) -> None:
         """`set --body` and `create --from-file` bodies are checked too."""
-        item = self.world.create("--title", "Edited")
+        item = self.world.create("--title", "Edited", "--draft")
         result = self.world.run("set", item, "--body", "use --dangerous mode")
         self.assertEqual((result.returncode, self.warnings(result)), (0, ["--dangerous"]))
         bulk = self.world.run("create", "--from-file", "-", stdin='[{"title": "A", "body": "pipx install thing"}]')

@@ -57,7 +57,7 @@ class CompleteGateWalk(unittest.TestCase):
         self.assertIn("original_ids", result.stdout)
 
     def test_complete_refuses_a_draft_an_unclaimed_a_blocked_and_a_closed_item(self) -> None:
-        draft = self.w.create("--title", "Draft")
+        draft = self.w.create("--title", "Draft", "--draft")
         approved = self.w.create("--title", "Approved", "--quote", QUOTE)
         closed = self.started("Closed")
         self.w.run("close", closed, "--reason", "not_planned")

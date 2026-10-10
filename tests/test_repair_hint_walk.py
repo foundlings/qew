@@ -35,7 +35,7 @@ class SyncFailureHintWalk(unittest.TestCase):
         """The error after a partial sync says what to run next; the ledger work is not rolled back."""
         w = World(MIRRORS, replication="\n[replication]\nauto_forge_sync = false\n")
         self.addCleanup(w.close)
-        item = w.create("--title", "T")
+        item = w.create("--title", "T", "--draft")
         forge = MemoryForge("git.example")
         forge.down = True
         config = ledger_config.load(w.code)

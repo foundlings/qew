@@ -19,7 +19,7 @@ from qew.ledger_config import Config
 from qew.ledger_event import Event, State, fold, parse_event
 from qew.ledger_ids import LETTER_JUMP, letter_rank, letters_head, next_id, valid_id
 from qew.ledger_item import DEFAULT_PRIORITY, Item, Kind, from_header
-from qew.ledger_store import Ledger, now
+from qew.ledger_store import Ledger, actor, now
 from qew.plan_file import KEY_SOURCE, Entry, Plan
 from qew.requester import require_quote
 
@@ -28,10 +28,30 @@ _DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
 @dataclass(frozen=True)
+class Quoted:
+    """Released on a human's quoted words."""
+
+    quote: str
+
+
+@dataclass(frozen=True)
+class Queued:
+    """Filed straight into the queue by an agent (no quote); the creator is recorded on the approval."""
+
+
+@dataclass(frozen=True)
+class Drafted:
+    """A draft a human asked for; only a human's quote releases it."""
+
+
+type Release = Quoted | Queued | Drafted
+
+
+@dataclass(frozen=True)
 class Planned:
     entry: Entry
     item: Item
-    quote: str | None  # the human's words that release it; None files a draft
+    release: Release
     events: list[Event] | None  # imported history, else None
     adopted: str | None = None  # None (new), "item" (already complete) or "events" (orphan events, item file missing)
     attachments: tuple[attach_batch.Request, ...] = ()  # files the plan entry brings along
@@ -39,7 +59,7 @@ class Planned:
 
     @property
     def state(self) -> str:
-        return "approved" if self.quote else "draft"
+        return "draft" if isinstance(self.release, Drafted) else "approved"
 
 
 def _marker(first_event: JsonObject) -> tuple[str, str, str] | None:
@@ -99,20 +119,23 @@ def _adoptions(ledger: Ledger, plan: Plan) -> dict[str, str]:
     return {key: ids[0] for key, ids in same.items()}
 
 
-def _release(entry: Entry, default_quote: str | None, draft: bool) -> str | None:
-    """The human's words that release this entry, or None to file it as a draft."""
+def _release(entry: Entry, default_quote: str | None, draft: bool) -> Release:
+    """How this entry is filed: on a human's words, straight into the queue (the default), or as a draft a human asked for
+    (`--draft`, or `approved: false` on the entry)."""
     spec = entry.spec
     own = spec.get("quote")
     verified = require_quote(own, f"{entry.label} quote") if own is not None else None
     if draft:
         if spec.get("approved") is True:
             raise QewError(f"{entry.label}: approved: true conflicts with --draft, which files every item as a draft", 2)
-        return None
+        return Drafted()
     if verified is None and default_quote is not None:
         verified = require_quote(default_quote)
     if spec.get("approved") is True and verified is None:
         raise QewError(f"{entry.label}: approved: true needs a quote (its own or --quote)", 2)
-    return None if spec.get("approved") is False else verified
+    if spec.get("approved") is False:
+        return Drafted()
+    return Quoted(verified) if verified is not None else Queued()
 
 
 def _import_events(item: Item, spec: JsonObject) -> list[Event]:
@@ -205,7 +228,7 @@ def prepare(
             Planned(
                 entry,
                 item,
-                None if import_events else _release(entry, default_quote, draft),
+                Drafted() if import_events else _release(entry, default_quote, draft),
                 _import_events(item, spec) if import_events else None,
                 how,
                 tuple(attach_batch.Request(item.id, Path(row["source"]), row.get("name"), entry.label) for row in spec.get("attachments", [])),
@@ -226,7 +249,7 @@ def operations(planned: list[Planned]) -> list[JsonObject]:
         if p.adopted:
             steps.append({"op": "adopt", "ref": p.entry.key, "id": p.item.id, "title": p.item.title})
         else:
-            steps.append({"op": "create", "ref": p.entry.key, "kind": p.item.kind.value, "title": p.item.title, "draft": not p.quote})
+            steps.append({"op": "create", "ref": p.entry.key, "kind": p.item.kind.value, "title": p.item.title, "draft": isinstance(p.release, Drafted)})
         if p.item.parent:
             steps.append({"op": "parent", "ref": p.entry.key, "parent": keys.get(p.item.parent, p.item.parent)})
         for need in p.item.needs:
@@ -261,10 +284,13 @@ def apply(
             continue
         if p.adopted != "events":
             extra = {"plan": plan.digest, "key": p.entry.key, "source": plan.source} if mark else {}
-            if p.quote:
-                ledger.append_event(p.item.id, "approved", quote=p.quote, **extra)
-            else:
-                ledger.append_event(p.item.id, "drafted", **extra)
+            match p.release:
+                case Quoted(quote):
+                    ledger.append_event(p.item.id, "approved", quote=quote, **extra)
+                case Queued():
+                    ledger.append_event(p.item.id, "approved", filed_by=actor(), **extra)
+                case Drafted():
+                    ledger.append_event(p.item.id, "drafted", **extra)
         ledger.write_item(p.item)
     requests = [request for p in planned for request in p.attachments]
     if requests:

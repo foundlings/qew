@@ -30,7 +30,7 @@ Read
   qew inbox       one person's waiting drafts and assigned work
   qew export      write items as Markdown files or JSON
 Work
-  qew create      file an item (a draft unless a human's quote releases it)
+  qew create      file an item into the queue (a draft only with --draft)
   qew next-id     print the next free id (or ids) for an item kind
   qew set         change header fields
   qew comment     add a comment to an item
@@ -134,7 +134,7 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     init = commands.add_parser("init", help="create .qew/config.toml and the ledger")
     init.add_argument("--ledger", help="path to the ledger checkout, relative to the repo root")
 
-    create = commands.add_parser("create", help="file an item (a draft unless --quote releases it)")
+    create = commands.add_parser("create", help="file an item into the queue (Ready, or Backlog while it has unmet needs); a draft only with --draft")
     create.add_argument("--kind", choices=["epic", "issue", "task"], default="issue", help="item kind")
     create.add_argument("--title", help="short imperative title")
     create.add_argument("--parent", help="parent item")
@@ -154,7 +154,7 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     create.add_argument("--discovered-from", metavar="ITEM", help="the item this one was found while working on (not a dependency)")
     create.add_argument("--quote", help="a human's words, \"Name: 'their words'\"; releases the item")
     create.add_argument("--from-file", help="a plan: JSON Lines, one object or an array of items, or - for stdin")
-    create.add_argument("--draft", action="store_true", help="with --from-file: file every item as a draft (refuses --quote and approved lines)")
+    create.add_argument("--draft", action="store_true", help="file as a draft a human asked for, released only by `qew draft approve --quote` (refuses --quote and approved lines)")
     create.add_argument("--dry-run", action="store_true", help="validate and print the operations without writing")
     create.add_argument("--json", action="store_true", help="machine-readable output")
     create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")

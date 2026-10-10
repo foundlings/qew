@@ -29,7 +29,7 @@ class IdModeWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def test_time_mode_is_the_default_unprefixed_and_sortable(self) -> None:
-        ids = [self.world.create("--title", f"T{n}") for n in range(5)]
+        ids = [self.world.create("--title", f"T{n}", "--draft") for n in range(5)]
         self.assertTrue(all(TIME.match(i) for i in ids), ids)
         self.assertEqual(ids, sorted(ids))
         self.assertEqual(len(set(ids)), 5)
@@ -41,7 +41,7 @@ class IdModeWalk(unittest.TestCase):
         ids = [line.split()[0] for line in result.stdout.splitlines()]
         self.assertEqual(ids[:3], ["A", "B", "C"])
         self.assertEqual(ids[25:28], ["Z", "AA", "AB"])
-        issue = self.world.create("--kind", "issue", "--title", "still time")
+        issue = self.world.create("--kind", "issue", "--title", "still time", "--draft")
         self.assertRegex(issue, TIME)
 
     def test_counter_mode_counts_up_and_lists_numerically(self) -> None:
@@ -65,7 +65,7 @@ class IdModeWalk(unittest.TestCase):
 
     def test_check_fails_on_a_duplicate_id_across_files(self) -> None:
         w = self.world
-        first = w.create("--title", "One")
+        first = w.create("--title", "One", "--draft")
         text = (w.ledger / "items" / f"{first}" / "item.md").read_text()
         (w.ledger / "items" / "copy" / "item.md").parent.mkdir(exist_ok=True)
         (w.ledger / "items" / "copy" / "item.md").write_text(text)

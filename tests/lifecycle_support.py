@@ -16,7 +16,7 @@ def tree(world: World) -> dict[str, bytes]:
 
 
 def approved(world: World, *arguments: str, title: str = "Work") -> str:
-    item = world.create("--kind", "issue", "--title", title, *arguments)
+    item = world.create("--kind", "issue", "--title", title, *arguments, "--draft")
     world.approve(item)
     return item
 

@@ -31,7 +31,7 @@ class SyncE2eWalk(unittest.TestCase):
 
     def test_sync_creates_once_updates_on_change_and_never_duplicates(self) -> None:
         w = self.world
-        item = w.create("--kind", "issue", "--title", "Ship it")
+        item = w.create("--kind", "issue", "--title", "Ship it", "--draft")
         first = self.sync()
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         self.assertEqual(len(self.fake.issues), 1)
@@ -59,7 +59,7 @@ class SyncE2eWalk(unittest.TestCase):
 
     def test_a_missing_token_is_an_auth_failure_not_a_crash(self) -> None:
         w = self.world
-        w.create("--kind", "issue", "--title", "No token")
+        w.create("--kind", "issue", "--title", "No token", "--draft")
         result = w.run("sync", env={"FORGEJO_TOKEN": "", "GITEA_TOKEN": ""})
         self.assertEqual(result.returncode, 1)
         self.assertIn("token", result.stdout + result.stderr)

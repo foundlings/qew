@@ -30,8 +30,8 @@ class AuthorWalk(unittest.TestCase):
     def test_author_comes_from_the_first_event_actor_only(self) -> None:
         """A later edit by another actor must not re-attribute the item; create takes no --author."""
         w = self.world
-        item = w.create("--title", "T")
-        self.assertEqual(w.run("create", "--title", "X", "--author", "mallory").returncode, 2)
+        item = w.create("--title", "T", "--draft")
+        self.assertEqual(w.run("create", "--title", "X", "--author", "mallory", "--draft").returncode, 2)
         w.run("set", item, "--priority", "1", env={"QEW_ACTOR": "bob"})
         shown = json.loads(w.run("show", item, "--json").stdout)
         self.assertEqual(shown["author"], "tester")
@@ -40,15 +40,15 @@ class AuthorWalk(unittest.TestCase):
     def test_list_filter_matches_case_insensitively(self) -> None:
         """`--author TESTER` must find tester's items and hide another actor's."""
         w = self.world
-        mine = w.create("--title", "mine")
-        self.assertEqual(w.run("create", "--title", "theirs", env={"QEW_ACTOR": "carol"}).returncode, 0)
+        mine = w.create("--title", "mine", "--draft")
+        self.assertEqual(w.run("create", "--title", "theirs", "--draft", env={"QEW_ACTOR": "carol"}).returncode, 0)
         listed = w.run("list", "--author", "TESTER").stdout
         self.assertIn(mine, listed)
         self.assertEqual(len(listed.strip().splitlines()), 1)
 
     def test_sync_labels_the_issue_with_the_author(self) -> None:
         """The forge issue carries author:LOGIN so the board can be filtered by who opened the work."""
-        self.world.create("--title", "T")
+        self.world.create("--title", "T", "--draft")
         forge = MemoryForge("git.example")
         self.sync(forge)
         self.assertIn("author:tester", forge.issues[1].labels)
@@ -56,7 +56,7 @@ class AuthorWalk(unittest.TestCase):
     def test_actor_that_cannot_be_a_label_fails_before_any_forge_call(self) -> None:
         """An actor such as `bad login,x` is reported against the item; no half-labelled issue appears."""
         w = self.world
-        item = w.create("--title", "T")  # `create` itself refuses such an actor now; a hand-merged event can still carry one
+        item = w.create("--title", "T", "--draft")  # `create` itself refuses such an actor now; a hand-merged event can still carry one
         event = next((w.ledger / "events" / item).glob("*.json"))
         event.write_text(event.read_text().replace('"actor": "tester"', '"actor": "bad login,x"'))
         forge = MemoryForge("git.example")
@@ -68,7 +68,7 @@ class AuthorWalk(unittest.TestCase):
     def test_item_without_events_has_unknown_author_and_no_label(self) -> None:
         """No recorded first event means no guess: never mirrored as a label."""
         w = self.world
-        item = w.create("--title", "T")
+        item = w.create("--title", "T", "--draft")
         shutil.rmtree(w.ledger / "events" / item)
         forge = MemoryForge("git.example")
         self.sync(forge)

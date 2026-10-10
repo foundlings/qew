@@ -42,7 +42,7 @@ class ShowHistoryWalk(unittest.TestCase):
     def test_a_plain_draft_has_no_release_lines_and_says_draft(self) -> None:
         """A draft must be distinguishable from released work at a glance."""
         w = self.world
-        item = w.create("--title", "Work")
+        item = w.create("--title", "Work", "--draft")
         text = w.run("show", item).stdout
         self.assertIn("state: draft", text)
         self.assertNotIn("released:", text)

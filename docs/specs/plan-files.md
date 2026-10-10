@@ -23,7 +23,7 @@ or entry (array).
   `line-N`. Keys are unique: a `ref` equal to another entry's key is refused. Other references are item ids or
   aliases already in the ledger.
 - `id` keeps an explicit id (imports); an existing id is refused. `events` is accepted only with `--import`.
-- `quote` releases the entry (filed approved with those words); without one the entry is a draft. `--quote` is
+- `quote` releases the entry (filed approved with those words); without one the entry goes straight into the queue (approved, with `filed_by` the creator). `--quote` is
   the default for entries without their own. `approved: true` needs a quote; `approved: false` files a draft.
 - Edges are checked against the whole graph: no self edge, unknown or duplicate need, `needs` cycle (new items
   and existing ones), or nesting other than epic > issue > task (a task may sit under an epic). Checks are

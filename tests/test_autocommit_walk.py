@@ -49,7 +49,7 @@ class AutoCommitWalk(unittest.TestCase):
     def test_reads_and_refusals_commit_nothing(self) -> None:
         """Prevents noise commits from reads and from refused writes."""
         w = self.world
-        item = w.create("--title", "Draft")
+        item = w.create("--title", "Draft", "--draft")
         before = self.subjects()
         w.run("ready"); w.run("show", item); w.run("check")
         self.assertEqual(w.run("start", item).returncode, 2)
@@ -61,7 +61,7 @@ class AutoCommitWalk(unittest.TestCase):
         hook = w.ledger / ".git" / "hooks" / "pre-commit"
         hook.write_text("#!/bin/sh\necho refused >&2\nexit 1\n")
         hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
-        result = w.run("create", "--title", "Doomed")
+        result = w.run("create", "--title", "Doomed", "--draft")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("commit", result.stderr)
         self.assertFalse((w.ledger / "items").exists() and list((w.ledger / "items").iterdir()))
@@ -71,17 +71,17 @@ class AutoCommitWalk(unittest.TestCase):
         """Prevents qew committing a human's unfinished notes along with its own files."""
         w = self.world
         (w.ledger / "notes.txt").write_text("mine")
-        w.create("--title", "Work")
+        w.create("--title", "Work", "--draft")
         self.assertEqual(w.ledger_dirty(), ["?? notes.txt"])
         self.assertNotIn("notes.txt", git(w.ledger, "show", "--name-only", "--format=", "HEAD"))
 
     def test_files_left_by_a_crash_are_recovered_by_the_next_write(self) -> None:
         """Prevents a crash between write and commit leaving files that no command ever commits."""
         w = self.world
-        item = w.create("--title", "Crash victim")
+        item = w.create("--title", "Crash victim", "--draft")
         orphan = w.ledger / "events" / item / "ZZZZZZZZZ.json"
         orphan.write_text('{"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "x"}\n')
-        w.create("--title", "Next")
+        w.create("--title", "Next", "--draft")
         self.assertIn("qew: recover 1 files", self.subjects()[1])
         self.assertEqual(w.ledger_dirty(), [])
 
@@ -89,7 +89,7 @@ class AutoCommitWalk(unittest.TestCase):
         """Prevents the setting being ignored: with auto_commit = false files stay uncommitted."""
         w = World(ledger_vcs="git", replication="\n[replication]\nauto_commit = false\n")
         self.addCleanup(w.close)
-        w.create("--title", "Manual")
+        w.create("--title", "Manual", "--draft")
         self.assertEqual(len(w.ledger_log()), 1)
         self.assertTrue(w.ledger_dirty())
 
@@ -97,7 +97,7 @@ class AutoCommitWalk(unittest.TestCase):
         """Prevents auto-commit making a plain directory ledger unusable."""
         w = World()
         self.addCleanup(w.close)
-        self.assertEqual(w.run("create", "--title", "Plain").returncode, 0)
+        self.assertEqual(w.run("create", "--title", "Plain", "--draft").returncode, 0)
 
 
 @unittest.skipUnless(jj_available(), "jj is not installed")
@@ -111,7 +111,7 @@ class AutoCommitJujutsuWalk(AutoCommitWalk):
         """Prevents qew committing a human's unfinished notes along with its own files (jj keeps them in the working copy)."""
         w = self.world
         (w.ledger / "notes.txt").write_text("mine")
-        w.create("--title", "Work")
+        w.create("--title", "Work", "--draft")
         self.assertNotIn("notes.txt", git(w.ledger, "show", "--name-only", "--format=", "main"))
 
 

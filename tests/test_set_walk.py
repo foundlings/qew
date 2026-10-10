@@ -22,8 +22,8 @@ class SetWalk(unittest.TestCase):
     def test_one_call_changes_every_field_with_one_audit_event_per_key(self) -> None:
         """A partial or unaudited edit leaves the history unable to explain the header."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Plan")
-        item = w.create("--title", "Old", "--label", "x", "--label", "keep")
+        epic = w.create("--kind", "epic", "--title", "Plan", "--draft")
+        item = w.create("--title", "Old", "--label", "x", "--label", "keep", "--draft")
         note = w.base / "body.md"
         note.write_text("New body\nwith two lines\n")
         result = w.run("set", item, "--title", "New", "--body-file", str(note), "--priority", "1", "--kind", "task",
@@ -41,7 +41,7 @@ class SetWalk(unittest.TestCase):
     def test_adding_and_removing_labels_is_idempotent_and_leaves_the_others(self) -> None:
         """Two writers adding different labels must not clobber each other."""
         w = self.world
-        item = w.create("--title", "A", "--label", "one")
+        item = w.create("--title", "A", "--label", "one", "--draft")
         w.run("set", item, "--add-label", "two")
         w.run("set", item, "--add-label", "three")
         before = snapshot(w)
@@ -55,8 +55,8 @@ class SetWalk(unittest.TestCase):
     def test_a_kind_change_that_would_orphan_children_is_refused(self) -> None:
         """Turning an epic with children into a task would leave children under an impossible parent."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Plan")
-        w.create("--title", "Child", "--parent", epic)
+        epic = w.create("--kind", "epic", "--title", "Plan", "--draft")
+        w.create("--title", "Child", "--parent", epic, "--draft")
         before = snapshot(w)
         result = w.run("set", epic, "--kind", "task")
         self.assertEqual(result.returncode, 2)
@@ -66,7 +66,7 @@ class SetWalk(unittest.TestCase):
     def test_replacing_and_editing_labels_in_one_call_is_refused_and_a_negative_priority_too(self) -> None:
         """Contradictory flags are a mistake to report, not a rule to guess."""
         w = self.world
-        item = w.create("--title", "A", "--label", "one")
+        item = w.create("--title", "A", "--label", "one", "--draft")
         before = snapshot(w)
         mixed = w.run("set", item, "--labels", "a", "--add-label", "b")
         self.assertEqual(mixed.returncode, 2)
@@ -76,13 +76,13 @@ class SetWalk(unittest.TestCase):
     def test_several_items_attach_to_a_plan_in_one_call_and_one_bad_item_attaches_none(self) -> None:
         """This is how existing items join a plan (there is no plan-create verb): all or none, never half a plan."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Plan")
-        one, two = w.create("--title", "One"), w.create("--title", "Two")
+        epic = w.create("--kind", "epic", "--title", "Plan", "--draft")
+        one, two = w.create("--title", "One", "--draft"), w.create("--title", "Two", "--draft")
         self.assertEqual(w.run("set", one, two, "--parent", epic).returncode, 0)
         rows = {r["id"]: r for r in listing(w)}
         self.assertEqual((rows[one]["parent"], rows[two]["parent"]), (epic, epic))
-        other = w.create("--kind", "epic", "--title", "Other plan")
-        third = w.create("--title", "Third")
+        other = w.create("--kind", "epic", "--title", "Other plan", "--draft")
+        third = w.create("--title", "Third", "--draft")
         before = snapshot(w)
         bad = w.run("set", third, other, "--parent", epic)
         self.assertEqual(bad.returncode, 2)

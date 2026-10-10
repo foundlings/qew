@@ -16,7 +16,7 @@ class PlanStatusWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def child(self, epic: str, title: str, *extra: str, release: bool = True) -> str:
-        return self.world.create("--title", title, "--parent", epic, *extra, *(["--quote", QUOTE] if release else []))
+        return self.world.create("--title", title, "--parent", epic, *extra, *(["--quote", QUOTE] if release else ["--draft"]))
 
     def finish(self, item: str) -> None:
         w = self.world
@@ -77,7 +77,7 @@ class PlanStatusWalk(unittest.TestCase):
     def test_a_draft_epic_is_never_completable_and_says_draft_plan(self) -> None:
         """Offering a command that will refuse wastes the agent's turn."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Plan")
+        epic = w.create("--kind", "epic", "--title", "Plan", "--draft")
         child = self.child(epic, "Done early")
         self.finish(child)
         plan = self.status(epic)["plans"][0]
@@ -110,7 +110,7 @@ class PlanStatusWalk(unittest.TestCase):
     def test_no_argument_lists_every_open_epic_and_a_non_epic_or_unknown_id_is_refused(self) -> None:
         """A task must not be rolled up as if it were a plan."""
         w, epic = self.world, self.plan()
-        other = w.create("--kind", "epic", "--title", "Other")
+        other = w.create("--kind", "epic", "--title", "Other", "--draft")
         task = self.child(epic, "Task")
         listed = self.status()["plans"]
         self.assertEqual(sorted(p["id"] for p in listed), sorted([epic, other]))

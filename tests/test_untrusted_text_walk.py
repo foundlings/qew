@@ -22,7 +22,7 @@ class UntrustedTextWalk(unittest.TestCase):
     def setUp(self) -> None:
         self.world = World()
         self.addCleanup(self.world.close)
-        self.item = self.world.create("--title", "plain")
+        self.item = self.world.create("--title", "plain", "--draft")
         self.world.approve(self.item)
 
     def test_line_break_and_instruction_text_in_a_title_is_flattened(self) -> None:

@@ -48,7 +48,7 @@ def fixture(world: World):
         first = first or item
         if n >= 6:
             related.append(item)
-    world.create("--title", "A draft idea", "--body", "Not approved yet.")
+    world.create("--title", "A draft idea", "--body", "Not approved yet.", "--draft")
     world.run("start", first)
     world.run("comment", first, "--body", "Started; the first parser pass is done.")
     return first, [first, *related]
@@ -56,8 +56,8 @@ def fixture(world: World):
 
 def raw_bytes(world: World, only: list = None) -> int:
     """Bytes of the item and event files (all of them, or only those of the named items)."""
-    files = [*(world.ledger / "items").glob("*.md"), *(world.ledger / "events").glob("*/*.json")]
-    return sum(path.stat().st_size for path in files if only is None or path.stem in only or path.parent.name in only)
+    files = [*(world.ledger / "items").glob("*/item.md"), *(world.ledger / "events").glob("*/*.json")]
+    return sum(path.stat().st_size for path in files if only is None or path.parent.name in only)
 
 
 def measure() -> dict:

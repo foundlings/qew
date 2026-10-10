@@ -30,8 +30,8 @@ class SyncCliWalk(unittest.TestCase):
 
     def test_dry_run_plans_creates_per_target_and_writes_nothing(self) -> None:
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Epic")
-        w.create("--kind", "issue", "--title", "Issue")
+        epic = w.create("--kind", "epic", "--title", "Epic", "--draft")
+        w.create("--kind", "issue", "--title", "Issue", "--draft")
         result = w.run("sync", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = result.stdout.splitlines()
@@ -41,7 +41,7 @@ class SyncCliWalk(unittest.TestCase):
 
     def test_dry_run_target_filter_and_unknown_target(self) -> None:
         w = self.world
-        w.create("--kind", "epic", "--title", "Epic")
+        w.create("--kind", "epic", "--title", "Epic", "--draft")
         only = w.run("sync", "--dry-run", "--target", "gitlab")
         self.assertEqual(only.returncode, 0, only.stderr)
         self.assertNotIn("forgejo", only.stdout)
@@ -50,8 +50,8 @@ class SyncCliWalk(unittest.TestCase):
 
     def test_sync_refuses_an_invalid_ledger_before_any_forge_call(self) -> None:
         w = self.world
-        a = w.create("--kind", "epic", "--title", "A")
-        b = w.create("--kind", "epic", "--title", "B", "--needs", a)
+        a = w.create("--kind", "epic", "--title", "A", "--draft")
+        b = w.create("--kind", "epic", "--title", "B", "--needs", a, "--draft")
         path = w.ledger / "items" / f"{a}" / "item.md"  # `qew set` refuses a cycle; a hand merge can still produce one
         path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
         for arguments in (["sync"], ["sync", "--dry-run"]):
@@ -64,7 +64,7 @@ class SyncCliWalk(unittest.TestCase):
         import json
 
         w = self.world
-        item = w.create("--kind", "issue", "--title", "Polluted")
+        item = w.create("--kind", "issue", "--title", "Polluted", "--draft")
         (w.ledger / "events" / item / "ZZZZZZZZA.json").write_text(
             json.dumps({"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "bad login,x"}))
         self.assertEqual(w.run("check").returncode, 1)
@@ -82,7 +82,7 @@ class SyncCliWalk(unittest.TestCase):
         (w.code / ".qew" / "config.toml").write_text(
             '[ledger]\npath = "../ledger"\nprefix = "TST"\n[[mirror]]\nforge = "sourcehut"\nrepo = "https://x.example/o/r"\n'
         )
-        w.create("--kind", "issue", "--title", "A")
+        w.create("--kind", "issue", "--title", "A", "--draft")
         result = w.run("sync")
         self.assertEqual(result.returncode, 1)
         self.assertIn("unknown forge", result.stderr)

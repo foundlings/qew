@@ -27,14 +27,14 @@ class LabelWalk(unittest.TestCase):
         """A reserved label would spoof forge state; the ledger must stay untouched."""
         before = snapshot_of(self.world)
         for label in RESERVED:
-            result = self.world.run("create", "--title", "T", "--label", label)
+            result = self.world.run("create", "--title", "T", "--label", label, "--draft")
             self.assertEqual(result.returncode, 2, label + result.stderr)
             self.assertIn("reserved", result.stderr)
         self.assertEqual(snapshot_of(self.world), before)
 
     def test_set_refuses_reserved_labels_before_any_write(self) -> None:
         """`qew set --labels` must not smuggle a reserved name in or append an event."""
-        item = self.world.create("--title", "T", "--label", "ok")
+        item = self.world.create("--title", "T", "--label", "ok", "--draft")
         before = snapshot_of(self.world)
         for label in RESERVED:
             result = self.world.run("set", item, "--labels", "ok", label)
@@ -58,13 +58,13 @@ class LabelWalk(unittest.TestCase):
         """Long, space-edged, control-character, comma and empty labels never reach a file."""
         before = snapshot_of(self.world)
         for label in MALFORMED:
-            result = self.world.run("create", "--title", "T", "--label", label)
+            result = self.world.run("create", "--title", "T", "--label", label, "--draft")
             self.assertEqual(result.returncode, 2, repr(label) + result.stderr)
         self.assertEqual(snapshot_of(self.world), before)
 
     def test_check_flags_a_reserved_label_found_in_a_file(self) -> None:
         """A merge or hand edit can put a reserved label in a file; check must flag it."""
-        item = self.world.create("--title", "T", "--label", "ok")
+        item = self.world.create("--title", "T", "--label", "ok", "--draft")
         path = self.world.ledger / "items" / f"{item}" / "item.md"
         path.write_text(path.read_text().replace("labels: ok", "labels: ok qew:approved"))
         result = self.world.run("check")

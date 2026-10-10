@@ -21,7 +21,7 @@ class LedgerForkWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
         self.held = self.world.create("--title", "Held work", "--quote", QUOTE)
         self.done = self.world.create("--title", "Dropped work", "--quote", QUOTE)
-        self.open = self.world.create("--title", "Still a draft")
+        self.open = self.world.create("--title", "Still a draft", "--draft")
         self.assertEqual(self.world.run("start", self.held).returncode, 0)
         self.assertEqual(self.world.run("close", self.done, "--reason", "not_planned").returncode, 0)
         ledger = self.world.ledger

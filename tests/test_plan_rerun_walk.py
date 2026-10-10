@@ -109,8 +109,8 @@ class PlanRerunWalk(unittest.TestCase):
     def test_marker_like_text_in_a_body_or_a_malformed_event_is_not_provenance(self) -> None:
         """Only the canonical event fields adopt; an attacker-supplied lookalike must not hijack a key."""
         digest = hashlib.sha256(PLAN.encode()).hexdigest()
-        lookalike = self.world.create("--title", "Lookalike", "--body", f"plan: {digest}\nkey: e\nsource: plan.jsonl")
-        decoy = self.world.create("--title", "Decoy")
+        lookalike = self.world.create("--title", "Lookalike", "--body", f"plan: {digest}\nkey: e\nsource: plan.jsonl", "--draft")
+        decoy = self.world.create("--title", "Decoy", "--draft")
         planted = {"type": "approved", "at": "2026-01-01T00:00:00Z", "actor": "x", "quote": "A: 'twelve chars or more here'",
                    "plan": digest.upper(), "key": "e", "source": "plan.jsonl"}
         (self.world.ledger / "events" / decoy / "zzzzzzzzzzzzzzzzzzzzzzzzzz.json").write_text(json.dumps(planted))

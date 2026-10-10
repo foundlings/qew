@@ -38,7 +38,7 @@ class BoardWalk(unittest.TestCase):
     def test_an_item_walks_the_columns_as_events_are_written_with_the_forge_down(self) -> None:
         """Prevents the board disagreeing with readiness, or a board read needing the network."""
         w = self.world
-        item = w.create("--kind", "issue", "--title", "Walk")
+        item = w.create("--kind", "issue", "--title", "Walk", "--draft")
         seen = [self.column_of(item)]
         w.approve(item)
         seen.append(self.column_of(item))
@@ -87,7 +87,7 @@ class BoardWalk(unittest.TestCase):
         """Prevents the compact summary drifting from the full board."""
         w = self.world
         w.create("--kind", "issue", "--title", "A", "--quote", QUOTE)
-        w.create("--kind", "issue", "--title", "B")
+        w.create("--kind", "issue", "--title", "B", "--draft")
         out = w.run("board", "columns").stdout.splitlines()
         self.assertEqual(out, [f"{name} {n}" for name, n in zip(STATUSES, [1, 0, 1, 0, 0, 0, 0])])
 

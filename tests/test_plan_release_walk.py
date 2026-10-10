@@ -43,17 +43,20 @@ class PlanReleaseWalk(unittest.TestCase):
         self.assertIn("--draft", result.stderr)
         self.assertEqual(snapshot(self.world), before)
 
-    def test_each_entry_carries_its_own_quote_and_an_entry_without_one_is_a_draft(self) -> None:
+    def test_each_entry_carries_its_own_quote_and_an_entry_without_one_is_queued(self) -> None:
         """One human's words must never be attributed to work another human asked for."""
         text = jsonl(
             {"title": "First", "quote": QUOTE},
             {"title": "Second", "quote": OTHER},
             {"title": "Unreleased"},
+            {"title": "Asked", "approved": False},
         )
         self.assertEqual(self.apply(text).returncode, 0)
         quotes = {title: [e.get("quote") for e in self.world.events(row["id"])] for title, row in self.by_title().items()}
-        self.assertEqual(quotes, {"First": [QUOTE], "Second": [OTHER], "Unreleased": [None]})
-        self.assertEqual(self.types("Unreleased"), ["drafted"])
+        self.assertEqual(quotes, {"First": [QUOTE], "Second": [OTHER], "Unreleased": [None], "Asked": [None]})
+        self.assertEqual(self.types("Unreleased"), ["approved"])
+        self.assertEqual(self.world.events(self.by_title()["Unreleased"]["id"])[0]["filed_by"], "tester")
+        self.assertEqual(self.types("Asked"), ["drafted"])
 
     def test_the_top_level_quote_is_the_default_for_entries_without_their_own(self) -> None:
         """A default quote releases the unquoted entries; an entry keeps its own words over the default."""

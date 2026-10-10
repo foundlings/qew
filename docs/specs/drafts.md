@@ -1,6 +1,6 @@
 # Drafts
 
-Work is filed as a draft unless a human's quoted words release it. A draft is never ready, never startable
+Agents file work straight into the queue (approved, `filed_by` the creator; Ready, or Backlog while it has unmet needs). A draft exists only when a human asks for one (`--draft`, or `approved: false` in a plan), and only a human's quoted words release it. A draft is never ready, never startable
 and never completable; `qew list` still shows it (the ledger is a database, not a work queue).
 
 - Only a human's words release work: `Name: 'their words'`, one line, at least 12 characters, no placeholder.

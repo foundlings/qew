@@ -12,7 +12,7 @@ from tests.ledger_harness import World
 
 
 def load(world: World, specs: list) -> list:
-    result = world.run("create", "--from-file", "-", stdin=json.dumps(specs))
+    result = world.run("create", "--from-file", "-", "--draft", stdin=json.dumps(specs))
     assert result.returncode == 0, result.stderr
     return [line.split()[0] for line in result.stdout.splitlines()]
 

@@ -106,7 +106,7 @@ class BulkInputWalk(unittest.TestCase):
         self.assertEqual(world.run("create", "--from-file", str(real), "--quote", QUOTE).returncode, 0)
         body_link = world.base / "body.md"
         body_link.symlink_to(world.base / "real.json")
-        self.assertEqual(world.run("create", "--title", "x", "--body-file", str(body_link)).returncode, 2)
+        self.assertEqual(world.run("create", "--title", "x", "--body-file", str(body_link), "--draft").returncode, 2)
 
 
 if __name__ == "__main__":

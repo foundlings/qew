@@ -62,7 +62,7 @@ class MilestoneSyncWalk(unittest.TestCase):
 
     def test_draft_epic_is_not_mirrored_as_a_milestone(self) -> None:
         """An unapproved plan stays out of every campaign."""
-        self.world.create("--kind", "epic", "--title", "Draft plan")
+        self.world.create("--kind", "epic", "--title", "Draft plan", "--draft")
         self.sync()
         self.assertEqual(self.forge.milestones, {})
 

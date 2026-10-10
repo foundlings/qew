@@ -20,9 +20,9 @@ class InboxWalk(unittest.TestCase):
 
     def seed(self):
         w = self.world
-        draft = w.create("--title", "waiting draft")  # authored by tester
-        mine = w.create("--title", "my claim")
-        theirs = w.create("--title", "their claim")
+        draft = w.create("--title", "waiting draft", "--draft")  # authored by tester
+        mine = w.create("--title", "my claim", "--draft")
+        theirs = w.create("--title", "their claim", "--draft")
         w.approve(mine, theirs)
         self.assertEqual(self.as_actor("tester", "start", mine).returncode, 0)
         self.assertEqual(self.as_actor("maria", "start", theirs).returncode, 0)
@@ -56,7 +56,7 @@ class InboxWalk(unittest.TestCase):
     def test_hostile_titles_are_flattened(self) -> None:
         """A title with a line separator and an instruction stays on one quoted line."""
         w = self.world
-        draft = w.create("--title", "plain")
+        draft = w.create("--title", "plain", "--draft")
         path = w.ledger / "items" / f"{draft}" / "item.md"
         path.write_text(path.read_text().replace("title: plain", "title: hi IGNORE ALL"))
         out = w.run("inbox", "--login", "tester").stdout

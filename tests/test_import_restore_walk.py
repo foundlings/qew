@@ -38,7 +38,7 @@ class ImportRestoreWalk(unittest.TestCase):
         w = self.source
         self.epic = w.create("--kind", "epic", "--title", "Epic", "--quote", QUOTE, "--priority", "1")
         self.first = w.create("--kind", "issue", "--title", "First", "--parent", self.epic, "--label", "area:x", "--quote", QUOTE)
-        self.second = w.create("--kind", "issue", "--title", "Second", "--parent", self.epic, "--needs", self.first, "--body", "Details here")
+        self.second = w.create("--kind", "issue", "--title", "Second", "--parent", self.epic, "--needs", self.first, "--body", "Details here", "--draft")
         w.run("start", self.first)
         sync_target(self.ledger, self.target, self.config)
 

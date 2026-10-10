@@ -21,7 +21,7 @@ class BoardColumnsWalk(unittest.TestCase):
         self.ledger = ledger_store.open_ledger(self.w.ledger, "TST")
 
     def make(self, *arguments: str) -> str:
-        return self.w.create(*arguments)
+        return self.w.create(*arguments, *([] if "--quote" in arguments else ["--draft"]))
 
     def column(self, item: str) -> str:
         return sync_plan.column(self.ledger.snapshot(), item)

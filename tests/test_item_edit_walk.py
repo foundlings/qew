@@ -23,9 +23,9 @@ class SetOptionsWalk(unittest.TestCase):
     def test_one_set_changes_title_body_priority_kind_labels_and_parent_with_one_event_each(self) -> None:
         """Prevents edits that are not audited: every changed key leaves its own field event."""
         w = self.world
-        old_epic = w.create("--kind", "epic", "--title", "Old")
-        new_epic = w.create("--kind", "epic", "--title", "New")
-        item = w.create("--kind", "issue", "--title", "Item", "--parent", old_epic, "--label", "alpha", "--label", "beta")
+        old_epic = w.create("--kind", "epic", "--title", "Old", "--draft")
+        new_epic = w.create("--kind", "epic", "--title", "New", "--draft")
+        item = w.create("--kind", "issue", "--title", "Item", "--parent", old_epic, "--label", "alpha", "--label", "beta", "--draft")
         body = w.base / "body.md"
         body.write_text("New body\n")
         result = w.run("set", item, "--title", "Renamed", "--body-file", str(body), "--priority", "1", "--kind", "task",
@@ -43,15 +43,15 @@ class SetOptionsWalk(unittest.TestCase):
     def test_no_parent_removes_the_parent(self) -> None:
         """Prevents an item that can never leave its plan."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "E")
-        item = w.create("--kind", "issue", "--title", "I", "--parent", epic)
+        epic = w.create("--kind", "epic", "--title", "E", "--draft")
+        item = w.create("--kind", "issue", "--title", "I", "--parent", epic, "--draft")
         self.assertEqual(w.run("set", item, "--no-parent").returncode, 0)
         self.assertEqual(json.loads(w.run("show", item, "--json").stdout).get("parent", ""), "")
 
     def test_values_that_would_corrupt_the_header_are_refused_and_nothing_changes(self) -> None:
         """Prevents corrupting the fixed header format: blank or multi-line titles, an empty or symlinked body file."""
         w = self.world
-        item = w.create("--kind", "issue", "--title", "Item", "--body", "keep me")
+        item = w.create("--kind", "issue", "--title", "Item", "--body", "keep me", "--draft")
         empty = w.base / "empty.md"
         empty.write_text("  \n")
         real = w.base / "real.md"
@@ -95,7 +95,7 @@ class DraftFlagWalk(unittest.TestCase):
         """Prevents a typo reading as a corrupt ledger (exit 1) instead of a refusal."""
         w = self.world
         before = tree(w)
-        self.assertEqual(w.run("create", "--title", "X", "--priority", "-3").returncode, 2)
+        self.assertEqual(w.run("create", "--title", "X", "--priority", "-3", "--draft").returncode, 2)
         self.assertEqual(tree(w), before)
 
 
@@ -107,7 +107,7 @@ class CommentWalk(unittest.TestCase):
     def test_invalid_comment_input_is_refused_without_an_event(self) -> None:
         """Prevents junk and path tricks: neither or both sources, blank, symlinked, oversize."""
         w = self.world
-        item = w.create("--title", "Maybe")
+        item = w.create("--title", "Maybe", "--draft")
         real = w.base / "c.md"
         real.write_text("text")
         link = w.base / "l.md"
@@ -121,7 +121,7 @@ class CommentWalk(unittest.TestCase):
     def test_text_that_looks_like_a_command_or_an_event_is_stored_verbatim_and_never_run(self) -> None:
         """Prevents treating a comment as an instruction."""
         w = self.world
-        item = w.create("--title", "Maybe")
+        item = w.create("--title", "Maybe", "--draft")
         marker = w.base / "marker"
         text = f'{{"type": "completed"}} $(touch {marker}) `touch {marker}`'
         self.assertEqual(w.run("comment", item, "--body", text).returncode, 0)
@@ -136,7 +136,7 @@ class CommentWalk(unittest.TestCase):
         a = World(ledger_vcs="git", remote=True, replication=every_time)
         self.addCleanup(a.close)
         b = a.clone("b", replication=every_time)
-        item = a.create("--title", "Shared")
+        item = a.create("--title", "Shared", "--draft")
         b.run("list")
         offline = {"QEW_OFFLINE": "1"}
         a.run("comment", item, "--body", "from a", env=offline)
@@ -165,7 +165,7 @@ class DiscoveredFromWalk(unittest.TestCase):
         """Prevents a dangling provenance link."""
         w = self.world
         before = tree(w)
-        self.assertEqual(w.run("create", "--title", "X", "--discovered-from", "nosuchitem").returncode, 2)
+        self.assertEqual(w.run("create", "--title", "X", "--discovered-from", "nosuchitem", "--draft").returncode, 2)
         self.assertEqual(tree(w), before)
 
 
@@ -178,7 +178,7 @@ class BodyWalk(unittest.TestCase):
         """Prevents free-form bodies that omit what done looks like."""
         w = self.world
         item = w.create("--title", "Parse", "--where", "src/parse.py", "--problem", "headers are dropped",
-                        "--fix", "keep them", "--done-when", "a header test passes")
+                        "--fix", "keep them", "--done-when", "a header test passes", "--draft")
         body = json.loads(w.run("show", item, "--json").stdout)["body"]
         for heading, text in (("Where", "src/parse.py"), ("Problem", "headers are dropped"), ("Fix", "keep them"),
                               ("Done when", "a header test passes")):
@@ -200,7 +200,7 @@ class BodyWalk(unittest.TestCase):
         script.write_text("import sys\nopen(sys.argv[-1], 'w').write('edited body\\n')\n")
         marker = w.base / "marker"
         editor = f"python3 {script} ; touch {marker}"
-        result = w.run("create", "--title", "Edited", "--edit", env={"VISUAL": "", "EDITOR": editor})
+        result = w.run("create", "--title", "Edited", "--edit", "--draft", env={"VISUAL": "", "EDITOR": editor})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(marker.exists())
         item = result.stdout.split()[0]
@@ -216,7 +216,7 @@ class CodeShapedTextWalk(unittest.TestCase):
         """Prevents later renderers or agents mistaking prose for commands, without altering the body."""
         w = self.world
         text = "Run qew ready --limit 5 then open ./plans/work.jsonl"
-        result = w.run("create", "--title", "Warn", "--body", text)
+        result = w.run("create", "--title", "Warn", "--body", text, "--draft")
         self.assertEqual(result.returncode, 0, result.stderr)
         for token in ("qew ready", "--limit", "./plans/work.jsonl"):
             self.assertEqual(result.stderr.count(f"warning: unmarked code-shaped text: {token}"), 1, result.stderr)
@@ -227,7 +227,7 @@ class CodeShapedTextWalk(unittest.TestCase):
         """Prevents noise that trains people to ignore the hint."""
         w = self.world
         marked = "Run `qew ready --limit 5` and\n```\n./plans/work.jsonl\n```\n"
-        quiet = w.run("create", "--title", "Quiet", "--body", marked)
+        quiet = w.run("create", "--title", "Quiet", "--body", marked, "--draft")
         self.assertNotIn("warning", quiet.stderr)
         item = quiet.stdout.split()[0]
         self.assertIn("unmarked code-shaped text", w.run("comment", item, "--body", "try --force now").stderr)

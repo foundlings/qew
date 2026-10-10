@@ -110,7 +110,7 @@ def write_tree(snapshot: Snapshot, directory: Path) -> int:
 
 
 def import_directory(config: Config, directory: str, quote: str | None) -> list[str]:
-    """Read DIR/items/ID/item.md into the ledger as drafts (approved with a human's quote), ids kept."""
+    """Read DIR/items/ID/item.md into the ledger as drafts (approved with a human's quote), ids kept; the exported tree is a transfer of someone else's work, so without a quote it stays a draft."""
     verified = require_quote(quote) if quote is not None else None
     ledger = cmd_items.ledger_for(config)
     parsed = _read_tree(Path(directory))

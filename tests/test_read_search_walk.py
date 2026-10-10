@@ -16,7 +16,7 @@ class SearchWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def make(self, title: str, *extra: str, approve: bool = True) -> str:
-        item = self.world.create("--title", title, *extra)
+        item = self.world.create("--title", title, *extra, "--draft")
         if approve:
             self.world.approve(item)
         return item

@@ -18,8 +18,8 @@ class CheckWalk(unittest.TestCase):
 
     def test_a_clean_ledger_passes_and_check_writes_nothing(self) -> None:
         w = self.world
-        a = w.create("--kind", "issue", "--title", "A")
-        w.create("--kind", "issue", "--title", "B", "--needs", a)
+        a = w.create("--kind", "issue", "--title", "A", "--draft")
+        w.create("--kind", "issue", "--title", "B", "--needs", a, "--draft")
         before = sorted(str(p) for p in w.ledger.rglob("*"))
         result = w.run("check")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -33,29 +33,29 @@ class CheckWalk(unittest.TestCase):
 
     def test_unknown_header_key_fails(self) -> None:
         w = self.world
-        item = w.create("--kind", "issue", "--title", "A")
+        item = w.create("--kind", "issue", "--title", "A", "--draft")
         path = w.ledger / "items" / f"{item}" / "item.md"
         path.write_text(path.read_text().replace("\n---\n", "\nstatus: done\n---\n", 1))
         self._fails("unknown header key")
 
     def test_a_dependency_cycle_fails(self) -> None:
         w = self.world
-        a = w.create("--kind", "issue", "--title", "A")
-        b = w.create("--kind", "issue", "--title", "B", "--needs", a)
+        a = w.create("--kind", "issue", "--title", "A", "--draft")
+        b = w.create("--kind", "issue", "--title", "B", "--needs", a, "--draft")
         path = w.ledger / "items" / f"{a}" / "item.md"  # `set` refuses to write a cycle; a hand merge can still produce one
         path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
         self._fails("cycle")
 
     def test_a_dangling_need_fails(self) -> None:
         w = self.world
-        a = w.create("--kind", "issue", "--title", "A")
+        a = w.create("--kind", "issue", "--title", "A", "--draft")
         path = w.ledger / "items" / f"{a}" / "item.md"
         path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
         self._fails("dangling")
 
     def test_an_illegal_transition_fails(self) -> None:
         w = self.world
-        a = w.create("--kind", "issue", "--title", "A")
+        a = w.create("--kind", "issue", "--title", "A", "--draft")
         event = w.ledger / "events" / a / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json"
         event.write_text(json.dumps({"type": "completed", "at": "2026-01-01T00:00:00Z", "actor": "x"}))
         self._fails("illegal")
@@ -72,7 +72,7 @@ class CheckWalk(unittest.TestCase):
 
     def test_a_wrong_prefix_and_a_malformed_event_fail(self) -> None:
         w = self.world
-        a = w.create("--kind", "issue", "--title", "A")
+        a = w.create("--kind", "issue", "--title", "A", "--draft")
         (w.ledger / "events" / a / "BAD.json").write_text("not json")
         self._fails("not valid JSON")
 
@@ -100,7 +100,7 @@ class CheckReportWalk(unittest.TestCase):
 
     def test_valid_ledger_reports_valid_true_and_exit_0(self) -> None:
         """A clean ledger gives empty lists and a schema_version, so callers can test one field."""
-        self.world.create("--title", "A")
+        self.world.create("--title", "A", "--draft")
         data = self.report(0)
         self.assertEqual((data["valid"], data["cycles"], data["contradictions"], data["text_findings"]), (True, [], [], []))
         self.assertEqual(data["schema_version"], 1)
@@ -108,10 +108,10 @@ class CheckReportWalk(unittest.TestCase):
     def test_cycles_are_reported_once_in_canonical_rotation(self) -> None:
         """A cycle entered through a tail must print rotated to its smallest id and closed, so diffs are stable."""
         w = self.world
-        tail = w.create("--title", "tail")
-        a = w.create("--title", "a")
-        b = w.create("--title", "b")
-        c = w.create("--title", "c")
+        tail = w.create("--title", "tail", "--draft")
+        a = w.create("--title", "a", "--draft")
+        b = w.create("--title", "b", "--draft")
+        c = w.create("--title", "c", "--draft")
         self.set_needs(a, b)
         self.set_needs(b, c)
         self.set_needs(c, a)
@@ -123,14 +123,14 @@ class CheckReportWalk(unittest.TestCase):
     def test_open_work_under_a_completed_epic_is_a_contradiction(self) -> None:
         """A plan marked done that still has open work is reported by id, and is advisory (the check stays valid)."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "E")
-        kid = w.create("--title", "K", "--parent", epic)
+        epic = w.create("--kind", "epic", "--title", "E", "--draft")
+        kid = w.create("--title", "K", "--parent", epic, "--draft")
         w.approve(epic, kid)
         w.run("start", epic)
         w.run("start", kid)
         w.run("evidence", kid, "--change", w.commit())
         w.run("complete", kid)
         w.run("complete", epic)
-        late = w.create("--title", "late", "--parent", epic)
+        late = w.create("--title", "late", "--parent", epic, "--draft")
         data = self.report(0)
         self.assertEqual(data["contradictions"], [{"item": late, "kind": "open_child_of_completed_epic"}])

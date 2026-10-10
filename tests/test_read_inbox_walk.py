@@ -26,7 +26,7 @@ class InboxBase(unittest.TestCase):
         self.serial = 0
 
     def make(self, title: str, actor: str = "alice", approve: bool = True, *extra: str) -> str:
-        result = self.world.run("create", "--title", title, *extra, env={"QEW_ACTOR": actor})
+        result = self.world.run("create", "--title", title, *extra, "--draft", env={"QEW_ACTOR": actor})
         self.assertEqual(result.returncode, 0, result.stderr)
         item = result.stdout.split()[0]
         if approve:

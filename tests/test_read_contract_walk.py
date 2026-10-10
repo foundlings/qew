@@ -36,7 +36,7 @@ class ContractWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def ready_item(self, title: str, *extra: str) -> str:
-        item = self.world.create("--title", title, *extra)
+        item = self.world.create("--title", title, *extra, "--draft")
         self.world.approve(item)
         return item
 
@@ -87,7 +87,7 @@ class ContractWalk(unittest.TestCase):
     def test_spec_shapes_match_what_the_commands_emit(self) -> None:
         """A key a command emits that the spec lacks, or a required key it omits, fails here."""
         shapes = spec_shapes()
-        parent = self.world.create("--kind", "epic", "--title", "Plan")
+        parent = self.world.create("--kind", "epic", "--title", "Plan", "--draft")
         need = self.ready_item("Need", "--parent", parent, "--label", "area:x")
         blocked = self.ready_item("Blocked", "--needs", need)
         self.world.run("start", need)
@@ -95,7 +95,7 @@ class ContractWalk(unittest.TestCase):
         talk = self.ready_item("Talk")
         (self.world.ledger / "events" / talk / "Z000001.json").write_text(json.dumps(
             {"type": "commented", "at": "2026-10-03T12:00:00Z", "actor": "bob", "author": "bob", "text": "hi"}))
-        self.world.create("--title", "Idea", "--body", "text")
+        self.world.create("--title", "Idea", "--body", "text", "--draft")
         ready = json.loads(self.world.run("ready", "--json").stdout)
         blocked_body = json.loads(self.world.run("blocked", "--json").stdout)
         self.assertTrue(ready["items"] and blocked_body["items"])
@@ -124,7 +124,7 @@ class ReadyMatrixWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def make(self, title: str, *extra: str, approve: bool = True) -> str:
-        item = self.world.create("--title", title, *extra)
+        item = self.world.create("--title", title, *extra, "--draft")
         if approve:
             self.world.approve(item)
         return item
@@ -140,7 +140,7 @@ class ReadyMatrixWalk(unittest.TestCase):
         reverted = self.make("reverted")
         self.assertEqual(w.run("draft", "revert", reverted, "--reason", "no", "--quote", QUOTE).returncode, 0)
         epic = self.make("epic", "--kind", "epic")
-        w.run("create", "--title", "child of epic", "--parent", epic)
+        w.run("create", "--title", "child of epic", "--parent", epic, "--draft")
         open_need = self.make("open need")
         claimed_need = self.make("claimed need")
         w.run("start", claimed_need)
@@ -176,14 +176,14 @@ class OrderWalk(unittest.TestCase):
     def test_priority_decides_the_order_in_ready_list_and_blocked(self) -> None:
         """Items created low-priority first still come out p0 first, the same way in all three reads."""
         w = self.world
-        low = w.create("--title", "low", "--priority", "3")
-        high = w.create("--title", "high", "--priority", "0")
+        low = w.create("--title", "low", "--priority", "3", "--draft")
+        high = w.create("--title", "high", "--priority", "0", "--draft")
         w.approve(low, high)
         self.assertEqual([r.split()[0] for r in w.run("ready").stdout.splitlines()], [high, low])
         self.assertEqual([r.split()[0] for r in w.run("list").stdout.splitlines()], [high, low])
-        gate = w.create("--title", "gate", "--priority", "0")
-        later = w.create("--title", "later", "--priority", "3", "--needs", gate)
-        sooner = w.create("--title", "sooner", "--priority", "0", "--needs", gate)
+        gate = w.create("--title", "gate", "--priority", "0", "--draft")
+        later = w.create("--title", "later", "--priority", "3", "--needs", gate, "--draft")
+        sooner = w.create("--title", "sooner", "--priority", "0", "--needs", gate, "--draft")
         w.approve(gate, later, sooner)
         self.assertEqual([r.split()[0] for r in w.run("blocked").stdout.splitlines()], [sooner, later])
 
@@ -192,7 +192,7 @@ class OrderWalk(unittest.TestCase):
         w = self.world
         path = w.ledger / "qew-ledger.toml"
         path.write_text(path.read_text() + 'id_mode = "counter"\n')
-        ids = [w.create("--title", f"T{n}") for n in range(10)]
+        ids = [w.create("--title", f"T{n}", "--draft") for n in range(10)]
         w.approve(*ids)
         listed = [row.split()[0] for row in w.run("ready").stdout.splitlines()]
         self.assertEqual(listed, sorted(ids, key=int))

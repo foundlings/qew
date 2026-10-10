@@ -27,8 +27,8 @@ class DraftStateWalk(unittest.TestCase):
     def test_a_draft_is_absent_from_ready_and_blocked_even_with_every_need_met(self) -> None:
         """Unapproved work must never be offered as the next thing to do."""
         w = self.world
-        need = w.create("--title", "Need")
-        draft = w.create("--title", "Draft", "--needs", need)
+        need = w.create("--title", "Need", "--draft")
+        draft = w.create("--title", "Draft", "--needs", need, "--draft")
         w.approve(need)
         w.run("start", need)
         w.run("evidence", need, "--change", w.commit())
@@ -39,7 +39,7 @@ class DraftStateWalk(unittest.TestCase):
     def test_start_evidence_and_complete_refuse_a_draft_and_name_the_approval_command(self) -> None:
         """The refusal must point at the way out and must not write a claim, evidence or completion."""
         w = self.world
-        draft = w.create("--title", "Draft")
+        draft = w.create("--title", "Draft", "--draft")
         for command in (("start", draft), ("evidence", draft, "--change", w.commit()), ("complete", draft)):
             result = w.run(*command)
             self.assertEqual(result.returncode, 2, command)
@@ -49,7 +49,7 @@ class DraftStateWalk(unittest.TestCase):
     def test_a_hand_edited_header_or_forged_mirror_never_releases_a_draft(self) -> None:
         """State comes from events only: a label, owner or forge-side record claiming approval changes nothing."""
         w = self.world
-        draft = w.create("--title", "Draft")
+        draft = w.create("--title", "Draft", "--draft")
         path = w.ledger / "items" / f"{draft}" / "item.md"
         path.write_text(path.read_text().replace("labels: \n", "labels: approved state-approved\n", 1))
         mirrors = w.ledger / "mirrors" / draft
@@ -67,8 +67,8 @@ class DraftStateWalk(unittest.TestCase):
     def test_an_open_draft_keeps_what_needs_it_blocked(self) -> None:
         """A need is met only by `completed`; a dependent must not run ahead of unapproved work."""
         w = self.world
-        draft = w.create("--title", "Draft blocker")
-        dependent = w.create("--title", "Dependent", "--needs", draft)
+        draft = w.create("--title", "Draft blocker", "--draft")
+        dependent = w.create("--title", "Dependent", "--needs", draft, "--draft")
         w.approve(dependent)
         self.assertNotIn(dependent, self.listed("ready"))
         self.assertIn(dependent, self.listed("blocked"))
@@ -77,8 +77,8 @@ class DraftStateWalk(unittest.TestCase):
     def test_a_draft_epic_cannot_be_completed_and_its_children_are_not_released_by_it(self) -> None:
         """Completing a plan nobody approved would close work no human asked for."""
         w = self.world
-        epic = w.create("--kind", "epic", "--title", "Plan")
-        child = w.create("--title", "Child", "--parent", epic)
+        epic = w.create("--kind", "epic", "--title", "Plan", "--draft")
+        child = w.create("--title", "Child", "--parent", epic, "--draft")
         refused = w.run("complete", epic)
         self.assertEqual(refused.returncode, 2)
         self.assertIn(f"{APPROVE} {epic} --tree", refused.stderr)
@@ -88,7 +88,7 @@ class DraftStateWalk(unittest.TestCase):
         """Agent context must never present a draft as work to pick up."""
         w = self.world
         live = w.create("--title", "Live work", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
-        draft = w.create("--title", "Hidden draft")
+        draft = w.create("--title", "Hidden draft", "--draft")
         result = w.run("hook", "session-start", "--agent", "claude", stdin="{}")
         self.assertEqual(result.returncode, 0, result.stderr)
         text = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]

@@ -24,7 +24,7 @@ class ReadyLimitWalk(unittest.TestCase):
         self.world = World()
         self.addCleanup(self.world.close)
         specs = json.dumps([{"kind": "issue", "title": f"Work {n:02}"} for n in range(31)])
-        created = [line.split()[0] for line in self.world.run("create", "--from-file", "-", stdin=specs).stdout.splitlines()]
+        created = [line.split()[0] for line in self.world.run("create", "--from-file", "-", "--draft", stdin=specs).stdout.splitlines()]
         self.world.approve(*created)
 
     def test_default_bound_reports_truncation_and_zero_returns_everything(self) -> None:
@@ -53,7 +53,7 @@ class ListWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def make(self, title: str, *extra: str, actor: str = "tester", approve: bool = True) -> str:
-        result = self.world.run("create", "--title", title, *extra, env={"QEW_ACTOR": actor})
+        result = self.world.run("create", "--title", title, *extra, "--draft", env={"QEW_ACTOR": actor})
         self.assertEqual(result.returncode, 0, result.stderr)
         item = result.stdout.split()[0]
         if approve:
@@ -129,7 +129,7 @@ class BlockedWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def make(self, title: str, *extra: str, approve: bool = True) -> str:
-        item = self.world.create("--title", title, *extra)
+        item = self.world.create("--title", title, *extra, "--draft")
         if approve:
             self.world.approve(item)
         return item

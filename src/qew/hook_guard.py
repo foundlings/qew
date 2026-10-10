@@ -29,7 +29,7 @@ _GLOBAL_VALUE_FLAGS = frozenset({"-R", "--repo", "-r", "-l", "--login", "--hostn
 _MERGE = "`qew pr merge PR`"
 _CLOSE = "`qew complete ITEM` (finished work) or `qew close ITEM --reason R` (abandoned, duplicate, superseded)"
 _ISSUE_ADVICE: Mapping[str, str] = {
-    "create": "`qew create --title T` (a draft until a human approves)",
+    "create": "`qew create --title T` (files straight into the queue; --draft only when a human asks)",
     "edit": "`qew set ITEM` (title, labels, priority, body)",
     "update": "`qew set ITEM` (title, labels, priority, body)",
     "close": _CLOSE,
