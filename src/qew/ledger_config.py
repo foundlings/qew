@@ -186,7 +186,7 @@ def _claim_cap(section: object) -> int | None:
 
 
 _SEGMENT = re.compile(r"[A-Za-z0-9_.-]+")
-_URL_OPTIONS = ("api", "graphql")
+_URL_OPTIONS = ("api", "graphql", "ledger_web_url")
 
 
 def _checked_url(value: object, name: str, forge: str, repository: bool) -> str:

@@ -300,6 +300,10 @@ class Forge(ABC):
     def read_issue(self, number: int) -> RemoteIssue:
         raise Unsupported("read_issue")
 
+    def blob_url(self, base: str, ref: str, path: str) -> str:
+        """The web URL of a file in a repository on this kind of forge (GitHub's scheme by default)."""
+        return f"{base}/blob/{ref}/{path}"
+
     def create_pace(self) -> tuple[int, int]:
         """(creates per minute, creates per hour) this backend allows before it blocks content creation; 0 means no limit."""
         return (0, 0)

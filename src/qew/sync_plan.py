@@ -2,13 +2,15 @@
 
 import hashlib
 import json
+import re
 from collections.abc import Callable, Iterable
 
 from qew import label_style, ledger_author, ledger_graph
 from qew.mirror_types import Seen
 from qew.errors import QewError
 from qew.forge import COLUMNS, CloseReason, MANAGED_FILTER, MARKER_PREFIX, PRIORITY_OPTIONS, IssueSpec, RemoteIssue, marker_for
-from qew.ledger_event import State
+from qew.attachments import Attachment
+from qew.ledger_event import State, attachments_after
 from qew.ledger_item import Item, Kind
 from qew.ledger_store import Snapshot
 
@@ -155,7 +157,8 @@ def labels(snapshot: Snapshot, item: Item, overlay: bool = False) -> tuple[str, 
 
 
 def issue_spec(
-    snapshot: Snapshot, item: Item, numbers: dict[str, int], assignees: dict[str, str], overlay: bool = False
+    snapshot: Snapshot, item: Item, numbers: dict[str, int], assignees: dict[str, str], overlay: bool = False,
+    link: Callable[[str, str], str | None] | None = None,
 ) -> IssueSpec:
     """The desired remote issue; `numbers` maps already-mirrored item ids to this target's issue numbers."""
     folded = snapshot.folds[item.id]
@@ -168,7 +171,7 @@ def issue_spec(
         closed_reason = _CLOSE_REASON.get(closing[-1].get("reason"), "not_planned") if closing else "not_planned"
     return IssueSpec(
         title=item.title,
-        body=_body(item, state, numbers),
+        body=_body(item, state, numbers, attachments_after(snapshot.events[item.id]), link),
         labels=labels(snapshot, item, overlay),
         open=state not in (State.COMPLETED, State.CLOSED),
         close_reason=closed_reason,
@@ -176,13 +179,28 @@ def issue_spec(
     )
 
 
-def _body(item: Item, state: State | None, numbers: dict[str, int]) -> str:
+def _size(size: int) -> str:
+    return f"{size} B" if size < 1024 else f"{size / 1024:.0f} KB" if size < 1024 * 1024 else f"{size / (1024 * 1024):.1f} MB"
+
+
+def _escaped(name: str) -> str:
+    return re.sub(r"([\\`*_{}\[\]()<>#+!|~&])", r"\\\1", name)
+
+
+def _body(item: Item, state: State | None, numbers: dict[str, int], files: dict[str, Attachment] | None = None,
+          link: Callable[[str, str], str | None] | None = None) -> str:
     lines = [marker_for(item.id), "", item.body.strip(), "", "---", f"{item.id} · {state.value if state else '?'} · {item.kind.value}"]
     if item.parent in numbers:
         lines.append(f"Parent: #{numbers[item.parent]}")
     blockers = [f"#{numbers[need]}" for need in item.needs if need in numbers]
     if blockers:
         lines.append(f"Blocked by: {', '.join(blockers)}")
+    if files:
+        lines.append("Attachments (stored in the ledger repository):")
+        for name, row in sorted(files.items()):
+            url = link(item.id, row.blob) if link else None
+            label = f"[{_escaped(name)}]({url})" if url else _escaped(name)
+            lines.append(f"- {label} · {_size(row.size)} · {row.digest[:12]}")
     return "\n".join(lines).replace("\n\n\n", "\n\n") + "\n"
 
 
