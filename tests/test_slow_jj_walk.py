@@ -49,7 +49,7 @@ class SlowJjWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("timed out", result.stderr)
         self.assertIn("unpushed=1", self.status())
-        again = self.world.run("sync")
+        again = self.world.run("list")  # any later command catches the unpushed commit up
         self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
         self.assertIn("unpushed=0", self.status())
 

@@ -334,7 +334,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
 `[replication]` keys: `auto_commit`, `auto_push` (ledger fetch/merge/push), `auto_forge_sync`, `background_sync`
 (booleans, default true), `timeout_s` (5), `fetch_interval_s` (2: reads fetch at most this often; writes always),
 `sync_retry_s` (10: a read restarts a worker that left work), `sync_budget_s` (20: inline sync time budget), `forge_concurrency` (4: forge writes in flight at once; 1 to 32),
-`branch` (`main`). Unknown keys fail. Cache files in the ledger checkout's `.qew/` (excluded from the VCS):
+`branch` (`main`). A jj command gets at least 60 seconds whatever `timeout_s` says (it snapshots the whole working copy first; `QEW_JJ_TIMEOUT_S` changes the floor). A fetch or push that still times out counts as an unreachable remote: a warning on stderr, the commit stays local, `qew status` shows `remote=offline`, and the next command catches it up; the command itself keeps its exit code. Unknown keys fail. Cache files in the ledger checkout's `.qew/` (excluded from the VCS):
 `lock` (write lock), `sync.lock` (worker), `sync.log`, `sync.pending`, `sync.spawned`, `last-fetch`.
 A `sync` run takes the write lock only to commit (every 25 mirror writes and at the end), never during forge calls.
 A write of any size is one commit: git receives the paths on stdin, and jj, past a size that fits a command line, the owned directories. A commit that fails rolls back every file and per-item directory the write created.
