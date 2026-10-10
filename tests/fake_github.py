@@ -174,7 +174,7 @@ class FakeGitHub:
             "id": self.next_id, "node_id": f"I_{number}", "number": number,
             "title": payload["title"], "body": payload.get("body"), "state": "open",
             "state_reason": None, "labels": list(payload.get("labels", [])),
-            "assignee": (payload.get("assignees") or [None])[0], "blocked_by": [], "discussion": [], "timeline": [],
+            "assignee": (payload.get("assignees") or [None])[0], "assignees": list(payload.get("assignees") or []), "blocked_by": [], "discussion": [], "timeline": [],
         }
         self.touch(issue)
         self.issues[number] = issue
@@ -195,6 +195,7 @@ class FakeGitHub:
             "state": issue["state"], "state_reason": issue["state_reason"], "title": issue["title"],
             "body": issue["body"], "labels": [{"name": name} for name in issue["labels"]],
             "assignee": None if not issue["assignee"] else {"login": issue["assignee"]},
+            "assignees": [{"login": login} for login in issue.get("assignees", [])],
             "comments": len(issue["discussion"]),
             **({"parent_issue_url": f"{self.base}{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{issue['parent']}"} if issue.get("parent") else {}),
         }
@@ -689,6 +690,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.fake.set_state(issue, body["state"], body.get("state_reason"))
         if "assignees" in body:
             issue["assignee"] = body["assignees"][0] if body["assignees"] else None
+            issue["assignees"] = list(body["assignees"])
         self.fake.touch(issue)
         self._send(200, self.fake.issue_json(issue))
 
