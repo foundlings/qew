@@ -14,6 +14,13 @@ class Seen(TypedDict):
     comments: list[str]
 
 
+class CommentLink(TypedDict):
+    """One forge comment this machine knows about: the ledger comment it stands for and a digest of the body last seen."""
+
+    ledger: str  # the ledger comment id
+    sha: str
+
+
 class MirrorState(TypedDict, total=False):
     """The keys of a mirror record that may be absent: committed identity extras and this machine's sync state."""
 
@@ -34,6 +41,7 @@ class MirrorState(TypedDict, total=False):
     state: str
     pr_url: str
     milestone_closed: bool
+    cmap: dict[str, CommentLink]  # forge comment id -> link; local state, never committed
     _target: str
 
 

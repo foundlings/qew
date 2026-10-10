@@ -761,6 +761,14 @@ class GitHub(Forge):
         return parse_comment(self._wire.rest("POST", f"{self._repo_path}/issues/{number}/comments", {"body": body}))
 
     @override
+    def update_comment(self, number: int, comment_id: str, body: str) -> RemoteComment:
+        return parse_comment(self._wire.rest("PATCH", f"{self._repo_path}/issues/comments/{int(comment_id)}", {"body": body}))
+
+    @override
+    def delete_comment(self, number: int, comment_id: str) -> None:
+        self._wire.rest("DELETE", f"{self._repo_path}/issues/comments/{int(comment_id)}")
+
+    @override
     def link_dependency(self, number: int, blocked_by: int) -> None:
         path = f"{self._repo_path}/issues/{number}/dependencies/blocked_by"
         for page in self._wire.pages(f"{path}?per_page=100"):
