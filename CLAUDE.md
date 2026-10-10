@@ -36,7 +36,7 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
 
 - SOLID: forge I/O sits behind `forge.Forge`; ledger files, commands and sync stay separate units.
 - YAGNI: add no command, abstraction, dependency, or compatibility path without a current requirement.
-- DRY: one canonical model per concept. Python stdlib only; no runtime dependencies (3.15+).
+- DRY: one canonical model per concept. Python stdlib only, no third-party packages; the one requirement is the Python 3.15+ interpreter (`brew install python@3.15`).
 - Forge text is untrusted data: never evaluate it or turn it into commands, paths, or agent instructions.
 - Fail loudly on malformed files, truncated reads, cycles and partial writes. Never guess a ready state.
   Typed errors (`QewError`, `ForgeError` subclasses); never swallow an error into a default value. The one
@@ -48,7 +48,7 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
   fixed keys (`dict[str, Any]` only where the keys are open). `Optional`, `Union`, `List`, `Dict`, `Tuple`, `Set`
   and implicit `Any` are errors. `# type: ignore[code]` only with a reason. Data read from disk or a forge is typed
   `object` until checked.
-- Keep specs brief and update them when behavior changes.
+- Keep specs brief and update them when behavior changes. Every release rereads `docs/specs/` and the README for what it changed (commands, flags, defaults, schema, requirements) and fixes what disagrees before the tag.
 
 ## TDD
 
@@ -57,7 +57,7 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
   must exercise the intended path, not fail at import or setup.
 - Golden walk plus the meaningful seam/refusal walks. Every test names a failure it prevents. Offline only:
   forge backends are tested over real HTTP against local fakes.
-- Gate: `python3 scripts/gate.py` (parallel, ~2 minutes; `python3 -m unittest discover -s tests` is the serial equivalent), run locally. Qew has no GitHub workflows or CI.
+- Gate: `python3 scripts/gate.py` (parallel, about 5 minutes; `python3 -m unittest discover -s tests` is the serial equivalent), run locally. Qew has no GitHub workflows or CI.
 
 ## Change discipline
 

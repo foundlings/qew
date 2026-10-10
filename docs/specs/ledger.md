@@ -67,7 +67,8 @@ kind: epic | issue | task
 title: Short imperative title
 parent: 042f0gp5t             # optional; epic of an issue, issue of a task
 needs: 042f0m67k 042f0ip9w     # dependencies (blocked-by); space-separated IDs
-labels: area:erp phase:ADA
+labels: area:erp
+fields: {"phase":"ADA","plan":["a","b"]}   # optional (schema 5): named values beside the labels, one JSON line
 owner:                         # empty = unclaimed
 priority: 2                    # lower = sooner
 created: 2026-10-08T16:00:00Z
@@ -112,7 +113,8 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
 - `completed` (requires: all child tasks completed AND ≥1 evidence event whose change ids resolve
   as ancestors of the target branch in the code repo — checked by `qew complete`, refused otherwise)
 - `reopened`, `closed` (`reason`: `not_planned|duplicate|superseded`)
-- `field` (header change audit: key, old, new)
+- `field` (header change audit: key, old, new; `fields` is the key for a change of the fields header)
+- `author_corrected` (`author`, `via`, `quote`): the newest one decides the item's author; see Authorship. Any event may carry `via`, the tool that wrote it for its actor
 - `edge` (`op` add|remove, `need`, `old`, `new`): one needs edge changed; the effective needs are the header list with
   every `edge` event applied in ID order, so branches changing different edges merge. `comment` (`text`): append-only.
 An epic's claim is DERIVED at read time, never stored: it is in progress (`qew show`, `list`) while an open direct
@@ -184,8 +186,8 @@ select = "kind:epic"
 - Fail loudly on malformed files, cycles, truncated reads, partial writes.
 
 ## Decisions (v1 builder; the owner was not available)
-- `qew create` files a draft; `--quote` (a human's words) files it approved. Only quoted words release work.
-- Python 3.15+ (`tomllib`); no runtime dependencies.
+- `qew create` files into the queue (approved, `filed_by` the creator); a draft only with `--draft`, and only a human's quoted words release a draft (`--quote`, `qew draft approve`).
+- Python 3.15+ (`tomllib`) and the standard library only: no third-party packages.
 - The header `owner:` stays empty: ownership is derived from `claimed`/`released` events so claims merge cleanly.
   `qew check` refuses a non-empty value.
 - Extra event `reverted` (`reason`, `quote`) returns approved, unclaimed work to draft.

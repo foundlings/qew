@@ -41,7 +41,7 @@ does not exist.
 - Forge calls use bounded HTTP without redirects (a token cannot follow a redirect to another host); tokens
   come from the environment only and are never written to the ledger or config.
 - Agent hooks refuse forge-side bypasses and never execute command text (see hooks.md).
-- Python standard library only; no runtime dependencies.
+- Python standard library only: no third-party packages in the runtime, so the interpreter (3.15+) is the whole supply chain besides qew.
 
 ## Token cost
 
