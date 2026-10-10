@@ -66,6 +66,15 @@ class ProjectFieldsWalk(unittest.TestCase):
         self.assertEqual(self.value(fake, "Area"), "billing")
         self.assertIn("divergences=0", world.run("status").stdout)
 
+    def test_project_status_reads_a_board_that_has_a_text_field_nobody_mapped(self) -> None:
+        """Prevents `qew project status` failing with 'malformed GitHub response: value.name' on any board that has a text field."""
+        fake, world = self.rig("")
+        world.create("--kind", "issue", "--title", "Plain", "--quote", QUOTE)
+        self.sync(world)
+        fake.set_field_value("1", next(iter(fake.issues.values()))["node_id"], "Area", "typed by a human")
+        result = world.run("project", "status", env=ENV)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_without_the_option_no_field_is_read_or_written(self) -> None:
         """Prevents surprising existing boards: no `project_fields` option means no field query and no field write."""
         fake, world = self.rig("")
