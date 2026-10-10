@@ -13,6 +13,8 @@ from urllib.parse import quote
 
 from qew import label_style
 from qew.forge import (
+    RemoteReview,
+    RemoteReviewComment,
     CLOSE_REASONS,
     close_reason_of,
     is_dead_twin,
@@ -787,6 +789,29 @@ class GitHub(Forge):
     @override
     def create_comment(self, number: int, body: str) -> RemoteComment:
         return parse_comment(self._wire.rest("POST", f"{self._repo_path}/issues/{number}/comments", {"body": body}))
+
+    @override
+    def list_reviews(self, number: int) -> list[RemoteReview]:
+        found: list[RemoteReview] = []
+        for page in self._wire.pages(f"{self._repo_path}/pulls/{number}/reviews?per_page=100"):
+            for entry in _array(page, "review list"):
+                review = _obj(entry, "review")
+                found.append(RemoteReview(str(_int(review, "id", "review")), _str(_obj(review.get("user") or {"login": "ghost"}, "review.user"), "login", "review.user"),
+                                          _str(review, "state", "review"), _nullable_str(review, "body", "review"), _nullable_str(review, "submitted_at", "review")))
+        return found
+
+    @override
+    def list_review_comments(self, number: int) -> list[RemoteReviewComment]:
+        found: list[RemoteReviewComment] = []
+        for page in self._wire.pages(f"{self._repo_path}/pulls/{number}/comments?per_page=100"):
+            for entry in _array(page, "review comment list"):
+                comment = _obj(entry, "review comment")
+                line = comment.get("line") or comment.get("original_line") or 0
+                found.append(RemoteReviewComment(str(_int(comment, "id", "review comment")),
+                                                 _str(_obj(comment.get("user") or {"login": "ghost"}, "comment.user"), "login", "comment.user"),
+                                                 _nullable_str(comment, "body", "review comment"), _nullable_str(comment, "path", "review comment"),
+                                                 line if type(line) is int else 0, _nullable_str(comment, "created_at", "review comment")))
+        return found
 
     @override
     def update_comment(self, number: int, comment_id: str, body: str) -> RemoteComment:

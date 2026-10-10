@@ -199,6 +199,17 @@ class FakeGitHub:
             **({"parent_issue_url": f"{self.base}{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{issue['parent']}"} if issue.get("parent") else {}),
         }
 
+    def add_review(self, number: int, login: str, state: str, body: str, comments: Optional[List[Dict[str, Any]]] = None) -> None:
+        """A review on a pull request, with optional inline comments ({path, line, body})."""
+        self.next_id += 1
+        pull = self.pulls[number]
+        stamp = f"2026-02-01T00:{len(pull.setdefault('reviews', [])):02d}:00Z"
+        pull["reviews"].append({"id": self.next_id, "user": {"login": login}, "state": state, "body": body, "submitted_at": stamp})
+        for inline in comments or []:
+            self.next_id += 1
+            pull.setdefault("review_comments", []).append({"id": self.next_id, "user": {"login": login}, "body": inline["body"],
+                                                           "path": inline["path"], "line": inline["line"], "created_at": stamp})
+
     def add_comment(self, number: int, login: str, body: Optional[str]) -> Dict[str, Any]:
         """A comment made on the forge by someone else; ids rise and timestamps are in creation order."""
         self.next_id += 1
@@ -693,6 +704,20 @@ class _Handler(BaseHTTPRequestHandler):
         issue = self.fake.issues.get(int(number))
         self._send(404, {"message": "Not Found"}) if issue is None else self._send(200, list(issue["timeline"]))
 
+    def _get_reviews(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        pull = self.fake.pulls.get(int(number))
+        if pull is None:
+            return self._send(404, {"message": "Not Found"})
+        window, link = self._page(pull.get("reviews", []), query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/pulls/{number}/reviews")
+        self._send(200, window, link)
+
+    def _get_review_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+        pull = self.fake.pulls.get(int(number))
+        if pull is None:
+            return self._send(404, {"message": "Not Found"})
+        window, link = self._page(pull.get("review_comments", []), query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/pulls/{number}/comments")
+        self._send(200, window, link)
+
     def _post_sub_issues(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
         parent = self.fake.issues.get(int(number))
         child = next((i for i in self.fake.issues.values() if i["id"] == body.get("sub_issue_id")), None)
@@ -868,6 +893,8 @@ _ROUTES = (
     (r"/pulls", "pulls"),
     (r"/pulls/(\d+)", "pull"),
     (r"/pulls/(\d+)/merge", "merge"),
+    (r"/pulls/(\d+)/reviews", "reviews"),
+    (r"/pulls/(\d+)/comments", "review_comments"),
     (r"/rules/branches/([\w.-]+)", "rules"),
     (r"/branches/([\w.-]+)/protection", "protection"),
     (r"/commits/([0-9a-f]+)/status", "status"),

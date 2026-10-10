@@ -12,7 +12,8 @@ from collections.abc import Iterable
 
 from qew import label_style, sync_plan
 from qew.forge import ForgeError, MARKER_PREFIX, RemoteIssue, Unsupported
-from qew.forge_pull import PullReport, clean_body, clean_labels, clean_line, pull_target
+from qew.forge_pull import PullReport, clean_labels, pull_target
+from qew.forge_text import clean_body, clean_line
 from qew.ledger_ids import valid_id
 from qew.ledger_item import Kind, from_header
 from qew.ledger_store import Ledger, now
