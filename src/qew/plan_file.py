@@ -17,7 +17,7 @@ from qew.ledger_item import title_is_one_line
 
 KINDS = ("epic", "issue", "task")
 # `events` is validated by the importer, `quote` and `approved` by the release rule.
-FIELDS = ("kind", "title", "parent", "needs", "labels", "priority", "body", "ref", "id", "created", "events", "quote", "approved", "discovered_from")
+FIELDS = ("kind", "title", "parent", "needs", "labels", "priority", "body", "ref", "id", "created", "events", "quote", "approved", "discovered_from", "attachments")
 
 
 @dataclass(frozen=True)
@@ -132,6 +132,11 @@ def _checked(value: JsonObject, label: str) -> JsonObject:
         raise QewError(f"{label}: approved must be true or false", 2)
     if "events" in value and not isinstance(value["events"], list):
         raise QewError(f"{label}: events must be a list", 2)
+    if "attachments" in value:
+        rows = value["attachments"]
+        if not isinstance(rows, list) or not all(isinstance(row, dict) and isinstance(row.get("source"), str) and set(row) <= {"source", "name"}
+                                                 and isinstance(row.get("name", ""), str) for row in rows):
+            raise QewError(f"{label}: attachments must be a list of {{\"source\": path, \"name\": optional name}} (sources relative to the current directory)", 2)
     return value
 
 

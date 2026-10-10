@@ -1,11 +1,11 @@
 """`qew item attach|detach|extract`: files and subdirectories owned by an item (see attachments.py)."""
 
 import argparse
+import json
 import shutil
-import sys
 from pathlib import Path
 
-from qew import attachments, cmd_items, id_migration, ledger_config
+from qew import attach_batch, attachments, cmd_items, id_migration, ledger_config
 from qew.errors import QewError
 from qew.ledger_event import State, attachments_after
 from qew.ledger_ids import next_id, valid_id
@@ -16,8 +16,10 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     group = commands.add_parser("item", help="things done with one item: attach | detach | extract | rename")
     verbs = group.add_subparsers(dest="item_command", required=True)
     attach = verbs.add_parser("attach", help="attach a file, or a directory with its subdirectories, to an item")
-    attach.add_argument("item", help="item id or alias")
-    attach.add_argument("source", help="a file or a directory on disk")
+    attach.add_argument("item", nargs="?", help="item id or alias")
+    attach.add_argument("source", nargs="?", help="a file or a directory on disk")
+    attach.add_argument("--manifest", help="instead of ITEM SOURCE: a JSON Lines file of {item, source, name} rows, applied in one commit")
+    attach.add_argument("--dry-run", action="store_true", help="say what would be attached and write nothing")
     attach.add_argument("--as", dest="name", help="the name in the item's tree (a directory's files go under it); default the file name, or the root for a directory")
     detach = verbs.add_parser("detach", help="detach a name, or a whole directory of names, from an item (the bytes stay in history)")
     detach.add_argument("item", help="item id or alias")
@@ -36,9 +38,16 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "item":
         return False
     ledger = cmd_items.ledger_for(ledger_config.load())
+    if arguments.item_command == "attach" and arguments.manifest:
+        if arguments.item or arguments.source or arguments.name:
+            raise QewError("--manifest replaces ITEM, SOURCE and --as: give the manifest alone", 2)
+        print(attach_manifest(ledger, Path(arguments.manifest), arguments.dry_run))
+        return True
+    if arguments.item_command == "attach" and not (arguments.item and arguments.source):
+        raise QewError("give ITEM and SOURCE, or --manifest FILE", 2)
     item_id = ledger.resolve(arguments.item, ledger.item_ids())
     if arguments.item_command == "attach":
-        print(attach(ledger, item_id, Path(arguments.source), arguments.name))
+        print(attach(ledger, item_id, Path(arguments.source), arguments.name, arguments.dry_run))
     elif arguments.item_command == "detach":
         print(detach(ledger, item_id, arguments.name))
     elif arguments.item_command == "rename":
@@ -48,66 +57,50 @@ def run(arguments: argparse.Namespace) -> bool:
     return True
 
 
-def _files(source: Path, name: str | None) -> list[tuple[str, Path]]:
-    """(attachment name, file) for a file or for every file under a directory; symlinks and special files are refused."""
-    if name is not None:
-        attachments.checked_path(name)
-    if source.is_symlink():
-        raise QewError(f"{source} is a symlink; name the real file", 2)
-    if source.is_file():
-        return [(attachments.checked_path(source.name if name is None else name), source)]
-    if not source.is_dir():
-        raise QewError(f"{source} is not a file or a directory", 2)
-    found: list[tuple[str, Path]] = []
-    for path in sorted(source.rglob("*")):
-        if path.is_symlink():
-            raise QewError(f"{path} is a symlink; attachments are regular files only", 2)
-        if path.is_dir():
-            continue
-        if not path.is_file():
-            raise QewError(f"{path} is not a regular file", 2)
-        relative = path.relative_to(source).as_posix()
-        found.append((attachments.checked_path(f"{name}/{relative}" if name is not None else relative), path))
-    if not found:
-        raise QewError(f"{source} holds no files", 2)
-    return found
-
-
-def attach(ledger: Ledger, item_id: str, source: Path, name: str | None) -> str:
-    planned = _files(source, name)
-    if len({path for path, _ in planned}) != len(planned):
-        raise QewError("two files would have the same attachment name", 2)
-    limit = attachments.hard_limit()
-    hashed: list[tuple[str, Path, str, int]] = []
-    for path, file in planned:
-        try:
-            digest, size = attachments.hash_file(file)
-        except OSError as error:
-            raise QewError(f"cannot read {file}: {error}", 2) from None
-        if size > limit:
-            raise QewError(f"{file} is {size} bytes; the limit is {limit} (QEW_ATTACH_MAX_BYTES)", 2)
-        if size > attachments.SOFT_FILE_BYTES:
-            print(f"warning: {file} is {size // (1024 * 1024)} MiB; large files bloat the ledger repository", file=sys.stderr)
-        hashed.append((path, file, digest, size))
-    current = attachments_after(ledger.load_events(item_id))
-    changed = [row for row in hashed if current.get(row[0]) is None or current[row[0]].digest != row[2]]
-    names = {path for path, *_ in hashed}
-    for path, *_ in changed:
-        clash = attachments.clashes((set(current) - names) | names, path)
-        if clash:
-            raise QewError(f"`{path}` cannot be both a file and a directory (clashes with {', '.join(clash)}); detach one first", 2)
-    stored = {row.digest: row.size for row in current.values()}
-    stored.update({digest: size for _, _, digest, size in changed})
-    if sum(stored.values()) > attachments.ITEM_BYTES:
-        raise QewError(f"{item_id} would hold {sum(stored.values())} bytes of attachments; the limit is {attachments.ITEM_BYTES}", 2)
-    for path, file, digest, size in changed:
-        blob = attachments.blob_name(digest, attachments.extension_of(file.name))
-        ledger.store_blob(item_id, file, blob)
-        ledger.append_event(item_id, "attached", path=path, hash=digest, size=size, blob=blob)
-    if not changed:
+def attach(ledger: Ledger, item_id: str, source: Path, name: str | None, dry_run: bool = False) -> str:
+    batch = attach_batch.plan(ledger, [attach_batch.Request(item_id, source, name)])
+    if not dry_run:
+        attach_batch.apply(ledger, batch)
+    if not batch.rows:
         return f"attachments of {item_id} unchanged"
-    same = len(hashed) - len(changed)
-    return f"attached {len(changed)} file(s) to {item_id}" + (f" ({same} unchanged)" if same else "")
+    same = f" ({batch.unchanged} unchanged)" if batch.unchanged else ""
+    verb = "would attach" if dry_run else "attached"
+    return f"{verb} {len(batch.rows)} file(s) to {item_id}{same}"
+
+
+_MANIFEST_KEYS = ("item", "source", "name")
+
+
+def attach_manifest(ledger: Ledger, manifest: Path, dry_run: bool) -> str:
+    """JSON Lines of {"item", "source", optional "name"}: relative sources are relative to the manifest's directory."""
+    try:
+        text = manifest.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise QewError(f"cannot read {manifest}: {error}", 2) from None
+    requests: list[attach_batch.Request] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        where = f"line {number}"
+        try:
+            row = json.loads(line)
+        except ValueError as error:
+            raise QewError(f"{where}: invalid JSON ({error})", 2) from None
+        if not isinstance(row, dict) or set(row) - set(_MANIFEST_KEYS) or not isinstance(row.get("item"), str) or not isinstance(row.get("source"), str):
+            raise QewError(f"{where}: a row is an object with `item` and `source` (and optional `name`), nothing else", 2)
+        name = row.get("name")
+        if name is not None and not isinstance(name, str):
+            raise QewError(f"{where}: `name` must be text", 2)
+        try:
+            item_id = ledger.resolve(row["item"], ledger.item_ids())
+        except QewError as error:
+            raise QewError(f"{where}: {error}", error.exit_code) from None
+        source = Path(row["source"])
+        requests.append(attach_batch.Request(item_id, source if source.is_absolute() else manifest.parent / source, name, where))
+    batch = attach_batch.plan(ledger, requests)
+    if not dry_run:
+        attach_batch.apply(ledger, batch)
+    return attach_batch.summary(batch, "would attach" if dry_run else "attached")
 
 
 def detach(ledger: Ledger, item_id: str, name: str) -> str:
