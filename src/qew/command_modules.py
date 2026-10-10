@@ -7,7 +7,7 @@ CORE_COMMANDS: frozenset[str] = frozenset({"check", "create", "draft", "init", "
 
 COMMAND_MODULE: dict[str, str] = {
     "accept": "cmd_divergence",  "blocked": "cmd_read", "board": "cmd_board", "branch": "cmd_branch", "close": "cmd_finish",
-    "comment": "cmd_comment", "complete": "cmd_finish", "conflicts": "cmd_conflicts", "evidence": "cmd_finish",
+    "comment": "cmd_comment", "correct-author": "cmd_author", "complete": "cmd_finish", "conflicts": "cmd_conflicts", "evidence": "cmd_finish",
     "export": "cmd_transfer", "forge": "cmd_forge", "graph": "cmd_read", "hook": "cmd_hook", "import": "cmd_forgeio",
     "inbox": "cmd_inbox", "item": "cmd_item_verbs", "land": "cmd_land", "ledger": "cmd_ledger", "list": "cmd_read", "migrate-ids": "cmd_migrate", "migrate-layout": "cmd_migrate", "next-id": "cmd_next_id",
     "mirror": "cmd_mirror", "plan": "cmd_plan", "pr": "cmd_pr", "prime": "cmd_prime", "project": "cmd_project",

@@ -53,6 +53,8 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     "forge_timeline": (("kind", "who", "when"), tuple(State)),
     # An earlier wording of the issue body, kept at import (docs/specs/ledger.md, Forge timeline): history only.
     "body_revision": (("who", "when", "hash", "text"), tuple(State)),
+    # The item's author is the human, not the tool that filed it (docs/specs/ledger.md, Authorship): the newest one wins.
+    "author_corrected": (("author",), tuple(State)),
     "forge_divergence": (("target", "field"), tuple(State)),
     "divergence_accepted": (("ref",), tuple(State)),
     "divergence_rejected": (("ref",), tuple(State)),
@@ -153,6 +155,8 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
             raise QewError(f"{where}: evidence needs a non-empty change_ids list", 1)
         if value["vcs"] not in ("jj", "git"):
             raise QewError(f"{where}: evidence vcs must be jj or git", 1)
+    if "via" in value and (not isinstance(value["via"], str) or not valid_actor(value["via"])):
+        raise QewError(f"{where}: `via` (the tool that wrote the event) must be one word without spaces or commas", 1)
     _check_optional_fields(kind, value, where)
     data = {key: item for key, item in value.items() if key not in ("type", "at", "actor")}
     return Event(event_id, kind, value["at"], value["actor"], data)
@@ -204,6 +208,9 @@ def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None
     elif kind == "edge":
         if value["op"] not in ("add", "remove"):
             raise QewError(f"{where}: edge op must be add or remove", 1)
+    elif kind == "author_corrected":
+        if not isinstance(value["author"], str) or not valid_actor(value["author"]):
+            raise QewError(f"{where}: `author` must be one word without spaces or commas", 1)
     elif kind in ("assigned", "unassigned"):
         if not isinstance(value["login"], str) or not valid_actor(value["login"]):
             raise QewError(f"{where}: `login` must be one word without spaces or commas", 1)

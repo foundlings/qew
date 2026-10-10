@@ -1,79 +1,107 @@
-"""Walks of the derived item author: the actor of the first recorded event.
+"""Authorship: the importer is a tool, not the author. A reviewed bulk correction event names the human, keeps the tool as `via`,
+and sync turns author:qew-import into author:887.
 
-Adversary: re-attribution by a later edit, an author taken from a typed
-argument, and an actor that cannot be a label half-labelling a sync.
+Each test is a scenario; its docstring names the failure it prevents.
 """
 
 import json
-import shutil
+import os
+import subprocess
+import sys
 import unittest
 
-from qew import ledger_config
-from qew.ledger_store import Ledger
-from qew.sync import Target, sync_target
-from tests.ledger_harness import World
-from tests.memory_forge import MemoryForge
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-MIRRORS = '\n[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/o/r"\n'
+from tests.fake_github import TOKEN, FakeGitHub
+from tests.ledger_harness import QUOTE, World
+
+NOW = "2024-05-01T10:00:00Z"
+OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\ndivergences = \"report\"\n"
+ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
+REVIEW = "Alexander: 'everything was authored by me, the importer was only the tool used'"
+
+
+def imported(item_id: str, actor: str = "qew-import") -> dict:
+    return {"id": item_id, "kind": "issue", "title": f"Old work {item_id}",
+            "events": [{"type": "approved", "at": NOW, "actor": actor, "quote": QUOTE}]}
 
 
 class AuthorWalk(unittest.TestCase):
     def setUp(self) -> None:
-        self.world = World(MIRRORS)
+        self.world = World(ledger_vcs="git")
         self.addCleanup(self.world.close)
+        load = self.world.run("create", "--from-file", "-", "--import", stdin=json.dumps([imported("IA"), imported("IB"), imported("IC", "alice")]))
+        self.assertEqual(load.returncode, 0, load.stdout + load.stderr)
 
-    def sync(self, forge: MemoryForge):
-        config = ledger_config.load(self.world.code)
-        mirror = config.mirrors[0]
-        return sync_target(Ledger(self.world.ledger, "TST"), Target(mirror, ledger_config.mirror_slug(mirror), forge), config)
+    def show(self, item: str) -> dict:
+        return json.loads(self.world.run("show", item, "--json").stdout)
 
-    def test_author_comes_from_the_first_event_actor_only(self) -> None:
-        """A later edit by another actor must not re-attribute the item; create takes no --author."""
-        w = self.world
-        item = w.create("--title", "T", "--draft")
-        self.assertEqual(w.run("create", "--title", "X", "--author", "mallory", "--draft").returncode, 2)
-        w.run("set", item, "--priority", "1", env={"QEW_ACTOR": "bob"})
-        shown = json.loads(w.run("show", item, "--json").stdout)
-        self.assertEqual(shown["author"], "tester")
-        self.assertIn("author: tester", w.run("show", item).stdout)
+    def commits(self) -> int:
+        return int(subprocess.run(["git", "-C", str(self.world.ledger), "rev-list", "--count", "HEAD"], capture_output=True, text=True).stdout)
 
-    def test_list_filter_matches_case_insensitively(self) -> None:
-        """`--author TESTER` must find tester's items and hide another actor's."""
-        w = self.world
-        mine = w.create("--title", "mine", "--draft")
-        self.assertEqual(w.run("create", "--title", "theirs", "--draft", env={"QEW_ACTOR": "carol"}).returncode, 0)
-        listed = w.run("list", "--author", "TESTER").stdout
-        self.assertIn(mine, listed)
-        self.assertEqual(len(listed.strip().splitlines()), 1)
+    def test_the_correction_names_the_human_keeps_the_tool_and_never_rewrites_history(self) -> None:
+        """Prevents 22,487 items credited to a tool: one reviewed event each moves the author, the first event stays as it was."""
+        self.assertEqual(self.show("IA")["author"], "qew-import")
+        first = {p.name: p.read_bytes() for p in (self.world.ledger / "events" / "IA").glob("*.json")}
+        before = self.commits()
+        preview = self.world.run("correct-author", "--from", "qew-import", "--to", "887", "--quote", REVIEW, "--dry-run")
+        self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
+        self.assertIn("would correct 2", preview.stdout)
+        self.assertEqual(self.commits(), before)
+        done = self.world.run("correct-author", "--from", "qew-import", "--to", "887", "--quote", REVIEW)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("corrected 2", done.stdout)
+        self.assertEqual(self.commits(), before + 1)
+        for item in ("IA", "IB"):
+            data = self.show(item)
+            self.assertEqual((data["author"], data.get("via")), ("887", "qew-import"))
+        self.assertEqual(self.show("IC")["author"], "alice")
+        for name, content in first.items():
+            self.assertEqual((self.world.ledger / "events" / "IA" / name).read_bytes(), content)
+        self.assertIn("IA", self.world.run("list", "--author", "887").stdout)
+        self.assertEqual(self.world.run("list", "--author", "qew-import").stdout.strip(), "")
+        again = self.world.run("correct-author", "--from", "qew-import", "--to", "887", "--quote", REVIEW)
+        self.assertIn("corrected 0", again.stdout)
+        self.assertEqual(self.commits(), before + 1)
+        self.assertEqual(self.world.run("check").returncode, 0)
 
-    def test_sync_labels_the_issue_with_the_author(self) -> None:
-        """The forge issue carries author:LOGIN so the board can be filtered by who opened the work."""
-        self.world.create("--title", "T", "--draft")
-        forge = MemoryForge("git.example")
-        self.sync(forge)
-        self.assertIn("author:tester", forge.issues[1].labels)
+    def test_the_correction_needs_a_humans_words_and_a_real_change(self) -> None:
+        """Prevents a quiet bulk rewrite of credit: no quote, a bad actor or a no-op change refuses before any write."""
+        before = self.commits()
+        for arguments in (("--from", "qew-import", "--to", "887"),
+                          ("--from", "qew-import", "--to", "not an actor", "--quote", REVIEW),
+                          ("--from", "qew-import", "--to", "qew-import", "--quote", REVIEW)):
+            with self.subTest(arguments=arguments):
+                out = self.world.run("correct-author", *arguments)
+                self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
+        self.assertEqual(self.commits(), before)
 
-    def test_actor_that_cannot_be_a_label_fails_before_any_forge_call(self) -> None:
-        """An actor such as `bad login,x` is reported against the item; no half-labelled issue appears."""
-        w = self.world
-        item = w.create("--title", "T", "--draft")  # `create` itself refuses such an actor now; a hand-merged event can still carry one
-        event = next((w.ledger / "events" / item).glob("*.json"))
-        event.write_text(event.read_text().replace('"actor": "tester"', '"actor": "bad login,x"'))
-        forge = MemoryForge("git.example")
-        report = self.sync(forge)
-        self.assertEqual(forge.count("create"), 0)
-        self.assertEqual(len(report.failures), 1)
-        self.assertIn("author", report.failures[0])
+    def test_a_new_import_can_record_the_human_as_author_and_the_tool_as_via(self) -> None:
+        """Prevents the next import repeating the mistake: --as makes the human the actor of the entry's events, the tool its via."""
+        out = self.world.run("create", "--from-file", "-", "--import", "--as", "887", stdin=json.dumps([imported("ID")]))
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        data = self.show("ID")
+        self.assertEqual((data["author"], data.get("via")), ("887", "qew-import"))
 
-    def test_item_without_events_has_unknown_author_and_no_label(self) -> None:
-        """No recorded first event means no guess: never mirrored as a label."""
-        w = self.world
-        item = w.create("--title", "T", "--draft")
-        shutil.rmtree(w.ledger / "events" / item)
-        forge = MemoryForge("git.example")
-        self.sync(forge)
-        self.assertFalse([label for label in forge.issues[1].labels if label.startswith("author:")])
-        self.assertNotEqual(w.run("show", item).returncode, 0, "reads refuse a ledger whose item has no events")
+
+class AuthorSyncWalk(unittest.TestCase):
+    def test_sync_relabels_the_issue_and_the_prune_drops_the_old_label(self) -> None:
+        """Prevents author:qew-import lingering on 1,909 issues: after the correction sync labels author:887 and prune deletes the old one."""
+        fake = FakeGitHub().start()
+        self.addCleanup(fake.stop)
+        mirrors = f'\n[[mirror]]\nforge = "github"\nrepo = "{fake.repo_url}"\napi = "{fake.api}"\n'
+        world = World(mirrors, replication=OFF)
+        self.addCleanup(world.close)
+        self.assertEqual(world.run("create", "--from-file", "-", "--import", stdin=json.dumps([imported("IA")])).returncode, 0)
+        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        labels = lambda: next(iter(fake.issues.values()))["labels"]  # noqa: E731
+        self.assertIn("author:qew-import", labels())
+        self.assertEqual(world.run("correct-author", "--from", "qew-import", "--to", "887", "--quote", REVIEW).returncode, 0)
+        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertIn("author:887", labels())
+        self.assertNotIn("author:qew-import", labels())
+        self.assertEqual(world.run("sync", "--prune-labels", env=ENV).returncode, 0)
+        self.assertNotIn("author:qew-import", fake.label_store)
 
 
 if __name__ == "__main__":

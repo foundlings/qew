@@ -56,6 +56,8 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
         return str(arguments.item_command)
     if command == "land":
         return "land"
+    if command == "correct-author" and not arguments.dry_run:
+        return "correct-author"
     if command in ("migrate-ids", "migrate-layout", "repair-evidence") and not arguments.dry_run:
         return command
     return None

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+from typing import Any
 
 from qew import evidence_backfill, evidence_resolve, attach_batch, comment_batch, graph_rules, ledger_fields, ledger_labels
 from qew.cmd_items import ledger_for
@@ -138,7 +139,15 @@ def _release(entry: Entry, default_quote: str | None, draft: bool) -> Release:
     return Quoted(verified) if verified is not None else Queued()
 
 
-def _import_events(item: Item, spec: JsonObject) -> list[Event]:
+def _credit(entry: dict[str, Any], as_author: str) -> dict[str, Any]:
+    """`--as NAME`: the entry's events are by NAME, and the actor the file named (the tool) is kept as `via`."""
+    actor_name = entry.get("actor")
+    if not as_author or actor_name == as_author:
+        return entry
+    return {**entry, "actor": as_author, **({"via": actor_name} if isinstance(actor_name, str) and "via" not in entry else {})}
+
+
+def _import_events(item: Item, spec: JsonObject, as_author: str = "") -> list[Event]:
     """The item's own events from an import file, validated as a whole before anything is written."""
     raw = spec.get("events")
     if not isinstance(raw, list) or not raw:
@@ -147,7 +156,7 @@ def _import_events(item: Item, spec: JsonObject) -> list[Event]:
     for index, entry in enumerate(raw):
         if not isinstance(entry, dict):
             raise QewError(f"{item.id}: event {index} is not an object", 2)
-        events.append(parse_event(f"{index:06d}", json.dumps(entry), f"{item.id} event {index}"))
+        events.append(parse_event(f"{index:06d}", json.dumps(_credit(entry, as_author)), f"{item.id} event {index}"))
     folded = fold(events)
     if folded.errors:
         raise QewError(f"{item.id}: {folded.errors[0]}", 2)
@@ -157,7 +166,7 @@ def _import_events(item: Item, spec: JsonObject) -> list[Event]:
 
 
 def prepare(
-    ledger: Ledger, plan: Plan, default_quote: str | None, draft: bool, import_events: bool, mark: bool
+    ledger: Ledger, plan: Plan, default_quote: str | None, draft: bool, import_events: bool, mark: bool, as_author: str = ""
 ) -> list[Planned]:
     """Every entry built and every rule checked; nothing has been written."""
     if draft and default_quote is not None:
@@ -230,7 +239,7 @@ def prepare(
                 entry,
                 item,
                 Drafted() if import_events else _release(entry, default_quote, draft),
-                _import_events(item, spec) if import_events else None,
+                _import_events(item, spec, as_author) if import_events else None,
                 how,
                 tuple(attach_batch.Request(item.id, Path(row["source"]), row.get("name"), entry.label) for row in spec.get("attachments", [])),
                 tuple(comment_batch.row(raw, item.id, f"{entry.label} comment {n}") for n, raw in enumerate(spec.get("comments", []), 1)),
@@ -267,9 +276,10 @@ def apply(
     mark: bool = True,
     as_json: bool = False,
     dry_run: bool = False,
+    as_author: str = "",
 ) -> list[str]:
     ledger = ledger_for(config)
-    planned = prepare(ledger, plan, quote, draft, import_events, mark and not import_events)
+    planned = prepare(ledger, plan, quote, draft, import_events, mark and not import_events, as_author)
     if dry_run:
         steps = operations(planned)
         if as_json:

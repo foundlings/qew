@@ -209,6 +209,7 @@ select = "kind:epic"
   commas, and never start (casefolded) with `qew:`, `kind:`, `priority:`, `status:` or `author:` nor equal `epic`, `task` or
   `P0`..`P4`: create, set, imports refuse them (exit 2, "reserved") before any write and `qew check` flags them in files.
   Label colours: see forges.md.
+- Authorship: an item's author is the actor of its first event unless an `author_corrected` event (`author`, `via`, `quote`) says otherwise (the newest wins). An event may carry `via`, the tool that wrote it for its actor (an importer). Corrections are appended by `qew correct-author`; no event is rewritten.
 - Fields (header key `fields`, schema 5): named values beside the labels, one compact JSON object on one line (`{"phase":"12","plan":["a","b"]}`), omitted when the item has none. A name is lower-case letters, digits, `-` and `_` (at most 32, starting with a letter); a value is one printable line of at most 200 characters; a field holds 1 to 50 values in order. Fields are never labels: sync does not mirror them as labels. A mirror's `project_fields` map shows them on the board (forges.md). `qew create --field`, `qew set --field`/`--clear-field`, `set --manifest` rows and plan-file entries write them; each change is a `field` event with key `fields`; `qew list --field`, `qew search`, `qew show` and `--json` read them.
 - Sync is push-only; forge numbers are recorded, forge state is never read back as truth.
 - `qew index` (local cache) is not built: reads are fast enough from files.

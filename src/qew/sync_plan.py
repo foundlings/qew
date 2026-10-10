@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Callable, Iterable
 
-from qew import label_style, ledger_author, ledger_graph
+from qew import label_style, ledger_author, ledger_graph, rollup
 from qew.mirror_types import Seen
 from qew.errors import QewError
 from qew.forge import COLUMNS, CloseReason, MANAGED_FILTER, MARKER_PREFIX, PRIORITY_OPTIONS, IssueSpec, RemoteIssue, marker_for
@@ -87,8 +87,9 @@ def column(snapshot: Snapshot, item_id: str) -> str:
         return DONE
     if state == State.DRAFT or state is None:
         return DRAFT
+    rolled = _rolled_up(snapshot, item_id)
     if item.kind == Kind.EPIC:
-        return IN_PROGRESS if _child_claimed(snapshot, item_id) else BACKLOG
+        return rolled or BACKLOG
     if ledger_graph.APPROVAL_LABEL in item.labels:
         return NEEDS_APPROVAL
     if ledger_graph.GATED_LABEL in item.labels:
@@ -97,6 +98,8 @@ def column(snapshot: Snapshot, item_id: str) -> str:
         return IN_REVIEW
     if state == State.CLAIMED:
         return IN_PROGRESS
+    if rolled:
+        return rolled
     if not ledger_graph.blockers(snapshot, item_id):
         return READY
     return BACKLOG
@@ -114,11 +117,19 @@ def moved_by(snapshot: Snapshot, item_id: str) -> list[str]:
     return moved
 
 
-def _child_claimed(snapshot: Snapshot, item_id: str) -> bool:
-    return any(
-        snapshot.folds[child].state == State.CLAIMED
-        for child in ledger_graph.children(snapshot).get(item_id, ())
-    )
+def _rolled_up(snapshot: Snapshot, item_id: str) -> str | None:
+    """The column the item's subtree asks for, or None: a claimed descendant is In progress; open work that is all gated is
+    Gated; some finished work with open work left is In progress. Display only: the item's own state is unchanged."""
+    below = rollup.of(snapshot).get(item_id)
+    if below is None:
+        return None
+    if below.claimed:
+        return IN_PROGRESS
+    if below.open_work and below.gated_work == below.open_work:
+        return GATED
+    if below.finished and below.open_work:
+        return IN_PROGRESS
+    return None
 
 
 def _has_open_pull_request(snapshot: Snapshot, item_id: str) -> bool:
