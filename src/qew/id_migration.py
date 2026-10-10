@@ -17,7 +17,7 @@ from qew.errors import QewError
 from qew.ledger_event import State
 from qew.ledger_ids import is_base35_time_id, next_id, sort_key
 from qew.ledger_item import Item
-from qew.ledger_store import Ledger
+from qew.ledger_store import Ledger, Snapshot
 
 LINK_FIELDS = ("parent", "needs", "tracks", "pr", "discovered_from")
 VIEW_ID_TERMS = ("epic", "parent")  # board filter terms whose values are item ids
@@ -33,14 +33,19 @@ class Report:
         return not self.renames and not self.rewritten
 
 
+def refuse_foreign_claims(snapshot: Snapshot, actor_name: str, what: str) -> None:
+    """A migration waits for other logins' claims: they are working against the layout it would change."""
+    for item_id, folded in sorted(snapshot.folds.items(), key=lambda pair: sort_key(pair[0])):
+        if folded.state == State.CLAIMED and folded.owner != actor_name:
+            raise QewError(f"{item_id} is claimed by {folded.owner}; {what} not migrated under another login's claim "
+                           f"(ask them to release it, or run as that login)", 3)
+
+
 def migrate(ledger: Ledger, actor_name: str, dry_run: bool = False) -> Report:
     """Migrate every item whose id is not a base35-time id; with `dry_run` only count what would change."""
     aliases = ledger.aliases()
     snapshot = ledger.snapshot()
-    for item_id, folded in sorted(snapshot.folds.items(), key=lambda pair: sort_key(pair[0])):
-        if folded.state == State.CLAIMED and folded.owner != actor_name:
-            raise QewError(f"{item_id} is claimed by {folded.owner}; ids are not migrated under another login's claim "
-                           f"(ask them to release it, or run as that login)", 3)
+    refuse_foreign_claims(snapshot, actor_name, "ids are")
     pending = sorted((i for i in ledger.item_ids() if not is_base35_time_id(i)),
                      key=lambda i: (snapshot.items[i].created, sort_key(i)))
     taken = {*ledger.item_ids(), *aliases.by_alias}

@@ -142,7 +142,7 @@ select = "kind:epic"
 ```
 - `[qew] minimum_version = "MAJOR.MINOR.PATCH"` makes an older qew refuse every command (exit 2, names both
   versions and `scripts/setup_user.py`); malformed values are refused. Unknown keys and mirror options are
-  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1). A symlinked config is refused.
+  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1; this qew reads 1 and 2, an older qew refuses 2). Schema 2 declares the attachment layout: an item may own the directory `items/<ID>/` beside `items/<ID>.md` (attachments, later files), named by events; nothing else changes, so migrating rewrites no item, event or mirror. `qew init` writes 2; attaching to a schema 1 ledger is refused until `qew migrate-layout`. A symlinked config is refused.
 - `project` is a positive integer board number (title strings, numeric strings, 0, negatives, booleans, floats
   are refused at load, exit 2); `project_title` must not be empty. Repository URLs that differ only in case or a
   `.git` suffix are one target (the slug is casefolded).

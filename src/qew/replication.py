@@ -56,7 +56,7 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
         return str(arguments.item_command)
     if command == "land":
         return "land"
-    if command == "migrate-ids" and not arguments.dry_run:
+    if command in ("migrate-ids", "migrate-layout") and not arguments.dry_run:
         return command
     return None
 
@@ -71,7 +71,7 @@ def _item_ids(relative_paths: list[str]) -> list[str]:
 
 
 def message(verb: str, relative_paths: list[str]) -> str:
-    ids = [] if verb == "migrate-ids" else _item_ids(relative_paths)  # a rename touches the old and the new id
+    ids = [] if verb in ("migrate-ids", "migrate-layout") else _item_ids(relative_paths)  # a rename touches the old and the new id
     who = ledger_store.actor()
     if len(ids) == 1:
         return f"qew: {verb} {ids[0]} by {who}"

@@ -4,7 +4,6 @@ import sys
 import unittest
 from dataclasses import replace
 from pathlib import Path
-from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -29,7 +28,7 @@ ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
 SPEC = IssueSpec(title="Title", body="<!-- qew:TST-1 -->\nBody", labels=("qew:ready",), open=True)
 
 
-def mirror_for(fake: FakeGitHub, project: Optional[str] = None, **options: object) -> Mirror:
+def mirror_for(fake: FakeGitHub, project: str | None = None, **options: object) -> Mirror:
     return Mirror("github", fake.repo_url, project, "", {"api": fake.api, **options})
 
 
@@ -39,7 +38,7 @@ class GitHubWalk(unittest.TestCase):
         self.addCleanup(self.fake.stop)
         self.backend = self.build()
 
-    def build(self, project: Optional[str] = None, env: Optional[Dict[str, str]] = None, **options: object) -> GitHub:
+    def build(self, project: str | None = None, env: dict[str, str] | None = None, **options: object) -> GitHub:
         return GitHub(mirror_for(self.fake, project, **options), urllib_transport(), ENV if env is None else env)
 
 
@@ -379,7 +378,7 @@ class FailureWalk(GitHubWalk):
 class RecordingTransport:
     def __init__(self, tamper_link: str = "") -> None:
         self.inner = urllib_transport()
-        self.sent: List[HttpRequest] = []
+        self.sent: list[HttpRequest] = []
         self.tamper_link = tamper_link
 
     def __call__(self, request: HttpRequest) -> HttpResponse:

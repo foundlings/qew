@@ -4,7 +4,6 @@ Adversary: a recursive cycle search or ordering helper overflowing the stack on 
 cycle of the same size going unreported.
 """
 
-import json
 import time
 import unittest
 

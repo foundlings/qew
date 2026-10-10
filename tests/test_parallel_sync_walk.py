@@ -7,7 +7,6 @@ which can delay every request so that concurrent requests overlap.
 import os
 import sys
 import unittest
-from typing import Dict, List, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
@@ -31,7 +30,7 @@ class Rig:
         test.addCleanup(self.world.close)
         epic = self.world.create("--kind", "epic", "--title", "Epic", "--quote", QUOTE)
         previous = ""
-        self.titles: List[str] = ["Epic"]
+        self.titles: list[str] = ["Epic"]
         for n in range(EPIC_CHILDREN):
             extra = ["--needs", previous] if previous and n % 3 else []
             previous = self.world.create("--kind", "issue", "--title", f"Child {n}", "--parent", epic, *extra, "--quote", QUOTE)
@@ -40,9 +39,9 @@ class Rig:
     def sync(self, *extra: str):
         return self.world.run("sync", *extra, env=ENV)
 
-    def shape(self) -> List[Tuple[str, str, Tuple[str, ...], Tuple[str, ...]]]:
+    def shape(self) -> list[tuple[str, str, tuple[str, ...], tuple[str, ...]]]:
         """What the forge holds, independent of the numbers it handed out."""
-        by_number: Dict[int, str] = {n: i["title"] for n, i in self.fake.issues.items()}
+        by_number: dict[int, str] = {n: i["title"] for n, i in self.fake.issues.items()}
         return sorted((i["title"], i["state"], tuple(sorted(i["labels"])), tuple(sorted(by_number[b] for b in i["blocked_by"])))
                       for i in self.fake.issues.values())
 

@@ -16,7 +16,7 @@ from collections.abc import Iterable
 from qew import attachments, ledger_aliases
 from qew.errors import QewError
 from qew.mirror_types import MirrorRecord
-from qew.ledger_config import LEDGER_FILE
+from qew.ledger_config import CURRENT_SCHEMA, LEDGER_FILE, ledger_schema
 from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, valid_actor
 from qew.ledger_item import Item, parse_item, read_item_text, render_item
 from qew.jsontypes import JsonObject
@@ -99,6 +99,9 @@ class Ledger:
         """Copy `source` to the item's immutable blob file: False when those bytes are already stored there.
 
         Journaled like every write, so a failed command removes what it created."""
+        if ledger_schema(self.path) < CURRENT_SCHEMA:
+            raise QewError("this ledger is schema_version 1, which cannot hold attachments; run `qew migrate-layout` first "
+                           "(it only declares the layout and rewrites nothing)", 2)
         target = self.attachments_dir(item_id) / blob
         if target.exists():
             return False

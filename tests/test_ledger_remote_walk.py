@@ -4,7 +4,6 @@ Each test is a scenario; its docstring names the failure it prevents.
 """
 
 import os
-import shutil
 import sys
 import unittest
 

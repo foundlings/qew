@@ -68,6 +68,7 @@ Setup
   qew init        create the config and the ledger
   qew ledger      fork the ledger into a new identity
   qew migrate-ids rewrite letter, counter and imported ids to base35-time ids (old ids stay as aliases)
+  qew migrate-layout declare the attachment layout (schema_version 2); rewrites nothing
   qew hook        install | remove agent hooks; the events agents call
 
 Exit codes: 0 ok, 1 invalid ledger or forge failure, 2 refusal or usage, 3 ownership conflict or environment,

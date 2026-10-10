@@ -9,7 +9,8 @@ import threading
 import time
 from urllib.parse import unquote
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 
 sys.path.insert(0, __file__.rsplit("/tests/", 1)[0] + "/src")
 from qew import instants  # noqa: E402
@@ -24,26 +25,26 @@ class FakeForgejo:
     """Started on 127.0.0.1 in a thread. State is plain attributes the walks may inspect."""
 
     def __init__(self) -> None:
-        self.issues: Dict[int, Dict[str, Any]] = {}
-        self.labels: Dict[int, str] = {}
-        self.milestones: Dict[int, Dict[str, Any]] = {}
-        self.label_meta: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
+        self.issues: dict[int, dict[str, Any]] = {}
+        self.labels: dict[int, str] = {}
+        self.milestones: dict[int, dict[str, Any]] = {}
+        self.label_meta: dict[str, dict[str, str]] = {}  # name -> {color, description}
         self.drop_label_creates = False  # accept a label create yet store nothing
-        self.pulls: Dict[int, Dict[str, Any]] = {}
-        self.branches: Dict[str, str] = {}  # branch -> head sha
+        self.pulls: dict[int, dict[str, Any]] = {}
+        self.branches: dict[str, str] = {}  # branch -> head sha
         self.default_branch = "main"
-        self.contained_in: Dict[str, List[str]] = {}  # branch -> branches whose history already holds its tip
-        self.protections: Dict[str, Dict[str, Any]] = {}  # branch -> branch protection record
-        self.statuses: Dict[str, Tuple[str, int]] = {}  # sha -> (combined state, total_count)
-        self.dependencies: Dict[int, List[int]] = {}  # issue -> issues blocking it
-        self.requests: List[Tuple[str, str, Optional[Any]]] = []
+        self.contained_in: dict[str, list[str]] = {}  # branch -> branches whose history already holds its tip
+        self.protections: dict[str, dict[str, Any]] = {}  # branch -> branch protection record
+        self.statuses: dict[str, tuple[str, int]] = {}  # sha -> (combined state, total_count)
+        self.dependencies: dict[int, list[int]] = {}  # issue -> issues blocking it
+        self.requests: list[tuple[str, str, Any | None]] = []
         self.max_limit = 50
         self.link_base = ""  # when set, pagination Link headers point here instead of at this API
         self.endless = False  # lists answer a full page forever, with a next link and no total header
         self.delay = 0.0  # seconds every request waits before it is served
         self.down = False  # every request answers 503
-        self.fail: List[Tuple[int, str]] = []  # (status, body) consumed one per request
-        self.raw_issue_body: Optional[bytes] = None  # when set, GET issue answers this verbatim
+        self.fail: list[tuple[int, str]] = []  # (status, body) consumed one per request
+        self.raw_issue_body: bytes | None = None  # when set, GET issue answers this verbatim
         self.token = TOKEN
         self.etags = True  # answer issue-list pages with an ETag and honor If-None-Match
         self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
@@ -61,7 +62,7 @@ class FakeForgejo:
     def repo_url(self) -> str:
         return f"http://127.0.0.1:{self._server.server_address[1]}/{OWNER}/{REPO}"
 
-    def start(self) -> "FakeForgejo":
+    def start(self) -> FakeForgejo:
         self._thread.start()
         return self
 
@@ -75,7 +76,7 @@ class FakeForgejo:
             if pull["head"]["ref"] == branch:
                 pull["head"]["sha"] = sha
 
-    def add_branch(self, name: str, sha: str = "", contained_in: Tuple[str, ...] = ()) -> None:
+    def add_branch(self, name: str, sha: str = "", contained_in: tuple[str, ...] = ()) -> None:
         """A branch on the forge; `contained_in` names the branches that already hold its tip (it is merged there)."""
         self.branches[name] = sha or f"{len(self.branches) + 1:040x}"
         self.contained_in[name] = list(contained_in)
@@ -88,7 +89,7 @@ class FakeForgejo:
         """An admin deletes the issue; later issues keep their numbers."""
         del self.issues[number]
 
-    def issue_labels(self, number: int) -> List[str]:
+    def issue_labels(self, number: int) -> list[str]:
         return [self.labels[label_id] for label_id in self.issues[number]["label_ids"]]
 
     # -- state helpers used by the handler (called with the lock held) --
@@ -114,10 +115,10 @@ class FakeForgejo:
         return {"id": number, "title": found["title"], "description": found["description"],
                 "due_on": found["due_on"], "state": found["state"]}
 
-    def _issue_json(self, number: int) -> Dict[str, Any]:
+    def _issue_json(self, number: int) -> dict[str, Any]:
         issue = self.issues[number]
         assignee = issue["assignee"]
-        shaped: Dict[str, Any] = {
+        shaped: dict[str, Any] = {
             "id": 1000 + number,
             "number": number,
             "html_url": f"{self.repo_url}/issues/{number}",
@@ -133,7 +134,7 @@ class FakeForgejo:
             shaped["assignees"] = [{"id": 7, "login": assignee}]
         return shaped
 
-    def add_comment(self, number: int, login: str, body: Optional[str]) -> Dict[str, Any]:
+    def add_comment(self, number: int, login: str, body: str | None) -> dict[str, Any]:
         """A comment made on the forge by someone else; created_at rises with each comment."""
         comment = {"id": 5000 + sum(len(i["discussion"]) for i in self.issues.values()) + 1, "login": login, "body": body}
         discussion = self.issues[number]["discussion"]
@@ -142,13 +143,13 @@ class FakeForgejo:
         self.touch(number)
         return comment
 
-    def _comment_json(self, comment: Dict[str, Any]) -> Dict[str, Any]:
+    def _comment_json(self, comment: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": comment["id"], "user": {"id": 7, "login": comment["login"]}, "body": comment["body"],
             "created_at": comment["created_at"],
         }
 
-    def _pull_as_issue_json(self, number: int) -> Dict[str, Any]:
+    def _pull_as_issue_json(self, number: int) -> dict[str, Any]:
         """Gitea lists pull requests among issues unless `type=issues` is asked for."""
         pull = self.pulls[number]
         return {
@@ -157,7 +158,7 @@ class FakeForgejo:
             "pull_request": {"merged": pull["merged"]},
         }
 
-    def _pull_json(self, number: int) -> Dict[str, Any]:
+    def _pull_json(self, number: int) -> dict[str, Any]:
         pull = self.pulls[number]
         return {
             "number": number,
@@ -227,7 +228,7 @@ def _make_handler(fake: FakeForgejo) -> type:
                 encoded = b"" if body is None else json.dumps(body).encode("utf-8")
             self._send(status, encoded, headers)
 
-        def _send(self, status: int, body: bytes, headers: Optional[Dict[str, str]] = None) -> None:
+        def _send(self, status: int, body: bytes, headers: dict[str, str] | None = None) -> None:
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -245,13 +246,13 @@ class _Reply(Exception):
         self.body = json.dumps({"message": message}).encode("utf-8")
 
 
-def _unquote(params: Dict[str, str]) -> Dict[str, str]:
+def _unquote(params: dict[str, str]) -> dict[str, str]:
     from urllib.parse import unquote_plus
 
     return {key: unquote_plus(value) for key, value in params.items()}
 
 
-def _page(fake: FakeForgejo, items: List[Any], params: Dict[str, str]) -> Tuple[int, Any, Dict[str, str]]:
+def _page(fake: FakeForgejo, items: list[Any], params: dict[str, str]) -> tuple[int, Any, dict[str, str]]:
     page = int(params.get("page", "1"))
     limit = min(int(params.get("limit", "30")), fake.max_limit)
     if fake.endless:
@@ -264,9 +265,9 @@ def _page(fake: FakeForgejo, items: List[Any], params: Dict[str, str]) -> Tuple[
 
 
 def _route(
-    fake: FakeForgejo, method: str, path: str, params: Dict[str, str], payload: Any
-) -> Tuple[int, Any, Dict[str, str]]:
-    def ok(body: Any, status: int = 200) -> Tuple[int, Any, Dict[str, str]]:
+    fake: FakeForgejo, method: str, path: str, params: dict[str, str], payload: Any
+) -> tuple[int, Any, dict[str, str]]:
+    def ok(body: Any, status: int = 200) -> tuple[int, Any, dict[str, str]]:
         return status, body, {}
 
     if re.match(_BASE + r"/milestones$", path):

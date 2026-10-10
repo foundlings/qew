@@ -4,7 +4,6 @@ Adversary: an editor failure turning into an empty or stale body, a shell-run
 editor string, a body read through a symlink, and temp files left behind.
 """
 
-import os
 from pathlib import Path
 import stat
 import unittest

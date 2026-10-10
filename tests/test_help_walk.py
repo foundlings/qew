@@ -7,7 +7,6 @@ flag that exists in code but is absent from the README or docs/specs/commands.md
 import argparse
 import os
 from pathlib import Path
-import re
 import sys
 import unittest
 

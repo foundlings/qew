@@ -3,7 +3,6 @@
 Each test is a scenario; its docstring names the failure it prevents.
 """
 
-import json
 import os
 import sys
 import unittest

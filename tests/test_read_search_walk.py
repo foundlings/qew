@@ -5,7 +5,6 @@ on an empty result, and a search term reaching a shell.
 """
 
 import json
-import os
 import unittest
 
 from tests.ledger_harness import World

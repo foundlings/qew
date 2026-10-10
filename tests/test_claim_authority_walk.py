@@ -3,7 +3,6 @@
 Each test is a scenario; its docstring names the failure it prevents.
 """
 
-import json
 import os
 import shutil
 import stat
@@ -14,7 +13,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from tests.fake_forgejo import TOKEN, FakeForgejo
-from tests.ledger_harness import PROJECT_ROOT, QUOTE, World, git
+from tests.ledger_harness import PROJECT_ROOT, QUOTE, World
 
 ENV = {"FORGEJO_TOKEN": TOKEN}
 QUIET = "\n[replication]\nauto_forge_sync = false\nauto_push = false\n"

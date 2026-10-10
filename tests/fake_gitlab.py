@@ -11,7 +11,8 @@ import json
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 from urllib.parse import parse_qs, unquote, urlsplit
 
 sys.path.insert(0, __file__.rsplit("/tests/", 1)[0] + "/src")
@@ -22,14 +23,14 @@ TOKEN = "glpat-fake"
 
 class _Project:
     def __init__(self) -> None:
-        self.issues: List[Dict[str, Any]] = []
-        self.links: List[Tuple[int, int, str]] = []
-        self.labels: List[Dict[str, Any]] = []
-        self.boards: List[Dict[str, Any]] = []
-        self.milestones: List[Dict[str, Any]] = []
-        self.merge_requests: List[Dict[str, Any]] = []
+        self.issues: list[dict[str, Any]] = []
+        self.links: list[tuple[int, int, str]] = []
+        self.labels: list[dict[str, Any]] = []
+        self.boards: list[dict[str, Any]] = []
+        self.milestones: list[dict[str, Any]] = []
+        self.merge_requests: list[dict[str, Any]] = []
         self.only_allow_merge_if_pipeline_succeeds = False
-        self.protected_branches: Dict[str, Dict[str, Any]] = {}
+        self.protected_branches: dict[str, dict[str, Any]] = {}
 
 
 class FakeGitLab:
@@ -44,16 +45,16 @@ class FakeGitLab:
         self.malformed_issue_reads = False
         self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
         self.users = {"alice": 11, "bob": 12}
-        self.log: List[Dict[str, Any]] = []
-        self.projects: Dict[str, _Project] = {}
-        self._failures: List[Tuple[int, str]] = []
-        self._garbled: List[str] = []
+        self.log: list[dict[str, Any]] = []
+        self.projects: dict[str, _Project] = {}
+        self._failures: list[tuple[int, str]] = []
+        self._garbled: list[str] = []
         self._ids = 1000
         self._lock = threading.Lock()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(self))
         self._thread = threading.Thread(target=lambda: self._server.serve_forever(poll_interval=0.02), daemon=True)
 
-    def start(self) -> "FakeGitLab":
+    def start(self) -> FakeGitLab:
         self._thread.start()
         return self
 
@@ -80,10 +81,10 @@ class FakeGitLab:
         """The next request whose path contains `match` is answered 200 with a body that is not JSON."""
         self._garbled.append(match)
 
-    def _touch(self, issue: Dict[str, Any]) -> None:
+    def _touch(self, issue: dict[str, Any]) -> None:
         issue["updated_at"] = instants.format_instant(self.clock())
 
-    def add_note(self, path: str, iid: int, username: str, body: Optional[str], system: bool = False) -> Dict[str, Any]:
+    def add_note(self, path: str, iid: int, username: str, body: str | None, system: bool = False) -> dict[str, Any]:
         """A note made on the forge by someone else; `system` notes are GitLab's own activity lines."""
         issue = next(i for i in self.project(path).issues if i["iid"] == iid)
         note = {"id": self._next_id(), "author": username, "body": body, "system": system,
@@ -92,20 +93,20 @@ class FakeGitLab:
         self._touch(issue)
         return note
 
-    def requests(self, method: str, suffix: str) -> List[Dict[str, Any]]:
+    def requests(self, method: str, suffix: str) -> list[dict[str, Any]]:
         return [r for r in self.log if r["method"] == method and r["path"].endswith(suffix)]
 
     def push_head(self, path: str, iid: int) -> None:
         mr = self._merge_request(path, iid)
         mr["sha"] = self._sha()
 
-    def set_pipeline(self, path: str, iid: int, status: Optional[str]) -> None:
+    def set_pipeline(self, path: str, iid: int, status: str | None) -> None:
         self._merge_request(path, iid)["head_pipeline"] = None if status is None else {"status": status}
 
     def set_merge_status(self, path: str, iid: int, status: str) -> None:
         self._merge_request(path, iid)["detailed_merge_status"] = status
 
-    def _merge_request(self, path: str, iid: int) -> Dict[str, Any]:
+    def _merge_request(self, path: str, iid: int) -> dict[str, Any]:
         return next(m for m in self.project(path).merge_requests if m["iid"] == iid)
 
     def _next_id(self) -> int:
@@ -118,7 +119,7 @@ class FakeGitLab:
 
     # ----- dispatch -----
 
-    def handle(self, method: str, raw_path: str, headers: Dict[str, str], raw_body: bytes) -> Tuple[int, Any, Dict[str, str]]:
+    def handle(self, method: str, raw_path: str, headers: dict[str, str], raw_body: bytes) -> tuple[int, Any, dict[str, str]]:
         split = urlsplit(raw_path)
         parts = [unquote(p) for p in split.path.split("/") if p]
         query = {k: v[0] for k, v in parse_qs(split.query).items()}
@@ -173,7 +174,7 @@ class FakeGitLab:
 
     # ----- pagination -----
 
-    def _page(self, items: List[Any], query: Dict[str, str]):
+    def _page(self, items: list[Any], query: dict[str, str]):
         size = min(int(query.get("per_page", "20")), self.page_size)
         page = int(query.get("page", "1"))
         chunk = items[(page - 1) * size : page * size]
@@ -185,7 +186,7 @@ class FakeGitLab:
 
     # ----- issues -----
 
-    def _issue_json(self, path: str, issue: Dict[str, Any]) -> Dict[str, Any]:
+    def _issue_json(self, path: str, issue: dict[str, Any]) -> dict[str, Any]:
         out = {
             "id": issue["id"], "iid": issue["iid"], "title": issue["title"],
             "description": issue["description"] or None,
@@ -312,7 +313,7 @@ class FakeGitLab:
             self._ensure_label(project, name)
         issue["labels"] = names
 
-    def _ensure_label(self, project, name: str) -> Dict[str, Any]:
+    def _ensure_label(self, project, name: str) -> dict[str, Any]:
         found = next((x for x in project.labels if x["name"] == name), None)
         if found is None:
             found = {"id": self._next_id(), "name": name, "color": "#428BCA"}
@@ -379,7 +380,7 @@ class FakeGitLab:
 
     # ----- merge requests -----
 
-    def _mr_json(self, path: str, mr: Dict[str, Any]) -> Dict[str, Any]:
+    def _mr_json(self, path: str, mr: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": mr["id"], "iid": mr["iid"], "state": mr["state"], "title": mr["title"],
             "draft": mr["title"].lower().startswith("draft:"), "sha": mr["sha"],

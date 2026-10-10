@@ -300,6 +300,22 @@ def _ledger_from_environment(start: Path | None) -> Path | None:
     return None
 
 
+SCHEMA_VERSIONS = (1, 2)  # 2 declares the attachment layout (items/ID/ beside items/ID.md); `qew migrate-layout` moves 1 to 2
+CURRENT_SCHEMA = 2
+
+
+def ledger_schema(ledger: Path) -> int:
+    """The ledger's declared schema_version (1 when the file or the key is missing)."""
+    try:
+        data = tomllib.loads((ledger / LEDGER_FILE).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return 1
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
+        raise QewError(f"{ledger / LEDGER_FILE}: {error}", 1) from None
+    version = data.get("schema_version", 1)
+    return version if type(version) is int else 1
+
+
 def _ledger_prefix(ledger: Path) -> str:
     """The ledger's optional display prefix; item IDs do not carry it."""
     try:
@@ -309,8 +325,9 @@ def _ledger_prefix(ledger: Path) -> str:
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         raise QewError(f"{ledger / LEDGER_FILE}: {error}", 1) from None
     version = data.get("schema_version", 1)
-    if version != 1 or isinstance(version, bool):
-        raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version!r} is not supported by this qew (1)", 2)
+    if version not in SCHEMA_VERSIONS or isinstance(version, bool):
+        raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version!r} is not supported by this qew "
+                       f"({', '.join(map(str, SCHEMA_VERSIONS))}); upgrade qew", 2)
     prefix = data.get("prefix", "")
     if not isinstance(prefix, str):
         raise QewError(f"{ledger / LEDGER_FILE}: prefix must be a string", 1)

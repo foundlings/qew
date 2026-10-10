@@ -4,7 +4,6 @@ Adversary: a draft plan leaking approved work into `ready`, an approved line qui
 `--draft`, one human's words attributed to another entry, and a plan half-written before a bad quote.
 """
 
-import json
 import unittest
 
 from tests.ledger_harness import QUOTE, World

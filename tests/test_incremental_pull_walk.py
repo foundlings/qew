@@ -4,7 +4,7 @@ Each test is a scenario; its docstring names the failure it prevents. Two listin
 `since` fallback against the in-memory forge, and conditional ETag pages against the GitHub fake.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 import json
 import os
 import sys
@@ -26,7 +26,7 @@ from tests.ledger_harness import QUOTE, World
 from tests.memory_forge import MemoryForge
 
 OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\n"
-START = datetime(2026, 10, 1, 10, 0, 0, tzinfo=timezone.utc)
+START = datetime(2026, 10, 1, 10, 0, 0, tzinfo=UTC)
 
 
 class Clock:

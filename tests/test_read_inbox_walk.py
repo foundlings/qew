@@ -5,7 +5,7 @@ window silently dropping replies, a login smuggling a query qualifier, terminal 
 and a partial or tail-sliced scan hiding a reply.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 import json
 import unittest
 
@@ -88,7 +88,7 @@ class InboxSectionsWalk(InboxBase):
     def test_the_session_start_hook_carries_the_count_line_within_its_bound(self) -> None:
         """Replies for the configured actor reach the hook context without breaking its 2000-byte bound."""
         mine = self.make("Mine", "tester")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self.comment(mine, "bob", iso(now - timedelta(hours=1)))
         for n in range(30):
             self.make(f"Long title {n} " + "word " * 40, "tester")
@@ -140,7 +140,7 @@ class InboxArgumentWalk(InboxBase):
     def test_defaults_are_the_last_seven_days_for_the_configured_actor(self) -> None:
         """No flags: tester's inbox, 6 days of replies in, 8 days out."""
         mine = self.make("Mine", "tester")
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         self.comment(mine, "bob", iso(now - timedelta(days=6)), "recent")
         self.comment(mine, "bob", iso(now - timedelta(days=8)), "stale")
         out = self.world.run("inbox").stdout

@@ -6,7 +6,6 @@ instructions smuggled in through a comment or body, and a lost discussion.
 
 import json
 import os
-import stat
 import sys
 import unittest
 

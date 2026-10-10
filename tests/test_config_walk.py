@@ -5,8 +5,6 @@ breaking every older qew, a title standing in for a board number, and one
 board duplicated by a URL spelling.
 """
 
-import json
-import re
 import tomllib
 import unittest
 
@@ -62,7 +60,7 @@ class ConfigWalk(unittest.TestCase):
         """A newer ledger must not be misread; an absent schema_version is version 1."""
         w = self.world("")
         meta = w.ledger / "qew-ledger.toml"
-        meta.write_text('name = "test"\nschema_version = 2\n')
+        meta.write_text('name = "test"\nschema_version = 3\n')
         result = w.run("ready")
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("schema_version", result.stderr)

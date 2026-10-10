@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from tests.fake_forgejo import TOKEN, FakeForgejo
-from tests.ledger_harness import World, git
+from tests.ledger_harness import World
 
 OFFLINE = {"QEW_OFFLINE": "1"}
 

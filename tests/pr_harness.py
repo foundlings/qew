@@ -4,7 +4,6 @@ import contextlib
 import io
 import os
 import sys
-from typing import List, Optional
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
@@ -45,7 +44,7 @@ class PrWorld:
 
     # -- items -------------------------------------------------------------------
     def item(self, title: str = "Work", kind: str = "issue", claim: bool = True, draft: bool = False,
-             parent: Optional[str] = None, body: str = "", sync: bool = True, by: Optional[str] = None) -> str:
+             parent: str | None = None, body: str = "", sync: bool = True, by: str | None = None) -> str:
         specs = [{"kind": kind, "title": title, "parent": parent or "", "body": body}]
         with self._env(by):
             created = cmd_items.create(self.config, specs, None if draft else QUOTE, False)
@@ -66,13 +65,13 @@ class PrWorld:
     def events(self, item_id: str) -> list:
         return self.world.events(item_id)
 
-    def mirror_files(self, item_id: str) -> List[str]:
+    def mirror_files(self, item_id: str) -> list[str]:
         directory = self.world.ledger / "mirrors" / item_id
         return sorted(p.name for p in directory.glob("*-pr-*.json")) if directory.is_dir() else []
 
     # -- running -----------------------------------------------------------------
     @contextlib.contextmanager
-    def _env(self, actor: Optional[str] = None):
+    def _env(self, actor: str | None = None):
         previous = os.getcwd()
         os.chdir(self.world.code)
         try:
@@ -81,8 +80,8 @@ class PrWorld:
         finally:
             os.chdir(previous)
 
-    def qew(self, *argv: str, actor: Optional[str] = None, forge: Optional[MemoryForge] = None, sleep=None,
-            env: Optional[dict] = None) -> Run:
+    def qew(self, *argv: str, actor: str | None = None, forge: MemoryForge | None = None, sleep=None,
+            env: dict | None = None) -> Run:
         """Run `qew ARGV` in process against the in-memory forge."""
         out, err = io.StringIO(), io.StringIO()
         used = forge or self.forge

@@ -13,7 +13,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from tests.ledger_harness import World
-from tests.lifecycle_support import approved, event_types, started, tree
+from tests.lifecycle_support import event_types
 
 BOB = {"QEW_ACTOR": "bob"}
 

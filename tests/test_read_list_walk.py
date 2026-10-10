@@ -8,7 +8,7 @@ item, and a blocked view that guesses at needs it cannot see.
 import json
 import unittest
 
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import World
 
 
 def rows(result) -> list:
