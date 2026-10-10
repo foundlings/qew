@@ -93,6 +93,25 @@ class Retry5xxWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(len([1 for _m, path, _b in fake.requests if "/sub_issues" in path]), 1)
 
+    def test_only_calls_that_are_safe_to_repeat_are_classified_repeatable(self) -> None:
+        """Prevents a retry that duplicates: creates and unknown mutations are not repeatable, queries and updates are."""
+        import json
+        from qew.forge import HttpRequest
+        from qew.forge_retry import repeatable
+
+        def graphql(text: str) -> HttpRequest:
+            return HttpRequest("POST", "https://api.github.com/graphql", {}, json.dumps({"query": text}).encode())
+
+        self.assertTrue(repeatable(HttpRequest("GET", "https://x/issues", {})))
+        self.assertTrue(repeatable(HttpRequest("PATCH", "https://x/issues/1", {})))
+        self.assertTrue(repeatable(HttpRequest("POST", "https://x/issues/1/sub_issues", {})))
+        self.assertTrue(repeatable(graphql("query ItemPlacement($id: ID!) { node(id: $id) { id } }")))
+        self.assertTrue(repeatable(graphql("mutation SetCardField($a: ID!) { x }")))
+        self.assertFalse(repeatable(HttpRequest("POST", "https://x/issues", {})))
+        self.assertFalse(repeatable(HttpRequest("POST", "https://x/issues/1/comments", {})))
+        self.assertFalse(repeatable(graphql("mutation CreateProject($a: ID!) { x }")))
+        self.assertFalse(repeatable(HttpRequest("POST", "https://x/graphql", {}, b"not json")))
+
 
 if __name__ == "__main__":
     unittest.main()

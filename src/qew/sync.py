@@ -14,7 +14,7 @@ import time
 from typing import cast
 from collections.abc import Callable, Mapping, Sequence
 
-from qew import attachment_links, comment_sync, forge_divergence, sync_milestones, sync_plan
+from qew import attachment_links, comment_sync, forge_divergence, forge_retry, sync_milestones, sync_plan
 from qew.pacing import PaceState, PaceStop, Pacer
 from qew.forge import (
     DUPLICATE_MARKER,
@@ -97,7 +97,7 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
     refresh = {*chosen, *(i for one in chosen for i in sync_plan.moved_by(snapshot, one) if i in numbers)} if chosen is not None else None
     todo = [item_id for item_id in ids if refresh is None or item_id in refresh]
     _run_items(ledger, snapshot, target, report, todo, numbers, assignees, board, placements, chosen is not None,
-               deadline, tick, config.replication.forge_concurrency)
+               deadline, tick, config.replication.forge_concurrency, config.replication.forge_failure_limit)
     if chosen is None and report.stopped is None and sync_milestones.enabled(target.mirror.options):
         sync_milestones.sync_milestones(ledger, snapshot, target, report, ids, numbers)
     if board is not None and chosen is None and report.stopped is None:
@@ -105,6 +105,8 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
     layout = target.forge.board_layout(board) if board is not None else None
     if layout is not None and layout != cached_layout:
         ledger.write_board_layout(target.slug, layout)
+    if forge_retry.retried_calls():
+        report.warnings.append(f"{forge_retry.retried_calls()} forge calls retried after a 5xx or a lost connection")
     return report
 
 
@@ -167,7 +169,7 @@ def _levels(snapshot: Snapshot, ids: list[str]) -> list[list[str]]:
 
 def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, ids: list[str], numbers: dict[str, int],
                assignees: dict[str, str], board: Board | None, placements: dict[int, Placement] | None, recent: bool,
-               deadline: float | None, tick: Callable[[], None] | None, workers: int) -> None:
+               deadline: float | None, tick: Callable[[], None] | None, workers: int, failure_limit: int = 5) -> None:
     """Sync the items, `workers` at a time. An item's needs and parent are done before it starts; the first forge failure
     (a rate limit above all) stops every worker from starting another item, and the items not started stay pending."""
     halt = threading.Event()
@@ -179,6 +181,8 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
     pacer.seed(state.ages())
     made = 0
     blocked = False
+    run_lock = threading.Lock()
+    in_a_row = 0  # consecutive items that failed on a 5xx or a lost connection
 
     def pace() -> None:
         nonlocal made
@@ -189,7 +193,7 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
         made += 1
 
     def one(item_id: str) -> TargetReport | None:
-        nonlocal blocked
+        nonlocal blocked, in_a_row
         if halt.is_set():
             return None
         if deadline is not None and time.monotonic() > deadline:
@@ -214,10 +218,26 @@ def _run_items(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
             local.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
             _stop(local, error)
             halt.set()
+        except ForgeUnavailable as error:
+            local.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
+            if error.retry_after > 0:  # a rate limit: the forge named a wait, so every worker stops
+                _stop(local, error)
+                halt.set()
+            else:
+                with run_lock:
+                    in_a_row += 1
+                    over = in_a_row >= failure_limit
+                if over:  # not one bad item: the forge or the connection is down
+                    local.failures.append(f"{failure_limit} items in a row failed on the forge; the rest stays pending")
+                    _stop(local, error)
+                    halt.set()
         except ForgeError as error:
             local.failures.append(f"{snapshot.short(item_id)}: {error.detail}")
             _stop(local, error)
             halt.set()
+        else:
+            with run_lock:
+                in_a_row = 0
         return local
 
     if workers <= 1:
