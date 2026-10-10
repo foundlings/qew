@@ -36,6 +36,9 @@ class Batch:
 def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]], vcs: str, repo: str, resolve: Resolver | None = None) -> Batch:
     planned: list[Planned] = []
     unchanged = 0
+    if resolve is not None:  # one batched lookup for the whole manifest
+        cited_all = [c for _item, raw, _where in rows for c in (raw.get("change_ids") or []) if isinstance(raw.get("change_ids"), list) and isinstance(c, str)]
+        resolve.prepare((c, vcs) for c in cited_all)
     for item_id, raw, where in rows:
         cited = raw.get("change_ids")
         if not isinstance(cited, list) or not cited or not all(isinstance(c, str) for c in cited):

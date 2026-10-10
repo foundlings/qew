@@ -69,14 +69,14 @@ class LandingManyWalk(unittest.TestCase):
             run(root, "jj", "describe", "-m", "side work not in main")
             ids = run(root, "jj", "log", "--no-graph", "-r", "all() & ~root()", "-T", 'change_id.short(12) ++ "\\n"').split()
             on_main = set(run(root, "jj", "log", "--no-graph", "-r", "::main & ~root()", "-T", 'change_id.short(12) ++ "\\n"').split())
-            changes = [*ids, "zzzzzzzzzzzz"]
+            changes = [*ids, "xxxxxxxxxxxx"]
             found, calls = self.counted(root, "jj", changes)
             self.assertLessEqual(len(calls), 5, len(calls))
             for call in calls:
                 self.assertIn("--ignore-working-copy", call)
             for change in changes:
                 self.assertEqual(found[change][0], code_vcs.landing(root, "jj", change, "main")[0], change)
-            self.assertEqual(found["zzzzzzzzzzzz"][0], Landing.UNKNOWN)
+            self.assertEqual(found["xxxxxxxxxxxx"][0], Landing.UNKNOWN)
             self.assertTrue(any(found[c][0] is Landing.NOT_ANCESTOR for c in ids if c not in on_main))
             self.assertTrue(all(found[c][0] is Landing.LANDED for c in on_main))
 

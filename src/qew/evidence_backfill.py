@@ -57,6 +57,9 @@ def _absence(item_kind: Kind, completion: Event) -> str:
 
 
 def plan(snapshot: Snapshot, resolve: Resolver | None) -> list[Filled]:
+    if resolve is not None:  # every cited id of every completed item in one batched lookup
+        resolve.prepare(pair for item_id, item in snapshot.items.items() if snapshot.folds[item_id].state == State.COMPLETED
+                        for pair in _cited(snapshot.events[item_id]))
     filled: list[Filled] = []
     for item_id, item in sorted(snapshot.items.items()):
         if snapshot.folds[item_id].state != State.COMPLETED or item.evidence or item.evidence_absent:

@@ -269,7 +269,7 @@ def project_field_values(mapping: object, snapshot: Snapshot, item: Item) -> dic
 
 
 def fingerprint(spec: IssueSpec, extra: object = None) -> str:
-    fields = {k: v for k, v in spec.__dict__.items() if k != "issue_type" or v}  # an unmapped type leaves existing fingerprints alone
+    fields = {k: v for k, v in spec.__dict__.items() if (k != "issue_type" or v) and (k != "keep_state" or v)}  # an unset optional leaves existing fingerprints alone
     payload = json.dumps([fields, extra], sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 

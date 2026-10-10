@@ -239,6 +239,10 @@ def _check_evidence_resolves(snapshot: Snapshot, problems: list[str], resolve: R
     """Every id in a completed item's header that this checkout knows must be an ancestor of the target; returns how many ids
     it does not know (not fetched here yet, or another VCS), which are advisories, not errors."""
     unknown = 0
+    resolve.prepare((change, str(e.get("vcs", ""))) for item_id, item in snapshot.items.items() if item.evidence
+                    and snapshot.folds[item_id].state == State.COMPLETED for e in snapshot.events[item_id] if e.type == "evidence"
+                    for change in e.get("change_ids", []))
+    resolve.prepare((change, "") for item in snapshot.items.values() if item.evidence for change in item.evidence)
     for item_id, item in snapshot.items.items():
         if not item.evidence or snapshot.folds[item_id].state != State.COMPLETED:
             continue
