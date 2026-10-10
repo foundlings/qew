@@ -586,14 +586,16 @@ class _Wire:
 
 
 def _is_rate_limited(errors: Any) -> bool:
-    return isinstance(errors, list) and any(isinstance(e, dict) and e.get("type") == "RATE_LIMITED" for e in errors)
+    """A typed RATE_LIMITED error, or (GitHub's secondary limit sends no type) a message saying 'rate limit'."""
+    return isinstance(errors, list) and any(
+        isinstance(e, dict) and (e.get("type") == "RATE_LIMITED" or "rate limit" in str(e.get("message", "")).lower()) for e in errors)
 
 
 def _graphql_error(errors: Any, wait: float | None = None) -> Exception:
     entries = [e for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
     kinds = {e.get("type") for e in entries}
     detail = "; ".join(str(e.get("message", "")) for e in entries)[:300] or "unparseable GraphQL errors"
-    if "RATE_LIMITED" in kinds:
+    if _is_rate_limited(errors):
         return ForgeUnavailable(f"GraphQL: {detail}", wait if wait is not None else DEFAULT_WAIT)
     if kinds & {"FORBIDDEN", "INSUFFICIENT_SCOPES", "UNAUTHORIZED"}:
         return ForgeAuth(f"GraphQL: {detail}")
