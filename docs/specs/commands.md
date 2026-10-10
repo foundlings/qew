@@ -249,6 +249,13 @@ shape prime: additional_context context_bytes schema_version
   (`--after ID` counts a letter reserved outside the ledger, such as a phase document, as taken). Refused with exit 3 while
   another login holds a claim on it, exit 2 for an unknown item, a taken id or a letter out of order. One ledger commit.
 - `qew item extract ITEM DEST`: write the attached tree to `DEST` (absent or empty) as real files, verifying every hash first.
+- `qew comment --manifest FILE [--dry-run]`: bulk comments for importers. FILE is JSON Lines of `{"item", "key", "text",
+  optional "author", "at", "reply_to"}`: `key` is required (one word; the same key with the same text is `unchanged`, so a
+  rerun adds nothing, with other text it is refused), `author` and `at` (a UTC time) keep who wrote it and when (the event is
+  stamped as an import by the importing login), `reply_to` is the `key` of an earlier row or the id of an existing comment.
+  Every row is checked first; one bad row (named by its line) writes nothing anywhere; one ledger commit. A create plan entry
+  may carry `"comments": [{key, text, author, at, reply_to}]`, added to the new item in the same commit; a bad one refuses the
+  whole plan before any item is written.
 - `qew comment ITEM (--body TEXT | --body-file F) [--key KEY] [--reply-to COMMENT]`, `qew comment ITEM --edit COMMENT
   (--body TEXT | --body-file F) [--force]`, `qew comment ITEM --delete COMMENT [--force]`: a comment's id is its `commented`
   event id (printed as `commented on ITEM as ID`; a unique prefix works). A reply names its parent and `qew show` threads it
