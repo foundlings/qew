@@ -2,10 +2,12 @@
 
 import argparse
 import os
+import json
 import sys
+from pathlib import Path
 from typing import Any
 
-from qew import cmd_items, code_text, comments, ledger_config
+from qew import cmd_items, code_text, comment_batch, comments, ledger_config
 from qew.errors import QewError
 from qew.ledger_event import MAX_COMMENT_BYTES
 from qew.ledger_store import Ledger, actor
@@ -13,7 +15,9 @@ from qew.ledger_store import Ledger, actor
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     comment = commands.add_parser("comment", help="add, reply to, edit or delete a comment on an item")
-    comment.add_argument("item", help="item id or alias")
+    comment.add_argument("item", nargs="?", help="item id or alias")
+    comment.add_argument("--manifest", help="instead of ITEM: a JSON Lines file of {item, key, text, author, at, reply_to} rows, added in one commit")
+    comment.add_argument("--dry-run", action="store_true", help="with --manifest: say what would be added and write nothing")
     comment.add_argument("--body", help="the comment text")
     comment.add_argument("--body-file", help="read the comment from a file, or - for stdin")
     comment.add_argument("--key", help="idempotency key (one word): a retry with the same key and text posts nothing new")
@@ -27,6 +31,13 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "comment":
         return False
     ledger = cmd_items.ledger_for(ledger_config.load())
+    if arguments.manifest:
+        if arguments.item or arguments.body or arguments.body_file or arguments.edit or arguments.delete or arguments.reply_to or arguments.key:
+            raise QewError("--manifest replaces ITEM and the comment options: give the manifest alone", 2)
+        print(_manifest(ledger, Path(arguments.manifest), arguments.dry_run))
+        return True
+    if not arguments.item:
+        raise QewError("give ITEM, or --manifest FILE", 2)
     item_id = ledger.resolve(arguments.item, ledger.item_ids())
     if arguments.edit and arguments.delete:
         raise QewError("--edit and --delete are separate commands", 2)
@@ -65,6 +76,34 @@ def run(arguments: argparse.Namespace) -> bool:
         print(line, file=sys.stderr)
     print(f"commented on {item_id} as {event.id}")
     return True
+
+
+def _manifest(ledger: Ledger, manifest: Path, dry_run: bool) -> str:
+    """JSON Lines of comment rows, each with its `item`; checked whole, written in one commit."""
+    try:
+        text = manifest.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise QewError(f"cannot read {manifest}: {error}", 2) from None
+    rows: list[comment_batch.Row] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        where = f"line {number}"
+        try:
+            raw = json.loads(line)
+        except ValueError as error:
+            raise QewError(f"{where}: invalid JSON ({error})", 2) from None
+        if not isinstance(raw, dict) or not isinstance(raw.get("item"), str):
+            raise QewError(f"{where}: a row is an object with an `item` (and key, text, author, at, reply_to)", 2)
+        try:
+            item_id = ledger.resolve(raw["item"], ledger.item_ids())
+        except QewError as error:
+            raise QewError(f"{where}: {error}", error.exit_code) from None
+        rows.append(comment_batch.row({k: v for k, v in raw.items() if k != "item"}, item_id, where))
+    batch = comment_batch.plan(ledger, rows)
+    if not dry_run:
+        comment_batch.apply(ledger, batch)
+    return comment_batch.summary(batch, "would add" if dry_run else "added")
 
 
 def _own(ledger: Ledger, item_id: str, reference: str, force: bool) -> comments.Comment:

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import re
 
-from qew import attach_batch, graph_rules, ledger_labels
+from qew import attach_batch, comment_batch, graph_rules, ledger_labels
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -35,6 +35,7 @@ class Planned:
     events: list[Event] | None  # imported history, else None
     adopted: str | None = None  # None (new), "item" (already complete) or "events" (orphan events, item file missing)
     attachments: tuple[attach_batch.Request, ...] = ()  # files the plan entry brings along
+    comments: tuple[comment_batch.Row, ...] = ()  # discussion the plan entry brings along
 
     @property
     def state(self) -> str:
@@ -208,10 +209,12 @@ def prepare(
                 _import_events(item, spec) if import_events else None,
                 how,
                 tuple(attach_batch.Request(item.id, Path(row["source"]), row.get("name"), entry.label) for row in spec.get("attachments", [])),
+                tuple(comment_batch.row(raw, item.id, f"{entry.label} comment {n}") for n, raw in enumerate(spec.get("comments", []), 1)),
             )
         )
     graph_rules.validate_edges({**snapshot.items, **{p.item.id: p.item for p in planned}}, [p.item.id for p in planned])
     attach_batch.plan(ledger, [request for p in planned for request in p.attachments])  # refuse a bad file before any write
+    comment_batch.plan(ledger, [found for p in planned for found in p.comments])  # and a bad comment
     return planned
 
 
@@ -266,6 +269,9 @@ def apply(
     requests = [request for p in planned for request in p.attachments]
     if requests:
         attach_batch.apply(ledger, attach_batch.plan(ledger, requests))
+    rows = [found for p in planned for found in p.comments]
+    if rows:
+        comment_batch.apply(ledger, comment_batch.plan(ledger, rows))
     if as_json:
         return [json.dumps({"created": {p.entry.key: p.item.id for p in planned}, "adopted": [p.entry.key for p in planned if p.adopted]})]
     lines = []
