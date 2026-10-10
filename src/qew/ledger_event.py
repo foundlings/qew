@@ -68,7 +68,7 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
 # A `completed` event with one of these keys finished the item without a claim: its children
 # finished it, the code that delivers it landed without anyone claiming it, or it was made under a
 # provisional (offline) claim that sync may later record as lost: the completion stands either way.
-_UNCLAIMED_COMPLETION = ("children_finished", "delivered_by", "provisional_claim")
+_UNCLAIMED_COMPLETION = ("children_finished", "delivered_by", "provisional_claim", "bulk_quote")  # bulk_quote: `qew complete --manifest`
 MAX_COMMENT_BYTES = 20_000
 PROVENANCE = ("import", "forge", "forge-import")
 _INITIAL = {"drafted": State.DRAFT, "approved": State.APPROVED}
@@ -121,6 +121,8 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
     for key in _RULES[kind][0]:
         if key not in value or value[key] in ("", None) or (isinstance(value[key], str) and not value[key].strip()):
             raise QewError(f"{where}: `{kind}` event is missing `{key}`", 1)
+    if kind == "completed" and "bulk_quote" in value and (not isinstance(value["bulk_quote"], str) or not value["bulk_quote"].strip()):
+        raise QewError(f"{where}: `bulk_quote` must be a human's words", 1)
     if kind == "closed" and value["reason"] not in CLOSE_REASONS:
         raise QewError(f"{where}: close reason must be one of {', '.join(CLOSE_REASONS)}", 1)
     if "provenance" in value:

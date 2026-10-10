@@ -116,7 +116,7 @@ def analyse(ledger: Ledger, deep: bool = True) -> Report:
     items = snapshot.items
     _check_attachments(snapshot, problems, deep)
     _check_edges(snapshot, problems)
-    imported, without_code = _check_completed(snapshot, problems)
+    imported, without_code, by_quote = _check_completed(snapshot, problems)
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
     _check_claim_refs(snapshot, problems)
@@ -132,6 +132,8 @@ def analyse(ledger: Ledger, deep: bool = True) -> Report:
         notes.append(f"imported without evidence: {imported}")
     if without_code:
         notes.append(f"completed without code: {without_code}")
+    if by_quote:
+        notes.append(f"completed on a human's quote (qew complete --manifest): {by_quote}")
     contested = sum(1 for fold_ in snapshot.folds.values() for e in fold_.divergences if e.type == "claimed")
     if contested:
         notes.append(f"contested claims: {contested} (see `qew status`; settle with `qew accept` or `qew reject`)")
@@ -216,9 +218,9 @@ def _check_edges(snapshot: Snapshot, problems: list[str]) -> None:
             problems.append(f"{label} cycle: {' -> '.join(cycle)}")
 
 
-def _check_completed(snapshot: Snapshot, problems: list[str]) -> tuple[int, int]:
-    """(imported without evidence, completed with an explicit no-code reason); both are counted, not fatal."""
-    imported = without_code = 0
+def _check_completed(snapshot: Snapshot, problems: list[str]) -> tuple[int, int, int]:
+    """(imported without evidence, completed with an explicit no-code reason, completed on a human's quote); counted, not fatal."""
+    imported = without_code = by_quote = 0
     for item_id, item in snapshot.items.items():
         folded = snapshot.folds[item_id]
         if folded.state == State.COMPLETED and item.kind != Kind.EPIC and not folded.evidence:
@@ -226,9 +228,11 @@ def _check_completed(snapshot: Snapshot, problems: list[str]) -> tuple[int, int]
                 imported += 1
             elif folded.completion is not None and folded.completion.get("no_commit"):
                 without_code += 1
+            elif folded.completion is not None and folded.completion.get("bulk_quote"):
+                by_quote += 1
             else:
                 problems.append(f"events/{item_id}: completed without an evidence event")
-    return imported, without_code
+    return imported, without_code, by_quote
 
 
 def _stale_claim_notes(snapshot: Snapshot) -> list[str]:
