@@ -26,7 +26,9 @@ def _jj_filesets(paths: Sequence[str]) -> list[str]:
     """One `root-file:` fileset per path; a write too large for a command line commits the directories qew owns."""
     if sum(len(p) + 14 for p in paths) <= JJ_FILESET_BYTES:
         return [f'root-file:"{p}"' for p in paths]
-    return [f'root:"{name}"' for name in OWNED if any(p == name or p.startswith(name + "/") for p in paths)]
+    directories = [f'root:"{name}"' for name in OWNED if any(p == name or p.startswith(name + "/") for p in paths)]
+    others = [f'root-file:"{p}"' for p in paths if p.split("/", 1)[0] not in OWNED]  # qew-ledger.toml and the like are written too
+    return [*directories, *others]
 
 
 # git (and jj through its git backend) report a held repository lock this way; the lock is a sentinel file, not a

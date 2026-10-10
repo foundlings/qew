@@ -8,7 +8,8 @@ from enum import Enum
 from qew.errors import QewError
 from qew.ledger_ids import valid_id
 
-MAX_HEADER_BYTES = 8192
+MAX_HEADER_BYTES = 65536  # a header line of evidence ids can be long (see MAX_EVIDENCE_IDS)
+MAX_EVIDENCE_IDS = 1000  # ids the header lists; an item citing more keeps the first ones there and all of them in its events
 RULE = "---"
 
 
