@@ -5,7 +5,7 @@ import json
 import shutil
 from pathlib import Path
 
-from qew import attach_batch, attachments, cmd_items, id_migration, ledger_config
+from qew import assignees, attach_batch, attachments, cmd_items, id_migration, ledger_config
 from qew.errors import QewError
 from qew.ledger_event import State, attachments_after
 from qew.ledger_ids import next_id, valid_id
@@ -13,7 +13,7 @@ from qew.ledger_store import Ledger, actor
 
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    group = commands.add_parser("item", help="things done with one item: attach | detach | extract | rename")
+    group = commands.add_parser("item", help="things done with one item: attach | detach | extract | rename | assign | unassign")
     verbs = group.add_subparsers(dest="item_command", required=True)
     attach = verbs.add_parser("attach", help="attach a file, or a directory with its subdirectories, to an item")
     attach.add_argument("item", nargs="?", help="item id or alias")
@@ -27,6 +27,12 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     extract = verbs.add_parser("extract", help="write an item's attached tree to a directory as real files")
     extract.add_argument("item", help="item id or alias")
     extract.add_argument("dest", help="a directory that does not exist or is empty")
+    assign = verbs.add_parser("assign", help="list forge logins as further assignees of an item (the claim keeps one owner)")
+    assign.add_argument("item", help="item id or alias")
+    assign.add_argument("logins", nargs="+", help="forge logins")
+    unassign = verbs.add_parser("unassign", help="remove assignees an item lists")
+    unassign.add_argument("item", help="item id or alias")
+    unassign.add_argument("logins", nargs="+", help="forge logins")
     move = verbs.add_parser("rename", help="move an item to another id (default: the next free id of its kind); the old id stays as an alias")
     move.add_argument("item", help="item id or alias")
     move.add_argument("new", nargs="?", help="the new id; letters kinds accept only the next letter")
@@ -50,6 +56,8 @@ def run(arguments: argparse.Namespace) -> bool:
         print(attach(ledger, item_id, Path(arguments.source), arguments.name, arguments.dry_run))
     elif arguments.item_command == "detach":
         print(detach(ledger, item_id, arguments.name))
+    elif arguments.item_command in ("assign", "unassign"):
+        print(assign(ledger, item_id, arguments.logins, arguments.item_command == "assign"))
     elif arguments.item_command == "rename":
         print(rename(ledger, item_id, arguments.new, arguments.after, arguments.dry_run))
     else:
@@ -101,6 +109,20 @@ def attach_manifest(ledger: Ledger, manifest: Path, dry_run: bool) -> str:
     if not dry_run:
         attach_batch.apply(ledger, batch)
     return attach_batch.summary(batch, "would attach" if dry_run else "attached")
+
+
+def assign(ledger: Ledger, item_id: str, logins: list[str], adding: bool) -> str:
+    """Append `assigned` / `unassigned` events for the logins whose state changes; the rest is unchanged."""
+    current = set(assignees.assignees_after(ledger.load_events(item_id)))
+    changed = []
+    for login in dict.fromkeys(assignees.checked_login(login) for login in logins):
+        if (login in current) == adding:
+            continue
+        ledger.append_event(item_id, "assigned" if adding else "unassigned", login=login)
+        changed.append(login)
+    if not changed:
+        return f"assignees of {item_id} unchanged"
+    return f"{'assigned' if adding else 'unassigned'} {' '.join(changed)} on {item_id}"
 
 
 def detach(ledger: Ledger, item_id: str, name: str) -> str:

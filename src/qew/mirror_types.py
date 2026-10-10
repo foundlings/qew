@@ -1,6 +1,6 @@
 """The fixed shapes of a mirror record and of the forge baseline it carries."""
 
-from typing import TypedDict, Unpack, cast
+from typing import NotRequired, TypedDict, Unpack, cast
 
 
 class Seen(TypedDict):
@@ -12,6 +12,7 @@ class Seen(TypedDict):
     open: bool
     assignee: str
     comments: list[str]
+    assignees: NotRequired[list[str]]  # every login assigned when last seen
 
 
 class CommentLink(TypedDict):

@@ -52,7 +52,7 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
         return "migrate"
     if command == "pr" and arguments.pr_command in ("open", "ready", "close", "merge"):
         return f"pr-{arguments.pr_command}"
-    if command == "item" and arguments.item_command in ("attach", "detach", "rename") and not getattr(arguments, "dry_run", False):
+    if command == "item" and arguments.item_command in ("attach", "detach", "rename", "assign", "unassign") and not getattr(arguments, "dry_run", False):
         return str(arguments.item_command)
     if command == "land":
         return "land"

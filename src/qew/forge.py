@@ -129,6 +129,7 @@ class IssueSpec:
     open: bool
     close_reason: CloseReason = ""  # honored where the forge has reasons
     assignee: str = ""  # forge login; "" clears
+    assignees: tuple[str, ...] = ()  # further logins beside `assignee`
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,7 @@ class RemoteIssue:
     comments: int = 0  # user comment count when the listing reports one (cheap change signal for pull)
     milestone: int = 0  # the milestone the issue sits in (0: none)
     close_reason: CloseReason = ""  # why a closed issue closed, where the forge says
+    assignees: tuple[str, ...] = ()  # every login assigned (assignee is the first)
     issue_id: int = 0  # the forge's numeric id (GitHub sub-issues are linked by it), 0 where unknown
     parent: int = 0  # the number of the issue this one is a sub-issue of, 0 for none
 

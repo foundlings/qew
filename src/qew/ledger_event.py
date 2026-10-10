@@ -45,6 +45,9 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     # Comments as records (docs/specs/ledger.md, Comments): edits and deletes name a comment by its event id.
     "comment_edited": (("ref", "text"), tuple(State)),
     "comment_deleted": (("ref",), tuple(State)),
+    # Extra assignees beside the claim owner (docs/specs/ledger.md, Assignees): forge logins.
+    "assigned": (("login",), tuple(State)),
+    "unassigned": (("login",), tuple(State)),
     "forge_divergence": (("target", "field"), tuple(State)),
     "divergence_accepted": (("ref",), tuple(State)),
     "divergence_rejected": (("ref",), tuple(State)),
@@ -182,6 +185,9 @@ def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None
     elif kind == "edge":
         if value["op"] not in ("add", "remove"):
             raise QewError(f"{where}: edge op must be add or remove", 1)
+    elif kind in ("assigned", "unassigned"):
+        if not isinstance(value["login"], str) or not valid_actor(value["login"]):
+            raise QewError(f"{where}: `login` must be one word without spaces or commas", 1)
     elif kind in ("commented", "comment_edited", "comment_deleted"):
         for key in ("reply_to", "ref", "key"):
             if key in value and (not isinstance(value[key], str) or not value[key].strip()):

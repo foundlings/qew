@@ -235,6 +235,20 @@ def _nullable_str(data: dict[str, Any], key: str, what: str) -> str:
     return value
 
 
+def _assignee_logins(issue: dict[str, Any]) -> tuple[str, ...]:
+    """Every assigned login: the `assignees` list, else the single `assignee`."""
+    listed = issue.get("assignees")
+    if isinstance(listed, list):
+        return tuple(str(entry["login"]) for entry in listed if isinstance(entry, dict) and isinstance(entry.get("login"), str))
+    single = issue.get("assignee")
+    return (str(single["login"]),) if isinstance(single, dict) and isinstance(single.get("login"), str) else ()
+
+
+def _wanted_assignees(spec: IssueSpec) -> list[str]:
+    """The owner first, then the extra assignees, each once."""
+    return list(dict.fromkeys(login for login in (spec.assignee, *spec.assignees) if login))
+
+
 def _parent_number(url: object) -> int:
     """The issue number at the end of GitHub's `parent_issue_url`, 0 when the issue has no parent."""
     if not isinstance(url, str):
@@ -265,6 +279,7 @@ def parse_issue(data: Any) -> RemoteIssue:
         comments=_int(issue, "comments", "issue") if "comments" in issue else 0,
         milestone=0 if issue.get("milestone") is None else _int(_obj(issue["milestone"], "issue.milestone"), "number", "milestone"),
         close_reason=close_reason_of(reason) if state == "closed" else "",
+        assignees=_assignee_logins(issue),
         issue_id=issue["id"] if type(issue.get("id")) is int else 0,
         parent=_parent_number(issue.get("parent_issue_url")),
     )
@@ -708,8 +723,8 @@ class GitHub(Forge):
         _check_reason(spec)
         self._ensure_labels(spec.labels)
         payload: dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": list(spec.labels)}
-        if spec.assignee:
-            payload["assignees"] = [spec.assignee]
+        if _wanted_assignees(spec):
+            payload["assignees"] = _wanted_assignees(spec)
         created = self._remember(parse_issue(self._wire.rest("POST", f"{self._repo_path}/issues", payload)))
         with self._lock:
             if self._listed is not None:
@@ -724,7 +739,7 @@ class GitHub(Forge):
         self._ensure_labels(spec.labels)
         payload: dict[str, Any] = {
             "title": spec.title, "body": spec.body, "labels": list(spec.labels),
-            "assignees": [spec.assignee] if spec.assignee else [],
+            "assignees": _wanted_assignees(spec),
             "state": "open" if spec.open else "closed",
         }
         if not spec.open and spec.close_reason:
