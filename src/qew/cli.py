@@ -5,6 +5,7 @@ import importlib
 import json
 import os
 import sys
+from pathlib import Path
 from types import ModuleType
 from collections.abc import Sequence
 
@@ -160,7 +161,9 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     create.add_argument("--import", dest="import_events", action="store_true", help="with --from-file: keep each item's own events (imported history)")
 
     set_ = commands.add_parser("set", help="change an item's header fields")
-    set_.add_argument("items", nargs="+", help="item ids or aliases")
+    set_.add_argument("items", nargs="*", help="item ids or aliases (not with --manifest)")
+    set_.add_argument("--manifest", metavar="FILE", help="instead of ITEM...: a JSON Lines file of {item, add_label, remove_label, priority, reason} rows, applied in one commit")
+    set_.add_argument("--dry-run", action="store_true", help="with --manifest: say what would change and write nothing")
     set_.add_argument("--title", help="new title")
     set_.add_argument("--parent", help="new parent")
     set_.add_argument("--no-parent", action="store_true", help="remove the parent")
@@ -266,7 +269,16 @@ def _run(arguments: argparse.Namespace) -> None:
             mark=bool(arguments.from_file) or arguments.key is not None, as_json=arguments.json, dry_run=arguments.dry_run,
         )
         print("\n".join(lines))
+    elif command == "set" and arguments.manifest:
+        if arguments.items or any(getattr(arguments, key) is not None for key in ("title", "parent", "priority", "kind", "tracks", "pr", "due", "needs", "labels", "body", "body_file")) \
+                or arguments.add_label or arguments.remove_label or arguments.edit or arguments.no_parent or arguments.reason:
+            raise QewError("--manifest replaces ITEM and the other options: give the manifest alone", 2)
+        print(cmd_items.set_manifest(config, Path(arguments.manifest), arguments.dry_run))
     elif command == "set":
+        if not arguments.items:
+            raise QewError("give ITEM..., or --manifest FILE", 2)
+        if arguments.dry_run:
+            raise QewError("--dry-run belongs to --manifest", 2)
         changes = {}
         if arguments.no_parent and arguments.parent is not None:
             raise QewError("--no-parent and --parent contradict each other", 2)
