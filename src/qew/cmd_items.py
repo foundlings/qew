@@ -143,6 +143,9 @@ def set_fields(
                 ledger.append_event(item_id, "field", key=key, old=old, new=new)
             if item_id in newly_gated and reason:
                 ledger.append_event(item_id, "commented", text=f"gated: {reason.strip()}", author=actor())
+            if reason and reason.strip() and ledger_graph.GATED_LABEL in snapshot.items[item_id].labels \
+                    and ledger_graph.GATED_LABEL not in proposed[item_id].labels:
+                ledger.append_event(item_id, "commented", text=f"gate lifted: {reason.strip()}", author=actor())
             stored = ledger.load_item(item_id)
             if stored != wanted_item or stored.body.rstrip("\n") != wanted_item.body.rstrip("\n"):
                 raise QewError(f"{item_id}: the item did not read back as written", 3)

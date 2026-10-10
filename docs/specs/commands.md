@@ -172,7 +172,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew set --manifest FILE [--dry-run] [--closed]`: change labels, fields and priorities of many items in one commit. FILE is JSON Lines of
   `{item, add_label?, remove_label?, fields?, priority?, reason?}` (a label or a list of labels; `fields` is `{NAME: value-or-list}`, which replaces those fields and removes one given `[]`; priority 0 to 9). Every row is checked
   before the first write and one bad row refuses all, naming its line (exit 2): an unknown or duplicate item, an unknown field,
-  finished work (unless `--closed`), an invalid label or priority, a `gated` label added without a `reason` (kept as a comment `gated: TEXT`). A row
+  finished work (unless `--closed`), an invalid label or priority, a `gated` label added without a `reason` (kept as a comment `gated: TEXT`; removing the label with a `reason` keeps `gate lifted: TEXT`). A row
   that changes nothing is `unchanged`, so a rerun adds nothing. The writes are the audited `field` events of `qew set`.
 - `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--field NAME=VALUE]... [--clear-field NAME]... [--priority N] [--due YYYY-MM-DD]
   [--body TEXT | --edit] [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--reason TEXT] [--closed] [--json]`: edits the header; adding the label `gated` (work blocked outside the repository: keys, credentials, hardware, an account) needs `--reason TEXT`, kept as a comment `gated: TEXT`, and moves the item to the Gated column, out of `qew ready`; each change appends a `field` audit event. The whole result is validated
@@ -299,7 +299,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY | --absent KIND --reason TEXT] [--json]`
   (strict evidence): the cited changes become the item header's `evidence`; with no code to cite, `--no-commit WHY` records the
   absence `no-code: WHY` and `--absent no-code|historical|superseded-by:ITEM --reason TEXT` the stated one (an epic finished by its
-  children records `children`). A completion with neither is refused. Details of the rest of the command: prints
+  children records `children`). A completion with neither is refused, and so is an item carrying the label `gated` (single and `--manifest`; lift it first with `qew set ITEM --remove-label gated --reason TEXT`); `qew check` reports a completed item that still carries `gated` as an error. Details of the rest of the command: prints
   `ID completed` plus `; ready: ID...` (up to 5 items the completion released; `--json` has `released`). refused (exit 3
   naming the holder) unless the caller holds the claim; an already completed item is a quiet no-op (`completed (unchanged)`, no second event);
   every child must be completed or closed; and (not for epics) an evidence event whose change IDs all landed on the
@@ -321,7 +321,7 @@ shape prime: additional_context context_bytes schema_version
   Finished work is not closed as abandoned: `qew close ITEM --delivered-by SHA --landed-on BRANCH [--json]` records
   work that shipped without a claim as completed under the same landing proof (an `evidence` and a `completed`
   event), so dependents unblock; one flag alone, an unlanded commit or another actor's claim is refused first.
-- `qew reopen ITEM --reason TEXT [--json]`: completed or closed work returns to approved with the reason recorded;
+- `qew reopen ITEM --reason TEXT [--json]`, or `qew reopen --manifest FILE [--dry-run]`: completed or closed work returns to approved with the reason recorded. The manifest is JSON Lines of `{item, reason}`: every row is checked first (an unknown or duplicate item, or finished work without a reason, refuses all), the `reopened` events land in one commit, and an item that is already open is `unchanged`, so a rerun adds nothing;
   an item that is already open prints `unchanged ITEM (already open)`, exit 0, and writes nothing.
 
 - `qew block ITEM --on BLOCKER [--closed] [--json]`, `qew unblock ITEM --from BLOCKER [--closed] [--json]`: add or

@@ -13,6 +13,11 @@ APPROVAL_LABEL = "needs:approval"  # waiting for a human to authorize the work
 GATED_LABEL = "gated"  # blocked on something outside the repository: keys, credentials, hardware, a live account
 
 
+def gated_refusal(item_id: str) -> str:
+    return (f"cannot complete {item_id}: it carries the label `gated` (blocked on something outside the repository); "
+            f"lift the gate first: qew set {item_id} --remove-label gated --reason TEXT")
+
+
 def state_of(snapshot: Snapshot, item_id: str) -> State | None:
     return snapshot.folds[item_id].state
 

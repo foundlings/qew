@@ -74,6 +74,8 @@ def plan(snapshot: Snapshot, rows: list[Row], strict: bool = True) -> Batch:
         elif folded.state == State.CLAIMED and folded.owner != actor():
             raise QewError(f"{each.where}: {each.item_id} is claimed by {folded.owner}; ask them to release it", 3)
         elif folded.state in (State.APPROVED, State.CLAIMED):
+            if ledger_graph.GATED_LABEL in snapshot.items[each.item_id].labels:
+                raise QewError(f"{each.where}: {ledger_graph.gated_refusal(each.item_id)}", 2)
             if strict and not each.change_ids and not each.absent:
                 raise QewError(f"{each.where}: {each.item_id} needs `change_ids` (its proof) or a typed `absent` with a reason (strict evidence)", 2)
             for absent_item in [each.absent.split(":", 1)[1]] if each.absent.startswith("superseded-by:") else []:

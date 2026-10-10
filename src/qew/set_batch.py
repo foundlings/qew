@@ -25,6 +25,7 @@ class Planned:
     item: Item
     changes: tuple[Change, ...]
     gate_reason: str  # "" unless the gate label is newly added
+    lift_reason: str = ""  # "" unless the gate label is removed with a reason
 
 
 @dataclass(frozen=True)
@@ -84,8 +85,9 @@ def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]], allow_clos
         newly_gated = ledger_graph.GATED_LABEL in new_item.labels and ledger_graph.GATED_LABEL not in item.labels
         if newly_gated and not reason.strip():
             raise QewError(f"{where}: a gated item needs a `reason`: what outside the repository it waits on", 2)
+        lifted = ledger_graph.GATED_LABEL in item.labels and ledger_graph.GATED_LABEL not in new_item.labels
         if changes:
-            planned.append(Planned(item_id, new_item, tuple(changes), reason.strip() if newly_gated else ""))
+            planned.append(Planned(item_id, new_item, tuple(changes), reason.strip() if newly_gated else "", reason.strip() if lifted else ""))
         else:
             unchanged += 1
     return Batch(tuple(planned), unchanged)
@@ -98,6 +100,8 @@ def apply(ledger: Ledger, batch: Batch) -> None:
             ledger.append_event(each.item_id, "field", key=key, old=old, new=new)
         if each.gate_reason:
             ledger.append_event(each.item_id, "commented", text=f"gated: {each.gate_reason}", author=actor())
+        if each.lift_reason:
+            ledger.append_event(each.item_id, "commented", text=f"gate lifted: {each.lift_reason}", author=actor())
 
 
 def summary(batch: Batch, verb: str) -> str:

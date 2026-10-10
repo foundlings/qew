@@ -54,7 +54,9 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     close.add_argument("--landed-on", metavar="BRANCH", help="with --delivered-by: the branch the commit landed on")
     close.add_argument("--json", action="store_true", help="machine-readable output")
     reopen = commands.add_parser("reopen", help="reopen completed or closed work")
-    reopen.add_argument("item", help="item id or alias")
+    reopen.add_argument("item", nargs="?", help="item id or alias (not with --manifest)")
+    reopen.add_argument("--manifest", metavar="FILE", help="instead of ITEM: a JSON Lines file of {item, reason} rows, reopened in one commit")
+    reopen.add_argument("--dry-run", action="store_true", help="with --manifest: say what would change and write nothing")
     reopen.add_argument("--reason", help="why the work is required again (needed unless the item is already open)")
     reopen.add_argument("--json", action="store_true", help="machine-readable output")
 
@@ -65,6 +67,13 @@ def run(arguments: argparse.Namespace) -> bool:
     from qew import ledger_config
 
     config = ledger_config.load()
+    if arguments.command == "reopen" and arguments.manifest:
+        if arguments.item or arguments.reason:
+            raise QewError("--manifest replaces ITEM and --reason: each row carries its own reason", 2)
+        print(reopen_manifest(config, Path(arguments.manifest), arguments.dry_run))
+        return True
+    if arguments.command == "reopen" and (not arguments.item or arguments.dry_run):
+        raise QewError("give ITEM, or --manifest FILE (--dry-run belongs to --manifest)", 2)
     if arguments.command == "evidence" and arguments.manifest:
         if arguments.item or arguments.change or arguments.vcs:
             raise QewError("--manifest replaces ITEM and the single-item options: give the manifest alone", 2)
@@ -273,6 +282,8 @@ def complete(config: Config, reference: str, reason: str | None = None, take_ove
     unmet = ledger_graph.blockers(snapshot, item_id)
     if unmet:
         raise QewError(f"cannot complete {item_id}: it needs {' '.join(unmet)} completed first", 2)
+    if ledger_graph.GATED_LABEL in item.labels:
+        raise QewError(ledger_graph.gated_refusal(item_id), 2)
     kids = ledger_graph.children(snapshot).get(item_id, [])
     open_kids = [k for k in kids if snapshot.folds[k].state not in (State.COMPLETED, State.CLOSED)]
     if open_kids:
@@ -456,6 +467,18 @@ def _close_delivered(config: Config, reference: str, reason: str | None, of: str
     result: dict[str, object] = {"line": f"{item_id} completed (delivered by {commit[:12]} on {branch})", "id": item_id, "state": "completed"}
     result.update(_finish_parent(ledger, item_id))
     return result
+
+
+def reopen_manifest(config: Config, manifest: Path, dry_run: bool) -> str:
+    """Reopen the manifest's finished items in one write; checked whole first, a rerun is unchanged."""
+    from qew import manifest_rows, reopen_batch
+
+    ledger = ledger_for(config)
+    snapshot = ledger.snapshot()
+    batch = reopen_batch.plan(snapshot, manifest_rows.read(ledger, manifest, list(snapshot.items), reopen_batch.ROW_KEYS))
+    if not dry_run:
+        reopen_batch.apply(ledger, batch)
+    return reopen_batch.summary(batch, "would reopen" if dry_run else "reopened")
 
 
 def reopen(config: Config, reference: str, reason: str | None = None) -> dict[str, object]:
