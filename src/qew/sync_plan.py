@@ -76,7 +76,7 @@ def topological(snapshot: Snapshot, ids: list[str]) -> list[str]:
     return order
 
 
-DRAFT, BACKLOG, READY, NEEDS_APPROVAL, IN_PROGRESS, IN_REVIEW, DONE = COLUMNS
+DRAFT, BACKLOG, READY, NEEDS_APPROVAL, GATED, IN_PROGRESS, IN_REVIEW, DONE = COLUMNS
 
 
 def column(snapshot: Snapshot, item_id: str) -> str:
@@ -91,6 +91,8 @@ def column(snapshot: Snapshot, item_id: str) -> str:
         return IN_PROGRESS if _child_claimed(snapshot, item_id) else BACKLOG
     if ledger_graph.APPROVAL_LABEL in item.labels:
         return NEEDS_APPROVAL
+    if ledger_graph.GATED_LABEL in item.labels:
+        return GATED
     if _has_open_pull_request(snapshot, item_id):
         return IN_REVIEW
     if state == State.CLAIMED:

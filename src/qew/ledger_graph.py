@@ -9,7 +9,8 @@ from qew.ledger_store import Snapshot
 
 
 # A human gate: work carrying this label is never offered as ready, whatever else is true of it.
-APPROVAL_LABEL = "needs:approval"
+APPROVAL_LABEL = "needs:approval"  # waiting for a human to authorize the work
+GATED_LABEL = "gated"  # blocked on something outside the repository: keys, credentials, hardware, a live account
 
 
 def state_of(snapshot: Snapshot, item_id: str) -> State | None:
@@ -89,6 +90,7 @@ def ready(snapshot: Snapshot) -> list[str]:
         for item_id, item in snapshot.items.items()
         if item.kind != Kind.EPIC
         and APPROVAL_LABEL not in item.labels
+        and GATED_LABEL not in item.labels
         and state_of(snapshot, item_id) == State.APPROVED
         and not blockers(snapshot, item_id)
     ]

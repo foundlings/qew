@@ -169,7 +169,7 @@ class GitLabWalk(GitLabBase):
         """Prevents a GitLab board that lacks a status column or loses the priority when a card moves."""
         board = self.forge.ensure_board(COLUMNS)
         names = [x["label"]["name"] for x in self.project().boards[0]["lists"]]
-        self.assertEqual(names, [f"board::{c}" for c in ("Draft", "Backlog", "Ready", "Needs approval", "In progress", "In review", "Done")])
+        self.assertEqual(names, [f"board::{c}" for c in ("Draft", "Backlog", "Ready", "Needs approval", "Gated", "In progress", "In review", "Done")])
         issue = self.issue_with(labels=("kind:task",))
         self.forge.place_on_board(board, issue.number, "Ready", "P1")
         self.assertEqual(sorted(self.forge.read_issue(1).labels), ["board::Ready", "kind:task", "priority::P1"])

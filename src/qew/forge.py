@@ -12,12 +12,13 @@ from typing import Literal, get_args
 
 from qew.jsontypes import JsonObject
 
-# (name, GitHub color, description): the seven Status values, in board order.
+# (name, GitHub color, description): the eight Status values, in board order.
 STATUS_OPTIONS = (
     ("Draft", "GRAY", "Not workable yet: drafts, and work missing approval, a type or a priority"),
     ("Backlog", "GREEN", "Approved but blocked, deferred, or a planning container"),
     ("Ready", "BLUE", "Qew reports this work as actionable now"),
     ("Needs approval", "PINK", "Waiting for a human to authorize the work before it may start"),
+    ("Gated", "RED", "Blocked on something outside the repository: keys, credentials, hardware, a live account"),
     ("In progress", "YELLOW", "Claimed and actively being implemented"),
     ("In review", "PURPLE", "Implementation has an open linked pull request"),
     ("Done", "ORANGE", "Closed and completed"),

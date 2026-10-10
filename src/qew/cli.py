@@ -175,6 +175,7 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     set_.add_argument("--kind", choices=["epic", "issue", "task"], help="new kind (children must still nest under it)")
     set_.add_argument("--add-label", action="append", default=[], help="add one label, repeatable")
     set_.add_argument("--remove-label", action="append", default=[], help="remove one label, repeatable")
+    set_.add_argument("--reason", help="with --add-label gated (required then): what outside the repository the work waits on; kept as a comment")
     set_.add_argument("--json", action="store_true", help="machine-readable output")
     set_.add_argument("--edit", action="store_true", help="rewrite the body in $VISUAL or $EDITOR")
     set_.add_argument("--closed", action="store_true", help="allow editing completed or closed work")
@@ -289,7 +290,7 @@ def _run(arguments: argparse.Namespace) -> None:
             body = editor.edit_body()
         code_prose.warn([body or ""])
         changed = cmd_items.set_fields(
-            config, arguments.items, changes, body, arguments.closed, arguments.add_label, arguments.remove_label
+            config, arguments.items, changes, body, arguments.closed, arguments.add_label, arguments.remove_label, arguments.reason
         )
         if arguments.json:
             print(json.dumps({"changed": [{"item": i, "key": k, "old": o, "new": n} for i, k, o, n in changed]}))
