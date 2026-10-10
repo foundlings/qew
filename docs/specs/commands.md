@@ -233,6 +233,13 @@ shape prime: additional_context context_bytes schema_version
   Bytes are stored once by hash as `items/ID/attachments/HASH.EXT`; each name is an `attached` event (`path hash size
   blob`); the same bytes under the same name again is `unchanged`. Limits: 100 MiB per file (`QEW_ATTACH_MAX_BYTES`
   overrides), a warning above 25 MiB, 500 MiB of distinct bytes per item. One ledger commit; a refusal writes nothing.
+- `qew item attach --manifest FILE [--dry-run]`: bulk attach for importers. FILE is JSON Lines of `{"item", "source",
+  optional "name"}` (nothing else; relative sources are relative to the manifest's directory; a source may be a directory).
+  Every row is checked first, against the limits, the names already attached and each other; one bad row (named by its
+  line) writes nothing anywhere. One ledger commit; the same bytes under the same name are `unchanged`, so a rerun adds
+  nothing. `--dry-run` says `would attach` and writes nothing. A create plan entry (`qew create --from-file`) may carry
+  `"attachments": [{"source": path, "name": optional}]` (sources relative to the current directory): the files are
+  attached to the new item in the same commit, and a bad source refuses the whole plan before any item is written.
 - `qew item detach ITEM NAME`: detach a file name, or every name under a directory name, with one `detached` event each; the
   stored bytes stay (history). Nothing attached under the name is exit 2.
 - `qew item rename ITEM [NEW] [--after ID] [--dry-run]`: move an item to another id with the `migrate-ids` machinery (item
