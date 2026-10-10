@@ -174,6 +174,20 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
         self.assertEqual(synced.returncode, 3, repr(synced.stdout + synced.stderr) + str([(e["type"], e.get("owner"), e.get("provisional")) for e in self.a.events(self.item)]))
         self.assertEqual([e["type"] for e in self.a.events(self.item)].count("claim_lost"), 1)
 
+    def test_a_rival_whose_event_id_sorts_before_the_provisional_claim_still_beats_it(self) -> None:
+        """Prevents an offline claim being silently kept: ids minted in the same second order at random, so the rival's
+        pushed claim can sort BEFORE the provisional one; the fold then already marks the provisional claim contested, and
+        sync must still record it as lost (exit 3), not skip it."""
+        self.assertEqual(self.a.run("start", self.item, "--offline", env={"QEW_OFFLINE": "1"}).returncode, 0)
+        directory = self.a.ledger / "events" / self.item
+        approved = sorted(directory.glob("*.json"))[0].stem
+        body = {"type": "claimed", "at": "2026-01-01T00:00:00Z", "actor": "second", "owner": "second"}
+        (directory / f"{approved}0.json").write_text(json.dumps(body))  # sorts right after the approval, before the provisional claim
+        synced = self.a.run("sync")
+        self.assertEqual(synced.returncode, 3, repr(synced.stdout + synced.stderr))
+        self.assertIn("second", synced.stderr)
+        self.assertEqual([e["type"] for e in self.a.events(self.item)].count("claim_lost"), 1)
+
     def test_an_uncontested_offline_claim_is_confirmed_by_the_next_sync(self) -> None:
         """Prevents a provisional claim lingering for ever when nobody else wanted the item."""
         self.assertEqual(self.a.run("start", self.item, "--offline", env={"QEW_OFFLINE": "1"}).returncode, 0)
