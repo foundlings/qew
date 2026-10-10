@@ -49,6 +49,35 @@ class SubIssueWalk(unittest.TestCase):
         self.sync()
         self.assertEqual(self.sub_issue_calls(), calls)
 
+    def test_a_mirror_can_switch_the_mapping_off(self) -> None:
+        """Prevents a surprise burst of mutating calls: `sub_issues = false` on the mirror sets no parents at all."""
+        self.world.close()
+        mirrors = f'\n[[mirror]]\nforge = "github"\nrepo = "{self.fake.repo_url}"\napi = "{self.fake.api}"\nsub_issues = false\n'
+        self.world = World(mirrors, replication=OFF)
+        self.addCleanup(self.world.close)
+        epic = self.world.create("--kind", "epic", "--title", "Quiet phase", "--quote", QUOTE)
+        self.world.create("--kind", "issue", "--title", "Quiet work", "--parent", epic, "--quote", QUOTE)
+        self.sync()
+        self.assertEqual(self.sub_issue_calls(), 0)
+        self.assertIn("Quiet work", [i["title"] for i in self.fake.issues.values()])
+
+    def test_sub_issue_calls_go_through_the_create_pacing(self) -> None:
+        """Prevents bypassing the pacer: with a limit of 1 create per minute and a short time budget, the sync stops as paced
+        before it has set the parent (creates and parent calls share the limit)."""
+        import time
+        from qew import ledger_config
+        from qew.forge_github import GitHub
+        from qew.forge_http import urllib_transport
+        from qew.ledger_store import Ledger
+        from qew.sync import Target, sync_target
+        config = ledger_config.load(self.world.code)
+        mirror = config.mirrors[0]
+        paced = type(mirror)(mirror.forge, mirror.repo, mirror.project, mirror.select, {**mirror.options, "create_per_minute": 2})
+        target = Target(paced, ledger_config.mirror_slug(paced), GitHub(paced, urllib_transport(), ENV))
+        report = sync_target(Ledger(self.world.ledger, "TST"), target, config, deadline=time.monotonic() + 2)
+        self.assertIn("paced", report.stopped or "")
+        self.assertEqual(self.sub_issue_calls(), 0)
+
     def test_moving_and_removing_the_parent_follow_the_ledger(self) -> None:
         """Prevents a stale tree on the forge: a new parent replaces the old, no parent removes the relation."""
         self.sync()
