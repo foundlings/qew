@@ -452,6 +452,12 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   `--json`: `{merged, number, head_sha, items, schema_version}`. After a landed merge the head branch is deleted on the
   forge, never the base, the configured target branch or a head another open pull request uses (`branch NAME kept: ...`);
   a forge that cannot delete only warns on stderr and the merge still succeeds.
+- `qew next-id [--kind epic|issue|task] [--count N] [--after ID]`: print the next free id (or N consecutive ids) of the kind's
+  `id_mode`, one per line; nothing is written. Letters run in strict order (A..Z, AA..ZZ, AAA.., after ZZZ comes AAAA):
+  the next letter follows the end of the main run of letter ids and ignores far-off outliers (a gap of more than three
+  blocks of two-letter ids ends the run, so PID and PIE after ADF do not move it); an id that is taken is skipped.
+  `--after ID` (letters kinds) counts a letter reserved outside the ledger, such as a phase document, as taken. A plan
+  that names an id for a letters kind outside `--import` must name exactly the next letter, else exit 2 naming it.
 - `qew migrate-ids --to base35-time [--dry-run]`: rename every item whose id is not a base35-time id (letters, counter, imported) to a
   new base35-time id, ordered by creation, and carry every reference: item headers (`parent needs tracks pr discovered_from`),
   event directories and the ids cited in `edge`, `closed` and link `field` events, mirror directories and pull request

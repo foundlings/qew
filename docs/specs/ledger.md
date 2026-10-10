@@ -37,7 +37,7 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
   table; a kind left out is `base35-time`:
   - `base35-time` (the default): 9 characters, seconds since 2020 in base 35 plus two more, so IDs sort by creation and
     concurrent writers rarely collide (`qew check` refuses duplicates). Example `042fcpx9w`.
-  - `letters`: A, B .. Z, AA, AB .. for a handful of long-lived items (foundlings uses it for epics, so phases read `ADA`).
+  - `letters`: A, B .. Z, AA .. ZZ, AAA .. in strict order (after ZZZ comes AAAA), for a handful of long-lived items (foundlings uses it for epics, so phases read `ADA`).
   - `counter`: integers; safe for one writer only.
   Imported items keep the IDs they already have. A short unique prefix of an ID resolves.
 - Forge issue numbers are recorded only in `mirrors/`.

@@ -40,6 +40,13 @@ class NextIdWalk(unittest.TestCase):
         created = self.world.run("create", "--kind", "epic", "--title", "Next phase", "--quote", QUOTE)
         self.assertEqual(created.stdout.split()[0], "ADG")
 
+    def test_after_reserves_a_letter_that_exists_outside_the_ledger(self) -> None:
+        """Prevents handing out a letter a phase document already uses: --after ADG makes ADH the next one."""
+        self.epics("ADE", "ADF")
+        self.assertEqual(self.next_ids("--kind", "epic", "--after", "ADG"), ["ADH"])
+        self.assertEqual(self.next_ids("--kind", "epic", "--after", "ADG", "--count", "2"), ["ADH", "ADI"])
+        self.assertEqual(self.world.run("next-id", "--kind", "issue", "--after", "ADG").returncode, 2)
+
     def test_after_zzz_comes_aaaa_and_an_empty_ledger_starts_at_a(self) -> None:
         """Prevents the end of a length breaking the sequence: ZZZ is followed by AAAA, nothing yet is A."""
         self.assertEqual(self.next_ids("--kind", "epic"), ["A"])
