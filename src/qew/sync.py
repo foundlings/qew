@@ -317,6 +317,12 @@ def _sync_item(
         report.updated += 1
     else:
         report.unchanged += 1
+        events = snapshot.events[item_id]
+        newest = events[-1].id if events else ""
+        if record.get("synced_event") != newest:
+            # A comment or an accepted divergence changes no issue field: nothing to push, but the mirror is current.
+            record = updated(record, synced_event=newest)
+            ledger.write_mirror(item_id, target.slug, record)
     _link(ledger, snapshot, target, report, item_id, numbers, record)
     if board is not None:
         _place(ledger, snapshot, target, report, item_id, board, column, record, placements, fresh=unchecked)
