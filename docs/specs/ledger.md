@@ -153,7 +153,7 @@ select = "kind:epic"
 ```
 - `[qew] minimum_version = "MAJOR.MINOR.PATCH"` makes an older qew refuse every command (exit 2, names both
   versions and `scripts/setup_user.py`); malformed values are refused. Unknown keys and mirror options are
-  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1; this qew reads 1 to 5 but works only on 5; any command on an older ledger refuses naming `qew migrate-layout`, and an older qew refuses 5). Schema 1 and 2 kept each item in `items/<ID>.md` (2 added attachment directories); schema 3 keeps it in `items/<ID>/item.md`, so the ID is only in the directory name and the directory also holds `attachments/`. Schema 4 added the evidence header and schema 5 the `fields` header key. `qew init` writes 5. A symlinked config is refused.
+  ignored; `schema_version` in `qew-ledger.toml` is strict (missing reads as 1; this qew reads 1 to 5 and works on 4 and 5; any command on a ledger older than 4 refuses naming `qew migrate-layout`, and an older qew refuses 5; `fields` are refused on a schema 4 ledger until it is migrated). Schema 1 and 2 kept each item in `items/<ID>.md` (2 added attachment directories); schema 3 keeps it in `items/<ID>/item.md`, so the ID is only in the directory name and the directory also holds `attachments/`. Schema 4 added the evidence header and schema 5 the `fields` header key. `qew init` writes 5. A symlinked config is refused.
 - `project` is a positive integer board number (title strings, numeric strings, 0, negatives, booleans, floats
   are refused at load, exit 2); `project_title` must not be empty. Repository URLs that differ only in case or a
   `.git` suffix are one target (the slug is casefolded).

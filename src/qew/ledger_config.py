@@ -309,6 +309,7 @@ def _ledger_from_environment(start: Path | None) -> Path | None:
 
 
 SCHEMA_VERSIONS = (1, 2, 3, 4, 5)  # this qew works on the latest layout only; `qew migrate-layout` moves any older one straight to 5
+WORKABLE_SCHEMA = 4  # a schema 4 ledger works unchanged: 5 only adds the optional `fields` header key, which waits for the migration
 CURRENT_SCHEMA = 5  # items live at items/<ID>/item.md (3), completed items carry their proof in the header (4), items carry named fields (5); 1 and 2 kept items/<ID>.md
 _old_layout_allowed = False
 
@@ -348,7 +349,7 @@ def _ledger_prefix(ledger: Path) -> str:
     if version not in SCHEMA_VERSIONS or isinstance(version, bool):
         raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version!r} is not supported by this qew "
                        f"({', '.join(map(str, SCHEMA_VERSIONS))}); upgrade qew", 2)
-    if version < CURRENT_SCHEMA and not _old_layout_allowed:
+    if version < WORKABLE_SCHEMA and not _old_layout_allowed:
         raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version} is an older layout; run `qew migrate-layout` once to move "
                        f"it straight to schema_version {CURRENT_SCHEMA} (each item in items/ID/item.md, completed items with their evidence in the header)", 2)
     prefix = data.get("prefix", "")
