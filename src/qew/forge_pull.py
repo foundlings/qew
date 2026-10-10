@@ -13,10 +13,11 @@ import re
 from collections.abc import Callable, Collection, Iterable
 
 from qew.forge_text import clean_body, clean_line
+from qew.assignees import assignees_after
 from qew import comment_sync, review_sync, instants, page_cache, pull_cursor, sync_plan
 from qew.mirror_types import MirrorRecord, Seen, updated
 from qew.forge import DUPLICATE_MARKER, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
-from qew.ledger_event import State
+from qew.ledger_event import State, valid_actor
 from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
 from qew.sync import Target, new_record
@@ -234,6 +235,29 @@ def _state_changed(ledger: Ledger, snapshot: Snapshot, target: Target, report: P
              "open" if issue.open else "closed", "open" if ledger_open else "closed", issue.close_reason)
 
 
+def _assignees_changed(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, item_id: str, issue: RemoteIssue,
+                       seen: Seen) -> bool:
+    """The claim owner's login leaving the forge issue is a divergence; every other assignee change is an event."""
+    seen_all = list(seen["assignees"]) if "assignees" in seen else ([seen["assignee"]] if seen["assignee"] else [])
+    now = list(issue.assignees) if issue.assignees else ([issue.assignee] if issue.assignee else [])
+    if now == seen_all:
+        return False
+    mapping = target.mirror.options.get("assignees", {})
+    owner_login = str(mapping.get(snapshot.folds[item_id].owner, "")) if isinstance(mapping, dict) else ""
+    if owner_login and owner_login in seen_all and owner_login not in now:
+        _diverge(ledger, snapshot, target, report, item_id, issue.number, "assignee", now[0] if now else "(none)", owner_login)
+    ours = set(assignees_after(snapshot.events[item_id]))
+    before, after = set(seen_all) - {owner_login}, set(now) - {owner_login}
+    for login in sorted(after - before - ours):
+        if valid_actor(login):
+            ledger.append_event(item_id, "assigned", login=login, provenance="forge")
+            report.applied += 1
+    for login in sorted((before - after) & ours):
+        ledger.append_event(item_id, "unassigned", login=login, provenance="forge")
+        report.applied += 1
+    return True
+
+
 def _apply_header(ledger: Ledger, item: Item, key: str, value: str) -> Item:
     old = item.header()[key]
     updated = item.with_value(key, value)
@@ -305,9 +329,7 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
         _diverge(ledger, snapshot, target, report, item_id, issue.number, "parent",
                  f"#{issue.parent}" if issue.parent else "none", f"#{recorded_parent}" if recorded_parent else "none")
         changed = True
-    if issue.assignee != seen["assignee"]:
-        _diverge(ledger, snapshot, target, report, item_id, issue.number, "assignee", issue.assignee or "(none)",
-                 snapshot.folds[item_id].owner or "(none)")
+    if _assignees_changed(ledger, snapshot, target, report, item_id, issue, seen):
         changed = True
     comment_ids = list(seen["comments"])
     if issue.comments > len(comment_ids) or record.get("cmap"):  # a new comment, or linked ones that may have been edited or removed

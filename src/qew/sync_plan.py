@@ -9,6 +9,7 @@ from qew import label_style, ledger_author, ledger_graph
 from qew.mirror_types import Seen
 from qew.errors import QewError
 from qew.forge import COLUMNS, CloseReason, MANAGED_FILTER, MARKER_PREFIX, PRIORITY_OPTIONS, IssueSpec, RemoteIssue, marker_for
+from qew.assignees import assignees_after
 from qew.attachments import Attachment
 from qew.ledger_event import State, attachments_after
 from qew.ledger_item import Item, Kind
@@ -176,6 +177,7 @@ def issue_spec(
         open=state not in (State.COMPLETED, State.CLOSED),
         close_reason=closed_reason,
         assignee=assignees.get(folded.owner, ""),
+        assignees=tuple(login for login in assignees_after(snapshot.events[item.id]) if login != assignees.get(folded.owner, "")),
     )
 
 
@@ -233,5 +235,6 @@ def seen_of(remote: RemoteIssue, comment_ids: Iterable[str]) -> Seen:
         "labels": user_labels(remote.labels),
         "open": remote.open,
         "assignee": remote.assignee,
+        "assignees": list(remote.assignees),
         "comments": list(comment_ids),
     }

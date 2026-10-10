@@ -225,7 +225,7 @@ shape prime: additional_context context_bytes schema_version
   its lane (`--lane`); without it the release needs `--force` too. The event records `lane` (the releasing lane) and
   `previous_lane`; the release is re-read and a claim still in force is exit 3. `--json` adds `by` and `lane`.
   Unclaimed or closed work is exit 2.
-- `qew item`: the group for `attach`, `detach`, `extract` and `rename` (the item comes first, then what is done with it, like `qew pr`).
+- `qew item`: the group for `attach`, `detach`, `extract`, `rename`, `assign` and `unassign` (the item comes first, then what is done with it, like `qew pr`).
 - `qew item attach ITEM SOURCE [--as NAME]`: attach a file, or every file under a directory, to the item (any state). The name
   is `--as` (a directory's files go under it, subdirectories kept) or the file name (a directory's files at the root).
   Names are relative, `/`-separated, without empty, `.` or `..` segments, control characters or backslashes, at most 1024
@@ -248,6 +248,11 @@ shape prime: additional_context context_bytes schema_version
   sync). NEW defaults to the next free id of the item's kind (`qew next-id`); a letters kind accepts only the next letter
   (`--after ID` counts a letter reserved outside the ledger, such as a phase document, as taken). Refused with exit 3 while
   another login holds a claim on it, exit 2 for an unknown item, a taken id or a letter out of order. One ledger commit.
+- `qew item assign ITEM LOGIN...` / `qew item unassign ITEM LOGIN...`: further assignees beside the claim owner (which stays
+  exactly one), as `assigned` / `unassigned` events naming forge logins (a login already in the wanted state is `unchanged`).
+  `qew show` lists them (`assignees:`), sync pushes them with the owner's mapped login (owner first), and the pull turns an
+  assignee added or removed on the forge into an event (provenance forge); only the owner's login leaving the issue is a
+  divergence.
 - `qew item extract ITEM DEST`: write the attached tree to `DEST` (absent or empty) as real files, verifying every hash first.
 - `qew comment --manifest FILE [--dry-run]`: bulk comments for importers. FILE is JSON Lines of `{"item", "key", "text",
   optional "author", "at", "reply_to"}`: `key` is required (one word; the same key with the same text is `unchanged`, so a
