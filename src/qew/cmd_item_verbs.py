@@ -5,14 +5,15 @@ import shutil
 import sys
 from pathlib import Path
 
-from qew import attachments, cmd_items, ledger_config
+from qew import attachments, cmd_items, id_migration, ledger_config
 from qew.errors import QewError
-from qew.ledger_event import attachments_after
-from qew.ledger_store import Ledger
+from qew.ledger_event import State, attachments_after
+from qew.ledger_ids import next_id, valid_id
+from qew.ledger_store import Ledger, actor
 
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    group = commands.add_parser("item", help="things done with one item: attach | detach | extract")
+    group = commands.add_parser("item", help="things done with one item: attach | detach | extract | rename")
     verbs = group.add_subparsers(dest="item_command", required=True)
     attach = verbs.add_parser("attach", help="attach a file, or a directory with its subdirectories, to an item")
     attach.add_argument("item", help="item id or alias")
@@ -24,6 +25,11 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     extract = verbs.add_parser("extract", help="write an item's attached tree to a directory as real files")
     extract.add_argument("item", help="item id or alias")
     extract.add_argument("dest", help="a directory that does not exist or is empty")
+    move = verbs.add_parser("rename", help="move an item to another id (default: the next free id of its kind); the old id stays as an alias")
+    move.add_argument("item", help="item id or alias")
+    move.add_argument("new", nargs="?", help="the new id; letters kinds accept only the next letter")
+    move.add_argument("--after", help="letters kinds: treat this letter id as taken too (a letter reserved outside the ledger)")
+    move.add_argument("--dry-run", action="store_true", help="say what would move and write nothing")
 
 
 def run(arguments: argparse.Namespace) -> bool:
@@ -35,6 +41,8 @@ def run(arguments: argparse.Namespace) -> bool:
         print(attach(ledger, item_id, Path(arguments.source), arguments.name))
     elif arguments.item_command == "detach":
         print(detach(ledger, item_id, arguments.name))
+    elif arguments.item_command == "rename":
+        print(rename(ledger, item_id, arguments.new, arguments.after, arguments.dry_run))
     else:
         print(extract(ledger, item_id, Path(arguments.dest)))
     return True
@@ -129,3 +137,34 @@ def extract(ledger: Ledger, item_id: str, dest: Path) -> str:
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(blob, target)
     return f"extracted {len(sources)} file(s) of {item_id} to {dest}"
+
+
+def rename(ledger: Ledger, item_id: str, new: str | None, after: str | None, dry_run: bool) -> str:
+    snapshot = ledger.snapshot()
+    folded = snapshot.folds[item_id]
+    holder = actor()
+    if folded.state == State.CLAIMED and folded.owner != holder:
+        raise QewError(f"{item_id} is claimed by {folded.owner}; ids are not changed under another login's claim "
+                       f"(ask them to release it, or run as that login)", 3)
+    kind = snapshot.items[item_id].kind.value
+    mode = ledger.id_modes[kind]
+    taken = {*ledger.item_ids(), *ledger.aliases().by_alias}
+    if after:
+        if mode != "letters":
+            raise QewError(f"--after applies to letters kinds; {kind} ids are {mode}", 2)
+        taken.add(after)
+    if mode == "letters":
+        expected = next_id(mode, taken - {item_id})
+        if new is not None and new != expected:
+            raise QewError(f"{kind} ids run in strict letter order, so the next is {expected}, not {new} "
+                           f"(leave the id out, or use --after for a letter reserved outside the ledger)", 2)
+        new = expected
+    elif new is None:
+        new = next_id(mode, taken)
+    if not valid_id(new):
+        raise QewError(f"`{new}` is not a valid id", 2)
+    if new.lower() in {name.lower() for name in taken}:
+        raise QewError(f"{new} is already an item id or an alias", 2)
+    report = id_migration.rename(ledger, [(item_id, new)], dry_run)
+    verb = "would rename" if dry_run else "renamed"
+    return f"{verb} {item_id} -> {new} ({report.rewritten} files followed; {item_id} stays as an alias)"

@@ -49,6 +49,12 @@ def migrate(ledger: Ledger, actor_name: str, dry_run: bool = False) -> Report:
         new = next_id("base35-time", taken)
         taken.add(new)
         renames.append((old, new))
+    return rename(ledger, renames, dry_run)
+
+
+def rename(ledger: Ledger, renames: list[tuple[str, str]], dry_run: bool = False) -> Report:
+    """Move each (old, new) pair: the item file, then every reference, event, mirror and view that names it."""
+    aliases = ledger.aliases()
     mapping = {**aliases.by_alias, **dict(renames)}
     if not mapping:
         return Report((), 0)

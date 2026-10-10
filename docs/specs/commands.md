@@ -225,7 +225,7 @@ shape prime: additional_context context_bytes schema_version
   its lane (`--lane`); without it the release needs `--force` too. The event records `lane` (the releasing lane) and
   `previous_lane`; the release is re-read and a claim still in force is exit 3. `--json` adds `by` and `lane`.
   Unclaimed or closed work is exit 2.
-- `qew item`: the group for `attach`, `detach` and `extract` (the item comes first, then what is done with it, like `qew pr`).
+- `qew item`: the group for `attach`, `detach`, `extract` and `rename` (the item comes first, then what is done with it, like `qew pr`).
 - `qew item attach ITEM SOURCE [--as NAME]`: attach a file, or every file under a directory, to the item (any state). The name
   is `--as` (a directory's files go under it, subdirectories kept) or the file name (a directory's files at the root).
   Names are relative, `/`-separated, without empty, `.` or `..` segments, control characters or backslashes, at most 1024
@@ -235,6 +235,12 @@ shape prime: additional_context context_bytes schema_version
   overrides), a warning above 25 MiB, 500 MiB of distinct bytes per item. One ledger commit; a refusal writes nothing.
 - `qew item detach ITEM NAME`: detach a file name, or every name under a directory name, with one `detached` event each; the
   stored bytes stay (history). Nothing attached under the name is exit 2.
+- `qew item rename ITEM [NEW] [--after ID] [--dry-run]`: move an item to another id with the `migrate-ids` machinery (item
+  file, children and other items citing it, events, mirrors, attachments, named views and local state follow; the old id
+  stays in `aliases:` so it still resolves, and a forge issue carrying the old marker is adopted and re-marked on the next
+  sync). NEW defaults to the next free id of the item's kind (`qew next-id`); a letters kind accepts only the next letter
+  (`--after ID` counts a letter reserved outside the ledger, such as a phase document, as taken). Refused with exit 3 while
+  another login holds a claim on it, exit 2 for an unknown item, a taken id or a letter out of order. One ledger commit.
 - `qew item extract ITEM DEST`: write the attached tree to `DEST` (absent or empty) as real files, verifying every hash first.
 - `qew comment ITEM (--body TEXT | --body-file F) [--key KEY]`: append a `commented` event (text kept verbatim, `-` reads
   stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
