@@ -105,6 +105,9 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
     layout = target.forge.board_layout(board) if board is not None else None
     if layout is not None and layout != cached_layout:
         ledger.write_board_layout(target.slug, layout)
+    waits, waited = forge_retry.rate_summary()
+    if waits:
+        report.warnings.append(f"rate limited {waits} times; waited {waited:.0f}s in total, then went on")
     if forge_retry.retried_calls():
         report.warnings.append(f"{forge_retry.retried_calls()} forge calls retried after a 5xx or a lost connection")
     return report

@@ -38,5 +38,6 @@ def build(mirror: Mirror, transport: Transport | None = None, env: Mapping[str, 
         from qew import forge_retry
 
         retries, max_wait, base = forge_retry.settings(mirror.options, environment.get("QEW_RETRY_BASE_S", ""))
-        transport = forge_retry.retrying(urllib_transport(float(cast(str | float, timeout))), retries, max_wait, base)
+        transport = forge_retry.retrying(urllib_transport(float(cast(str | float, timeout))), retries, max_wait, base,
+                                         rate=forge_retry.rate_settings(mirror.options, environment))
     return cast(Forge, backend(mirror, transport, environment))

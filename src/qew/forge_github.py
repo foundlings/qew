@@ -11,7 +11,7 @@ from typing import Any, TypedDict, override
 from collections.abc import Iterator, Mapping, Sequence
 from urllib.parse import quote
 
-from qew import label_style
+from qew import forge_retry, label_style
 from qew.forge import (
     BodyRevision,
     RemoteReview,
@@ -567,19 +567,35 @@ class _Wire:
             raise ForgeRejected(200, f"more than {MAX_PAGES} pages; refusing a truncated listing")
 
     def graphql(self, query: str, variables: Mapping[str, Any]) -> dict[str, Any]:
-        data, headers = call_json(self._transport, "POST", self.graphql_url, self._headers(), {"query": query, "variables": dict(variables)})
-        answer = _obj(data, "graphql response")
-        errors = answer.get("errors")
-        if errors:
+        """One GraphQL call. A RATE_LIMITED answer refused the request without applying it, so it is waited out and sent
+        again (a mutation included); only a limit that outlasts the retries is raised."""
+        rate = forge_retry.rate_settings(self._mirror.options, self._env)
+        limited = 0
+        while True:
+            forge_retry.gate_wait()
+            data, headers = call_json(self._transport, "POST", self.graphql_url, self._headers(), {"query": query, "variables": dict(variables)})
+            answer = _obj(data, "graphql response")
+            errors = answer.get("errors")
+            if not errors:
+                return _obj(answer.get("data"), "graphql data")
+            if limited < rate.retries and _is_rate_limited(errors):
+                forge_retry.rate_backoff(limited, wait_from(headers) or 0.0, rate)
+                limited += 1
+                continue
             raise _graphql_error(errors, wait_from(headers))
-        return _obj(answer.get("data"), "graphql data")
+
+
+def _is_rate_limited(errors: Any) -> bool:
+    """A typed RATE_LIMITED error, or (GitHub's secondary limit sends no type) a message saying 'rate limit'."""
+    return isinstance(errors, list) and any(
+        isinstance(e, dict) and (e.get("type") == "RATE_LIMITED" or "rate limit" in str(e.get("message", "")).lower()) for e in errors)
 
 
 def _graphql_error(errors: Any, wait: float | None = None) -> Exception:
     entries = [e for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
     kinds = {e.get("type") for e in entries}
     detail = "; ".join(str(e.get("message", "")) for e in entries)[:300] or "unparseable GraphQL errors"
-    if "RATE_LIMITED" in kinds:
+    if _is_rate_limited(errors):
         return ForgeUnavailable(f"GraphQL: {detail}", wait if wait is not None else DEFAULT_WAIT)
     if kinds & {"FORBIDDEN", "INSUFFICIENT_SCOPES", "UNAUTHORIZED"}:
         return ForgeAuth(f"GraphQL: {detail}")

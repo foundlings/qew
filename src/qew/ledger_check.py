@@ -267,6 +267,8 @@ def _check_completed(snapshot: Snapshot, problems: list[str], strict: bool) -> t
         if folded.state != State.COMPLETED:
             continue
         where = f"items/{item_id}/item.md"
+        if ledger_graph.GATED_LABEL in item.labels:
+            problems.append(f"{where}: completed while still carrying the label `gated` (reopen it, or lift the gate with a reason)")
         if item.evidence:
             unbacked = sorted(set(item.evidence) - _cited_ids(snapshot, item_id))
             if unbacked:

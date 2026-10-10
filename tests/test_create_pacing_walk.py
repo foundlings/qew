@@ -113,7 +113,7 @@ class PacedSyncWalk(unittest.TestCase):
         """Prevents 'retry after 60s' for a block that lasts minutes: the wait is 5 minutes and the clock time is shown."""
         world = self.rig()
         world.create("--kind", "issue", "--title", "Item", "--quote", QUOTE)
-        self.fake.fail_next(403, "widgets/issues", count=5, body=SECONDARY)
+        self.fake.fail_next(403, "POST widgets/issues", count=5, body=SECONDARY)  # a create: never repeated, the pacer learns from it
         result = world.run("sync", env=ENV)
         text = result.stdout + result.stderr
         self.assertIn("retry after 300s", text)

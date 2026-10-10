@@ -93,7 +93,7 @@ def _lock(ledger_path: Path, name: str = "lock", verb: str = "") -> Iterator[Non
     so the worker commits its mirror files only after that push is done. A kernel lock (see filelock): a dead holder
     frees it, and the file left behind is inert."""
     with filelock.hold(ledger_path / ".qew" / name, verb=verb, who=_who(), wait_s=LOCK_WAIT_SECONDS,
-                       what=f"the ledger {ledger_path}"):
+                       what=f"the ledger {ledger_path}", polite=verb == "sync"):  # a sync lets waiting verbs go first
         yield
 
 
