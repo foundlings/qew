@@ -19,12 +19,28 @@ class Kind(str, Enum):
 
 
 # The schema: header keys in file order. Unknown keys are refused, never ignored.
-KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "owner", "priority", "due", "created", "discovered_from", "aliases")
-LINK_KEYS = ("tracks", "pr", "due", "discovered_from", "aliases")  # tracking issue / pull request item ids and a YYYY-MM-DD due date; optional, omitted when empty
+KEYS = ("id", "kind", "title", "parent", "needs", "tracks", "pr", "labels", "owner", "priority", "due", "created", "discovered_from", "aliases", "evidence", "evidence_absent")
+LINK_KEYS = ("tracks", "pr", "due", "discovered_from", "aliases", "evidence", "evidence_absent")  # tracking issue / pull request item ids and a YYYY-MM-DD due date; optional, omitted when empty
 REQUIRED = ("id", "kind", "title", "created")
 LIST_KEYS = ("needs", "labels")
 DEFAULT_PRIORITY = 2
 _DUE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+CHANGE_ID = re.compile(r"[A-Za-z0-9]{4,64}")  # a jj change id or a git commit hash, as cited
+ABSENCE_KINDS = ("no-code", "historical", "children")  # plus `superseded-by:ITEM`
+
+
+def absence_problem(text: str) -> str | None:
+    """Why `KIND: reason` is not a typed absence of evidence, or None: the kind is no-code, historical, children or
+    superseded-by:ITEM, and the reason is one non-blank line."""
+    kind, separator, reason = text.partition(": ")
+    if not separator or not reason.strip() or "\n" in reason:
+        return "an evidence absence is `KIND: reason` with a one-line reason"
+    if kind.startswith("superseded-by:"):
+        if not valid_id(kind[len("superseded-by:"):]):
+            return "superseded-by names an item id"
+    elif kind not in ABSENCE_KINDS:
+        return f"the absence kind is one of {', '.join(ABSENCE_KINDS)} or superseded-by:ITEM"
+    return None
 
 
 @dataclass(frozen=True)
@@ -44,6 +60,8 @@ class Item:
     due: str = ""
     discovered_from: str = ""  # the item this one was found while working on; never a dependency
     aliases: tuple[str, ...] = ()  # ids this item had before `qew migrate-ids`; lookups by them still resolve
+    evidence: tuple[str, ...] = ()  # completed work: the change ids (jj) or commits (git) that deliver it, as cited
+    evidence_absent: str = ""  # completed work without code: `KIND: reason` (see ABSENCE_KINDS); never both with evidence
 
     def header(self) -> dict[str, str]:
         return {
@@ -61,6 +79,8 @@ class Item:
             "created": self.created,
             "discovered_from": self.discovered_from,
             "aliases": " ".join(self.aliases),
+            "evidence": " ".join(self.evidence),
+            "evidence_absent": self.evidence_absent,
         }
 
     def with_value(self, key: str, value: str) -> Item:
@@ -140,6 +160,15 @@ def from_header(header: dict[str, str], body: str = "", where: str = "item") -> 
     for alias in aliases:
         if not valid_id(alias):
             raise QewError(f"{where}: `{alias}` in aliases is not an item id", 1)
+    evidence = tuple(header.get("evidence", "").split())
+    for cited in evidence:
+        if not CHANGE_ID.fullmatch(cited):
+            raise QewError(f"{where}: `{cited}` in evidence is not a change id or commit", 1)
+    absent = header.get("evidence_absent", "")
+    if absent and (problem := absence_problem(absent)):
+        raise QewError(f"{where}: evidence_absent: {problem}", 1)
+    if evidence and absent:
+        raise QewError(f"{where}: evidence and evidence_absent are exclusive", 1)
     if "\n" in header["title"] or "\r" in header["title"]:  # what the file format cannot hold; other separators are only refused on write
         raise QewError(f"{where}: title must be one line", 1)
     return Item(
@@ -158,6 +187,8 @@ def from_header(header: dict[str, str], body: str = "", where: str = "item") -> 
         due=header.get("due", ""),
         discovered_from=header.get("discovered_from", ""),
         aliases=aliases,
+        evidence=evidence,
+        evidence_absent=absent,
     )
 
 

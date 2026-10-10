@@ -11,6 +11,7 @@ from typing import Any
 
 from qew import __version__, attachments, claim_fields, instants
 from qew.errors import QewError
+from qew.ledger_item import CHANGE_ID, absence_problem
 
 CLOSE_REASONS = ("not_planned", "duplicate", "superseded")
 
@@ -123,6 +124,16 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
             raise QewError(f"{where}: `{kind}` event is missing `{key}`", 1)
     if kind == "approved" and not any(isinstance(value.get(key), str) and value[key].strip() for key in ("quote", "filed_by")):
         raise QewError(f"{where}: `approved` event is missing `quote` or `filed_by`", 1)
+    if kind == "completed" and ("evidence" in value or "absent" in value):
+        cited = value.get("evidence")
+        if "evidence" in value and (not isinstance(cited, list) or not cited or not all(isinstance(c, str) and CHANGE_ID.fullmatch(c) for c in cited)):
+            raise QewError(f"{where}: `evidence` is a non-empty list of change ids", 1)
+        if "absent" in value:
+            problem = absence_problem(f"{value['absent']}: {value.get('absent_reason', '')}") if isinstance(value["absent"], str) else "absent is text"
+            if problem:
+                raise QewError(f"{where}: {problem}", 1)
+            if "evidence" in value:
+                raise QewError(f"{where}: `evidence` and `absent` are exclusive", 1)
     if kind == "completed" and "bulk_quote" in value and (not isinstance(value["bulk_quote"], str) or not value["bulk_quote"].strip()):
         raise QewError(f"{where}: `bulk_quote` must be a human's words", 1)
     if kind == "closed" and value["reason"] not in CLOSE_REASONS:

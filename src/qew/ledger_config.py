@@ -308,8 +308,8 @@ def _ledger_from_environment(start: Path | None) -> Path | None:
     return None
 
 
-SCHEMA_VERSIONS = (1, 2, 3)  # this qew reads the latest layout only; `qew migrate-layout` moves 1 or 2 straight to 3
-CURRENT_SCHEMA = 3  # items live at items/<ID>/item.md; 1 and 2 kept items/<ID>.md (2 added attachment directories)
+SCHEMA_VERSIONS = (1, 2, 3, 4)  # this qew works on the latest layout only; `qew migrate-layout` moves any older one straight to 4
+CURRENT_SCHEMA = 4  # items live at items/<ID>/item.md (3) and completed items carry their proof in the header (4); 1 and 2 kept items/<ID>.md
 _old_layout_allowed = False
 
 
@@ -349,8 +349,8 @@ def _ledger_prefix(ledger: Path) -> str:
         raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version!r} is not supported by this qew "
                        f"({', '.join(map(str, SCHEMA_VERSIONS))}); upgrade qew", 2)
     if version < CURRENT_SCHEMA and not _old_layout_allowed:
-        raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version} keeps each item in items/ID.md; run `qew migrate-layout` "
-                       f"once to move every item file into its own directory (items/ID/item.md, schema_version {CURRENT_SCHEMA})", 2)
+        raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version} is an older layout; run `qew migrate-layout` once to move "
+                       f"it straight to schema_version {CURRENT_SCHEMA} (each item in items/ID/item.md, completed items with their evidence in the header)", 2)
     prefix = data.get("prefix", "")
     if not isinstance(prefix, str):
         raise QewError(f"{ledger / LEDGER_FILE}: prefix must be a string", 1)

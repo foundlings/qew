@@ -9,7 +9,7 @@ from pathlib import Path
 from types import ModuleType
 from collections.abc import Sequence
 
-from qew import __version__, body_sections, code_prose, editor, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
+from qew import __version__, body_sections, evidence_resolve, code_prose, editor, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
 from qew.command_modules import COMMAND_MODULE, CORE_COMMANDS
 from qew.errors import QewError
 from qew.ledger_item import title_is_one_line
@@ -312,12 +312,12 @@ def _run(arguments: argparse.Namespace) -> None:
     elif command == "check":
         ledger = cmd_items.ledger_for(config)
         if arguments.json:
-            report = ledger_check.analyse(ledger)
+            report = ledger_check.analyse(ledger, resolve=evidence_resolve.resolver(config))
             print(json.dumps(report.as_json()))
             if report.problems:
                 raise QewError(f"{len(report.problems)} problem(s)", 1)
             return
-        problems, notes = ledger_check.check_report(ledger)
+        problems, notes = ledger_check.check_report(ledger, resolve=evidence_resolve.resolver(config))
         if problems:
             print("\n".join(problems))
             raise QewError(f"{len(problems)} problem(s)", 1)

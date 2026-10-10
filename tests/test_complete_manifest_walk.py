@@ -41,7 +41,8 @@ class CompleteManifestWalk(unittest.TestCase):
 
     def test_a_phase_and_its_tasks_complete_in_one_commit_with_the_quote_and_reasons(self) -> None:
         """Prevents 4,000 single calls: children, then the epic, all done in one ledger commit carrying the human's words."""
-        self.manifest({"item": self.epic, "reason": "phase closed"}, {"item": self.one}, {"item": self.two, "reason": "shipped earlier"})
+        self.manifest({"item": self.epic, "absent": "children", "reason": "phase closed"}, {"item": self.one, "absent": "historical", "reason": "shipped before the ledger"},
+                      {"item": self.two, "absent": "historical", "reason": "shipped earlier"})
         before = self.commits()
         result = self.run_bulk()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -50,13 +51,13 @@ class CompleteManifestWalk(unittest.TestCase):
         for item in (self.epic, self.one, self.two):
             self.assertEqual(self.state(item), "completed")
         event = [e for e in self.world.events(self.two) if e["type"] == "completed"][0]
-        self.assertEqual(event["reason"], "shipped earlier")
+        self.assertEqual((event["absent"], event["absent_reason"]), ("historical", "shipped earlier"))
         self.assertIn("measure-board.py", event["bulk_quote"])
         self.assertEqual(self.world.run("check").returncode, 0)
 
     def test_dry_run_writes_nothing_and_a_rerun_is_unchanged(self) -> None:
         """Prevents a surprise or a duplicate: --dry-run changes nothing, and completing twice adds no event or commit."""
-        self.manifest({"item": self.one}, {"item": self.two})
+        self.manifest({"item": self.one, "absent": "no-code", "reason": "decided"}, {"item": self.two, "absent": "no-code", "reason": "decided"})
         before = self.commits()
         preview = self.run_bulk("--dry-run")
         self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
@@ -73,16 +74,16 @@ class CompleteManifestWalk(unittest.TestCase):
     def test_one_bad_row_refuses_the_whole_manifest_and_names_it(self) -> None:
         """Prevents a half-done bulk: an unknown item, a duplicate row or bad JSON refuses everything before any write."""
         before = self.commits()
-        for rows, needle in (([{"item": self.one}, {"item": "nope"}], "line 2"),
-                             ([{"item": self.one}, {"item": self.one}], "line 2"),
-                             ([{"item": self.one, "surprise": 1}], "surprise")):
+        for rows, needle in (([{"item": self.one, "absent": "no-code", "reason": "x"}, {"item": "nope", "absent": "no-code", "reason": "x"}], "line 2"),
+                             ([{"item": self.one, "absent": "no-code", "reason": "x"}, {"item": self.one, "absent": "no-code", "reason": "x"}], "line 2"),
+                             ([{"item": self.one, "surprise": 1, "absent": "no-code", "reason": "x"}], "surprise")):
             with self.subTest(needle=needle):
                 self.manifest(*rows)
                 refused = self.run_bulk()
                 self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
                 self.assertIn(needle, refused.stderr)
                 self.assertEqual((self.commits(), self.state(self.one)), (before, "approved"))
-        self.path.write_text('{"item": "' + self.one + '"}\nnot json\n', encoding="utf-8")
+        self.path.write_text('{"item": "' + self.one + '", "absent": "no-code", "reason": "x"}\nnot json\n', encoding="utf-8")
         self.assertEqual(self.run_bulk().returncode, 2)
         self.assertEqual(self.state(self.one), "approved")
 
@@ -95,19 +96,19 @@ class CompleteManifestWalk(unittest.TestCase):
         self.assertEqual(self.world.run("start", held, env={"QEW_ACTOR": "someone-else"}).returncode, 0)
         for item, code in ((draft, 2), (closed, 2), (held, 3)):
             with self.subTest(item=item):
-                self.manifest({"item": item})
+                self.manifest({"item": item, "absent": "no-code", "reason": "x"})
                 refused = self.run_bulk()
                 self.assertEqual(refused.returncode, code, refused.stdout + refused.stderr)
                 self.assertIn(item, refused.stderr)
 
     def test_an_open_child_or_unmet_need_outside_the_manifest_refuses_it(self) -> None:
         """Prevents a completed phase with live children: the epic needs every child completed or in the same manifest."""
-        self.manifest({"item": self.epic}, {"item": self.one})
+        self.manifest({"item": self.epic, "absent": "children", "reason": "x"}, {"item": self.one, "absent": "no-code", "reason": "x"})
         refused = self.run_bulk()
         self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
         self.assertIn(self.two, refused.stderr)
         later = self.world.create("--kind", "task", "--title", "After", "--needs", self.one, "--quote", QUOTE)
-        self.manifest({"item": later})
+        self.manifest({"item": later, "absent": "no-code", "reason": "x"})
         blocked = self.run_bulk()
         self.assertEqual(blocked.returncode, 2, blocked.stdout + blocked.stderr)
         self.assertIn(self.one, blocked.stderr)
@@ -123,6 +124,27 @@ class CompleteManifestWalk(unittest.TestCase):
         self.assertEqual(self.world.run("complete", self.one).returncode, 2)
         self.assertEqual(self.state(self.one), "approved")
 
+    def test_strict_evidence_needs_change_ids_or_a_typed_absence_on_every_row(self) -> None:
+        """Prevents silent no-evidence completions: a bare row is refused, change ids land in the header, lenient ledgers opt out."""
+        self.manifest({"item": self.one})
+        bare = self.run_bulk()
+        self.assertEqual(bare.returncode, 2, bare.stdout + bare.stderr)
+        self.assertIn("change_ids", bare.stderr)
+        self.assertEqual(self.state(self.one), "approved")
+        sha = self.world.commit("the work")
+        self.manifest({"item": self.one, "change_ids": [sha]})
+        self.assertEqual(self.run_bulk().returncode, 0)
+        text = (self.world.ledger / "items" / self.one / "item.md").read_text()
+        self.assertIn(f"evidence: {sha}", text)
+        both = self.world.base / "both.jsonl"
+        both.write_text(json.dumps({"item": self.two, "change_ids": [sha], "absent": "no-code", "reason": "x"}) + "\n")
+        self.assertEqual(self.world.run("complete", "--manifest", str(both), "--quote", WORDS).returncode, 2)
+        toml = self.world.ledger / "qew-ledger.toml"
+        toml.write_text(toml.read_text() + 'evidence = "lenient"\n')
+        self.manifest({"item": self.two})
+        self.assertEqual(self.run_bulk().returncode, 0)
+        self.assertEqual(self.world.run("check").returncode, 0)
+
     def test_a_sync_closes_the_mirrored_issue_as_completed_not_as_not_planned(self) -> None:
         """Prevents bulk-completed work showing as dropped on GitHub: the mirrored issue closes with reason completed."""
         fake = FakeGitHub().start()
@@ -133,7 +155,7 @@ class CompleteManifestWalk(unittest.TestCase):
         item = world.create("--kind", "task", "--title", "Mirrored", "--quote", QUOTE)
         self.assertEqual(world.run("sync", env=ENV).returncode, 0)
         path = world.base / "m.jsonl"
-        path.write_text(json.dumps({"item": item}) + "\n", encoding="utf-8")
+        path.write_text(json.dumps({"item": item, "absent": "no-code", "reason": "done elsewhere"}) + "\n", encoding="utf-8")
         self.assertEqual(world.run("complete", "--manifest", str(path), "--quote", WORDS).returncode, 0)
         self.assertEqual(world.run("sync", env=ENV).returncode, 0)
         issue = next(iter(fake.issues.values()))

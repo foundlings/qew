@@ -7,6 +7,7 @@ the history; the header is what a reader of the item sees.
 
 import json
 import os
+import subprocess
 import sys
 import unittest
 
@@ -36,7 +37,7 @@ class StrictEvidenceWalk(unittest.TestCase):
         self.assertEqual(self.header(item)["evidence"], f"{first} {second}")
         self.assertNotIn("evidence_absent", self.header(item))
         shown = json.loads(w.run("show", item, "--json").stdout)
-        self.assertEqual(shown["evidence"], [first, second])
+        self.assertEqual(shown["evidence_ids"], [first, second])
         self.assertEqual(w.run("check").returncode, 0)
 
     def test_no_commit_becomes_the_typed_absence_no_code(self) -> None:
@@ -75,8 +76,7 @@ class StrictEvidenceWalk(unittest.TestCase):
         child = w.create("--kind", "task", "--title", "Part", "--parent", epic, "--quote", QUOTE)
         self.assertEqual(w.run("start", child).returncode, 0)
         self.assertEqual(w.run("complete", child, "--no-commit", "docs only").returncode, 0)
-        self.assertEqual(w.run("start", epic).returncode, 0)
-        self.assertEqual(w.run("complete", epic).returncode, 0)
+        self.assertEqual(self.header(epic).get("evidence_absent", "")[:10], "children: ")  # the last child finished it
         self.assertTrue(self.header(epic)["evidence_absent"].startswith("children: "))
         self.assertEqual(w.run("check").returncode, 0)
 
@@ -91,6 +91,19 @@ class StrictEvidenceWalk(unittest.TestCase):
         self.assertEqual(broken.returncode, 1, broken.stdout + broken.stderr)
         self.assertIn(item, broken.stdout + broken.stderr)
         self.assertIn("evidence", broken.stdout + broken.stderr)
+
+    def test_check_resolves_the_header_ids_against_the_target_branch(self) -> None:
+        """Prevents proof that went missing: a cited change that is no longer an ancestor of the target fails the check."""
+        w = self.world
+        item = started(w)
+        sha = w.commit("the work")
+        self.assertEqual(w.run("evidence", item, "--change", sha).returncode, 0)
+        self.assertEqual(w.run("complete", item).returncode, 0)
+        self.assertEqual(w.run("check").returncode, 0)
+        subprocess.run(["git", "-C", str(w.code), "reset", "-q", "--hard", "HEAD~1"], check=True)
+        lost = w.run("check")
+        self.assertEqual(lost.returncode, 1, lost.stdout + lost.stderr)
+        self.assertIn(f"evidence {sha}", lost.stdout)
 
 
 if __name__ == "__main__":

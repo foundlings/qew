@@ -289,12 +289,15 @@ shape prime: additional_context context_bytes schema_version
   changes landed is `qew complete`'s check, as with the single form.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
 - `qew complete --manifest FILE --quote "Name: 'their words'" [--dry-run]`: complete many approved items in one commit on a human's
-  quote, without claims or evidence. FILE is JSON Lines of `{item, reason?}`. Every row is checked before the first write and one
+  quote, without claims or evidence. FILE is JSON Lines of `{item, change_ids?, absent?, reason?}`: strict ledgers need `change_ids` (the work's changes) or `absent` (no-code, historical, children or superseded-by:ITEM, with a `reason`) on every row. Every row is checked before the first write and one
   bad row refuses all, naming its line: an unknown, duplicate, draft or closed item (exit 2), an item claimed by another login
   (exit 3), an open child or an unmet need that the manifest does not also complete (exit 2). An already completed item is
   `unchanged`, so a rerun adds nothing. Each event is `completed` with `bulk_quote` (the words) and the row's `reason`; no parent
   cascade. `qew check` counts these under "completed on a human's quote". The next sync closes mirrored issues as completed.
-- `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: prints
+- `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY | --absent KIND --reason TEXT] [--json]`
+  (strict evidence): the cited changes become the item header's `evidence`; with no code to cite, `--no-commit WHY` records the
+  absence `no-code: WHY` and `--absent no-code|historical|superseded-by:ITEM --reason TEXT` the stated one (an epic finished by its
+  children records `children`). A completion with neither is refused. Details of the rest of the command: prints
   `ID completed` plus `; ready: ID...` (up to 5 items the completion released; `--json` has `released`). refused (exit 3
   naming the holder) unless the caller holds the claim; an already completed item is a quiet no-op (`completed (unchanged)`, no second event);
   every child must be completed or closed; and (not for epics) an evidence event whose change IDs all landed on the
@@ -506,7 +509,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   `--after ID` (letters kinds) counts a letter reserved outside the ledger, such as a phase document, as taken. A plan
   that names a letter id for a letters kind outside `--import` may not jump far past the end of the sequence (more than three
   blocks of two-letter ids), else exit 2 naming the next letter: hand-named ids like PIE after ADF are refused.
-- `qew migrate-layout [--dry-run]`: move a ledger of schema 1 or 2 straight to the latest layout (3) in one commit: each `items/ID.md` becomes `items/ID/item.md` with identical bytes, and the `schema_version` line becomes 3. It refuses (exit 1) when an item already has both paths, and any failure rolls the whole step back: the claim check (exit 3, another login holds a claim) and `qew check` run on the result. A ledger already at the latest prints that and changes nothing. Every other command on an older ledger refuses (exit 2) naming this command; a qew older than the layout refuses schema 3. Run it with all writers pushed and quiet: an unpushed edit to an item file in another clone conflicts with the move.
+- `qew migrate-layout [--dry-run]`: move a ledger of any older schema straight to the latest (4) in one commit; schema 4 adds the evidence header: every completed item gets `evidence` from the ids its events cite that still resolve and landed on the target (kept as cited where there is no code repository here), else the typed absence its completion recorded (`no-code`, `children`, or `historical` with the importer's or bulk path's reason). Before that, for schema 1 or 2: each `items/ID.md` becomes `items/ID/item.md` with identical bytes, and the `schema_version` line becomes 3. It refuses (exit 1) when an item already has both paths, and any failure rolls the whole step back: the claim check (exit 3, another login holds a claim) and `qew check` run on the result. A ledger already at the latest prints that and changes nothing. Every other command on an older ledger refuses (exit 2) naming this command; a qew older than the layout refuses schema 3. Run it with all writers pushed and quiet: an unpushed edit to an item file in another clone conflicts with the move.
 - `qew migrate-ids --to base35-time [--dry-run]`: rename every item whose id is not a base35-time id (letters, counter, imported) to a
   new base35-time id, ordered by creation, and carry every reference: item headers (`parent needs tracks pr discovered_from`),
   event directories and the ids cited in `edge`, `closed` and link `field` events, mirror directories and pull request

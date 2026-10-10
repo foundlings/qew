@@ -4,7 +4,7 @@ import argparse
 import re
 from pathlib import Path
 
-from qew import id_migration, ledger_check, ledger_config, ledger_store
+from qew import evidence_backfill, evidence_resolve, id_migration, ledger_check, ledger_config, ledger_store
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_aliases import ITEM_FILE
@@ -30,7 +30,8 @@ def _old_item_files(ledger: Ledger) -> list[Path]:
 
 
 def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
-    """Move the ledger straight to the latest layout: each items/<ID>.md becomes items/<ID>/item.md (same bytes) and
+    """Move the ledger straight to the latest layout: each items/<ID>.md becomes items/<ID>/item.md (same bytes), every
+    completed item gets its evidence header from what its events recorded (re-resolved against the target), and
     schema_version becomes the latest, in one commit. The result must pass `qew check` and no other login may hold a claim;
     any failure rolls the whole step back."""
     ledger = ledger_for(config)
@@ -43,9 +44,14 @@ def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
         target = ledger.item_path(path.stem)
         if target.exists():
             raise QewError(f"{path.stem}: both items/{path.name} and items/{path.stem}/{ITEM_FILE} exist; settle it by hand, then migrate", 1)
+    resolve = evidence_resolve.resolver(config)
     if dry_run:
-        return (f"would change schema_version {current} -> {latest}: move {len(old)} item files to items/ID/{ITEM_FILE} "
-                f"(contents unchanged); `qew check` and the claim check run on the result and roll everything back on a problem")
+        text = f"would change schema_version {current} -> {latest}"
+        if old:
+            text += f": move {len(old)} item files to items/ID/{ITEM_FILE} (contents unchanged)"
+        else:
+            text += f": evidence headers for completed items: {evidence_backfill.summary(evidence_backfill.plan(ledger.snapshot(), resolve))}"
+        return text + f"{'' if resolve else ' (no code repository here: cited ids are kept unverified)'}; `qew check` and the claim check run on the result and roll everything back on a problem"
     for path in old:
         text = ledger_store.read_text_exact(path)
         ledger_store.write_new(ledger.item_path(path.stem), text)
@@ -55,11 +61,15 @@ def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
     declared = f"schema_version = {latest}"
     fixed = _VERSION_LINE.sub(lambda m: m.group(1) + str(latest), text, count=1) if _VERSION_LINE.search(text) else f"{declared}\n{text}"
     ledger_store.write_replacing(path, fixed)
-    id_migration.refuse_foreign_claims(ledger.snapshot(), actor(), "the layout is")
+    snapshot = ledger.snapshot()
+    id_migration.refuse_foreign_claims(snapshot, actor(), "the layout is")
+    filled = evidence_backfill.plan(snapshot, resolve)
+    evidence_backfill.apply(ledger, filled)
     problems = ledger_check.check(ledger)
     if problems:
         raise QewError("qew check fails on the migrated ledger; nothing was changed:\n" + "\n".join(problems), 1)
-    return f"schema_version {current} -> {latest}; moved {len(old)} item files to items/ID/{ITEM_FILE}; contents unchanged"
+    moved = f"moved {len(old)} item files to items/ID/{ITEM_FILE}; " if old else ""
+    return f"schema_version {current} -> {latest}; {moved}evidence headers: {evidence_backfill.summary(filled)}"
 
 
 def run(arguments: argparse.Namespace) -> bool:

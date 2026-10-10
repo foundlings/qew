@@ -18,7 +18,7 @@ from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import CLOSE_REASONS, State
-from qew.ledger_item import Kind
+from qew.ledger_item import Kind, absence_problem
 from qew.ledger_store import Ledger, Snapshot, actor
 from qew.requester import require_quote
 
@@ -40,7 +40,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     complete.add_argument("--dry-run", action="store_true", help="with --manifest: say what would be completed and write nothing")
     complete.add_argument("--reason", help="why the work is done (recorded on the completed event)")
     complete.add_argument("--take-over", action="store_true", help="finish work another actor holds (needs --reason)")
-    complete.add_argument("--no-commit", metavar="WHY", help="complete without code, for work delivered outside the repository; WHY is recorded")
+    complete.add_argument("--no-commit", metavar="WHY", help="complete without code, for work delivered outside the repository; WHY is recorded as the absence `no-code`")
+    complete.add_argument("--absent", metavar="KIND", help="complete without code for a stated reason (with --reason): no-code, historical or superseded-by:ITEM")
     complete.add_argument("--landed-on", metavar="BRANCH", help="branch the evidence must have landed on (default: the configured target)")
     complete.add_argument("--json", action="store_true", help="machine-readable output")
     close = commands.add_parser("close", help="close work that will not be completed")
@@ -86,7 +87,7 @@ def run(arguments: argparse.Namespace) -> bool:
             raise QewError("give ITEM, or --manifest FILE with --quote", 2)
         if arguments.quote or arguments.dry_run:
             raise QewError("--quote and --dry-run belong to --manifest", 2)
-        result = complete(config, arguments.item, arguments.reason, arguments.take_over, arguments.no_commit, arguments.landed_on)
+        result = complete(config, arguments.item, arguments.reason, arguments.take_over, arguments.no_commit, arguments.landed_on, arguments.absent)
     elif arguments.command == "close":
         result = close(config, arguments.item, arguments.reason, arguments.of, arguments.by, arguments.note,
                        arguments.delivered_by, arguments.landed_on)
@@ -158,7 +159,7 @@ def complete_manifest(config: Config, manifest: Path, quote: str | None, dry_run
         except QewError as error:
             raise QewError(f"{where}: {error}", error.exit_code) from None
         rows.append(complete_batch.row({k: v for k, v in raw.items() if k != "item"}, item_id, where))
-    batch = complete_batch.plan(snapshot, rows)
+    batch = complete_batch.plan(snapshot, rows, ledger.evidence_strict)
     if not dry_run:
         complete_batch.apply(ledger, batch, verified)
     return complete_batch.summary(batch, "would complete" if dry_run else "completed")
@@ -221,8 +222,42 @@ def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> str | No
     return folded.owner
 
 
+def _absence(ledger: Ledger, absent: str | None, reason: str | None, no_commit: str | None) -> tuple[str, str]:
+    """(kind, reason) of the typed absence of evidence: --no-commit WHY is `no-code`, --absent KIND[:ITEM] needs --reason."""
+    if no_commit is not None and absent is not None:
+        raise QewError("--no-commit WHY is the absence no-code: give it or --absent KIND, not both", 2)
+    if no_commit is not None:
+        return "no-code", no_commit
+    assert absent is not None
+    why = (reason or "").strip()
+    if not why:
+        raise QewError("--absent needs --reason TEXT: why there is no code to cite", 2)
+    kind = absent.strip()
+    problem = absence_problem(f"{kind}: {why}")
+    if problem:
+        raise QewError(f"--absent {kind}: {problem}", 2)
+    if kind.startswith("superseded-by:"):
+        other = kind[len("superseded-by:"):]
+        if other not in ledger.item_ids():
+            raise QewError(f"--absent {kind}: no item {other} in this ledger", 2)
+    return kind, why
+
+
+def _refuse_self_citation(config: Config, ledger: Ledger, item_id: str, cited: list[str]) -> None:
+    """When the ledger lives inside the code repository, the change being made now cannot be its own proof."""
+    try:
+        inside = ledger.path.resolve().is_relative_to(config.root.resolve())
+    except OSError:
+        return
+    if not inside:
+        return
+    here = code_vcs.current_change(config.root, code_vcs.detect(config.root))
+    if here in cited:
+        raise QewError(f"cannot complete {item_id}: evidence {here} is the change that records this completion; cite the work itself", 2)
+
+
 def complete(config: Config, reference: str, reason: str | None = None, take_over: bool = False,
-             no_commit: str | None = None, landed_on: str | None = None) -> dict[str, object]:
+             no_commit: str | None = None, landed_on: str | None = None, absent: str | None = None) -> dict[str, object]:
     reason = _text("reason", reason)
     no_commit = _text("no-commit", no_commit)
     branch = _branch(landed_on if landed_on is not None else config.target)
@@ -250,13 +285,17 @@ def complete(config: Config, reference: str, reason: str | None = None, take_ove
             raise QewError(f"{item_id} is an epic: it needs children, not code, so --no-commit does not apply", 2)
         if not kids:
             raise QewError(f"cannot complete {item_id}: an epic with no children has no completed work; close it", 2)
-    elif no_commit is not None:
+        if absent is not None:
+            raise QewError(f"{item_id} is an epic: its evidence is its children, so --absent does not apply", 2)
+        data["absent"], data["absent_reason"] = "children", f"all {len(kids)} children completed"
+    elif no_commit is not None or absent is not None:
         if snapshot.folds[item_id].evidence:
-            raise QewError(f"{item_id} has evidence recorded: complete it on that proof, or drop --no-commit", 2)
-        data["no_commit"] = no_commit
+            raise QewError(f"{item_id} has evidence recorded: complete it on that proof, or drop --no-commit and --absent", 2)
+        data["absent"], data["absent_reason"] = _absence(ledger, absent, reason, no_commit)
     else:
-        commits = _landed_commits(config, snapshot, item_id, branch)
-        data["commits"], data["branch"] = commits, branch
+        cited, commits = _landed_commits(config, snapshot, item_id, branch)
+        _refuse_self_citation(config, ledger, item_id, cited)
+        data["evidence"], data["commits"], data["branch"] = cited, commits, branch
     prs = _merged_pull_requests(ledger, item_id)
     if prs:
         data["prs"] = prs
@@ -275,8 +314,9 @@ def complete(config: Config, reference: str, reason: str | None = None, take_ove
     return result
 
 
-def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: str) -> list[str]:
-    """Full ids of the first evidence event whose changes all landed on `target`, else a precise refusal."""
+def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: str) -> tuple[list[str], list[str]]:
+    """(the change ids as cited, their full commits) of the first evidence event whose changes all landed on `target`,
+    else a precise refusal."""
     events = snapshot.folds[item_id].evidence
     if not events:
         raise QewError(f"cannot complete {item_id}: no evidence recorded (qew evidence {item_id} --change ID)", 2)
@@ -299,7 +339,7 @@ def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: st
             else:
                 unlanded.append(change)
         if len(full) == len(event.get("change_ids")):
-            return full
+            return list(event.get("change_ids")), full
     problems = []
     if unknown:
         problems.append(f"evidence {' '.join(dict.fromkeys(unknown))} is unknown to this checkout (typo, or not fetched here yet)")

@@ -99,7 +99,7 @@ class NoCodeCompletionWalk(unittest.TestCase):
         item = started(w)
         result = w.run("complete", item, "--reason", "decision recorded in the wiki", "--no-commit", "decision, no code")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(w.events(item)[-1]["no_commit"], "decision, no code")
+        self.assertEqual((w.events(item)[-1]["absent"], w.events(item)[-1]["absent_reason"]), ("no-code", "decision, no code"))
         checked = w.run("check")
         self.assertEqual(checked.returncode, 0, checked.stdout)
         self.assertIn("completed without code: 1", checked.stdout)
