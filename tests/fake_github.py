@@ -12,7 +12,8 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
+from collections.abc import Callable
 from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 sys.path.insert(0, __file__.rsplit("/tests/", 1)[0] + "/src")
@@ -28,30 +29,30 @@ GRAPHQL_PATH = "/api/graphql"
 class FakeGitHub:
     def __init__(self, page_size: int = 100) -> None:
         self.page_size = page_size
-        self.issues: Dict[int, Dict[str, Any]] = {}
-        self.pulls: Dict[int, Dict[str, Any]] = {}
-        self.statuses: Dict[str, Dict[str, Any]] = {}
-        self.check_runs: Dict[str, List[Dict[str, Any]]] = {}
-        self.projects: Dict[str, Dict[str, Any]] = {}
-        self.requests: List[Tuple[str, str, Any]] = []
-        self.request_times: List[float] = []  # time.time() of each request, parallel to `requests`
+        self.issues: dict[int, dict[str, Any]] = {}
+        self.pulls: dict[int, dict[str, Any]] = {}
+        self.statuses: dict[str, dict[str, Any]] = {}
+        self.check_runs: dict[str, list[dict[str, Any]]] = {}
+        self.projects: dict[str, dict[str, Any]] = {}
+        self.requests: list[tuple[str, str, Any]] = []
+        self.request_times: list[float] = []  # time.time() of each request, parallel to `requests`
         self.endless_check_runs = False  # check-run pages never end
         self.auto_merge_ignored = False  # accept the enable call yet change nothing
-        self.rules: Dict[str, List[Dict[str, Any]]] = {}  # branch -> active ruleset rules
-        self.protection: Dict[str, Dict[str, Any]] = {}  # branch -> classic protection record
-        self.failures: List[Dict[str, Any]] = []
-        self.branches: Dict[str, str] = {}  # branch -> head sha
+        self.rules: dict[str, list[dict[str, Any]]] = {}  # branch -> active ruleset rules
+        self.protection: dict[str, dict[str, Any]] = {}  # branch -> classic protection record
+        self.failures: list[dict[str, Any]] = []
+        self.branches: dict[str, str] = {}  # branch -> head sha
         self.default_branch = "main"
-        self.contained_in: Dict[str, List[str]] = {}  # branch -> branches whose history already holds its tip
+        self.contained_in: dict[str, list[str]] = {}  # branch -> branches whose history already holds its tip
         self.next_number = 1
         self.strict_add = False  # answer a repeated AddItem with GitHub's "Content already exists" refusal
         self.lag = 0  # number of ItemPlacement reads that still show nothing (eventual consistency)
         self.next_id = 1000
-        self.milestones: Dict[int, Dict[str, Any]] = {}
+        self.milestones: dict[int, dict[str, Any]] = {}
         self.cards_page_size = 100  # cards per ProjectCards page
         self.cards_overlap = False  # each later page repeats the previous page's last card (cards added meanwhile)
         self.cards_endless = False  # every ProjectCards page says another follows
-        self.label_store: Dict[str, Dict[str, str]] = {}  # name -> {color, description}
+        self.label_store: dict[str, dict[str, str]] = {}  # name -> {color, description}
         self.drop_label_creates = False  # accept a label create yet store nothing
         self.secondary_after: int | None = None  # block issue creation (once) with GitHub's secondary-limit 403 after this many creates
         self.creates = 0
@@ -77,7 +78,7 @@ class FakeGitHub:
     def repo_url(self) -> str:
         return f"{self.base}/{OWNER}/{REPO}"
 
-    def start(self) -> "FakeGitHub":
+    def start(self) -> FakeGitHub:
         self.thread.start()
         return self
 
@@ -86,20 +87,20 @@ class FakeGitHub:
         self.server.server_close()
         self.thread.join()
 
-    def fail_next(self, status: int, path_part: str = "", count: int = 1, body: Optional[Any] = None,
-                  headers: Optional[Dict[str, str]] = None, skip: int = 0, after: bool = False) -> None:
+    def fail_next(self, status: int, path_part: str = "", count: int = 1, body: Any | None = None,
+                  headers: dict[str, str] | None = None, skip: int = 0, after: bool = False) -> None:
         """Answer `status` (with `headers`) to the next `count` matching requests, after letting `skip` through.
 
         `after` performs the request first and loses only the response: the crash window of a create that was applied."""
         self.failures.append({"status": status, "part": path_part, "left": count, "body": body,
                               "headers": headers or {}, "skip": skip, "after": after})
 
-    def add_branch(self, name: str, sha: str = "", contained_in: Tuple[str, ...] = ()) -> None:
+    def add_branch(self, name: str, sha: str = "", contained_in: tuple[str, ...] = ()) -> None:
         """A branch on the forge; `contained_in` names the branches that already hold its tip (it is merged there)."""
         self.branches[name] = sha or f"{len(self.branches) + 1:040x}"
         self.contained_in[name] = list(contained_in)
 
-    def graphql_operations(self) -> List[str]:
+    def graphql_operations(self) -> list[str]:
         """Operation names of every GraphQL request so far, in order."""
         found = []
         for _method, path, body in self.requests:
@@ -108,7 +109,7 @@ class FakeGitHub:
                 found.append(match.group(1) if match else "")
         return found
 
-    def gql_BoardItems(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_BoardItems(self, variables: dict[str, Any]) -> dict[str, Any]:
         project = next((p for p in self.projects.values() if p["number"] == variables["number"]), None)
         if project is None:
             return {"data": {"repositoryOwner": {"projectV2": None}}}
@@ -135,16 +136,16 @@ class FakeGitHub:
             "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes,
         }}}}}
 
-    def calls(self, method: str, path_part: str) -> List[Any]:
+    def calls(self, method: str, path_part: str) -> list[Any]:
         return [body for m, path, body in self.requests if m == method and path_part in path]
 
     # -- test-side mutation of the world ------------------------------------
 
-    def touch(self, issue: Dict[str, Any]) -> None:
+    def touch(self, issue: dict[str, Any]) -> None:
         """Record a modification: edits, comments and label changes all bump updated_at, as on GitHub."""
         issue["updated_at"] = instants.format_instant(self.clock())
 
-    def set_state(self, issue: Dict[str, Any], state: str, reason: Optional[str]) -> None:
+    def set_state(self, issue: dict[str, Any], state: str, reason: str | None) -> None:
         """Open or close an issue as GitHub does: a close without a reason is `completed`; the timeline keeps every close."""
         if state == "closed":
             reason = reason or "completed"
@@ -161,7 +162,7 @@ class FakeGitHub:
     def push_to_pull(self, number: int, sha: str) -> None:
         self.pulls[number]["head"]["sha"] = sha
 
-    def set_check_run(self, sha: str, status: str, conclusion: Optional[str]) -> None:
+    def set_check_run(self, sha: str, status: str, conclusion: str | None) -> None:
         self.check_runs.setdefault(sha, []).append({"status": status, "conclusion": conclusion})
 
     def set_status(self, sha: str, state: str, total: int = 1) -> None:
@@ -169,7 +170,7 @@ class FakeGitHub:
 
     # -- REST ----------------------------------------------------------------
 
-    def new_issue(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def new_issue(self, payload: dict[str, Any]) -> dict[str, Any]:
         number, self.next_number = self.next_number, self.next_number + 1
         self.next_id += 1
         issue = {
@@ -189,7 +190,7 @@ class FakeGitHub:
         return {"number": number, "title": found["title"], "description": found["description"] or None,
                 "due_on": found["due_on"], "state": found["state"]}
 
-    def issue_json(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+    def issue_json(self, issue: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": issue["id"], "node_id": issue["node_id"], "number": issue["number"],
             "html_url": f"{self.base}/{OWNER}/{REPO}/issues/{issue['number']}",
@@ -204,7 +205,7 @@ class FakeGitHub:
             **({"parent_issue_url": f"{self.base}{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{issue['parent']}"} if issue.get("parent") else {}),
         }
 
-    def add_review(self, number: int, login: str, state: str, body: str, comments: Optional[List[Dict[str, Any]]] = None) -> None:
+    def add_review(self, number: int, login: str, state: str, body: str, comments: list[dict[str, Any]] | None = None) -> None:
         """A review on a pull request, with optional inline comments ({path, line, body})."""
         self.next_id += 1
         pull = self.pulls[number]
@@ -215,7 +216,7 @@ class FakeGitHub:
             pull.setdefault("review_comments", []).append({"id": self.next_id, "user": {"login": login}, "body": inline["body"],
                                                            "path": inline["path"], "line": inline["line"], "created_at": stamp})
 
-    def add_comment(self, number: int, login: str, body: Optional[str]) -> Dict[str, Any]:
+    def add_comment(self, number: int, login: str, body: str | None) -> dict[str, Any]:
         """A comment made on the forge by someone else; ids rise and timestamps are in creation order."""
         self.next_id += 1
         comment = {"id": self.next_id, "login": login, "body": body}
@@ -225,13 +226,13 @@ class FakeGitHub:
         self.touch(self.issues[number])
         return comment
 
-    def comment_json(self, comment: Dict[str, Any]) -> Dict[str, Any]:
+    def comment_json(self, comment: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": comment["id"], "user": {"login": comment["login"]}, "body": comment["body"],
             "created_at": comment["created_at"],
         }
 
-    def pull_json(self, pull: Dict[str, Any]) -> Dict[str, Any]:
+    def pull_json(self, pull: dict[str, Any]) -> dict[str, Any]:
         return {
             "number": pull["number"], "node_id": pull["node_id"],
             "html_url": f"{self.base}/{OWNER}/{REPO}/pull/{pull['number']}",
@@ -244,7 +245,7 @@ class FakeGitHub:
             "merge_commit_sha": pull.get("merge_sha"),
         }
 
-    def new_pull(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def new_pull(self, payload: dict[str, Any]) -> dict[str, Any]:
         number, self.next_number = self.next_number, self.next_number + 1
         pull = {
             "number": number, "node_id": f"PR_{number}", "state": "open", "merged": False,
@@ -264,7 +265,7 @@ class FakeGitHub:
 
     # -- GraphQL ---------------------------------------------------------------
 
-    def graphql(self, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         found = re.search(r"\b(?:query|mutation)\s+(\w+)", query)
         name = found.group(1) if found else ""
         handler = getattr(self, f"gql_{name}", None)
@@ -272,7 +273,7 @@ class FakeGitHub:
             return {"errors": [{"type": "UNKNOWN", "message": f"unknown operation {name!r}"}]}
         return handler(variables)
 
-    def project_json(self, project: Dict[str, Any]) -> Dict[str, Any]:
+    def project_json(self, project: dict[str, Any]) -> dict[str, Any]:
         fields = []
         for field in project["fields"]:
             if field.get("text"):
@@ -291,13 +292,13 @@ class FakeGitHub:
             "views": {"nodes": [dict(v) for v in project.get("views", [])]},
         }
 
-    def gql_IssueBodyHistory(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_IssueBodyHistory(self, variables: dict[str, Any]) -> dict[str, Any]:
         issue = next((i for i in self.issues.values() if i["node_id"] == variables["id"]), None)
         edits = [] if issue is None else issue.get("body_edits", [])
         return {"data": {"node": {"userContentEdits": {"nodes": [
             {"editor": {"login": e["editor"]}, "editedAt": e["at"], "diff": e["text"]} for e in edits]}}}}
 
-    def gql_OwnerProjects(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_OwnerProjects(self, variables: dict[str, Any]) -> dict[str, Any]:
         if variables["owner"] != OWNER:
             return {"data": {"repositoryOwner": None}}
         projects = [self.project_json(p) for p in self.projects.values()]
@@ -305,7 +306,7 @@ class FakeGitHub:
             "id": "O_owner", "projectsV2": {"nodes": projects, "pageInfo": {"hasNextPage": False, "endCursor": None}},
         }}}
 
-    def gql_CreateProject(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_CreateProject(self, variables: dict[str, Any]) -> dict[str, Any]:
         number = len(self.projects) + 1
         project = {
             "id": f"PVT_{number}", "number": number, "title": variables["title"], "items": {},
@@ -318,14 +319,14 @@ class FakeGitHub:
         self.projects[project["id"]] = project
         return {"data": {"createProjectV2": {"projectV2": self.project_json(project)}}}
 
-    def gql_CreateStatusField(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_CreateStatusField(self, variables: dict[str, Any]) -> dict[str, Any]:
         project = self.projects[variables["projectId"]]
         field = {"id": f"PVTSSF_new{len(project['fields'])}", "name": variables["name"], "options": []}
         self._set_options(field, variables["options"])
         project["fields"].append(field)
         return {"data": {"createProjectV2Field": {"projectV2Field": {"id": field["id"]}}}}
 
-    def gql_UpdateStatusField(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_UpdateStatusField(self, variables: dict[str, Any]) -> dict[str, Any]:
         for project in self.projects.values():
             for field in project["fields"]:
                 if field["id"] == variables["fieldId"]:
@@ -338,7 +339,7 @@ class FakeGitHub:
                     return {"data": {"updateProjectV2Field": {"projectV2Field": {"id": field["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "field not found"}]}
 
-    def _set_options(self, field: Dict[str, Any], options: List[Dict[str, Any]]) -> None:
+    def _set_options(self, field: dict[str, Any], options: list[dict[str, Any]]) -> None:
         """An option input that carries an existing `id` keeps that id; others get fresh ids."""
         self.option_serial = getattr(self, "option_serial", 0)
         stored = []
@@ -350,7 +351,7 @@ class FakeGitHub:
             })
         field["options"] = stored
 
-    def gql_CreateView(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_CreateView(self, variables: dict[str, Any]) -> dict[str, Any]:
         project = self.projects[variables["projectId"]]
         view = {
             "id": f"PVTV_{project['number']}_{len(project['views']) + 1}", "name": variables["name"],
@@ -359,7 +360,7 @@ class FakeGitHub:
         project["views"].append(view)
         return {"data": {"createProjectV2View": {"projectV2View": {"id": view["id"]}}}}
 
-    def gql_UpdateView(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_UpdateView(self, variables: dict[str, Any]) -> dict[str, Any]:
         for project in self.projects.values():
             for view in project["views"]:
                 if view["id"] == variables["viewId"]:
@@ -369,7 +370,7 @@ class FakeGitHub:
                     return {"data": {"updateProjectV2View": {"projectV2View": {"id": view["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "view not found"}]}
 
-    def gql_ItemPlacement(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_ItemPlacement(self, variables: dict[str, Any]) -> dict[str, Any]:
         """The issue's project items with the single-select values they hold (post-lag view)."""
         nodes = []
         for project in self.projects.values():
@@ -392,7 +393,7 @@ class FakeGitHub:
             nodes = []
         return {"data": {"node": {"projectItems": {"nodes": nodes}}}}
 
-    def gql_ProjectCards(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_ProjectCards(self, variables: dict[str, Any]) -> dict[str, Any]:
         """The project's cards: items on issues of any repository, with their single-select values."""
         project = self.projects[variables["projectId"]]
         cards = []
@@ -421,21 +422,21 @@ class FakeGitHub:
             "nodes": window, "pageInfo": {"hasNextPage": more, "endCursor": str(next_start)},
         }}}}
 
-    def gql_DeleteItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_DeleteItem(self, variables: dict[str, Any]) -> dict[str, Any]:
         project = self.projects[variables["projectId"]]
         for key, item in list(project["items"].items()):
             if item["id"] == variables["itemId"]:
                 del project["items"][key]
         return {"data": {"deleteProjectV2Item": {"deletedItemId": variables["itemId"]}}}
 
-    def gql_AddItem(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_AddItem(self, variables: dict[str, Any]) -> dict[str, Any]:
         project = self.projects[variables["projectId"]]
         if self.strict_add and variables["contentId"] in project["items"]:
             return {"errors": [{"type": "UNPROCESSABLE", "message": "Content already exists in this project"}]}
         item = project["items"].setdefault(variables["contentId"], {"id": f"PVTI_{len(project['items']) + 1}"})
         return {"data": {"addProjectV2ItemById": {"item": {"id": item["id"]}}}}
 
-    def gql_SetStatus(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_SetStatus(self, variables: dict[str, Any]) -> dict[str, Any]:
         project = self.projects.get(variables["projectId"])
         if project is None:
             return {"errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a node with the global id"}]}
@@ -450,7 +451,7 @@ class FakeGitHub:
                 return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": item["id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "item not found"}]}
 
-    def gql_ProjectFields(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_ProjectFields(self, variables: dict[str, Any]) -> dict[str, Any]:
         project = self.projects.get(variables["projectId"])
         if project is None:
             return {"errors": [{"type": "NOT_FOUND", "message": "Could not resolve to a node with the global id"}]}
@@ -458,7 +459,7 @@ class FakeGitHub:
                   "options": [{"id": o["id"], "name": o["name"]} for o in f["options"]]} for f in project["fields"]]
         return {"data": {"node": {"fields": {"nodes": nodes}}}}
 
-    def gql_SetCardField(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_SetCardField(self, variables: dict[str, Any]) -> dict[str, Any]:
         project = self.projects.get(variables["projectId"])
         field = None if project is None else next((f for f in project["fields"] if f["id"] == variables["fieldId"]), None)
         item = None if project is None else next((i for i in project["items"].values() if i["id"] == variables["itemId"]), None)
@@ -473,7 +474,7 @@ class FakeGitHub:
             return {"errors": [{"type": "NOT_FOUND", "message": "option not found"}]}
         return {"data": {"updateProjectV2ItemFieldValue": {"projectV2Item": {"id": item["id"]}}}}
 
-    def gql_SetCard(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_SetCard(self, variables: dict[str, Any]) -> dict[str, Any]:
         """Status and Priority of one card in a single request (two aliased updateProjectV2ItemFieldValue fields)."""
         for field, option in (("statusField", "statusOption"), ("priorityField", "priorityOption")):
             answer = self.gql_SetStatus({"projectId": variables["projectId"], "itemId": variables["itemId"],
@@ -482,7 +483,7 @@ class FakeGitHub:
                 return answer
         return {"data": {"status": {"projectV2Item": {"id": variables["itemId"]}}, "priority": {"projectV2Item": {"id": variables["itemId"]}}}}
 
-    def gql_EnableAutoMerge(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_EnableAutoMerge(self, variables: dict[str, Any]) -> dict[str, Any]:
         for pull in self.pulls.values():
             if pull["node_id"] == variables["id"]:
                 if self.auto_merge_ignored:
@@ -491,17 +492,17 @@ class FakeGitHub:
                 return {"data": {"enablePullRequestAutoMerge": {"pullRequest": {"id": pull["node_id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "pull request not found"}]}
 
-    def gql_MarkReady(self, variables: Dict[str, Any]) -> Dict[str, Any]:
+    def gql_MarkReady(self, variables: dict[str, Any]) -> dict[str, Any]:
         for pull in self.pulls.values():
             if pull["node_id"] == variables["id"]:
                 pull["draft"] = False
                 return {"data": {"markPullRequestReadyForReview": {"pullRequest": {"id": pull["node_id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "pull request not found"}]}
 
-    def project(self, number: str) -> Dict[str, Any]:
+    def project(self, number: str) -> dict[str, Any]:
         return next(p for p in self.projects.values() if str(p["number"]) == number)
 
-    def add_field(self, number: str, name: str, options: Tuple[str, ...] = ()) -> None:
+    def add_field(self, number: str, name: str, options: tuple[str, ...] = ()) -> None:
         """A custom Projects v2 field: single-select when options are given, else text."""
         project = self.project(number)
         field = {"id": f"PVTF_{len(project['fields'])}", "name": name, "options": [], "text": not options}
@@ -515,7 +516,7 @@ class FakeGitHub:
         project["items"][issue_node_id].setdefault("values", {})[field["id"]] = (
             value if field.get("text") else next(o["id"] for o in field["options"] if o["name"] == value))
 
-    def field_value(self, number: str, issue_node_id: str, field_name: str) -> Optional[str]:
+    def field_value(self, number: str, issue_node_id: str, field_name: str) -> str | None:
         """The text or option name the issue holds in the named custom field, or None."""
         project = self.project(number)
         item = project["items"].get(issue_node_id)
@@ -525,7 +526,7 @@ class FakeGitHub:
         chosen = item.get("values", {}).get(field["id"])
         return chosen if field.get("text") else next((o["name"] for o in field["options"] if o["id"] == chosen), None)
 
-    def item_value(self, number: str, issue_node_id: str, field_name: str) -> Optional[str]:
+    def item_value(self, number: str, issue_node_id: str, field_name: str) -> str | None:
         """The option name the issue holds in the named single-select field, or None."""
         project = self.project(number)
         item = project["items"].get(issue_node_id)
@@ -538,7 +539,7 @@ class FakeGitHub:
             return next((o["name"] for o in field["options"] if o["id"] == chosen), None)
         return None
 
-    def item_status(self, number: str, issue_node_id: str) -> Optional[str]:
+    def item_status(self, number: str, issue_node_id: str) -> str | None:
         """The option name the issue holds in the project's Status field, or None."""
         project = self.project(number)
         item = project["items"].get(issue_node_id)
@@ -613,7 +614,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, self.fake.graphql(body["query"], body.get("variables", {})))
         self._rest(method, url.path, parse_qs(url.query), body)
 
-    def _injected(self) -> Optional[Dict[str, Any]]:
+    def _injected(self) -> dict[str, Any] | None:
         for failure in self.fake.failures:
             if failure["left"] > 0 and failure["part"] in self.path:
                 if failure.get("skip", 0) > 0:
@@ -623,7 +624,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return failure
         return None
 
-    def _rest(self, method: str, path: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _rest(self, method: str, path: str, query: dict[str, list[str]], body: Any) -> None:
         prefix = f"{API_PREFIX}/repos/{OWNER}/{REPO}"
         if not path.startswith(prefix):
             return self._send(404, {"message": "Not Found"})
@@ -637,7 +638,7 @@ class _Handler(BaseHTTPRequestHandler):
                 return handler(*found.groups(), query=query, body=body)
         self._send(404, {"message": "Not Found"})
 
-    def _send(self, status: int, payload: Any, link: str = "", headers: Optional[Dict[str, str]] = None) -> None:
+    def _send(self, status: int, payload: Any, link: str = "", headers: dict[str, str] | None = None) -> None:
         data = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -649,7 +650,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _page(self, items: List[Any], query: Dict[str, List[str]], path: str) -> Tuple[List[Any], str]:
+    def _page(self, items: list[Any], query: dict[str, list[str]], path: str) -> tuple[list[Any], str]:
         page = int(query.get("page", ["1"])[0])
         size = self.fake.page_size
         window = items[(page - 1) * size: page * size]
@@ -661,7 +662,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- issues ------------------------------------------------------------
 
-    def _get_issues(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_issues(self, query: dict[str, list[str]], body: Any) -> None:
         # Like the real API: newest first unless direction=asc, and `state` filters (default open).
         state = query.get("state", ["open"])[0]
         ordered = sorted(self.fake.issues.values(), key=lambda i: i["number"], reverse=query.get("direction", ["desc"])[0] != "asc")
@@ -676,49 +677,49 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(304, b"", link, {"ETag": etag})
         self._send(200, window, link, {"ETag": etag})
 
-    def _get_labels(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_labels(self, query: dict[str, list[str]], body: Any) -> None:
         listed = [{"name": n, **v} for n, v in self.fake.label_store.items()]
         window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/labels")
         self._send(200, window, link)
 
-    def _delete_label(self, name: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _delete_label(self, name: str, query: dict[str, list[str]], body: Any) -> None:
         if self.fake.label_store.pop(unquote(name), None) is None:
             return self._send(404, {"message": "Not Found"})
         for issue in self.fake.issues.values():
             issue["labels"] = [x for x in issue["labels"] if x != unquote(name)]
         self._send(204, b"")
 
-    def _patch_label(self, name: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _patch_label(self, name: str, query: dict[str, list[str]], body: Any) -> None:
         stored = self.fake.label_store.get(unquote(name))
         if stored is None:
             return self._send(404, {"message": "Not Found"})
         stored.update({key: body[key] for key in ("color", "description") if key in body})
         self._send(200, {"name": unquote(name), **stored})
 
-    def _post_labels(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _post_labels(self, query: dict[str, list[str]], body: Any) -> None:
         if body["name"] in self.fake.label_store:
             return self._send(422, {"message": "already_exists"})
         if not self.fake.drop_label_creates:
             self.fake.label_store[body["name"]] = {"color": body.get("color", ""), "description": body.get("description", "")}
         self._send(201, {"name": body["name"]})
 
-    def _get_milestones(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_milestones(self, query: dict[str, list[str]], body: Any) -> None:
         listed = [self.fake.milestone_json(n) for n in sorted(self.fake.milestones)]
         window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/milestones")
         self._send(200, window, link)
 
-    def _post_milestones(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _post_milestones(self, query: dict[str, list[str]], body: Any) -> None:
         number = len(self.fake.milestones) + 1
         self.fake.milestones[number] = {"title": body["title"], "description": body.get("description", ""),
                                         "due_on": body.get("due_on"), "state": "open"}
         self._send(201, self.fake.milestone_json(number))
 
-    def _get_milestone(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_milestone(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         if int(number) not in self.fake.milestones:
             return self._send(404, {"message": "Not Found"})
         self._send(200, self.fake.milestone_json(int(number)))
 
-    def _patch_milestone(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _patch_milestone(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         found = self.fake.milestones.get(int(number))
         if found is None:
             return self._send(404, {"message": "Not Found"})
@@ -727,18 +728,18 @@ class _Handler(BaseHTTPRequestHandler):
                 found[key] = body[key]
         self._send(200, self.fake.milestone_json(int(number)))
 
-    def _post_issues(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _post_issues(self, query: dict[str, list[str]], body: Any) -> None:
         if self.fake.secondary_after is not None and self.fake.creates >= self.fake.secondary_after:
             self.fake.secondary_after = None
             return self._send(403, {"message": "You have exceeded a secondary rate limit and have been temporarily blocked from content creation."})
         self.fake.creates += 1
         self._send(201, self.fake.issue_json(self.fake.new_issue(body)))
 
-    def _get_issue(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_issue(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         issue = self.fake.issues.get(int(number))
         self._send(404, {"message": "Not Found"}) if issue is None else self._send(200, self.fake.issue_json(issue))
 
-    def _patch_issue(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _patch_issue(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         issue = self.fake.issues.get(int(number))
         if issue is None:
             return self._send(404, {"message": "Not Found"})
@@ -757,7 +758,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.fake.touch(issue)
         self._send(200, self.fake.issue_json(issue))
 
-    def _get_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_comments(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         issue = self.fake.issues.get(int(number))
         if issue is None:
             return self._send(404, {"message": "Not Found"})
@@ -765,25 +766,25 @@ class _Handler(BaseHTTPRequestHandler):
         window, link = self._page(comments, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{number}/comments")
         self._send(200, window, link)
 
-    def _get_events(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_events(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         issue = self.fake.issues.get(int(number))
         self._send(404, {"message": "Not Found"}) if issue is None else self._send(200, list(issue["timeline"]))
 
-    def _get_reviews(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_reviews(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         pull = self.fake.pulls.get(int(number))
         if pull is None:
             return self._send(404, {"message": "Not Found"})
         window, link = self._page(pull.get("reviews", []), query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/pulls/{number}/reviews")
         self._send(200, window, link)
 
-    def _get_review_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_review_comments(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         pull = self.fake.pulls.get(int(number))
         if pull is None:
             return self._send(404, {"message": "Not Found"})
         window, link = self._page(pull.get("review_comments", []), query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/pulls/{number}/comments")
         self._send(200, window, link)
 
-    def _post_sub_issues(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _post_sub_issues(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         parent = self.fake.issues.get(int(number))
         child = next((i for i in self.fake.issues.values() if i["id"] == body.get("sub_issue_id")), None)
         if parent is None or child is None:
@@ -794,7 +795,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.fake.touch(child)
         self._send(201, self.fake.issue_json(parent))
 
-    def _delete_sub_issue(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _delete_sub_issue(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         child = next((i for i in self.fake.issues.values() if i["id"] == body.get("sub_issue_id")), None)
         if child is None or child.get("parent") != int(number):
             return self._send(404, {"message": "Not Found"})
@@ -809,7 +810,7 @@ class _Handler(BaseHTTPRequestHandler):
                     return issue, comment
         return None, None
 
-    def _patch_issue_comment(self, comment_id: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _patch_issue_comment(self, comment_id: str, query: dict[str, list[str]], body: Any) -> None:
         issue, comment = self._find_comment(comment_id)
         if comment is None:
             return self._send(404, {"message": "Not Found"})
@@ -817,7 +818,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.fake.touch(issue)
         self._send(200, self.fake.comment_json(comment))
 
-    def _delete_issue_comment(self, comment_id: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _delete_issue_comment(self, comment_id: str, query: dict[str, list[str]], body: Any) -> None:
         issue, comment = self._find_comment(comment_id)
         if comment is None:
             return self._send(404, {"message": "Not Found"})
@@ -825,12 +826,12 @@ class _Handler(BaseHTTPRequestHandler):
         self.fake.touch(issue)
         self._send(204, b"")
 
-    def _post_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _post_comments(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         if int(number) not in self.fake.issues:
             return self._send(404, {"message": "Not Found"})
         self._send(201, self.fake.comment_json(self.fake.add_comment(int(number), "qew-bot", body["body"])))
 
-    def _get_blocked_by(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_blocked_by(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         issue = self.fake.issues.get(int(number))
         if issue is None:
             return self._send(404, {"message": "Not Found"})
@@ -838,7 +839,7 @@ class _Handler(BaseHTTPRequestHandler):
         window, link = self._page(blockers, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{number}/dependencies/blocked_by")
         self._send(200, window, link)
 
-    def _post_blocked_by(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _post_blocked_by(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         issue = self.fake.issues.get(int(number))
         blocker = next((i for i in self.fake.issues.values() if i["id"] == body.get("issue_id")), None)
         if issue is None or blocker is None:
@@ -850,15 +851,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     # -- pull requests -----------------------------------------------------------
 
-    def _get_repo(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_repo(self, query: dict[str, list[str]], body: Any) -> None:
         self._send(200, {"name": REPO, "default_branch": self.fake.default_branch})
 
-    def _get_branches(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_branches(self, query: dict[str, list[str]], body: Any) -> None:
         listed = [{"name": n, "protected": n in self.fake.protection, "commit": {"sha": sha}} for n, sha in self.fake.branches.items()]
         window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/branches")
         self._send(200, window, link)
 
-    def _delete_ref(self, name: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _delete_ref(self, name: str, query: dict[str, list[str]], body: Any) -> None:
         name = unquote(name)
         if name not in self.fake.branches:
             return self._send(422, {"message": "Reference does not exist"})
@@ -867,27 +868,27 @@ class _Handler(BaseHTTPRequestHandler):
         del self.fake.branches[name]
         self._send(204, b"")
 
-    def _get_compare(self, spec: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_compare(self, spec: str, query: dict[str, list[str]], body: Any) -> None:
         base, _, head = unquote(spec).partition("...")
         if base not in self.fake.branches or head not in self.fake.branches:
             return self._send(404, {"message": "Not Found"})
         merged = head == base or base in self.fake.contained_in.get(head, [])
         self._send(200, {"status": "behind" if merged else "ahead", "ahead_by": 0 if merged else 1, "behind_by": 0})
 
-    def _get_pulls(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_pulls(self, query: dict[str, list[str]], body: Any) -> None:
         wanted = query.get("state", ["open"])[0]
         listed = [self.fake.pull_json(p) for _n, p in sorted(self.fake.pulls.items()) if wanted == "all" or p["state"] == wanted]
         window, link = self._page(listed, query, f"{API_PREFIX}/repos/{OWNER}/{REPO}/pulls")
         self._send(200, window, link)
 
-    def _post_pulls(self, query: Dict[str, List[str]], body: Any) -> None:
+    def _post_pulls(self, query: dict[str, list[str]], body: Any) -> None:
         self._send(201, self.fake.pull_json(self.fake.new_pull(body)))
 
-    def _get_pull(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_pull(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         pull = self.fake.pulls.get(int(number))
         self._send(404, {"message": "Not Found"}) if pull is None else self._send(200, self.fake.pull_json(pull))
 
-    def _put_merge(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _put_merge(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         pull = self.fake.pulls.get(int(number))
         if pull is None:
             return self._send(404, {"message": "Not Found"})
@@ -900,7 +901,7 @@ class _Handler(BaseHTTPRequestHandler):
         pull["merge_sha"] = "f" * 40
         self._send(200, {"sha": "f" * 40, "merged": True, "message": "Pull Request successfully merged"})
 
-    def _patch_pull(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _patch_pull(self, number: str, query: dict[str, list[str]], body: Any) -> None:
         pull = self.fake.pulls.get(int(number))
         if pull is None:
             return self._send(404, {"message": "Not Found"})
@@ -915,20 +916,20 @@ class _Handler(BaseHTTPRequestHandler):
             self.fake.touch(self.fake.issues[pull["number"]])
         self._send(200, self.fake.pull_json(pull))
 
-    def _get_rules(self, branch: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_rules(self, branch: str, query: dict[str, list[str]], body: Any) -> None:
         self._send(200, self.fake.rules.get(branch, []))
 
-    def _get_protection(self, branch: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_protection(self, branch: str, query: dict[str, list[str]], body: Any) -> None:
         record = self.fake.protection.get(branch)
         if record is None:
             return self._send(404, {"message": "Branch not protected"})
         self._send(200, record)
 
-    def _get_status(self, sha: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_status(self, sha: str, query: dict[str, list[str]], body: Any) -> None:
         status = self.fake.statuses.get(sha, {"state": "pending", "total_count": 0})
         self._send(200, status)
 
-    def _get_check_runs(self, sha: str, query: Dict[str, List[str]], body: Any) -> None:
+    def _get_check_runs(self, sha: str, query: dict[str, list[str]], body: Any) -> None:
         runs = self.fake.check_runs.get(sha, [])
         if self.fake.endless_check_runs:
             page = int(query.get("page", ["1"])[0])

@@ -11,7 +11,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from tests.fake_forgejo import TOKEN, FakeForgejo
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import World
 
 ENV = {"FORGEJO_TOKEN": TOKEN}
 

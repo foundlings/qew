@@ -8,7 +8,7 @@ from qew import attachments, comments, board_config, ledger_aliases, ledger_grap
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
-from qew.ledger_config import LEDGER_FILE
+from qew.ledger_config import LEDGER_FILE, SCHEMA_VERSIONS
 from qew.ledger_event import Event, State, attachments_after, fold, needs_after, parse_event, valid_actor
 from qew.ledger_ids import sort_key
 from qew.ledger_item import Item, Kind, check_header_values, parse_item, read_item_text
@@ -144,8 +144,8 @@ def _check_metadata(ledger: Ledger, problems: list[str]) -> None:
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         problems.append(f"{LEDGER_FILE}: {error}")
         return
-    if data.get("schema_version", SCHEMA_VERSION) != SCHEMA_VERSION:
-        problems.append(f"{LEDGER_FILE}: schema_version must be {SCHEMA_VERSION}")
+    if data.get("schema_version", 1) not in SCHEMA_VERSIONS:
+        problems.append(f"{LEDGER_FILE}: schema_version must be one of {', '.join(map(str, SCHEMA_VERSIONS))}")
 
 
 def _load_events(ledger: Ledger, item_id: str, problems: list[str]) -> list[Event]:

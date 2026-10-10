@@ -2,14 +2,13 @@
 
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from tests.ledger_harness import PROJECT_ROOT, World
+from tests.ledger_harness import World
 
 
 class RealLedgerGuardWalk(unittest.TestCase):

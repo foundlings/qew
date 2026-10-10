@@ -10,7 +10,6 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from qew import ledger_config
 from qew.ledger_store import Ledger
 from tests.fake_github import TOKEN, FakeGitHub
 from tests.ledger_harness import QUOTE, World

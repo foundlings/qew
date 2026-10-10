@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
 
 from qew import instants
 
@@ -36,53 +36,53 @@ class MemoryForge(Forge):
 
     def __init__(self, host: str = "memory.test", boards: bool = True, links: bool = True) -> None:
         self.host = host
-        self.issues: Dict[int, RemoteIssue] = {}
-        self.calls: List[Tuple] = []
-        self.links: List[Tuple[int, int]] = []
-        self.columns: Dict[int, str] = {}
-        self.priorities: Dict[int, str] = {}
+        self.issues: dict[int, RemoteIssue] = {}
+        self.calls: list[tuple] = []
+        self.links: list[tuple[int, int]] = []
+        self.columns: dict[int, str] = {}
+        self.priorities: dict[int, str] = {}
         self.down = False
         self.board_id = "B1"
-        self.milestones: Dict[int, Milestone] = {}
-        self.milestone_of: Dict[int, int] = {}  # issue number -> milestone number
+        self.milestones: dict[int, Milestone] = {}
+        self.milestone_of: dict[int, int] = {}  # issue number -> milestone number
         self.supports_milestones = True
-        self.foreign_cards: List[Card] = []
+        self.foreign_cards: list[Card] = []
         self.stubborn_cards = False  # a card delete the forge accepts but does not carry out
         self.hide_next_find = False
-        self.reject_title: Optional[str] = None
+        self.reject_title: str | None = None
         self.supports_boards = boards
         self.supports_links = links
-        self.comments: Dict[int, List[RemoteComment]] = {}
+        self.comments: dict[int, list[RemoteComment]] = {}
         self.defined_labels: set = set()  # label definitions nothing carries
-        self.pulls: Dict[int, RemotePullRequest] = {}
-        self.pull_specs: Dict[int, PullRequestSpec] = {}
-        self.merged: List[Tuple[int, str]] = []
-        self.raise_on: Dict[str, ForgeError] = {}  # call name -> the error that call raises
-        self.merge_calls: List[Tuple[int, str, bool]] = []  # (number, sha, bypass_checks)
-        self.body_writes: List[str] = []
+        self.pulls: dict[int, RemotePullRequest] = {}
+        self.pull_specs: dict[int, PullRequestSpec] = {}
+        self.merged: list[tuple[int, str]] = []
+        self.raise_on: dict[str, ForgeError] = {}  # call name -> the error that call raises
+        self.merge_calls: list[tuple[int, str, bool]] = []  # (number, sha, bypass_checks)
+        self.body_writes: list[str] = []
         self.assign_refused = False  # the forge opens the pull request but will not assign the login
         self.close_ignored = False  # accept the close yet stay open
         self.ready_ignored = False  # accept mark-ready yet stay a draft
         self.merge_lag_reads = 0  # reads after a merge call that still show the pull request open
-        self.merge_lag: Dict[int, int] = {}
-        self.after_read: List[Callable[["MemoryForge"], None]] = []  # run once after the next read, as a concurrent edit
+        self.merge_lag: dict[int, int] = {}
+        self.after_read: list[Callable[[MemoryForge], None]] = []  # run once after the next read, as a concurrent edit
         self.body_write_ignored = False
-        self.required_checks: Dict[str, bool] = {}
-        self.rules_error: Optional[ForgeError] = None
+        self.required_checks: dict[str, bool] = {}
+        self.rules_error: ForgeError | None = None
         self.supports_rules = True
         self.supports_auto_merge = True
         self.auto_merge_ignored = False
         self.bypass_supported = True
-        self.branches: Dict[str, List[str]] = {}  # branch -> branches whose history already holds its tip
+        self.branches: dict[str, list[str]] = {}  # branch -> branches whose history already holds its tip
         self.default_branch = "main"
         self.protected_branches: set = set()
         self.supports_branches = True
-        self.deleted_branches: List[str] = []
+        self.deleted_branches: list[str] = []
         self.stubborn_branches: set = set()  # a delete the forge accepts but does not carry out
         self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
-        self.updated: Dict[int, str] = {}  # issue number -> updated_at, bumped by every edit, comment and label change
+        self.updated: dict[int, str] = {}  # issue number -> updated_at, bumped by every edit, comment and label change
         self.list_requests = 0  # issue listings served
-        self.listed: List[List[int]] = []  # the issue numbers each listing returned
+        self.listed: list[list[int]] = []  # the issue numbers each listing returned
 
     def _touch(self, number: int) -> None:
         self.updated[number] = instants.format_instant(self.clock())
@@ -105,7 +105,7 @@ class MemoryForge(Forge):
             spec.title, spec.body, spec.labels, spec.assignee, milestone=self.milestone_of.get(number, 0),
         )
 
-    def find_issue(self, marker: str, recent: bool = False) -> Optional[RemoteIssue]:
+    def find_issue(self, marker: str, recent: bool = False) -> RemoteIssue | None:
         self._live("find")
         if self.hide_next_find:  # a concurrent creator the first lookup could not see yet
             self.hide_next_find = False
@@ -134,7 +134,7 @@ class MemoryForge(Forge):
         if (number, blocked_by) not in self.links:
             self.links.append((number, blocked_by))
 
-    def ensure_board(self, columns: Tuple[str, ...], managed_filter: str = "") -> Board:
+    def ensure_board(self, columns: tuple[str, ...], managed_filter: str = "") -> Board:
         if not self.supports_boards:
             raise Unsupported("ensure_board")
         self._live("board")
@@ -145,7 +145,7 @@ class MemoryForge(Forge):
         self.columns[number] = column
         self.priorities[number] = priority
 
-    def read_placement(self, board: Board, number: int) -> Optional[Placement]:
+    def read_placement(self, board: Board, number: int) -> Placement | None:
         if not self.supports_boards:
             raise Unsupported("read_placement")
         self._live("read_placement")
@@ -158,7 +158,7 @@ class MemoryForge(Forge):
             raise Unsupported(name)
         self._live(name)
 
-    def find_milestone(self, title: str) -> Optional[Milestone]:
+    def find_milestone(self, title: str) -> Milestone | None:
         self._milestones("find_milestone")
         return next((m for m in self.milestones.values() if m.title == title), None)
 
@@ -192,7 +192,7 @@ class MemoryForge(Forge):
         self._touch(number)
         return self.issues[number]
 
-    def read_board_cards(self, board: Board) -> Tuple[Card, ...]:
+    def read_board_cards(self, board: Board) -> tuple[Card, ...]:
         if not self.supports_boards:
             raise Unsupported("read_board_cards")
         self._live("read_cards")
@@ -259,7 +259,7 @@ class MemoryForge(Forge):
             self.pulls[number] = self._with(number, state="merged", merge_sha="m" * 40)
         return self.pulls[number]
 
-    def find_open_pull_requests(self, head: str) -> List[RemotePullRequest]:
+    def find_open_pull_requests(self, head: str) -> list[RemotePullRequest]:
         self._live("find_pr")
         return [pull for pull in self.pulls.values() if pull.state == "open" and pull.head_branch == head]
 
@@ -292,11 +292,11 @@ class MemoryForge(Forge):
             self.pulls[number] = self._with(number, auto_merge=True)
         return self.pulls[number]
 
-    def add_branch(self, name: str, contained_in: Tuple[str, ...] = ()) -> None:
+    def add_branch(self, name: str, contained_in: tuple[str, ...] = ()) -> None:
         """A branch on the forge; `contained_in` names the branches that already hold its tip."""
         self.branches[name] = list(contained_in)
 
-    def list_branches(self) -> List[RemoteBranch]:
+    def list_branches(self) -> list[RemoteBranch]:
         self._live("list_branches")
         if not self.supports_branches:
             raise Unsupported("list_branches")
@@ -316,7 +316,7 @@ class MemoryForge(Forge):
             self.branches.pop(name, None)
         self.deleted_branches.append(name)
 
-    def list_open_pull_heads(self) -> List[str]:
+    def list_open_pull_heads(self) -> list[str]:
         self._live("list_open_pull_heads")
         if not self.supports_branches:
             raise Unsupported("list_open_pull_heads")

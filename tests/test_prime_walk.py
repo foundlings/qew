@@ -80,7 +80,7 @@ class PrimeWalk(PrimeBase):
         self.assertEqual(section[5], "... 3 more")
         for line in section[:5]:
             quoted = json.loads(line[line.index('"'):])
-            self.assertLessEqual(len(quoted.encode("utf-8")), 96 + len("…".encode("utf-8")))
+            self.assertLessEqual(len(quoted.encode("utf-8")), 96 + len("…".encode()))
             self.assertTrue(quoted.endswith("…"))
 
     def test_bodies_and_comments_never_reach_the_context(self) -> None:

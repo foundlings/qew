@@ -1,12 +1,11 @@
 """Helpers shared by the lifecycle walks: a byte snapshot of the ledger and a started item."""
 
 from pathlib import Path
-from typing import Dict
 
 from tests.ledger_harness import World
 
 
-def tree(world: World) -> Dict[str, bytes]:
+def tree(world: World) -> dict[str, bytes]:
     """Every ledger file (not the VCS or cache) with its bytes, to prove a refusal wrote nothing."""
     root: Path = world.ledger
     return {

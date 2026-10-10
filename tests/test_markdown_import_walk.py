@@ -6,7 +6,6 @@ guesses at instead of refusing.
 """
 
 import os
-import re
 import shutil
 import unittest
 

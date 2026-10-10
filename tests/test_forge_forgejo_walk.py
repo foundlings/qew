@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import unittest
 from dataclasses import replace
-from typing import Dict, Optional
 
 from qew.forge import (
     ForgeAuth,
@@ -37,7 +36,7 @@ class ForgejoBase(unittest.TestCase):
         self.addCleanup(self.fake.stop)
         self.backend = self.build()
 
-    def build(self, env: Optional[Dict[str, str]] = None, **options) -> Forgejo:
+    def build(self, env: dict[str, str] | None = None, **options) -> Forgejo:
         mirror = Mirror("forgejo", self.fake.repo_url, None, "", {"api": self.fake.api, **options})
         return Forgejo(mirror, urllib_transport(timeout=5), {"FORGEJO_TOKEN": TOKEN} if env is None else env)
 

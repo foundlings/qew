@@ -4,7 +4,6 @@ Adversary: finished work recorded as abandoned, an unexplained duplicate, contra
 dependents blocked forever behind externally shipped work, and idempotent loops writing duplicate events.
 """
 
-import json
 import os
 import sys
 import unittest

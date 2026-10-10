@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from tests.ledger_harness import PROJECT_ROOT, World, git
+from tests.ledger_harness import PROJECT_ROOT, World
 
 
 class WriteLockWalk(unittest.TestCase):

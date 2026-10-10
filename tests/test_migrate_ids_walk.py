@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from tests.ledger_harness import QUOTE, World, git  # first: it puts src/ on the path
+from tests.ledger_harness import QUOTE, World  # first: it puts src/ on the path
 from tests.memory_forge import MemoryForge
 from qew import id_migration, ledger_check, ledger_config, ledger_store
 from qew.forge import marker_for

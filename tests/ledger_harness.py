@@ -13,7 +13,7 @@ import subprocess
 import time
 import sys
 import tempfile
-from typing import Mapping, Optional
+from collections.abc import Mapping
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault("QEW_UNDER_TEST", "1")  # qew then refuses any ledger outside the temp directory (see ledger_config)
@@ -42,7 +42,7 @@ def git(cwd: Path, *arguments: str) -> str:
 class World:
     """A git code repo on `main` with `.qew/config.toml` naming a sibling ledger."""
 
-    def __init__(self, mirrors: str = "", ledger_vcs: Optional[str] = None, remote: bool = False,
+    def __init__(self, mirrors: str = "", ledger_vcs: str | None = None, remote: bool = False,
                  replication: str = "") -> None:
         self._temporary = tempfile.TemporaryDirectory()
         base = Path(self._temporary.name)
@@ -63,7 +63,7 @@ class World:
             '[ledger]\npath = "../ledger"\nprefix = "TST"\n' + mirrors + replication, encoding="utf-8"
         )
         (self.ledger / "qew-ledger.toml").write_text(
-            'name = "test"\nprefix = "TST"\nschema_version = 1\n', encoding="utf-8"
+            'name = "test"\nprefix = "TST"\nschema_version = 2\n', encoding="utf-8"
         )
         if ledger_vcs:
             self._init_ledger(ledger_vcs, remote)
@@ -81,19 +81,19 @@ class World:
             if remote:
                 jj(self.ledger, "bookmark", "track", "main", "--remote", "origin")
 
-    def ledger_log(self, path: Optional[Path] = None) -> list:
+    def ledger_log(self, path: Path | None = None) -> list:
         """Commit subjects of the ledger checkout, newest first, up to its first commit."""
         out = git(path or self.ledger, "log", "--format=%s", "main")
         return out.splitlines()
 
-    def ledger_dirty(self, path: Optional[Path] = None) -> list:
+    def ledger_dirty(self, path: Path | None = None) -> list:
         if self.ledger_vcs == "jj":
             out = jj(path or self.ledger, "diff", "--summary")
             return [("?? " if line.startswith("A ") else line[:2] + " ") + line[2:] for line in out.splitlines()]
         out = git(path or self.ledger, "status", "--porcelain", "--untracked-files=all")
         return [line for line in out.splitlines() if ".qew/" not in line]
 
-    def clone(self, name: str, mirrors: str = "", replication: str = "") -> "World":
+    def clone(self, name: str, mirrors: str = "", replication: str = "") -> World:
         """A second agent: its own code repo and ledger clone of the shared remote."""
         if not replication:
             replication = "\n[replication]\nauto_forge_sync = false\nforge_concurrency = 1\n"
@@ -136,8 +136,8 @@ class World:
     def run(
         self,
         *arguments: str,
-        stdin: Optional[str] = None,
-        env: Optional[Mapping[str, str]] = None,
+        stdin: str | None = None,
+        env: Mapping[str, str] | None = None,
         timeout: float = 60,
     ) -> subprocess.CompletedProcess:
         environment = {**os.environ, **_GIT_ENV, "PYTHONPATH": str(PROJECT_ROOT / "src")}

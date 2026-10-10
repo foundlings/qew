@@ -7,7 +7,6 @@ hook that can be switched off without anyone seeing it in the diff.
 
 import json
 import os
-from pathlib import Path
 import stat
 import subprocess
 import unittest

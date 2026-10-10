@@ -4,11 +4,10 @@ Adversary: the scoped item sync looks for an existing issue only among the newes
 window is invisible and the next sync creates a second issue; pull then closes duplicates only above the mirrored one.
 """
 
-import json
 import os
 import sys
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
@@ -85,7 +84,7 @@ class MirrorWinsWalk(unittest.TestCase):
         return self.forge.create_issue(IssueSpec("Original", marker_for(item) + "\n\nbody", (), True)).number
 
     def later(self, seconds: int):
-        return lambda: datetime.now(timezone.utc) + timedelta(seconds=seconds)
+        return lambda: datetime.now(UTC) + timedelta(seconds=seconds)
 
     def test_a_lower_numbered_twin_of_a_live_item_is_closed_once_the_mirror_is_settled(self) -> None:
         """Prevents an orphan below the mirrored issue staying open for ever: the mirror decides, after a grace for merges."""
