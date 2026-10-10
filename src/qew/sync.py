@@ -321,6 +321,7 @@ def _sync_item(
 ) -> None:
     item = snapshot.items[item_id]
     spec = sync_plan.issue_spec(snapshot, item, numbers, assignees, target.mirror.mode == "overlay", target.attachment_link)
+    spec = replace(spec, issue_type=sync_plan.issue_type_for(target.mirror.options.get("issue_types"), item))
     column = sync_plan.column(snapshot, item_id)
     record = _read_mirror(ledger, item_id, target.slug)
     fingerprint = sync_plan.fingerprint(spec, column if board else None)

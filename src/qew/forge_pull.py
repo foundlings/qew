@@ -330,6 +330,9 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
         _diverge(ledger, snapshot, target, report, item_id, issue.number, "parent",
                  f"#{issue.parent}" if issue.parent else "none", f"#{recorded_parent}" if recorded_parent else "none")
         changed = True
+    if "issue_types" in target.mirror.options and "type" in seen and issue.issue_type != seen["type"]:
+        _diverge(ledger, snapshot, target, report, item_id, issue.number, "type", issue.issue_type or "(none)", seen["type"] or "(none)")
+        changed = True
     if _assignees_changed(ledger, snapshot, target, report, item_id, issue, seen):
         changed = True
     if dict(issue.reactions) != record.get("reactions", {}):  # interest is shown, never work state: no event, no divergence

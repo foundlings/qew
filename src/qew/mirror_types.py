@@ -13,6 +13,7 @@ class Seen(TypedDict):
     assignee: str
     comments: list[str]
     assignees: NotRequired[list[str]]  # every login assigned when last seen
+    type: NotRequired[str]  # the forge's issue type when last seen
 
 
 class CommentLink(TypedDict):

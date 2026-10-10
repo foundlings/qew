@@ -271,6 +271,11 @@ def _timeline_detail(event: dict[str, Any]) -> str:
     return ""
 
 
+def _type_name(value: object) -> str:
+    name = value.get("name") if isinstance(value, dict) else None
+    return name if isinstance(name, str) else ""
+
+
 def _wanted_assignees(spec: IssueSpec) -> list[str]:
     """The owner first, then the extra assignees, each once."""
     return list(dict.fromkeys(login for login in (spec.assignee, *spec.assignees) if login))
@@ -307,6 +312,7 @@ def parse_issue(data: Any) -> RemoteIssue:
         milestone=0 if issue.get("milestone") is None else _int(_obj(issue["milestone"], "issue.milestone"), "number", "milestone"),
         close_reason=close_reason_of(reason) if state == "closed" else "",
         assignees=_assignee_logins(issue),
+        issue_type=_type_name(issue.get("type")),
         reactions=_reaction_counts(issue.get("reactions")),
         issue_id=issue["id"] if type(issue.get("id")) is int else 0,
         parent=_parent_number(issue.get("parent_issue_url")),
@@ -753,6 +759,8 @@ class GitHub(Forge):
         payload: dict[str, Any] = {"title": spec.title, "body": spec.body, "labels": list(spec.labels)}
         if _wanted_assignees(spec):
             payload["assignees"] = _wanted_assignees(spec)
+        if spec.issue_type:
+            payload["type"] = spec.issue_type
         created = self._remember(parse_issue(self._wire.rest("POST", f"{self._repo_path}/issues", payload)))
         with self._lock:
             if self._listed is not None:
@@ -770,6 +778,8 @@ class GitHub(Forge):
             "assignees": _wanted_assignees(spec),
             "state": "open" if spec.open else "closed",
         }
+        if spec.issue_type:
+            payload["type"] = spec.issue_type
         if not spec.open and spec.close_reason:
             payload["state_reason"] = spec.close_reason
         path = f"{self._repo_path}/issues/{number}"

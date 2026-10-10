@@ -174,7 +174,7 @@ class FakeGitHub:
             "id": self.next_id, "node_id": f"I_{number}", "number": number,
             "title": payload["title"], "body": payload.get("body"), "state": "open",
             "state_reason": None, "labels": list(payload.get("labels", [])),
-            "assignee": (payload.get("assignees") or [None])[0], "assignees": list(payload.get("assignees") or []), "blocked_by": [], "discussion": [], "timeline": [],
+            "assignee": (payload.get("assignees") or [None])[0], "assignees": list(payload.get("assignees") or []), "type": payload.get("type"), "blocked_by": [], "discussion": [], "timeline": [],
         }
         self.touch(issue)
         self.issues[number] = issue
@@ -196,6 +196,7 @@ class FakeGitHub:
             "body": issue["body"], "labels": [{"name": name} for name in issue["labels"]],
             "assignee": None if not issue["assignee"] else {"login": issue["assignee"]},
             "assignees": [{"login": login} for login in issue.get("assignees", [])],
+            "type": None if not issue.get("type") else {"name": issue["type"]},
             "reactions": {"url": "x", "total_count": sum(issue.get("reactions", {}).values()), **issue.get("reactions", {})},
             "comments": len(issue["discussion"]),
             **({"parent_issue_url": f"{self.base}{API_PREFIX}/repos/{OWNER}/{REPO}/issues/{issue['parent']}"} if issue.get("parent") else {}),
@@ -690,7 +691,7 @@ class _Handler(BaseHTTPRequestHandler):
                 and body["state_reason"] != issue["state_reason"]):  # real GitHub refuses to switch the reason of a closed issue
             return self._send(422, {"message": "Validation Failed", "errors": [
                 {"resource": "Issue", "code": "custom", "field": "state_reason", "message": "state_reason Cannot transition to this state"}]})
-        for key in ("title", "body", "labels", "milestone"):
+        for key in ("title", "body", "labels", "milestone", "type"):
             if key in body:
                 issue[key] = body[key]
         if "state" in body and (body["state"] != issue["state"] or body.get("state_reason")):

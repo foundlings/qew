@@ -206,8 +206,20 @@ def _body(item: Item, state: State | None, numbers: dict[str, int], files: dict[
     return "\n".join(lines).replace("\n\n\n", "\n\n") + "\n"
 
 
+def issue_type_for(mapping: object, item: Item) -> str:
+    """The issue type a mirror's `issue_types` map gives an item: `pN` for its priority first, then its kind; "" when unmapped."""
+    if not isinstance(mapping, dict):
+        return ""
+    for key in (f"p{item.priority}", item.kind.value if hasattr(item.kind, "value") else str(item.kind)):
+        name = mapping.get(key)
+        if isinstance(name, str) and name:
+            return name
+    return ""
+
+
 def fingerprint(spec: IssueSpec, extra: object = None) -> str:
-    payload = json.dumps([spec.__dict__, extra], sort_keys=True, default=str)
+    fields = {k: v for k, v in spec.__dict__.items() if k != "issue_type" or v}  # an unmapped type leaves existing fingerprints alone
+    payload = json.dumps([fields, extra], sort_keys=True, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -236,5 +248,6 @@ def seen_of(remote: RemoteIssue, comment_ids: Iterable[str]) -> Seen:
         "open": remote.open,
         "assignee": remote.assignee,
         "assignees": list(remote.assignees),
+        "type": remote.issue_type,
         "comments": list(comment_ids),
     }
