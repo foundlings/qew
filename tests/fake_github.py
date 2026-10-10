@@ -692,6 +692,29 @@ class _Handler(BaseHTTPRequestHandler):
         issue = self.fake.issues.get(int(number))
         self._send(404, {"message": "Not Found"}) if issue is None else self._send(200, list(issue["timeline"]))
 
+    def _find_comment(self, comment_id: str):
+        for issue in self.fake.issues.values():
+            for comment in issue["discussion"]:
+                if comment["id"] == int(comment_id):
+                    return issue, comment
+        return None, None
+
+    def _patch_issue_comment(self, comment_id: str, query: Dict[str, List[str]], body: Any) -> None:
+        issue, comment = self._find_comment(comment_id)
+        if comment is None:
+            return self._send(404, {"message": "Not Found"})
+        comment["body"] = body["body"]
+        self.fake.touch(issue)
+        self._send(200, self.fake.comment_json(comment))
+
+    def _delete_issue_comment(self, comment_id: str, query: Dict[str, List[str]], body: Any) -> None:
+        issue, comment = self._find_comment(comment_id)
+        if comment is None:
+            return self._send(404, {"message": "Not Found"})
+        issue["discussion"].remove(comment)
+        self.fake.touch(issue)
+        self._send(204, b"")
+
     def _post_comments(self, number: str, query: Dict[str, List[str]], body: Any) -> None:
         if int(number) not in self.fake.issues:
             return self._send(404, {"message": "Not Found"})
@@ -817,6 +840,7 @@ _ROUTES = (
     (r"/issues", "issues"),
     (r"/issues/(\d+)", "issue"),
     (r"/issues/(\d+)/comments", "comments"),
+    (r"/issues/comments/(\d+)", "issue_comment"),
     (r"/issues/(\d+)/events", "events"),
     (r"/issues/(\d+)/dependencies/blocked_by", "blocked_by"),
     (r"/pulls", "pulls"),
