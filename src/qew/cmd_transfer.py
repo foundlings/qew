@@ -11,6 +11,7 @@ from pathlib import Path
 from qew import cmd_items, cmd_read, graph_rules, ledger_config, ledger_graph, ledger_labels, untrusted_text
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
+from qew.ledger_aliases import ITEM_FILE
 from qew.ledger_config import Config
 from qew.ledger_ids import sort_key, valid_id
 from qew.ledger_item import Item, check_header_values, parse_item, render_item
@@ -100,7 +101,8 @@ def write_tree(snapshot: Snapshot, directory: Path) -> int:
     try:
         (directory / "items").mkdir(parents=True)
         for item_id in ids:
-            (directory / "items" / f"{item_id}.md").write_text(render_item(snapshot.items[item_id]), encoding="utf-8")
+            (directory / "items" / item_id).mkdir()
+            (directory / "items" / item_id / ITEM_FILE).write_text(render_item(snapshot.items[item_id]), encoding="utf-8")
         (directory / "events.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     except OSError as error:
         raise QewError(f"cannot write {directory}: {error}", 3) from None
@@ -108,7 +110,7 @@ def write_tree(snapshot: Snapshot, directory: Path) -> int:
 
 
 def import_directory(config: Config, directory: str, quote: str | None) -> list[str]:
-    """Read DIR/items/*.md into the ledger as drafts (approved with a human's quote), ids kept."""
+    """Read DIR/items/ID/item.md into the ledger as drafts (approved with a human's quote), ids kept."""
     verified = require_quote(quote) if quote is not None else None
     ledger = cmd_items.ledger_for(config)
     parsed = _read_tree(Path(directory))
@@ -138,15 +140,18 @@ def import_directory(config: Config, directory: str, quote: str | None) -> list[
 def _read_tree(root: Path) -> dict[str, Item]:
     items_dir = root / "items"
     if not items_dir.is_dir() or items_dir.is_symlink():
-        raise QewError(f"{root}: no items directory (an exported tree holds items/ID.md files)", 2)
+        raise QewError(f"{root}: no items directory (an exported tree holds items/ID/item.md files)", 2)
     parsed: dict[str, Item] = {}
     lowered: dict[str, str] = {}
-    for path in sorted(items_dir.iterdir(), key=lambda p: p.name):
-        name = path.name
-        if path.is_symlink():
+    for directory in sorted(items_dir.iterdir(), key=lambda p: p.name):
+        name = directory.name
+        if directory.is_symlink():
             raise QewError(f"{name}: is a symbolic link; import reads regular files only", 2)
-        if path.suffix != ".md" or not path.is_file():
-            raise QewError(f"{name}: is not a Markdown item file", 2)
+        path = directory / ITEM_FILE
+        if path.is_symlink():
+            raise QewError(f"{name}: {ITEM_FILE} is a symbolic link; import reads regular files only", 2)
+        if not directory.is_dir() or not path.is_file():
+            raise QewError(f"{name}: is not an item directory holding {ITEM_FILE}", 2)
         if path.stat().st_size > MAX_FILE_BYTES:
             raise QewError(f"{name}: exceeds {MAX_FILE_BYTES} bytes", 2)
         try:
@@ -155,8 +160,8 @@ def _read_tree(root: Path) -> dict[str, Item]:
             raise QewError(str(error), 2) from None
         except (OSError, UnicodeError) as error:
             raise QewError(f"{name}: cannot read: {error}", 2) from None
-        if item.id != path.stem:
-            raise QewError(f"{name}: header id {item.id} does not match the file name", 2)
+        if item.id != name:
+            raise QewError(f"{name}: header id {item.id} does not match the directory name", 2)
         problems = check_header_values(item)
         if problems:
             raise QewError(f"{name}: {problems[0]}", 2)
@@ -166,5 +171,5 @@ def _read_tree(root: Path) -> dict[str, Item]:
         lowered[item.id.lower()] = name
         parsed[item.id] = item
     if not parsed:
-        raise QewError(f"{items_dir}: holds no item files", 2)
+        raise QewError(f"{items_dir}: holds no item directories", 2)
     return parsed

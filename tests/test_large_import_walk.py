@@ -52,8 +52,8 @@ class LargeImportWalk(unittest.TestCase):
 
     def test_jj_names_each_path_until_the_list_no_longer_fits_then_the_owned_directories(self) -> None:
         """Prevents a jj ledger commit with tens of thousands of `root-file:` arguments dying on the argument limit."""
-        self.assertEqual(_jj_filesets(["items/A.md", "events/A/1.json"]), ['root-file:"items/A.md"', 'root-file:"events/A/1.json"'])
-        many = [f"events/{PAD}-{n}/1.json" for n in range(3000)] + ["items/A.md"]
+        self.assertEqual(_jj_filesets(["items/A/item.md", "events/A/1.json"]), ['root-file:"items/A/item.md"', 'root-file:"events/A/1.json"'])
+        many = [f"events/{PAD}-{n}/1.json" for n in range(3000)] + ["items/A/item.md"]
         self.assertEqual(_jj_filesets(many), ['root:"items"', 'root:"events"'])
 
 

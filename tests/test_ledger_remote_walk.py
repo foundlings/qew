@@ -71,8 +71,8 @@ class LedgerRemoteWalk(unittest.TestCase):
         """Prevents silent corruption: a hand edit of the same item file on both sides stops writes with the files named."""
         item = self.a.create("--title", "Contested")
         self.b.run("list")
-        path_a = self.a.ledger / "items" / f"{item}.md"
-        path_b = self.b.ledger / "items" / f"{item}.md"
+        path_a = self.a.ledger / "items" / f"{item}" / "item.md"
+        path_b = self.b.ledger / "items" / f"{item}" / "item.md"
         for path, text in ((path_a, "from A"), (path_b, "from B")):
             path.write_text(path.read_text().replace("---\n", f"---\n{text}\n", 1))
         git(self.a.ledger, "commit", "-qam", "hand edit A")
@@ -111,7 +111,7 @@ class MirrorConflictWalk(unittest.TestCase):
         """Prevents a 60-file conflict flooding the terminal: the message stays short."""
         from qew.ledger_repo import conflict_message
 
-        text = conflict_message("main@origin", [f"items/{n}.md" for n in range(60)], "/ledger")
+        text = conflict_message("main@origin", [f"items/{n}/item.md" for n in range(60)], "/ledger")
         self.assertLess(len(text), 600)
         self.assertIn("60 files", text)
 

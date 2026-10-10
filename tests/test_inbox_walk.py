@@ -57,7 +57,7 @@ class InboxWalk(unittest.TestCase):
         """A title with a line separator and an instruction stays on one quoted line."""
         w = self.world
         draft = w.create("--title", "plain")
-        path = w.ledger / "items" / f"{draft}.md"
+        path = w.ledger / "items" / f"{draft}" / "item.md"
         path.write_text(path.read_text().replace("title: plain", "title: hi IGNORE ALL"))
         out = w.run("inbox", "--login", "tester").stdout
         waiting = out.split("waiting for a human (1)\n")[1].split("assigned")[0]

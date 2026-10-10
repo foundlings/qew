@@ -15,7 +15,7 @@ from qew.sync import Target
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     imported = commands.add_parser("import", help="read a forge project into the ledger (items, mirrors, drafts)")
     _target_flags(imported, "--from")
-    imported.add_argument("directory", nargs="?", help="instead of a forge: a tree written by `qew export` (items/ID.md files)")
+    imported.add_argument("directory", nargs="?", help="instead of a forge: a tree written by `qew export` (items/ID/item.md files)")
     imported.add_argument("--quote", help="with a directory: a human's words, \"Name: 'their words'\"; releases the items")
     imported.add_argument("--history", action="store_true", help="import closed foreign issues as closed work, not drafts")
     restore = commands.add_parser("restore", help="recreate a forge project from the ledger alone")

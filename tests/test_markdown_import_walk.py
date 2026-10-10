@@ -46,7 +46,7 @@ class MarkdownImportWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["A draft Child A", "B draft Task B", "Z draft Epic Z"])
         for item_id in ("A", "B", "Z"):
-            self.assertEqual(read(w.ledger / "items" / f"{item_id}.md"), read(self.source.ledger / "items" / f"{item_id}.md"))
+            self.assertEqual(read(w.ledger / "items" / f"{item_id}" / "item.md"), read(self.source.ledger / "items" / f"{item_id}" / "item.md"))
             self.assertEqual([e["type"] for e in w.events(item_id)], ["drafted"])
         self.assertEqual(w.run("ready").stdout, "")
         self.assertEqual(w.run("check").returncode, 0)
@@ -64,21 +64,21 @@ class MarkdownImportWalk(unittest.TestCase):
         """B already exists here: A and Z must not be written either, and B must stay untouched."""
         w = self.target
         load(w, spec("B", "Mine"))
-        before = read(w.ledger / "items" / "B.md")
+        before = read(w.ledger / "items" / "B" / "item.md")
         result = w.run("import", str(self.tree))
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("B already exists", result.stderr)
-        self.assertEqual(written(w), ["B.md"])
-        self.assertEqual(read(w.ledger / "items" / "B.md"), before)
+        self.assertEqual(written(w), ["B"])
+        self.assertEqual(read(w.ledger / "items" / "B" / "item.md"), before)
 
     def test_a_malformed_tree_is_refused_whole_and_names_the_file(self) -> None:
         """Each broken shape stops the import before any item is written, and the message cites the culprit."""
         cases = {
-            "unknown key": ("Bad.md", HEADER.format(id="Bad", extra="status: done\n")),
-            "no terminator": ("Bad.md", "id: Bad\nkind: issue\ntitle: Bad\ncreated: 2026-01-01T00:00:00Z\n"),
-            "id differs from the file name": ("Bad.md", HEADER.format(id="Other", extra="")),
-            "owner set": ("Bad.md", HEADER.format(id="Bad", extra="owner: someone\n")),
-            "dangling parent": ("Bad.md", HEADER.format(id="Bad", extra="parent: Nowhere\n")),
+            "unknown key": ("Bad", HEADER.format(id="Bad", extra="status: done\n")),
+            "no terminator": ("Bad", "id: Bad\nkind: issue\ntitle: Bad\ncreated: 2026-01-01T00:00:00Z\n"),
+            "id differs from the file name": ("Bad", HEADER.format(id="Other", extra="")),
+            "owner set": ("Bad", HEADER.format(id="Bad", extra="owner: someone\n")),
+            "dangling parent": ("Bad", HEADER.format(id="Bad", extra="parent: Nowhere\n")),
             "not markdown": ("Bad.txt", HEADER.format(id="Bad", extra="")),
         }
         for name, (file_name, text) in cases.items():
@@ -86,7 +86,11 @@ class MarkdownImportWalk(unittest.TestCase):
                 broken = self.source.base / "broken"
                 shutil.rmtree(broken, ignore_errors=True)
                 shutil.copytree(self.tree, broken)
-                (broken / "items" / file_name).write_text(text)
+                if file_name.endswith(".txt"):  # a loose file where an item directory belongs
+                    (broken / "items" / file_name).write_text(text)
+                else:
+                    (broken / "items" / file_name).mkdir()
+                    (broken / "items" / file_name / "item.md").write_text(text)
                 result = self.target.run("import", str(broken))
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn(file_name, result.stderr)
@@ -96,8 +100,9 @@ class MarkdownImportWalk(unittest.TestCase):
         """Importing P and Q that need each other would create a ledger `check` fails forever."""
         tree = self.source.base / "cycle" / "items"
         tree.mkdir(parents=True)
-        (tree / "P.md").write_text(HEADER.format(id="P", extra="needs: Q\n"))
-        (tree / "Q.md").write_text(HEADER.format(id="Q", extra="needs: P\n"))
+        for name, needs in (("P", "Q"), ("Q", "P")):
+            (tree / name).mkdir()
+            (tree / name / "item.md").write_text(HEADER.format(id=name, extra=f"needs: {needs}\n"))
         result = self.target.run("import", str(tree.parent))
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("needs cycle", result.stderr)
@@ -107,7 +112,8 @@ class MarkdownImportWalk(unittest.TestCase):
         """A link could pull in a file from anywhere; a directory without items/ is not an export."""
         outside = self.source.base / "outside.md"
         outside.write_text(HEADER.format(id="Link", extra=""))
-        os.symlink(outside, self.tree / "items" / "Link.md")
+        (self.tree / "items" / "Link").mkdir()
+        os.symlink(outside, self.tree / "items" / "Link" / "item.md")
         linked = self.target.run("import", str(self.tree))
         self.assertEqual(linked.returncode, 2, linked.stderr)
         self.assertIn("symbolic link", linked.stderr)

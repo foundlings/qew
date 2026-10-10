@@ -147,7 +147,7 @@ class PullWalk(unittest.TestCase):
         """Prevents forge text becoming structure: a multi-line title with control characters stays one safe line."""
         self.forge.edit(1, title="Line one\nid: injected\x1b[31m")
         self.pull()
-        text = (self.world.ledger / "items" / f"{self.item}.md").read_text()
+        text = (self.world.ledger / "items" / f"{self.item}" / "item.md").read_text()
         header = text.split("\n---\n")[0]
         self.assertEqual(header.count("\nid:"), 0)
         self.assertNotIn("\x1b", text)

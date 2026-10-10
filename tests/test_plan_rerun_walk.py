@@ -27,7 +27,7 @@ class Killed(BaseException):
 
 class DiesAtSecondItem(Ledger):
     def write_item(self, item, overwrite: bool = False) -> None:
-        if len(list(self.items_dir.glob("*.md"))) >= 1 and not overwrite:
+        if len(list(self.items_dir.glob("*/item.md"))) >= 1 and not overwrite:
             raise Killed()
         super().write_item(item, overwrite)
 
@@ -85,8 +85,9 @@ class PlanRerunWalk(unittest.TestCase):
         (self.world.ledger / "events" / copy).mkdir()
         for event in (self.world.ledger / "events" / epic).glob("*.json"):
             (self.world.ledger / "events" / copy / event.name).write_text(event.read_text())
-        text = (self.world.ledger / "items" / f"{epic}.md").read_text().replace(f"id: {epic}", f"id: {copy}", 1)
-        (self.world.ledger / "items" / f"{copy}.md").write_text(text)
+        text = (self.world.ledger / "items" / f"{epic}" / "item.md").read_text().replace(f"id: {epic}", f"id: {copy}", 1)
+        (self.world.ledger / "items" / f"{copy}" / "item.md").parent.mkdir(exist_ok=True)
+        (self.world.ledger / "items" / f"{copy}" / "item.md").write_text(text)
         before = snapshot(self.world)
         result = self.run_plan()
         self.assertEqual(result.returncode, 2)

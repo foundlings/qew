@@ -62,7 +62,7 @@ class ContractWalk(unittest.TestCase):
     def test_every_read_refuses_a_corrupt_item_among_good_ones(self) -> None:
         """One bad file makes each read exit 1 with nothing on stdout and the file named; a repair restores it."""
         ids = [self.ready_item(f"Item {n}") for n in range(10)]
-        bad = self.world.ledger / "items" / f"{ids[4]}.md"
+        bad = self.world.ledger / "items" / f"{ids[4]}" / "item.md"
         good = bad.read_text()
         bad.write_text(good.replace("\n---\n", "\nstatus: done\n---\n", 1))
         for command in (*READS, ("show", ids[0])):
@@ -148,7 +148,7 @@ class ReadyMatrixWalk(unittest.TestCase):
         closed_need = self.make("closed need")
         self.assertEqual(w.run("close", closed_need, "--reason", "not_planned").returncode, 0)
         dangling_source = self.make("dangling")
-        path = w.ledger / "items" / f"{dangling_source}.md"
+        path = w.ledger / "items" / f"{dangling_source}" / "item.md"
         path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
         held = [self.make(f"held by {n}", "--needs", need)
                 for n, need in enumerate((open_need, claimed_need, draft_need, closed_need))]

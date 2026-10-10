@@ -9,6 +9,7 @@ import argparse
 
 from qew import cmd_divergence, ledger_config, readfmt
 from qew.cmd_items import ledger_for
+from qew.ledger_aliases import item_of_path
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_conflicts import LEDGER_REFERENCE, Side, clipped_discard, collect
@@ -64,8 +65,9 @@ def _resolve_merge(config: Config, take: Side, reason: str) -> str:
     items = ledger.item_ids()
     recorded: dict[str, dict[str, str | None]] = {}
     for relative, text in resolution.discarded.items():
-        if relative.startswith("items/") and relative.endswith(".md") and relative[len("items/"):-len(".md")] in items:
-            recorded.setdefault(relative[len("items/"):-len(".md")], {})[relative] = clipped_discard(text)
+        owner = item_of_path(relative)
+        if owner is not None and owner in items:
+            recorded.setdefault(owner, {})[relative] = clipped_discard(text)
     for item_id, discarded in sorted(recorded.items()):
         ledger.append_event(item_id, "conflict_resolved", took=take.value, reason=reason, discarded=discarded)
     return f"resolved the ledger merge: took {take.value} for {len(resolution.discarded)} file(s)"

@@ -40,7 +40,7 @@ class ReadyLimitWalk(unittest.TestCase):
 
     def test_a_nonsense_bound_is_a_usage_error_before_the_ledger_is_read(self) -> None:
         """A negative or non-integer bound exits 2 even when the ledger itself is unreadable (exit 1)."""
-        item = next(self.world.ledger.joinpath("items").glob("*.md"))
+        item = next(self.world.ledger.joinpath("items").glob("*/item.md"))
         item.write_text(item.read_text().replace("\n---\n", "\nstatus: x\n---\n", 1))
         for bound in ("-1", "abc"):
             result = self.world.run("ready", "--limit", bound)
@@ -117,7 +117,7 @@ class ListWalk(unittest.TestCase):
         gate = self.make("gate")
         stuck = self.make("stuck")
         w.run("start", stuck)
-        item = w.ledger / "items" / f"{stuck}.md"
+        item = w.ledger / "items" / f"{stuck}" / "item.md"
         item.write_text(item.read_text().replace("needs: \n", f"needs: {gate}\n", 1))
         row = next(r for r in rows(w.run("list", "--json")) if r["id"] == stuck)
         self.assertEqual((row["state"], row["work_state"]), ("claimed", "blocked"))
@@ -157,7 +157,7 @@ class BlockedWalk(unittest.TestCase):
         closed = self.make("closed need")
         w.run("close", closed, "--reason", "not_planned")
         waiting = self.make("waiting", "--needs", closed)
-        path = w.ledger / "items" / f"{waiting}.md"
+        path = w.ledger / "items" / f"{waiting}" / "item.md"
         path.write_text(path.read_text().replace(f"needs: {closed}\n", f"needs: {closed} zzzzzzzzz\n", 1))
         entry = json.loads(w.run("blocked", "--json").stdout)["items"][0]
         self.assertEqual(entry["blocked_by"], [{"id": closed, "state": "closed", "title": "closed need"}, {"id": "zzzzzzzzz", "state": "missing"}])
@@ -170,7 +170,7 @@ class BlockedWalk(unittest.TestCase):
         draft = self.make("draft", "--needs", gate, approve=False)
         stuck = self.make("stuck")
         w.run("start", stuck)
-        item = w.ledger / "items" / f"{stuck}.md"
+        item = w.ledger / "items" / f"{stuck}" / "item.md"
         item.write_text(item.read_text().replace("needs: \n", f"needs: {gate}\n", 1))
         blocked = w.run("blocked").stdout
         self.assertNotIn(draft, blocked)

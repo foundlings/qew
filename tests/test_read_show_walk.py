@@ -44,7 +44,7 @@ class RelatedItemsWalk(ShowBase):
     def test_a_need_that_no_longer_exists_is_reported_missing(self) -> None:
         """A dangling edge is shown, not an empty slot."""
         item = self.make("Waiting")
-        path = self.world.ledger / "items" / f"{item}.md"
+        path = self.world.ledger / "items" / f"{item}" / "item.md"
         path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
         self.assertEqual(self.show(item)["blocked_by"], [{"id": "zzzzzzzzz", "state": "missing"}])
 

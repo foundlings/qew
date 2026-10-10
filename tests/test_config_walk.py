@@ -57,14 +57,18 @@ class ConfigWalk(unittest.TestCase):
             self.assertIn("minimum_version", result.stderr)
 
     def test_unsupported_ledger_schema_version_is_refused_and_a_missing_one_reads_as_1(self) -> None:
-        """A newer ledger must not be misread; an absent schema_version is version 1."""
+        """A newer ledger must not be misread; an absent schema_version is version 1, whose layout needs migrating."""
         w = self.world("")
         meta = w.ledger / "qew-ledger.toml"
-        meta.write_text('name = "test"\nschema_version = 3\n')
+        meta.write_text('name = "test"\nschema_version = 4\n')
         result = w.run("ready")
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("schema_version", result.stderr)
         meta.write_text('name = "test"\n')
+        old = w.run("ready")
+        self.assertEqual(old.returncode, 2, old.stdout)
+        self.assertIn("qew migrate-layout", old.stderr)
+        self.assertEqual(w.run("migrate-layout").returncode, 0)
         self.assertEqual(w.run("ready").returncode, 0)
         self.assertEqual(w.run("check").returncode, 0)
 

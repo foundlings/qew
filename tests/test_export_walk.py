@@ -42,7 +42,7 @@ class ExportWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), f"exported 3 items to {self.out}")
         for item_id in ("A", "B", "Z"):
-            self.assertEqual(read(self.out / "items" / f"{item_id}.md"), read(w.ledger / "items" / f"{item_id}.md"))
+            self.assertEqual(read(self.out / "items" / f"{item_id}" / "item.md"), read(w.ledger / "items" / f"{item_id}" / "item.md"))
         summary = json.loads(read(self.out / "events.json"))
         self.assertEqual(list(summary), ["A", "B", "Z"])
         self.assertEqual([event["type"] for event in summary["A"]], ["approved"])
@@ -70,7 +70,8 @@ class ExportWalk(unittest.TestCase):
         self.assertIn("symbolic link", linked.stderr)
         self.assertEqual(list(elsewhere.iterdir()), [])
 
-        (w.ledger / "items" / "evil.md").write_text(
+        (w.ledger / "items" / "evil" / "item.md").parent.mkdir(exist_ok=True)
+        (w.ledger / "items" / "evil" / "item.md").write_text(
             "id: ../../escape\nkind: issue\ntitle: x\ncreated: 2026-01-01T00:00:00Z\n---\n"
         )
         fresh = w.base / "fresh" / "deep"
@@ -83,7 +84,7 @@ class ExportWalk(unittest.TestCase):
     def test_export_refuses_a_graph_it_cannot_describe_whole(self) -> None:
         """A dangling need or a cycle would export a file set that imports into a broken ledger."""
         w = self.world
-        path = w.ledger / "items" / "A.md"
+        path = w.ledger / "items" / "A" / "item.md"
         original = read(path)
         path.write_text(re.sub(r"(?m)^needs:.*$", "needs: GONE", original))
         for arguments in ([str(self.out)], ["--json"]):
@@ -123,7 +124,7 @@ class ExportJsonWalk(unittest.TestCase):
         created = target.run("create", "--from-file", "-", stdin=exported.stdout)
         self.assertEqual(created.returncode, 0, created.stderr)
         for item_id in ("A", "B", "Z"):
-            self.assertEqual(read(target.ledger / "items" / f"{item_id}.md"), read(source.ledger / "items" / f"{item_id}.md"))
+            self.assertEqual(read(target.ledger / "items" / f"{item_id}" / "item.md"), read(source.ledger / "items" / f"{item_id}" / "item.md"))
         self.assertEqual(target.run("export", "--json").stdout, exported.stdout)
 
 

@@ -53,7 +53,7 @@ class RepoLockWalk(unittest.TestCase):
         self.lock.unlink()
         self.assertEqual(self.w.run("create", "--title", "After", "--quote", QUOTE).returncode, 0)
         self.assertEqual(self.w.ledger_dirty(), [])
-        self.assertEqual(len(list((self.w.ledger / "items").glob("*.md"))), 1)
+        self.assertEqual(len(list((self.w.ledger / "items").glob("*/item.md"))), 1)
 
 
 if __name__ == "__main__":

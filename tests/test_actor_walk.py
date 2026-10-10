@@ -50,7 +50,7 @@ class ActorWalk(unittest.TestCase):
         """Claiming is by event: a label that looks like an identity must change nothing."""
         w = self.world
         item = w.create("--title", "Work", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
-        path = w.ledger / "items" / f"{item}.md"
+        path = w.ledger / "items" / f"{item}" / "item.md"
         path.write_text(path.read_text().replace("labels: \n", "labels: author:mallory\n", 1))
         self.assertEqual(w.run("start", item).returncode, 0)
         self.assertEqual(w.events(item)[-1]["owner"], "tester")

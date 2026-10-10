@@ -127,7 +127,8 @@ class InboxArgumentWalk(InboxBase):
     def test_malformed_since_values_are_usage_errors_before_any_read(self) -> None:
         """Five wrong windows exit 2 with nothing printed, even over an unreadable ledger."""
         self.make("Fine")
-        (self.world.ledger / "items" / "BROKEN.md").write_text("not a header")
+        (self.world.ledger / "items" / "BROKEN" / "item.md").parent.mkdir(exist_ok=True)
+        (self.world.ledger / "items" / "BROKEN" / "item.md").write_text("not a header")
         for value in ("yesterday", "2026-13-40", "2026-10-07T10:00:00+02:00", "2026-10-07 10:00:00", ""):
             result = self.world.run("inbox", "--since", value)
             self.assertEqual((result.returncode, result.stdout), (2, ""), value)
@@ -169,7 +170,7 @@ class InboxIntegrityWalk(InboxBase):
             result = self.inbox()
             self.assertEqual((result.returncode, result.stdout), (1, ""), name)
         (events / "Z999999.json").unlink()
-        path = self.world.ledger / "items" / f"{mine}.md"
+        path = self.world.ledger / "items" / f"{mine}" / "item.md"
         original = path.read_text()
         path.write_text("\n".join(line for line in original.split("\n") if not line.startswith("title:")))
         result = self.inbox()

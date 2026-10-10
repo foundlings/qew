@@ -65,7 +65,7 @@ def plan(ledger: Ledger, rows: list[Row]) -> Batch:
     existing_ids: dict[str, list[comments.Comment]] = {}
     for found in rows:
         if found.item_id not in by_item:
-            exists = (ledger.items_dir / f"{found.item_id}.md").exists()
+            exists = ledger.item_path(found.item_id).exists()
             events = ledger.load_events(found.item_id) if exists else []
             by_item[found.item_id] = {str(e.get("key")): str(e.get("text")) for e in events if e.type == "commented" and e.get("key")}
             existing_ids[found.item_id] = comments.comments_after(events)

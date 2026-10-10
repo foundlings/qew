@@ -136,7 +136,7 @@ shape prime: additional_context context_bytes schema_version
   for a task without one). `--search` keeps items whose title or body holds every term (ASCII case folded).
   Rows are NDJSON in `--json`. Triage is the only list-shaped read that prints draft bodies.
 
-- `qew export DIRECTORY`: write every item to a new (or empty) directory as `items/ID.md` (the ledger's own file
+- `qew export DIRECTORY`: write every item to a new (or empty) directory as `items/ID/item.md` (the ledger's own file
   format) and `events.json` (per item: event type, time, actor; import ignores it). Output is deterministic. A
   non-empty directory, a symbolic link or a ledger with a dangling edge or a cycle is refused before any write.
 - `qew export --json`: print the items as one JSON array that `qew create --from-file` accepts (keys `id kind title
@@ -420,7 +420,7 @@ shape prime: additional_context context_bytes schema_version
   item and stays in the merge commit's other parent. A divergence's `divergence_accepted`/`divergence_rejected` event
   carries the same `reason`. `qew accept --completed` stays the way to complete on a forge close.
 - `qew import DIRECTORY [--quote Q]`: read a tree written by `qew export` into the ledger, ids kept, as drafts (approved
-  with a human's quote, as on create). Mechanical: each `items/ID.md` is parsed header-only (unknown keys, a file name
+  with a human's quote, as on create). Mechanical: each `items/ID/item.md` is parsed header-only (unknown keys, a directory name
   that differs from the header id, a set owner, a symbolic link or a non-Markdown file fail and name the file), then
   every id, reference, nesting and cycle is validated against the ledger before the first write (exit 2, nothing
   written). `events.json` is ignored. Not combinable with `--from`, `--forge`, `--repo` or `--history`.
@@ -491,7 +491,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   `--after ID` (letters kinds) counts a letter reserved outside the ledger, such as a phase document, as taken. A plan
   that names a letter id for a letters kind outside `--import` may not jump far past the end of the sequence (more than three
   blocks of two-letter ids), else exit 2 naming the next letter: hand-named ids like PIE after ADF are refused.
-- `qew migrate-layout [--dry-run]`: declare schema_version 2 (the attachment layout) in `qew-ledger.toml`, changing only that line. It requires `qew check` green before and after and refuses (exit 3) while another login holds a claim; a ledger already at 2 prints that and changes nothing. No item, event or mirror is rewritten, so it is one small commit; a qew older than the layout refuses the ledger afterwards, and `qew item attach` refuses a schema 1 ledger naming this command.
+- `qew migrate-layout [--dry-run]`: move a ledger of schema 1 or 2 straight to the latest layout (3) in one commit: each `items/ID.md` becomes `items/ID/item.md` with identical bytes, and the `schema_version` line becomes 3. It refuses (exit 1) when an item already has both paths, and any failure rolls the whole step back: the claim check (exit 3, another login holds a claim) and `qew check` run on the result. A ledger already at the latest prints that and changes nothing. Every other command on an older ledger refuses (exit 2) naming this command; a qew older than the layout refuses schema 3. Run it with all writers pushed and quiet: an unpushed edit to an item file in another clone conflicts with the move.
 - `qew migrate-ids --to base35-time [--dry-run]`: rename every item whose id is not a base35-time id (letters, counter, imported) to a
   new base35-time id, ordered by creation, and carry every reference: item headers (`parent needs tracks pr discovered_from`),
   event directories and the ids cited in `edge`, `closed` and link `field` events, mirror directories and pull request

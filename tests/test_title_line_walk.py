@@ -16,7 +16,7 @@ class TitleLineWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def _items(self) -> list:
-        return sorted(p.name for p in (self.world.ledger / "items").glob("*.md")) if (self.world.ledger / "items").exists() else []
+        return sorted(p.parent.name for p in (self.world.ledger / "items").glob("*/item.md")) if (self.world.ledger / "items").exists() else []
 
     def test_create_refuses_every_line_separator_and_writes_nothing(self) -> None:
         """A CR, form feed, NEL or paragraph separator in --title is refused before any file is written."""
@@ -43,7 +43,7 @@ class TitleLineWalk(unittest.TestCase):
         """A file corrupted before the rule (or by hand) is reported by check with the cause, not a malformed header line."""
         w = self.world
         item = w.create("--title", "Fine")
-        path = w.ledger / "items" / f"{item}.md"
+        path = w.ledger / "items" / f"{item}" / "item.md"
         path.write_bytes(path.read_bytes().replace(b"title: Fine", b"title: a\rb", 1))
         result = w.run("check")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)

@@ -43,7 +43,7 @@ class LedgerMergeConflictWalk(unittest.TestCase):
         found = listing(self.b)
         self.assertEqual([c["kind"] for c in found], ["ledger_merge"])
         conflict = found[0]
-        self.assertEqual(conflict["files"], [f"items/{self.item}.md"])
+        self.assertEqual(conflict["files"], [f"items/{self.item}/item.md"])
         self.assertEqual(conflict["item"], self.item)
         titles = [(d["key"], d["ours"], d["theirs"]) for d in conflict["differences"]]
         self.assertEqual(titles, [("title", "Title from B", "Title from A")])
@@ -62,7 +62,7 @@ class LedgerMergeConflictWalk(unittest.TestCase):
         recorded = [e for e in self.b.events(self.item) if e["type"] == "conflict_resolved"]
         self.assertEqual(len(recorded), 1)
         self.assertEqual((recorded[0]["took"], recorded[0]["reason"]), ("theirs", "A edited first"))
-        self.assertIn("Title from B", recorded[0]["discarded"][f"items/{self.item}.md"])
+        self.assertIn("Title from B", recorded[0]["discarded"][f"items/{self.item}/item.md"])
         self.assertEqual(listing(self.b), [])
         self.assertEqual(self.b.ledger_dirty(), [])
         self.assertEqual(self.b.run("check").returncode, 0)
@@ -76,7 +76,7 @@ class LedgerMergeConflictWalk(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.title(self.b), "Title from B")
         recorded = [e for e in self.b.events(self.item) if e["type"] == "conflict_resolved"][0]
-        self.assertIn("Title from A", recorded["discarded"][f"items/{self.item}.md"])
+        self.assertIn("Title from A", recorded["discarded"][f"items/{self.item}/item.md"])
         self.assertEqual(self.a.run("list").returncode, 0)
         self.assertEqual(self.title(self.a), "Title from B")
 

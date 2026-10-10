@@ -26,7 +26,7 @@ def cross_parent(snapshot: Snapshot) -> list[str]:
         own, theirs = _areas(item.labels), _areas(parent.labels)
         if own and theirs and not own & theirs:
             found.append(
-                f"items/{item_id}.md: area {' '.join(sorted(own))} differs from parent {parent.id} (area {' '.join(sorted(theirs))})"
+                f"items/{item_id}/item.md: area {' '.join(sorted(own))} differs from parent {parent.id} (area {' '.join(sorted(theirs))})"
             )
     return found
 
@@ -52,7 +52,7 @@ def deep_needs(snapshot: Snapshot) -> list[str]:
                 depth[node] = max((1 + depth[n] for n in snapshot.items[node].needs if n in depth), default=0)
     needed = {n for item in snapshot.items.values() for n in item.needs}
     return [
-        f"items/{i}.md: needs chain of {depth[i]} edges exceeds the limit of {MAX_NEEDS_DEPTH}"
+        f"items/{i}/item.md: needs chain of {depth[i]} edges exceeds the limit of {MAX_NEEDS_DEPTH}"
         for i in sorted(snapshot.items, key=sort_key)
         if depth[i] > MAX_NEEDS_DEPTH and i not in needed
     ]
@@ -66,7 +66,7 @@ def closed_needs(snapshot: Snapshot) -> list[str]:
             continue
         for need in snapshot.items[item_id].needs:
             if need in snapshot.items and snapshot.folds[need].state == State.CLOSED:
-                found.append(f"items/{item_id}.md: needs closed item {need}")
+                found.append(f"items/{item_id}/item.md: needs closed item {need}")
     return found
 
 

@@ -8,6 +8,7 @@ from qew import attachments, comments, board_config, ledger_aliases, ledger_grap
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
+from qew.ledger_aliases import ITEM_FILE
 from qew.ledger_config import LEDGER_FILE, SCHEMA_VERSIONS
 from qew.ledger_event import Event, State, attachments_after, fold, needs_after, parse_event, valid_actor
 from qew.ledger_ids import sort_key
@@ -39,17 +40,18 @@ def load(ledger: Ledger) -> tuple[Snapshot, list[str]]:
     events = {}
     aliases = ledger.aliases()
     owners: dict[str, str] = {}
-    for path in sorted(ledger.items_dir.glob("*.md")) if ledger.items_dir.is_dir() else []:
-        where = f"items/{path.name}"
-        if path.stem in aliases.superseded:
+    for path in sorted(p / ITEM_FILE for p in ledger.items_dir.iterdir() if (p / ITEM_FILE).is_file()) if ledger.items_dir.is_dir() else []:
+        stem = path.parent.name
+        where = f"items/{stem}/{ITEM_FILE}"
+        if stem in aliases.superseded:
             continue  # the renamed copy holds this item; the leftover goes when `qew migrate-ids` finishes
         try:
             item = parse_item(read_item_text(path, where), where)
         except (QewError, OSError, UnicodeError) as error:
             problems.append(str(error))
             continue
-        if item.id != path.stem:
-            problems.append(f"{where}: header id {item.id} does not match the file name")
+        if item.id != stem:
+            problems.append(f"{where}: header id {item.id} does not match the directory name")
         if item.id.lower() in claimed:
             problems.append(f"{where}: duplicate id {item.id} (also in {claimed[item.id.lower()]})")
             continue
@@ -72,7 +74,7 @@ def load(ledger: Ledger) -> tuple[Snapshot, list[str]]:
         )
     for alias, owner in sorted(owners.items()):
         if alias in items:
-            problems.append(f"items/{owner}.md: alias {alias} is also the id of another item")
+            problems.append(f"items/{owner}/item.md: alias {alias} is also the id of another item")
     items = {item_id: ledger_aliases.canonical_item(item, aliases) for item_id, item in items.items()}
     _check_orphans(ledger, items, aliases, problems)
     return Snapshot(ledger, items, folds, events), problems
@@ -121,7 +123,7 @@ def analyse(ledger: Ledger, deep: bool = True) -> Report:
     problems.extend(board_config.problems(ledger))
     warnings: list[str] = []
     ledger_invariants.report(snapshot, problems, warnings)
-    problems.extend(f"items/{item.id}.md: {found}" for item in snapshot.items.values()
+    problems.extend(f"items/{item.id}/item.md: {found}" for item in snapshot.items.values()
                     for found in map(ledger_labels.problem, item.labels) if found)  # flagged by check; reads stay available
     found = contradictions(snapshot)
     findings = text_findings(snapshot)
@@ -180,20 +182,20 @@ def _check_attachments(snapshot: Snapshot, problems: list[str], deep: bool) -> N
         problems.extend(comments.problems(item_id, snapshot.events[item_id], set(tree)))
         for name in attachments.REFERENCE.findall(item.body):
             if name not in tree:
-                problems.append(f"items/{item_id}.md: the body links attachment:{name}, which is not attached")
+                problems.append(f"items/{item_id}/item.md: the body links attachment:{name}, which is not attached")
 
 
 def _check_orphans(ledger: Ledger, items: dict[str, Item], aliases: ledger_aliases.Aliases, problems: list[str]) -> None:
     for directory in (ledger.events_dir, ledger.mirrors_dir, ledger.items_dir):
         if directory.is_dir():
             for child in sorted(directory.iterdir()):
-                if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items:
+                if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items and (directory != ledger.items_dir or any(child.iterdir())):  # an empty item directory is a harmless leftover
                     problems.append(f"{directory.name}/{child.name}: belongs to no item")
 
 
 def _check_edges(snapshot: Snapshot, problems: list[str]) -> None:
     for item in snapshot.items.values():
-        where = f"items/{item.id}.md"
+        where = f"items/{item.id}/item.md"
         for need in item.needs:
             if need not in snapshot.items:
                 problems.append(f"{where}: dangling need {need}")

@@ -66,8 +66,9 @@ class IdModeWalk(unittest.TestCase):
     def test_check_fails_on_a_duplicate_id_across_files(self) -> None:
         w = self.world
         first = w.create("--title", "One")
-        text = (w.ledger / "items" / f"{first}.md").read_text()
-        (w.ledger / "items" / "copy.md").write_text(text)
+        text = (w.ledger / "items" / f"{first}" / "item.md").read_text()
+        (w.ledger / "items" / "copy" / "item.md").parent.mkdir(exist_ok=True)
+        (w.ledger / "items" / "copy" / "item.md").write_text(text)
         result = w.run("check")
         self.assertEqual(result.returncode, 1)
         self.assertIn("duplicate id", result.stdout)

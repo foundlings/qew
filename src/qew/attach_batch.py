@@ -93,7 +93,7 @@ def plan(ledger: Ledger, requests: list[Request]) -> Batch:
     changed: list[Row] = []
     unchanged = 0
     for item_id, by_name in wanted.items():
-        current = attachments_after(ledger.load_events(item_id)) if (ledger.items_dir / f"{item_id}.md").exists() else {}
+        current = attachments_after(ledger.load_events(item_id)) if ledger.item_path(item_id).exists() else {}
         new = [row for path, row in by_name.items() if current.get(path) is None or current[path].digest != row.digest]
         unchanged += len(by_name) - len(new)
         names = set(by_name)
