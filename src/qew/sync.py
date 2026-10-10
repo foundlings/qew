@@ -14,7 +14,7 @@ import time
 from typing import cast
 from collections.abc import Callable, Mapping, Sequence
 
-from qew import attachment_links, sync_milestones, sync_plan
+from qew import attachment_links, comment_sync, sync_milestones, sync_plan
 from qew.pacing import PaceState, PaceStop, Pacer
 from qew.forge import (
     DUPLICATE_MARKER,
@@ -333,6 +333,8 @@ def _sync_item(
             record = updated(record, synced_event=newest)
             ledger.write_mirror(item_id, target.slug, record)
     _link(ledger, snapshot, target, report, item_id, numbers, record)
+    if record.get("kind") == "issue":
+        record = comment_sync.push(ledger, snapshot, target, report, item_id, record, pace)
     if board is not None:
         _place(ledger, snapshot, target, report, item_id, board, column, record, placements, fresh=unchecked)
     if unchecked:

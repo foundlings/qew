@@ -335,6 +335,12 @@ class Forge(ABC):
     def create_comment(self, number: int, body: str) -> RemoteComment:
         raise Unsupported("create_comment")
 
+    def update_comment(self, number: int, comment_id: str, body: str) -> RemoteComment:
+        raise Unsupported("update_comment")
+
+    def delete_comment(self, number: int, comment_id: str) -> None:
+        raise Unsupported("delete_comment")
+
     def list_repo_labels(self) -> list[str]:
         """Names of every label defined in the repository, used or not."""
         raise Unsupported("list_repo_labels")

@@ -13,7 +13,7 @@ import re
 import unicodedata
 from collections.abc import Callable, Collection, Iterable
 
-from qew import instants, page_cache, pull_cursor, sync_plan
+from qew import comment_sync, instants, page_cache, pull_cursor, sync_plan
 from qew.mirror_types import MirrorRecord, Seen, updated
 from qew.forge import DUPLICATE_MARKER, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_event import State
@@ -313,15 +313,9 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
                  snapshot.folds[item_id].owner or "(none)")
         changed = True
     comment_ids = list(seen["comments"])
-    if issue.comments > len(comment_ids):
-        known = {e.get("remote_ref") for e in snapshot.events[item_id] if e.type == "commented"}
-        for comment in target.forge.list_comments(issue.number):
-            if comment.id not in comment_ids:
-                comment_ids.append(comment.id)
-                if f"{target.slug}#{issue.number}/{comment.id}" not in known:
-                    ledger.append_event(item_id, "commented", text=clean_body(comment.body), author=clean_line(comment.author),
-                                        remote_ref=f"{target.slug}#{issue.number}/{comment.id}", provenance="forge")
-                    report.comments += 1
+    if issue.comments > len(comment_ids) or record.get("cmap"):  # a new comment, or linked ones that may have been edited or removed
+        comment_ids, links = comment_sync.pull(ledger, snapshot, target, report, item_id, issue.number, record, comment_ids)
+        record = updated(record, cmap=links)
         changed = True
     if changed:
         _save(ledger, item_id, target.slug, record, {**current, "title": title, "body": body, "labels": labels,
