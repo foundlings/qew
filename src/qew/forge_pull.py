@@ -236,7 +236,7 @@ def _assignees_changed(ledger: Ledger, snapshot: Snapshot, target: Target, repor
     if now == seen_all:
         return False
     mapping = target.mirror.options.get("assignees", {})
-    owner_login = str(mapping.get(snapshot.folds[item_id].owner, "")) if isinstance(mapping, dict) else ""
+    owner_login = sync_plan.assignee_of(mapping, snapshot.folds[item_id].owner)
     if owner_login and owner_login in seen_all and owner_login not in now:
         _diverge(ledger, snapshot, target, report, item_id, issue.number, "assignee", now[0] if now else "(none)", owner_login)
     ours = set(assignees_after(snapshot.events[item_id]))

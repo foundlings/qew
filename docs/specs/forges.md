@@ -165,6 +165,13 @@ item stays open: other open issues with its marker are closed (a lower-numbered 
 item with no mirror adopts its lowest-numbered marker issue. GitLab and Forgejo search by marker on the server, so their
 lookup was never limited to the newest issues.
 
+## Forge login
+The forge assignee is a person, not the agent that acts for them. `[forge] login = "887"` in `.qew/config.toml` is the login every claim assigns the mirrored
+issue to (a release unassigns) and every `qew pr open` assigns the pull request to; `[forge.logins]` maps an actor to its own login; a mirror's
+`assignees = { actor = "login" }` wins over both, and its key `*` is the default that `[forge] login` sets. Resolution: that map, then `[forge.logins]`,
+then `[forge] login`, then (pull requests only) the actor; `QEW_FORGE_LOGIN` overrides a pull request's. The claim stays the ledger's `claimed` event (actor
+`elf5`): the forge login is display only, a pull never imports it as an assignee change, and removing it on the forge is a divergence like any claim owner's.
+
 ## Status labels
 The column also shows as a label, for an issue list without the board: `ready` (Ready), `in-progress` (In progress) and `gated` (Gated), added and
 removed by sync from the same `sync_plan.column` that places the card, so label and column cannot disagree; any other column, and every finished or

@@ -89,7 +89,7 @@ def run(arguments: argparse.Namespace) -> bool:
         if opened.unassigned:
             print(
                 f"qew: pr #{opened.number} was not assigned to {opened.unassigned} (the forge refused); "
-                f"the opener is recorded in the ledger; set {LOGIN_VARIABLE} to your forge login",
+                f"the opener is recorded in the ledger; set [forge] login in .qew/config.toml (or {LOGIN_VARIABLE}) to your forge login",
                 file=sys.stderr,
             )
     elif command == "check":
@@ -275,7 +275,7 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     body = pr_body.build_body(item_id, issue["number"], what, options.why, options.testing, extra)
     pr_body.refuse_closing_references(body, "the pull request body")
     mirror = mirror_for(config, ledger, issue["_target"])
-    login = os.environ.get(LOGIN_VARIABLE) or actor()
+    login = os.environ.get(LOGIN_VARIABLE) or sync_plan.assignee_of(mirror.options.get("assignees"), actor()) or actor()
     spec = PullRequestSpec(head, options.base or config.target, item.title, body, not options.ready, login)
     forge = _build(build, mirror)
     base = options.base or config.target

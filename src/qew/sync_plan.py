@@ -3,7 +3,7 @@
 import hashlib
 import json
 import re
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 
 from qew import label_style, ledger_author, ledger_graph, rollup
 from qew.mirror_types import Seen
@@ -225,8 +225,8 @@ def issue_spec(
         labels=labels(snapshot, item, overlay, diverged),
         open=state not in (State.COMPLETED, State.CLOSED),
         close_reason=closed_reason,
-        assignee=assignees.get(folded.owner, ""),
-        assignees=tuple(login for login in assignees_after(snapshot.events[item.id]) if login != assignees.get(folded.owner, "")),
+        assignee=assignee_of(assignees, folded.owner),
+        assignees=tuple(login for login in assignees_after(snapshot.events[item.id]) if login != assignee_of(assignees, folded.owner)),
     )
 
 
@@ -303,6 +303,13 @@ def fingerprint(spec: IssueSpec, extra: object = None) -> str:
 def user_labels(labels: Iterable[str]) -> list[str]:
     """Labels qew does not manage: the ones a human may add on the forge."""
     return sorted(l for l in labels if not label_style.is_managed(l))
+
+
+def assignee_of(mapping: Mapping[str, object] | object, owner: str) -> str:
+    """The forge login a claim owner is shown as: the mirror's `assignees` entry for them, else its `*` default, else none."""
+    if not owner or not isinstance(mapping, dict):
+        return ""
+    return str(mapping.get(owner) or mapping.get("*") or "")
 
 
 def imported_labels(labels: Iterable[str]) -> list[str]:
