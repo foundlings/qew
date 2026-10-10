@@ -18,7 +18,7 @@ def to_json(page: CachedPage) -> JsonObject:
 
 def _issue_json(issue: RemoteIssue) -> JsonObject:
     return {"number": issue.number, "url": issue.url, "node_id": issue.node_id, "open": issue.open, "title": issue.title,
-            "body": issue.body, "labels": list(issue.labels), "assignee": issue.assignee, "assignees": list(issue.assignees), "reactions": [[n, c] for n, c in issue.reactions], "comments": issue.comments,
+            "body": issue.body, "labels": list(issue.labels), "assignee": issue.assignee, "assignees": list(issue.assignees), "reactions": [[n, c] for n, c in issue.reactions], "issue_type": issue.issue_type, "comments": issue.comments,
             "milestone": issue.milestone, "close_reason": issue.close_reason, "issue_id": issue.issue_id, "parent": issue.parent}
 
 
@@ -51,6 +51,7 @@ def _issue(entry: object) -> RemoteIssue | None:
                        assignees=tuple(x for x in entry.get("assignees", []) if isinstance(x, str)) if isinstance(entry.get("assignees"), list) else (),
                        reactions=tuple((str(p[0]), p[1]) for p in entry.get("reactions", []) if isinstance(p, list) and len(p) == 2 and type(p[1]) is int)
                        if isinstance(entry.get("reactions"), list) else (),
+                       issue_type=entry["issue_type"] if isinstance(entry.get("issue_type"), str) else "",
                        issue_id=entry["issue_id"] if type(entry.get("issue_id")) is int else 0,
                        parent=entry["parent"] if type(entry.get("parent")) is int else 0)
 
