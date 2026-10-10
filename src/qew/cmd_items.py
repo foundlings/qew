@@ -157,14 +157,14 @@ def create(config: Config, specs: list[JsonObject], quote: str | None, import_ev
     return plan_apply.apply(config, plan, quote, False, import_events, mark=False)
 
 
-def set_manifest(config: Config, manifest: Path, dry_run: bool) -> str:
+def set_manifest(config: Config, manifest: Path, dry_run: bool, allow_closed: bool = False) -> str:
     """Change labels and priorities of many items in one write; checked whole first (see set_batch)."""
     from qew import manifest_rows, set_batch
 
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
     rows = manifest_rows.read(ledger, manifest, list(snapshot.items), set_batch.ROW_KEYS)
-    batch = set_batch.plan(snapshot, rows)
+    batch = set_batch.plan(snapshot, rows, allow_closed)
     if not dry_run:
         set_batch.apply(ledger, batch)
     return set_batch.summary(batch, "would change" if dry_run else "changed")

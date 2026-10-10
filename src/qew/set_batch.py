@@ -40,12 +40,12 @@ def _labels(value: object, where: str, key: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(x.strip() for x in found))
 
 
-def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]]) -> Batch:
+def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]], allow_closed: bool = False) -> Batch:
     planned: list[Planned] = []
     unchanged = 0
     for item_id, raw, where in rows:
-        if snapshot.folds[item_id].state in (State.COMPLETED, State.CLOSED):
-            raise QewError(f"{where}: {item_id} is finished; pass it to `qew set --closed` one at a time", 2)
+        if snapshot.folds[item_id].state in (State.COMPLETED, State.CLOSED) and not allow_closed:
+            raise QewError(f"{where}: {item_id} is finished; pass --closed to change finished work", 2)
         add, remove = _labels(raw.get("add_label", []), where, "add_label"), _labels(raw.get("remove_label", []), where, "remove_label")
         reason = raw.get("reason", "")
         if not isinstance(reason, str):

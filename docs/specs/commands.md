@@ -169,10 +169,10 @@ shape prime: additional_context context_bytes schema_version
   `--force`, `/etc/hosts`, `git push`, `gh pr`, `python -m`, `pipx install`). Each distinct token prints
   `warning: unmarked code-shaped text: TOKEN` on stderr, in order of appearance; the write still succeeds. Inline
   code, backtick or tilde fences (an unclosed fence runs to the end) and URLs are not reported.
-- `qew set --manifest FILE [--dry-run]`: change labels, fields and priorities of many items in one commit. FILE is JSON Lines of
+- `qew set --manifest FILE [--dry-run] [--closed]`: change labels, fields and priorities of many items in one commit. FILE is JSON Lines of
   `{item, add_label?, remove_label?, fields?, priority?, reason?}` (a label or a list of labels; `fields` is `{NAME: value-or-list}`, which replaces those fields and removes one given `[]`; priority 0 to 9). Every row is checked
   before the first write and one bad row refuses all, naming its line (exit 2): an unknown or duplicate item, an unknown field,
-  finished work, an invalid label or priority, a `gated` label added without a `reason` (kept as a comment `gated: TEXT`). A row
+  finished work (unless `--closed`), an invalid label or priority, a `gated` label added without a `reason` (kept as a comment `gated: TEXT`). A row
   that changes nothing is `unchanged`, so a rerun adds nothing. The writes are the audited `field` events of `qew set`.
 - `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--field NAME=VALUE]... [--clear-field NAME]... [--priority N] [--due YYYY-MM-DD]
   [--body TEXT | --edit] [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--reason TEXT] [--closed] [--json]`: edits the header; adding the label `gated` (work blocked outside the repository: keys, credentials, hardware, an account) needs `--reason TEXT`, kept as a comment `gated: TEXT`, and moves the item to the Gated column, out of `qew ready`; each change appends a `field` audit event. The whole result is validated

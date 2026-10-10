@@ -15,11 +15,11 @@ for name in python3.15 python3; do
     exec "$name" "$here/setup_user.py" "$@"
   fi
 done
-for path in /opt/homebrew/bin/python3.15 /usr/local/bin/python3.15 "$HOME/.local/bin/python3.15" /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+for path in /opt/homebrew/bin/python3.15 /usr/local/bin/python3.15 /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
   if [ -x "$path" ] && usable "$path"; then
     exec "$path" "$here/setup_user.py" "$@"
   fi
 done
 
-echo "qew needs Python 3.15 or newer; install one (macOS: brew install python@3.15, or uv python install 3.15) and rerun." >&2
+echo "qew needs Python 3.15 or newer; install one (macOS: brew install python@3.15) and rerun." >&2
 exit 3

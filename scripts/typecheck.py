@@ -22,7 +22,7 @@ STAMP = VENV / ".requirements"
 
 
 def python315() -> str:
-    candidates = [sys.executable, shutil.which("python3.15") or "", str(Path.home() / ".local" / "bin" / "python3.15")]
+    candidates = ["/opt/homebrew/bin/python3.15", "/usr/local/bin/python3.15", sys.executable, shutil.which("python3.15") or ""]
     for candidate in candidates:
         if not candidate:
             continue
@@ -33,7 +33,7 @@ def python315() -> str:
             continue
         if found == "True":
             return candidate
-    raise SystemExit("typecheck: Python 3.15 not found; install python@3.15 (Homebrew) or `uv python install 3.15`")
+    raise SystemExit("typecheck: Python 3.15 not found; install python@3.15 (`brew install python@3.15`)")
 
 
 def ensure_environment() -> Path:

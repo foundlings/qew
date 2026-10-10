@@ -42,15 +42,20 @@ def run(command: list) -> None:
         raise SetupError(f"command failed: {' '.join(map(str, command))}", 3)
 
 
-def venv_is_stale(venv: Path) -> bool:
-    """True when the environment's own interpreter is not this Python's minor version (or does not run): `venv` alone
-    would keep it, and its pyvenv.cfg is rewritten by every run so it cannot be trusted."""
+def venv_repair(venv: Path) -> list[str]:
+    """The `venv` flags that make the environment run this Python: `--clear` for another minor version (its packages
+    cannot be reused), `--upgrade` for another build of this one (a release candidate, a different install), none when
+    it already does. `venv` alone would keep the old interpreter, and its pyvenv.cfg cannot be trusted. `--upgrade`
+    keeps the environment importable while it is repaired, so running agents do not lose `qew`."""
     python = venv / "bin" / "python"
     if not python.exists() and not python.is_symlink():
-        return False
-    probe = f"import sys; print(sys.version_info[:2] == ({sys.version_info.major}, {sys.version_info.minor}))"
+        return []
+    probe = "import os, sys; print(sys.version_info[0], sys.version_info[1], os.path.realpath(sys.executable))"
     result = subprocess.run([str(python), "-c", probe], capture_output=True, text=True, check=False)
-    return result.stdout.strip() != "True"
+    found = result.stdout.strip().split(" ", 2)
+    if found[:2] != [str(sys.version_info.major), str(sys.version_info.minor)]:
+        return ["--clear"]
+    return [] if found[2:] == [os.path.realpath(sys.executable)] else ["--upgrade"]
 
 
 def install() -> None:
@@ -66,7 +71,7 @@ def install() -> None:
     bin_dir = home / ".local" / "bin"
     link = bin_dir / "qew"
     linked = check_link(link, executable)
-    run([sys.executable, "-m", "venv", *(["--clear"] if venv_is_stale(venv) else []), str(venv)])
+    run([sys.executable, "-m", "venv", *venv_repair(venv), str(venv)])
     run(
         [
             str(venv / "bin" / "python"),
