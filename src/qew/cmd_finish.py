@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from qew import claim_reconcile, code_vcs, complete_batch, evidence_batch, ledger_graph, manifest_rows, outcome
+from qew import claim_reconcile, code_vcs, complete_batch, evidence_batch, evidence_resolve, ledger_graph, manifest_rows, outcome
 from qew.cmd_claim import holding, holds_ancestor
 from qew.cmd_items import ledger_for
 from qew.code_vcs import Landing
@@ -171,7 +171,7 @@ def evidence_manifest(config: Config, manifest: Path, dry_run: bool) -> str:
     snapshot = ledger.snapshot()
     rows = manifest_rows.read(ledger, manifest, list(snapshot.items), evidence_batch.ROW_KEYS)
     vcs = code_vcs.detect(config.root)
-    batch = evidence_batch.plan(snapshot, rows, vcs, code_vcs.repository_url(config.root))
+    batch = evidence_batch.plan(snapshot, rows, vcs, code_vcs.repository_url(config.root), evidence_resolve.resolver(config))
     if not dry_run:
         evidence_batch.apply(ledger, batch)
     return evidence_batch.summary(batch, "would record" if dry_run else "recorded")
