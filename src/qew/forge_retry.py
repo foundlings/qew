@@ -102,6 +102,11 @@ def rate_limited(response: HttpResponse) -> bool:
     return response.status == 403 and b"rate limit" in response.body.lower()
 
 
+def secondary_limit(response: HttpResponse) -> bool:
+    """True for GitHub's secondary (abuse) limit, which a create must not be repeated into: the pacer learns the pace from it."""
+    return b"secondary rate limit" in response.body.lower()
+
+
 def repeatable(request: HttpRequest) -> bool:
     """True when sending the request again after a failed answer cannot do harm."""
     if request.method in _SAFE_METHODS:
@@ -157,7 +162,7 @@ def retrying(transport: Transport, retries: int, max_wait: float, base: float = 
                     raise
                 answer_wait = 0.0
             else:
-                if rate is not None and safe and limited < rate.retries and rate_limited(response):
+                if rate is not None and limited < rate.retries and rate_limited(response) and (safe or not secondary_limit(response)):
                     asked = response.headers.get("Retry-After") or response.headers.get("retry-after") or ""
                     rate_backoff(limited, float(asked) if asked.replace(".", "", 1).isdigit() else 0.0, rate, sleep, jitter)
                     limited += 1

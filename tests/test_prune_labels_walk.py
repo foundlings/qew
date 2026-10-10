@@ -91,7 +91,7 @@ class PruneLabelsWalk:
         self.assertTrue({"area:keep", "author:legacy"} <= self.side.labels())
         again = self.w.run("sync", "--prune-labels", env=self.env)
         self.assertEqual(again.returncode, 0)
-        self.assertIn("no unused", again.stdout)
+        self.assertIn("no retired", again.stdout)
 
     def test_a_closed_duplicate_twin_does_not_keep_a_label_alive(self) -> None:
         """Prevents a dead twin (closed, marker replaced by qew-duplicate) pinning a label forever; an open twin still does."""

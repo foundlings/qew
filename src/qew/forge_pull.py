@@ -15,7 +15,7 @@ from collections.abc import Callable, Collection, Iterable
 
 from qew.forge_text import clean_body, clean_line
 from qew.assignees import assignees_after
-from qew import comment_sync, forge_divergence, review_sync, instants, page_cache, pull_cursor, sync_plan
+from qew import comment_sync, forge_divergence, label_style, review_sync, instants, page_cache, pull_cursor, sync_plan
 from qew.mirror_types import MirrorRecord, Seen, updated
 from qew.forge import DUPLICATE_MARKER, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_event import State, valid_actor
@@ -236,7 +236,7 @@ def _assignees_changed(ledger: Ledger, snapshot: Snapshot, target: Target, repor
     if now == seen_all:
         return False
     mapping = target.mirror.options.get("assignees", {})
-    owner_login = str(mapping.get(snapshot.folds[item_id].owner, "")) if isinstance(mapping, dict) else ""
+    owner_login = sync_plan.assignee_of(mapping, snapshot.folds[item_id].owner)
     if owner_login and owner_login in seen_all and owner_login not in now:
         _diverge(ledger, snapshot, target, report, item_id, issue.number, "assignee", now[0] if now else "(none)", owner_login)
     ours = set(assignees_after(snapshot.events[item_id]))
@@ -280,7 +280,7 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
         if title != item.title:
             _diverge(ledger, snapshot, target, report, item_id, issue.number, "title", title, item.title)
         labels = clean_labels(current["labels"])
-        if labels != sorted(item.labels):
+        if labels != sync_plan.user_labels(item.labels):
             _diverge(ledger, snapshot, target, report, item_id, issue.number, "labels", " ".join(labels), " ".join(item.labels))
         _save(ledger, item_id, target.slug, updated(record, baselined=True), current)
         return
@@ -308,8 +308,9 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
         changed = True
     labels = clean_labels(current["labels"])
     if labels != seen["labels"]:
-        if sorted(item.labels) == seen["labels"]:
-            item = _apply_header(ledger, item, "labels", " ".join(labels))
+        if sync_plan.user_labels(item.labels) == seen["labels"]:
+            kept = [label for label in item.labels if label_style.is_managed(label)]  # the ledger's own `gated` is not a forge edit
+            item = _apply_header(ledger, item, "labels", " ".join([*labels, *kept]))
             report.applied += 1
         else:
             _diverge(ledger, snapshot, target, report, item_id, issue.number, "labels", " ".join(labels), " ".join(item.labels))
@@ -334,6 +335,10 @@ def _pull_item(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullR
     if issue.comments > len(comment_ids) or record.get("cmap"):  # a new comment, or linked ones that may have been edited or removed
         comment_ids, links = comment_sync.pull(ledger, snapshot, target, report, item_id, issue.number, record, comment_ids)
         record = updated(record, cmap=links)
+        changed = True
+    wanted_status = sync_plan.status_label(snapshot, item_id)
+    if set(issue.labels) & sync_plan.DERIVED_LABELS != ({wanted_status} if wanted_status else set()) and not record.get("baselined"):
+        record = updated(record, synced_hash="")  # a hand-edited status label is recomputed by the next push: no event, no divergence
         changed = True
     if changed:
         _save(ledger, item_id, target.slug, record, {**current, "title": title, "body": body, "labels": labels,
@@ -408,7 +413,7 @@ def _import_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: Pu
 
     known = list(snapshot.items)
     item_id = ledger.new_id("issue", known)
-    labels = clean_labels(sync_plan.user_labels(issue.labels))
+    labels = clean_labels(sync_plan.imported_labels(issue.labels))
     item = from_header({
         "id": item_id, "kind": "issue", "title": clean_line(issue.title) or f"Imported issue {issue.number}",
         "parent": "", "needs": "", "labels": " ".join(labels), "owner": "", "priority": "2", "created": now(),

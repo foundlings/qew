@@ -109,7 +109,7 @@ def _restore_item(ledger: Ledger, target: Target, report: PullReport, issue: Rem
                   footer: tuple[str, str, str], history: bool) -> str:
     state, kind = footer[1], footer[2]
     priority = _priority_of(issue.labels)
-    labels = clean_labels(sync_plan.user_labels(issue.labels))
+    labels = clean_labels(sync_plan.imported_labels(issue.labels))
     item = from_header({
         "id": item_id, "kind": kind if kind in [k.value for k in Kind] else "issue",
         "title": clean_line(issue.title) or item_id, "parent": "", "needs": "", "labels": " ".join(labels),

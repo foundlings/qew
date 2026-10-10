@@ -165,6 +165,20 @@ item stays open: other open issues with its marker are closed (a lower-numbered 
 item with no mirror adopts its lowest-numbered marker issue. GitLab and Forgejo search by marker on the server, so their
 lookup was never limited to the newest issues.
 
+## Forge login
+The forge assignee is a person, not the agent that acts for them. `[forge] login = "887"` in `.qew/config.toml` is the login every claim assigns the mirrored
+issue to (a release unassigns) and every `qew pr open` assigns the pull request to; `[forge.logins]` maps an actor to its own login; a mirror's
+`assignees = { actor = "login" }` wins over both, and its key `*` is the default that `[forge] login` sets. Resolution: that map, then `[forge.logins]`,
+then `[forge] login`, then (pull requests only) the actor; `QEW_FORGE_LOGIN` overrides a pull request's. The claim stays the ledger's `claimed` event (actor
+`elf5`): the forge login is display only, a pull never imports it as an assignee change, and removing it on the forge is a divergence like any claim owner's.
+
+## Status labels
+The column also shows as a label, for an issue list without the board: `ready` (Ready), `in-progress` (In progress) and `gated` (Gated), added and
+removed by sync from the same `sync_plan.column` that places the card, so label and column cannot disagree; any other column, and every finished or
+closed item, carries none. They are display only: the ledger's own `gated` label stays the source of truth for the item's own gate and is shown only
+while the item sits in Gated (a gated epic, issue or task always does); `ready` and `in-progress` are reserved ledger names. All three are managed
+labels: a pull never imports them as a human's edit, and a hand-added or hand-removed one is put right by the next sync (no divergence, no event).
+
 ## Rate limits and locks
 A call GitHub refuses as rate limited (a GraphQL `RATE_LIMITED` answer, or a REST 429 or 403 naming a rate limit) was not applied, so a
 repeatable call (never a create: the pacer learns the pace from that block) waits and is sent again: the `Retry-After` the forge named, else 30 s
@@ -180,10 +194,10 @@ A mirror's `project_fields = { "Board field" = "source" }` fills custom Projects
 is set as given; a single-select field needs an option of that name. `qew project ensure` creates a text field for each mapped name the board
 lacks (a field that exists, of any type, stays), so adding a field later is one `project_fields` entry and an ensure. A value a human changed on
 the card is a divergence, as for any mirrored fact. Fields are not labels: once a label is replaced by a field the next sync removes it from the
-issue, and `qew sync --prune-labels --all-labels` deletes the definition when nothing carries it any more.
+issue, and `qew sync --prune-labels` deletes the definition once nothing carries it: the prefix is retired.
 
 ## Label pruning
-`Forge` has three calls for `qew sync --prune-labels` (`--all-labels` lifts the managed-prefix limit; `gated` and `needs:approval` stay): `list_repo_labels()` (every definition), `labels_in_use()` (names carried by any
+`Forge` has three calls for `qew sync --prune-labels` (only labels qew retired: a prefix converted to a field, or its own namespace labels it no longer emits; never a label that is merely unused): `list_repo_labels()` (every definition), `labels_in_use()` (names carried by any
 issue or pull request, open or closed; GitHub and Forgejo list pull requests among issues, GitLab reads issues and merge requests) and
 `delete_label(name)` (a missing label is fine). Deleting a label also removes it from whatever carried it, so the command only deletes
 names `labels_in_use()` did not return. A closed issue whose body carries `<!-- qew-duplicate -->` (a retired twin) does not count as carrying anything.

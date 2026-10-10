@@ -1,6 +1,6 @@
 """Locate the code repo's `.qew/config.toml` and the ledger it names."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from contextlib import contextmanager
 import os
@@ -86,6 +86,38 @@ def _replication(section: object) -> Replication:
     return Replication(**section)
 
 
+def _login(value: object, where: str) -> str:
+    if not isinstance(value, str) or not value or len(value) > 100 or any(c.isspace() or not c.isprintable() for c in value):
+        raise QewError(f"{where} must be one forge login (no spaces)", 1)
+    return value
+
+
+def _forge(section: object) -> tuple[str, dict[str, str]]:
+    """`[forge] login = "887"` (the human every agent acts for) and `[forge.logins] elf3 = "alice"` (an actor with its own login)."""
+    if section is None:
+        return "", {}
+    if not isinstance(section, dict):
+        raise QewError("[forge] must be a table", 1)
+    for key in section:
+        if key not in ("login", "logins"):
+            raise QewError(f"[forge] has an unknown key `{key}`", 1)
+    login = _login(section["login"], "[forge] login") if "login" in section else ""
+    table = section.get("logins", {})
+    if not isinstance(table, dict):
+        raise QewError("[forge.logins] must be a table of actor = login", 1)
+    return login, {str(actor): _login(who, f"[forge.logins] {actor}") for actor, who in table.items()}
+
+
+def _with_logins(mirror: Mirror, login: str, logins: dict[str, str]) -> Mirror:
+    """The mirror's `assignees` map (claim owner -> forge login) gets the repo-level defaults under it: the mirror's own entries
+    win, then `[forge.logins]`, then `[forge] login` for every other actor (the wildcard `*`)."""
+    if not login and not logins:
+        return mirror
+    own = mirror.options.get("assignees", {})
+    merged = {**({"*": login} if login else {}), **logins, **(own if isinstance(own, dict) else {})}
+    return replace(mirror, options={**mirror.options, "assignees": merged})
+
+
 def _authority(section: object, mirrors: tuple[Mirror, ...]) -> str:
     """The primary forge target's slug, or `none`; a unique fragment of a slug is accepted."""
     if section is None:
@@ -161,7 +193,8 @@ def load(start: Path | None = None) -> Config:
     ledger_prefix = _ledger_prefix(ledger_path.resolve())
     prefix = section.get("prefix") or ledger_prefix
     code = data.get("code", {})
-    mirrors = _distinct(_mirror(entry) for entry in data.get("mirror", []))
+    forge_login, forge_logins = _forge(data.get("forge"))
+    mirrors = _distinct(_with_logins(_mirror(entry), forge_login, forge_logins) for entry in data.get("mirror", []))
     return Config(root, ledger_path.resolve(), str(prefix), str(code.get("target", "main")), mirrors,
                   _replication(data.get("replication")), _authority(data.get("authority"), mirrors),
                   _claim_cap(data.get("claims")), _offline_claims(data.get("authority")))
