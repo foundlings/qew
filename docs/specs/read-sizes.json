@@ -1,22 +1,22 @@
 {
   "list": {
-    "compact_bytes": 3102,
+    "compact_bytes": 2998,
     "compact_tokens": 1258,
-    "raw_bytes": 7699
+    "raw_bytes": 7595
   },
   "prime": {
     "compact_bytes": 1311,
     "compact_tokens": 353,
-    "raw_bytes": 7699
+    "raw_bytes": 7595
   },
   "ready": {
-    "compact_bytes": 924,
+    "compact_bytes": 884,
     "compact_tokens": 390,
-    "raw_bytes": 7699
+    "raw_bytes": 7595
   },
   "show": {
-    "compact_bytes": 1485,
+    "compact_bytes": 1477,
     "compact_tokens": 563,
-    "raw_bytes": 4601
+    "raw_bytes": 4537
   }
 }

@@ -20,7 +20,7 @@ from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, valid_actor
 from qew.ledger_item import Item, parse_item, read_item_text, render_item
 from qew.jsontypes import JsonObject
-from qew.ledger_ids import event_id, next_id, parse_modes, sort_key
+from qew.ledger_ids import DEFAULT_MODES, event_id, next_id, parse_modes, sort_key
 
 _INTENTS = threading.Lock()  # sync workers add and clear creating intents in one shared file
 
@@ -63,7 +63,7 @@ def actor() -> str:
 class Ledger:
     path: Path
     prefix: str = ""
-    id_modes: dict[str, str] = field(default_factory=lambda: {"epic": "base35-time", "issue": "base35-time", "task": "base35-time"})
+    id_modes: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODES))
 
     @property
     def items_dir(self) -> Path:

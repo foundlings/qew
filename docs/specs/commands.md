@@ -463,7 +463,8 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   the next letter follows the end of the main run of letter ids and ignores far-off outliers (a gap of more than three
   blocks of two-letter ids ends the run, so PID and PIE after ADF do not move it); an id that is taken is skipped.
   `--after ID` (letters kinds) counts a letter reserved outside the ledger, such as a phase document, as taken. A plan
-  that names an id for a letters kind outside `--import` must name exactly the next letter, else exit 2 naming it.
+  that names a letter id for a letters kind outside `--import` may not jump far past the end of the sequence (more than three
+  blocks of two-letter ids), else exit 2 naming the next letter: hand-named ids like PIE after ADF are refused.
 - `qew migrate-ids --to base35-time [--dry-run]`: rename every item whose id is not a base35-time id (letters, counter, imported) to a
   new base35-time id, ordered by creation, and carry every reference: item headers (`parent needs tracks pr discovered_from`),
   event directories and the ids cited in `edge`, `closed` and link `field` events, mirror directories and pull request

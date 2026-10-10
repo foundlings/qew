@@ -34,7 +34,7 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
 - Item and event IDs are ledger-local, globally unique, sortable, never forge counters. They are bare (the configured
   `prefix` names the ledger; it is not part of an ID).
 - `id_mode` in `qew-ledger.toml` picks the mode per kind (`epic`, `issue`, `task`), either one name for every kind or a
-  table; a kind left out is `base35-time`:
+  table; a kind left out gets its default (epics `letters`, issues and tasks `base35-time`; `qew init` writes that table explicitly). A ledger that names `id_mode` keeps what it says:
   - `base35-time` (the default): 9 characters, seconds since 2020 in base 35 plus two more, so IDs sort by creation and
     concurrent writers rarely collide (`qew check` refuses duplicates). Example `042fcpx9w`.
   - `letters`: A, B .. Z, AA .. ZZ, AAA .. in strict order (after ZZZ comes AAAA), for a handful of long-lived items (foundlings uses it for epics, so phases read `ADA`).
