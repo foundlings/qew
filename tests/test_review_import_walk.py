@@ -88,7 +88,7 @@ class ReviewImportWalk(unittest.TestCase):
         calls = self.review_calls()
         self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
         asked_for_ghost = [path for _m, path, _b in self.fake.requests if "/pulls/999/" in path]
-        self.assertEqual(len(asked_for_ghost), 2, asked_for_ghost)  # reviews and review comments, once
+        self.assertEqual(len(asked_for_ghost), 1, asked_for_ghost)  # the one reviews read that answered 404, never again
         self.assertGreaterEqual(self.review_calls(), calls)
 
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from qew import instants
 from qew.comments import comments_after
-from qew.forge import RemoteReview, RemoteReviewComment, Unsupported
+from qew.forge import ForgeRejected, RemoteReview, RemoteReviewComment, Unsupported
 from qew.forge_text import clean_body, clean_line
 from qew.ledger_store import Ledger, Snapshot
 from qew.mirror_types import MirrorRecord, updated
@@ -32,6 +32,12 @@ def pull(ledger: Ledger, snapshot: Snapshot, target: Target, prs: list[tuple[str
             inline = target.forge.list_review_comments(number)
         except Unsupported:
             return added
+        except ForgeRejected as error:
+            if error.status != 404:
+                raise
+            # the forge no longer has this pull request: nothing to read, and nothing to ask about again
+            ledger.write_mirror(host, record["_target"], updated(record, reviews_read=True))
+            continue
         for review in reviews:
             added += _add(ledger, covered, target, known, f"{target.slug}#pr{number}/review/{review.id}", review.submitted,
                           review.author, _review_text(review))
