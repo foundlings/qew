@@ -19,6 +19,12 @@ from qew.ledger_store import Snapshot
 READY_LIMIT = 30
 
 
+def _absence_view(text: str) -> dict[str, str] | None:
+    """The header's `KIND: reason` as {kind, reason}; None when the item has no absence."""
+    kind, _, reason = text.partition(": ")
+    return {"kind": kind, "reason": reason} if text else None
+
+
 def limit_type(value: str) -> int:
     try:
         number = int(value)
@@ -254,7 +260,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
         ("blocking", [read_view.related(snapshot, b) for b in blocks]),
         ("children", [read_view.related(snapshot, k) for k in kids]),
-        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("reactions", reactions), ("references", cross), ("timeline", timeline), ("body", item.body),
+        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("reactions", reactions), ("references", cross), ("timeline", timeline), ("evidence_ids", list(item.evidence)), ("evidence_absent", _absence_view(item.evidence_absent)), ("body", item.body),
     )
     for key, value in related:
         if value:
@@ -298,6 +304,10 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         print(f"mirror: {mirror['target']} #{mirror['number']}")
     for line in lines:
         print(line)
+    if item.evidence:
+        print(f"evidence: {' '.join(item.evidence)}")
+    if item.evidence_absent:
+        print(f"evidence absent: {item.evidence_absent}")
     if extra_assignees:
         print(f"assignees: {' '.join(extra_assignees)}")
     if timeline:

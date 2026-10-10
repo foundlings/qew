@@ -73,9 +73,20 @@ priority: 2                    # lower = sooner
 created: 2026-10-08T16:00:00Z
 discovered_from: 042f0gp5t    # optional: where this was found; never a dependency
 aliases: 42             # optional: ids before a migration (qew migrate-ids)
+evidence: kxyzabcdefgh 1f3a9c7   # completed work: the changes that deliver it, as cited (jj change ids on jj, git commits otherwise)
+evidence_absent: no-code: why   # completed work without code: KIND: reason (never together with evidence)
 ---
 Body…
 ```
+Strict evidence (schema 4, the default; `evidence = "lenient"` in `qew-ledger.toml` opts out): a completed item carries
+`evidence` (at least one id; each must resolve and be an ancestor of the target) or `evidence_absent` with a kind of `no-code`
+(delivered outside the repository), `historical` (done before the ledger or imported without a resolvable id),
+`superseded-by:ITEM` or `children` (an epic finished by its children), never silently neither. The header is set by whatever
+writes the `completed` event (`evidence` / `absent` + `absent_reason` fields; imports and forge-side closes record `historical`);
+events stay the history. `qew check` requires the header, that every id is cited by an event, and (where the code repository
+is at hand) that every id resolves and landed on the target; the cited change cannot be the one recording the completion
+when the ledger lives inside the code repository.
+
 - Allowed keys are fixed by the schema; unknown keys fail validation (loud).
 - Reverse edges (blocks, children, referenced-by) are DERIVED, never stored.
 - Tasks/checkboxes are child items of `kind: task` (each its own file), not inline Markdown boxes.

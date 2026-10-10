@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 from collections.abc import Iterable
 
-from qew import attachments, ledger_aliases
+from qew import attachments, evidence_header, ledger_aliases
 from qew.errors import QewError
 from qew.mirror_types import MirrorRecord
 from qew.ledger_aliases import ITEM_FILE
@@ -65,6 +65,7 @@ class Ledger:
     path: Path
     prefix: str = ""
     id_modes: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MODES))
+    evidence_strict: bool = True  # qew-ledger.toml `evidence = "lenient"` opts out of the proof-or-typed-absence rule
 
     @property
     def items_dir(self) -> Path:
@@ -234,6 +235,11 @@ class Ledger:
         existing = sorted(path.stem for path in directory.glob("*.json"))
         event = Event(event_id(existing[-1] if existing else ""), event_type, at or now(), by or actor(), dict(data))
         _write(directory / f"{event.id}.json", event.to_json(), exclusive=True)
+        if event_type == "completed" and self.item_path(item_id).is_file():
+            shown = evidence_header.header_values(event.data)  # the item shows its own proof, or why there is none
+            if shown is not None:
+                item = self.load_item(item_id)
+                self.write_item(replace(item, evidence=shown[0], evidence_absent=shown[1]), overwrite=True)
         return event
 
     def write_mirror(self, item_id: str, target: str, value: MirrorRecord) -> None:
@@ -411,7 +417,10 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
         data = tomllib.loads((path / LEDGER_FILE).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, tomllib.TOMLDecodeError) as error:
         raise QewError(f"{path / LEDGER_FILE}: {error}", 1) from None
-    return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")))
+    mode = data.get("evidence", "strict")
+    if mode not in ("strict", "lenient"):
+        raise QewError(f'{path / LEDGER_FILE}: evidence must be "strict" or "lenient"', 1)
+    return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")), mode == "strict")
 
 
 MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items")

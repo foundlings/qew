@@ -40,7 +40,7 @@ class InitWalk(unittest.TestCase):
         self.assertIn("created", first.stdout)
         self.assertIn("untrusted", first.stdout)
         self.assertIn("qew complete", first.stdout)
-        self.assertIn("schema_version = 3", self.marker.read_text(), "a new ledger declares the attachment layout from day one")
+        self.assertIn("schema_version = 4", self.marker.read_text(), "a new ledger declares the attachment layout from day one")
         before = (self.config.read_bytes(), self.marker.read_bytes())
         again = init(self.repo, "--ledger", "../ledger")
         self.assertEqual(again.returncode, 0, again.stderr)

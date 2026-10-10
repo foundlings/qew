@@ -9,6 +9,8 @@ from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
 from qew.ledger_aliases import ITEM_FILE
+from qew.code_vcs import Landing
+from qew.evidence_resolve import Resolver
 from qew.ledger_config import LEDGER_FILE, SCHEMA_VERSIONS
 from qew.ledger_event import Event, State, attachments_after, fold, needs_after, parse_event, valid_actor
 from qew.ledger_ids import sort_key
@@ -105,18 +107,19 @@ class Report:
         }
 
 
-def check_report(ledger: Ledger, deep: bool = True) -> tuple[list[str], list[str]]:
+def check_report(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> tuple[list[str], list[str]]:
     """(problems, notes): problems fail the check; notes (counts and advisories) are reported and never fatal."""
-    report = analyse(ledger, deep)
+    report = analyse(ledger, deep, resolve)
     return report.problems, [*report.notes, *report.advisories]
 
 
-def analyse(ledger: Ledger, deep: bool = True) -> Report:
+def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> Report:
     snapshot, problems = load(ledger)
     items = snapshot.items
     _check_attachments(snapshot, problems, deep)
     _check_edges(snapshot, problems)
-    imported, without_code, by_quote = _check_completed(snapshot, problems)
+    unknown_evidence = _check_evidence_resolves(snapshot, problems, resolve) if resolve is not None else 0
+    imported, without_code, by_quote = _check_completed(snapshot, problems, ledger.evidence_strict)
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
     _check_claim_refs(snapshot, problems)
@@ -134,6 +137,8 @@ def analyse(ledger: Ledger, deep: bool = True) -> Report:
         notes.append(f"completed without code: {without_code}")
     if by_quote:
         notes.append(f"completed on a human's quote (qew complete --manifest): {by_quote}")
+    if unknown_evidence:
+        notes.append(f"evidence ids unknown to this checkout (not fetched here yet?): {unknown_evidence}")
     contested = sum(1 for fold_ in snapshot.folds.values() for e in fold_.divergences if e.type == "claimed")
     if contested:
         notes.append(f"contested claims: {contested} (see `qew status`; settle with `qew accept` or `qew reject`)")
@@ -218,20 +223,65 @@ def _check_edges(snapshot: Snapshot, problems: list[str]) -> None:
             problems.append(f"{label} cycle: {' -> '.join(cycle)}")
 
 
-def _check_completed(snapshot: Snapshot, problems: list[str]) -> tuple[int, int, int]:
-    """(imported without evidence, completed with an explicit no-code reason, completed on a human's quote); counted, not fatal."""
+def _cited_ids(snapshot: Snapshot, item_id: str) -> set[str]:
+    """Every change id the item's events cite: evidence events and what the completion recorded."""
+    found: set[str] = set()
+    for event in snapshot.events[item_id]:
+        if event.type == "evidence":
+            found.update(str(c) for c in event.get("change_ids", []))
+        elif event.type == "completed":
+            for key in ("evidence", "delivered_by", "commits"):
+                found.update(str(c) for c in event.get(key, []) if isinstance(event.get(key), list))
+    return found
+
+
+def _check_evidence_resolves(snapshot: Snapshot, problems: list[str], resolve: Resolver) -> int:
+    """Every id in a completed item's header that this checkout knows must be an ancestor of the target; returns how many ids
+    it does not know (not fetched here yet, or another VCS), which are advisories, not errors."""
+    unknown = 0
+    for item_id, item in snapshot.items.items():
+        if not item.evidence or snapshot.folds[item_id].state != State.COMPLETED:
+            continue
+        kinds = {str(c): str(e.get("vcs", "")) for e in snapshot.events[item_id] if e.type == "evidence" for c in e.get("change_ids", [])}
+        for change in item.evidence:
+            where = resolve(change, kinds.get(change, ""))
+            if where is Landing.NOT_ANCESTOR:
+                problems.append(f"items/{item_id}/item.md: evidence {change} is not an ancestor of the target")
+            elif where is Landing.UNKNOWN:
+                unknown += 1
+    return unknown
+
+
+def _check_completed(snapshot: Snapshot, problems: list[str], strict: bool) -> tuple[int, int, int]:
+    """(imported without evidence, completed with an explicit no-code reason, completed on a human's quote); counted, not fatal.
+
+    Under a strict ledger every completed item shows its proof in its own header: change ids that its events back, or a typed
+    absence (`evidence_absent`)."""
     imported = without_code = by_quote = 0
     for item_id, item in snapshot.items.items():
         folded = snapshot.folds[item_id]
-        if folded.state == State.COMPLETED and item.kind != Kind.EPIC and not folded.evidence:
-            if folded.imported:
-                imported += 1
-            elif folded.completion is not None and folded.completion.get("no_commit"):
-                without_code += 1
-            elif folded.completion is not None and folded.completion.get("bulk_quote"):
-                by_quote += 1
-            else:
-                problems.append(f"events/{item_id}: completed without an evidence event")
+        if folded.state != State.COMPLETED:
+            continue
+        where = f"items/{item_id}/item.md"
+        if item.evidence:
+            unbacked = sorted(set(item.evidence) - _cited_ids(snapshot, item_id))
+            if unbacked:
+                problems.append(f"{where}: evidence {' '.join(unbacked)} is not cited by any of the item's events")
+        elif strict and not item.evidence_absent:
+            problems.append(f"{where}: completed without evidence ids or a typed absence (header evidence / evidence_absent)")
+        if item.kind == Kind.EPIC or item.evidence or folded.evidence:
+            continue
+        if folded.imported or item.evidence_absent.startswith("historical:"):
+            imported += 1
+        elif (folded.completion is not None and (folded.completion.get("no_commit") or folded.completion.get("absent") == "no-code")) \
+                or item.evidence_absent.startswith("no-code:"):
+            without_code += 1
+        elif folded.completion is not None and folded.completion.get("bulk_quote"):
+            by_quote += 1
+        elif item.evidence_absent or not strict:
+            continue  # superseded-by, children: stated absences, not counted
+        else:
+            problems.append(f"events/{item_id}: completed without an evidence event")
     return imported, without_code, by_quote
 
 

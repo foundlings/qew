@@ -61,7 +61,7 @@ def init(ledger: str | None) -> str:
     if not marker.exists():
         _write_atomic(
             marker,
-            f'name = "{config.ledger_path.name}"\nschema_version = 3\n\n[id_mode]\nepic = "letters"  # phases: A, B .. Z, AA ..; or "base35-time" / "counter"\nissue = "base35-time"\ntask = "base35-time"\n',
+            f'name = "{config.ledger_path.name}"\nschema_version = 4\n\n[id_mode]\nepic = "letters"  # phases: A, B .. Z, AA ..; or "base35-time" / "counter"\nissue = "base35-time"\ntask = "base35-time"\n',
         )
         created.append(str(marker))
     if not created:
