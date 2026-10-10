@@ -94,7 +94,7 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
 - `completed` with `"provenance": "import"` (+ a non-empty `original_ids`; `qew check` refuses it without) is written only by an import path
   (`create --from-file --import`) for history without resolvable change ids; `qew check` counts these
   (`imported without evidence: N`) and does not fail on them. Everything else:
-- `completed` may carry `reason`, `commits` (full ids), `branch`, `prs`, `no_commit`, `taken_over_from`,
+- `completed` may carry `bulk_quote` (a human's words; written by `qew complete --manifest`, valid from approved without a claim or evidence), `reason`, `commits` (full ids), `branch`, `prs`, `no_commit`, `taken_over_from`,
   `delivered_by` (work that shipped unclaimed) or `children_finished` (an epic finished by its children); the last
   two may complete an item from approved. `closed` may carry `duplicate_of` or `superseded_by` (one item id) and
   `note`; `reopened` may carry `reason`.

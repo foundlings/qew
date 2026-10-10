@@ -6,9 +6,11 @@ shipped without a claim is closed with `close --delivered-by`, under the same la
 """
 
 import argparse
+import json
 import sys
+from pathlib import Path
 
-from qew import claim_reconcile, code_vcs, ledger_graph, outcome
+from qew import claim_reconcile, code_vcs, complete_batch, ledger_graph, outcome
 from qew.cmd_claim import holding
 from qew.cmd_items import ledger_for
 from qew.code_vcs import Landing
@@ -18,6 +20,7 @@ from qew.ledger_config import Config
 from qew.ledger_event import CLOSE_REASONS, State
 from qew.ledger_item import Kind
 from qew.ledger_store import Ledger, Snapshot, actor
+from qew.requester import require_quote
 
 RELEASED_SHOWN = 5  # work a completion released, named in its one line
 _FINISHED_WORK = "finished work: qew complete ITEM, or qew close ITEM --delivered-by SHA --landed-on BRANCH"
@@ -29,7 +32,10 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
     evidence.add_argument("--vcs", choices=["jj", "git"], help="override the detected VCS")
     complete = commands.add_parser("complete", help="finish claimed work once the gate passes")
-    complete.add_argument("item", help="item id or alias")
+    complete.add_argument("item", nargs="?", help="item id or alias (not with --manifest)")
+    complete.add_argument("--manifest", metavar="FILE", help="instead of ITEM: a JSON Lines file of {item, reason} rows, completed in one commit on a human's --quote")
+    complete.add_argument("--quote", help="with --manifest: a human's words, \"Name: 'their words'\"; recorded on every completed event")
+    complete.add_argument("--dry-run", action="store_true", help="with --manifest: say what would be completed and write nothing")
     complete.add_argument("--reason", help="why the work is done (recorded on the completed event)")
     complete.add_argument("--take-over", action="store_true", help="finish work another actor holds (needs --reason)")
     complete.add_argument("--no-commit", metavar="WHY", help="complete without code, for work delivered outside the repository; WHY is recorded")
@@ -59,7 +65,16 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command == "evidence":
         print(evidence(config, arguments.item, arguments.change, arguments.vcs))
         return True
+    if arguments.command == "complete" and arguments.manifest:
+        if arguments.item or arguments.take_over or arguments.no_commit or arguments.reason or arguments.landed_on:
+            raise QewError("--manifest replaces ITEM and the single-item options: give the manifest with --quote alone", 2)
+        print(complete_manifest(config, Path(arguments.manifest), arguments.quote, arguments.dry_run))
+        return True
     if arguments.command == "complete":
+        if not arguments.item:
+            raise QewError("give ITEM, or --manifest FILE with --quote", 2)
+        if arguments.quote or arguments.dry_run:
+            raise QewError("--quote and --dry-run belong to --manifest", 2)
         result = complete(config, arguments.item, arguments.reason, arguments.take_over, arguments.no_commit, arguments.landed_on)
     elif arguments.command == "close":
         result = close(config, arguments.item, arguments.reason, arguments.of, arguments.by, arguments.note,
@@ -116,6 +131,37 @@ def _holds_ancestor(snapshot: Snapshot, item_id: str, who: str) -> bool:
             return True
         cursor = snapshot.items[cursor].parent
     return False
+
+
+def complete_manifest(config: Config, manifest: Path, quote: str | None, dry_run: bool) -> str:
+    """Complete the manifest's items in one write on a human's quote; checked whole first, a rerun is unchanged."""
+    verified = require_quote(quote)
+    ledger = ledger_for(config)
+    try:
+        text = manifest.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise QewError(f"cannot read {manifest}: {error}", 2) from None
+    snapshot = ledger.snapshot()
+    rows: list[complete_batch.Row] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        where = f"line {number}"
+        try:
+            raw = json.loads(line)
+        except ValueError as error:
+            raise QewError(f"{where}: invalid JSON ({error})", 2) from None
+        if not isinstance(raw, dict) or not isinstance(raw.get("item"), str):
+            raise QewError(f"{where}: a row is an object with an `item` (and optional reason)", 2)
+        try:
+            item_id = ledger.resolve(raw["item"], list(snapshot.items))
+        except QewError as error:
+            raise QewError(f"{where}: {error}", error.exit_code) from None
+        rows.append(complete_batch.row({k: v for k, v in raw.items() if k != "item"}, item_id, where))
+    batch = complete_batch.plan(snapshot, rows)
+    if not dry_run:
+        complete_batch.apply(ledger, batch, verified)
+    return complete_batch.summary(batch, "would complete" if dry_run else "completed")
 
 
 def evidence(config: Config, reference: str, changes: list[str], vcs: str | None) -> str:

@@ -51,7 +51,7 @@ class CompleteManifestWalk(unittest.TestCase):
             self.assertEqual(self.state(item), "completed")
         event = [e for e in self.world.events(self.two) if e["type"] == "completed"][0]
         self.assertEqual(event["reason"], "shipped earlier")
-        self.assertIn("measure-board.py", event["quote"])
+        self.assertIn("measure-board.py", event["bulk_quote"])
         self.assertEqual(self.world.run("check").returncode, 0)
 
     def test_dry_run_writes_nothing_and_a_rerun_is_unchanged(self) -> None:

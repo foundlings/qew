@@ -279,6 +279,12 @@ shape prime: additional_context context_bytes schema_version
   ledger's local `.qew/unlock.log` (time, actor, the approving words, each path and age). Never run by qew itself.
   `--stale` is required; no lock is `no stale lock found`, exit 0.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
+- `qew complete --manifest FILE --quote "Name: 'their words'" [--dry-run]`: complete many approved items in one commit on a human's
+  quote, without claims or evidence. FILE is JSON Lines of `{item, reason?}`. Every row is checked before the first write and one
+  bad row refuses all, naming its line: an unknown, duplicate, draft or closed item (exit 2), an item claimed by another login
+  (exit 3), an open child or an unmet need that the manifest does not also complete (exit 2). An already completed item is
+  `unchanged`, so a rerun adds nothing. Each event is `completed` with `bulk_quote` (the words) and the row's `reason`; no parent
+  cascade. `qew check` counts these under "completed on a human's quote". The next sync closes mirrored issues as completed.
 - `qew complete ITEM [--reason TEXT] [--landed-on BRANCH] [--take-over] [--no-commit WHY] [--json]`: prints
   `ID completed` plus `; ready: ID...` (up to 5 items the completion released; `--json` has `released`). refused (exit 3
   naming the holder) unless the caller holds the claim; an already completed item is a quiet no-op (`completed (unchanged)`, no second event);
