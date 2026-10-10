@@ -112,6 +112,24 @@ def _accept_parent(ledger: Ledger, item_id: str, divergence: Event) -> None:
             ledger.write_mirror(item_id, slug, updated(record, parent_number=number))
 
 
+AUTO_REASON = "auto: the ledger is the source of truth"
+
+
+def settle_automatically(config: Config, slug: str) -> int:
+    """Reject every open divergence of the target (contested claims keep their arbitration): the ledger value stays and the
+    push that follows restores it on the forge. Returns how many were settled."""
+    ledger = ledger_for(config)
+    snapshot = ledger.snapshot()
+    settled = 0
+    for item_id in sorted(snapshot.items):
+        for divergence in snapshot.folds[item_id].divergences:
+            if divergence.type == "claimed" or divergence.get("target") != slug:
+                continue
+            reject(config, divergence.id, AUTO_REASON)
+            settled += 1
+    return settled
+
+
 def _why(note: str) -> JsonObject:
     return {"reason": note} if note else {}
 
