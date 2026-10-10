@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from qew import comment_mirror
+from qew.forge_text import clean_body, clean_line
 from qew.comments import comments_after
 from qew.forge import Forge, Unsupported
 from qew.ledger_store import Ledger, Snapshot
@@ -23,8 +24,6 @@ if TYPE_CHECKING:
 def pull(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport, item_id: str, number: int,
          record: MirrorRecord, seen_ids: list[str]) -> tuple[list[str], dict[str, CommentLink]]:
     """Read the issue's comments and reconcile them with the ledger's; returns every forge comment id seen and the new links."""
-    from qew.forge_pull import clean_body, clean_line  # late: forge_pull imports this module
-
     forge_comments = target.forge.list_comments(number)
     ledger_comments = {c.id: c for c in comments_after(snapshot.events[item_id])}
     by_remote = {c.remote_ref: c.id for c in ledger_comments.values() if c.remote_ref}

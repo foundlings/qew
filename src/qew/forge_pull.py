@@ -10,10 +10,10 @@ titles are flattened to one safe line, bodies lose control characters.
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 import re
-import unicodedata
 from collections.abc import Callable, Collection, Iterable
 
-from qew import comment_sync, instants, page_cache, pull_cursor, sync_plan
+from qew.forge_text import clean_body, clean_line
+from qew import comment_sync, review_sync, instants, page_cache, pull_cursor, sync_plan
 from qew.mirror_types import MirrorRecord, Seen, updated
 from qew.forge import DUPLICATE_MARKER, ForgeError, ForgeRejected, IssueSpec, RemoteIssue, Unsupported, marker_for
 from qew.ledger_event import State
@@ -21,8 +21,6 @@ from qew.ledger_item import Item
 from qew.ledger_store import Ledger, Snapshot
 from qew.sync import Target, new_record
 
-TITLE_LIMIT = 200
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
 @dataclass
@@ -40,16 +38,6 @@ class PullReport:
     mode: str = ""  # how the issues were listed: conditional, incremental or full
     pages_fetched: int = 0  # conditional listing: pages that came over the wire
     pages_reused: int = 0  # conditional listing: pages answered 304
-
-
-def clean_line(text: str) -> str:
-    """One printable line: controls, newlines and format characters become spaces, capped in length."""
-    flat = "".join(" " if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") else c for c in text)
-    return " ".join(flat.split())[:TITLE_LIMIT]
-
-
-def clean_body(text: str) -> str:
-    return _CONTROL.sub("", text.replace("\r\n", "\n"))
 
 
 def clean_labels(labels: Iterable[str]) -> list[str]:
@@ -100,10 +88,13 @@ def pull_target(ledger: Ledger, target: Target, full: bool = False, clock: Calla
     aliases = ledger.aliases()
     by_number = {issue.number: issue for issue in remote}
     mirrored: dict[int, str] = {}
+    prs: list[tuple[str, MirrorRecord]] = []
     for item_id in snapshot.items:
         for record in ledger.load_mirrors(item_id):
             if record["_target"] == target.slug and record.get("kind") == "issue":
                 mirrored[record["number"]] = item_id
+            elif record["_target"].startswith(f"{target.slug}-pr-") and record.get("kind") == "pr":  # a pull request's own mirror file
+                prs.append((item_id, record))
     unnoticed = {n: i for n, i in mirrored.items()  # an issue whose deletion was already noticed is a deliberate one
                  if not any(d.get("field") == "exists" for d in snapshot.folds[i].divergences)}
     if complete and wiped(unnoticed, by_number):
@@ -127,6 +118,7 @@ def pull_target(ledger: Ledger, target: Target, full: bool = False, clock: Calla
                 twins.setdefault(aliases.canonical(marker.group(1)), []).append((issue, marker.group(1)))
         for item_id, found in sorted(twins.items()):
             _settle_twins(ledger, target, report, item_id, found, mirrored, snapshot, started, complete)
+        report.comments += review_sync.pull(ledger, snapshot, target, prs)
     except Unsupported as error:
         report.skipped.append(error.capability)
     except ForgeError as error:

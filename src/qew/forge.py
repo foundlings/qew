@@ -179,6 +179,25 @@ class RemoteComment:
 
 
 @dataclass(frozen=True)
+class RemoteReview:
+    id: str
+    author: str  # forge login; untrusted data like every forge field
+    state: str  # APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED as the forge says
+    body: str
+    submitted: str  # ISO timestamp
+
+
+@dataclass(frozen=True)
+class RemoteReviewComment:
+    id: str
+    author: str
+    body: str
+    path: str
+    line: int  # 0 when the forge gives none (an outdated comment)
+    created: str
+
+
+@dataclass(frozen=True)
 class PullRequestSpec:
     head: str
     base: str
@@ -340,6 +359,14 @@ class Forge(ABC):
 
     def create_comment(self, number: int, body: str) -> RemoteComment:
         raise Unsupported("create_comment")
+
+    def list_reviews(self, number: int) -> list[RemoteReview]:
+        """The reviews of a pull request in submission order."""
+        raise Unsupported("list_reviews")
+
+    def list_review_comments(self, number: int) -> list[RemoteReviewComment]:
+        """The inline review comments of a pull request in creation order."""
+        raise Unsupported("list_review_comments")
 
     def update_comment(self, number: int, comment_id: str, body: str) -> RemoteComment:
         raise Unsupported("update_comment")
