@@ -246,6 +246,7 @@ class RemotePullRequest:
     auto_merge: bool = False  # the forge will merge it once its checks pass
     merge_sha: str = ""  # the merge commit once state is "merged", else ""
     title: str = ""  # the forge's title (untrusted text); "" from a backend that does not read it
+    labels: tuple[str, ...] = ()  # label names on the pull request (untrusted text); () from a backend that does not read them
 
 
 @dataclass(frozen=True)
