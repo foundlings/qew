@@ -245,6 +245,7 @@ class RemotePullRequest:
     assignee: str = ""  # forge login it is assigned to, "" when nobody
     auto_merge: bool = False  # the forge will merge it once its checks pass
     merge_sha: str = ""  # the merge commit once state is "merged", else ""
+    title: str = ""  # the forge's title (untrusted text); "" from a backend that does not read it
 
 
 @dataclass(frozen=True)
@@ -513,6 +514,10 @@ class Forge(ABC):
     def close_pull_request(self, number: int) -> RemotePullRequest:
         """Close an unmerged pull request and return it re-read (idempotent: an already closed one is success)."""
         raise Unsupported("close_pull_request")
+
+    def update_pull_request_title(self, number: int, title: str) -> RemotePullRequest:
+        """Set an open pull request's title, then read it back."""
+        raise Unsupported("update_pull_request_title")
 
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         """Replace the description and return the re-read pull request (idempotent)."""

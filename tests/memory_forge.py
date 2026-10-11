@@ -60,6 +60,7 @@ class MemoryForge(Forge):
         self.raise_on: dict[str, ForgeError] = {}  # call name -> the error that call raises
         self.merge_calls: list[tuple[int, str, bool]] = []  # (number, sha, bypass_checks)
         self.body_writes: list[str] = []
+        self.title_writes: list[str] = []
         self.assign_refused = False  # the forge opens the pull request but will not assign the login
         self.close_ignored = False  # accept the close yet stay open
         self.ready_ignored = False  # accept mark-ready yet stay a draft
@@ -223,7 +224,7 @@ class MemoryForge(Forge):
         self.pull_specs[number] = spec
         self.pulls[number] = RemotePullRequest(
             number, f"https://{self.host}/o/r/pulls/{number}", "open", spec.draft, f"sha{number}", spec.head, spec.base, True,
-            "passing", spec.body, "opener", "" if self.assign_refused else spec.assignee,
+            "passing", spec.body, "opener", "" if self.assign_refused else spec.assignee, title=spec.title,
         )
         return self.pulls[number]
 
@@ -274,6 +275,12 @@ class MemoryForge(Forge):
         if not self.body_write_ignored:
             self.pulls[number] = self._with(number, body=body)
         self.body_writes.append(body)
+        return self.pulls[number]
+
+    def update_pull_request_title(self, number: int, title: str) -> RemotePullRequest:
+        self._live("update_pr_title")
+        self.pulls[number] = self._with(number, title=title)
+        self.title_writes.append(title)
         return self.pulls[number]
 
     def requires_status_checks(self, branch: str) -> bool:

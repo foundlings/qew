@@ -375,6 +375,7 @@ class _PullFacts:
     assignee: str
     auto_merge: bool
     merge_sha: str
+    title: str = ""
 
 
 def _login(data: dict[str, Any], key: str, what: str, nullable: bool) -> str:
@@ -408,6 +409,7 @@ def parse_pull(data: Any) -> _PullFacts:
         assignee=_login(pull, "assignee", "pull", nullable=True),
         auto_merge=_auto_merge(pull),
         merge_sha=_nullable_str(pull, "merge_commit_sha", "pull") if _bool(pull, "merged", "pull") else "",
+        title=_nullable_str(pull, "title", "pull"),
     )
 
 
@@ -990,6 +992,11 @@ class GitHub(Forge):
         return self.read_pull_request(number)
 
     @override
+    def update_pull_request_title(self, number: int, title: str) -> RemotePullRequest:
+        self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"title": title})
+        return self.read_pull_request(number)
+
+    @override
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"body": body})
         return self.read_pull_request(number)
@@ -1046,6 +1053,7 @@ class GitHub(Forge):
             head_sha=facts.head_sha, head_branch=facts.head_branch, base_branch=facts.base_branch,
             mergeable=facts.mergeable, checks=self._checks(facts.head_sha), body=facts.body,
             author=facts.author, assignee=facts.assignee, auto_merge=facts.auto_merge, merge_sha=facts.merge_sha,
+            title=facts.title,
         )
 
     def _checks(self, sha: str) -> str:
