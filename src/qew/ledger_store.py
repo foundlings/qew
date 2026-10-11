@@ -187,6 +187,7 @@ class Ledger:
     def _events_of(self, item_id: str, homes: list[str], rows: Mapping[str, snapshot_cache.Rows]) -> list[Event]:
         events = []
         seen = set()
+        prefix = str(self.events_dir)  # strings, not pathlib: this runs once per event (142,000 on foundlings)
         for home in homes:
             for name, text in rows.get(home, []):
                 if name in seen:
@@ -194,7 +195,7 @@ class Ledger:
                 seen.add(name)
                 if isinstance(text, snapshot_cache.Unreadable):
                     raise QewError(str(text), 1)
-                events.append(parse_event(name, text, f"{self.events_dir / home / name}.json"))
+                events.append(parse_event(name, text, f"{prefix}/{home}/{name}.json"))
         return sorted(events, key=lambda event: event.id)
 
     def load_events(self, item_id: str) -> list[Event]:
