@@ -15,7 +15,7 @@ from qew.errors import QewError
 from qew.forge import Forge, ForgeError, RemoteComment
 from qew.ledger_config import Config, Mirror, OfflineClaims
 from qew.ledger_repo import LedgerRepo
-from qew.ledger_store import Ledger
+from qew.ledger_store import Ledger, Snapshot
 
 _MARK = re.compile(r"<!-- qew:(claim|release) ([A-Za-z0-9._-]+)(?: (\S+) (\S+))? -->")
 PENDING: list[tuple[str, str]] = []  # (item id, claimed event id) awaiting the ledger remote's verdict; one command may claim several
@@ -43,14 +43,14 @@ def holder(comments: list[RemoteComment], item_id: str) -> tuple[str, str] | Non
     return current
 
 
-def _issue_record(config: Config, ledger: Ledger, mirror: Mirror | None, item_id: str) -> Any:
+def _issue_record(config: Config, ledger: Ledger, mirror: Mirror | None, item_id: str, snapshot: Snapshot | None = None) -> Any:
     """The primary's issue record for the item. An item its mirror does not select (a task when the mirror takes epics and
     issues) has no issue by design and is reserved on the nearest ancestor's: the claim markers name the item id, so one
     issue carries the markers of every descendant. An item the mirror does select but has not synced yet has no record."""
     own = next((r for r in ledger.load_mirrors(item_id) if r["_target"] == config.authority and r.get("kind") == "issue"), None)
     if own is not None or mirror is None:
         return own
-    snapshot = ledger.snapshot()
+    snapshot = snapshot or ledger.snapshot()  # a caller that already read the ledger passes it: a read is the slow part
     if sync_plan.selects(snapshot, item_id, mirror.select):
         return None
     seen: set[str] = {item_id}
@@ -64,9 +64,9 @@ def _issue_record(config: Config, ledger: Ledger, mirror: Mirror | None, item_id
     return None
 
 
-def _primary_forge(config: Config, ledger: Ledger, item_id: str) -> tuple[Forge, Any]:
+def _primary_forge(config: Config, ledger: Ledger, item_id: str, snapshot: Snapshot | None = None) -> tuple[Forge, Any]:
     mirror = next((m for m in config.mirrors if ledger_config.mirror_slug(m) == config.authority), None)
-    record = _issue_record(config, ledger, mirror, item_id)
+    record = _issue_record(config, ledger, mirror, item_id, snapshot)
     if mirror is None or record is None:
         raise QewError(f"cannot claim {item_id}: the primary forge has no issue for it yet; run `qew sync` first", 2)
     try:
@@ -93,7 +93,7 @@ def _provisional(ledger: Ledger, item_id: str, owner: str, lane: dict[str, str])
 
 
 def claim(config: Config, ledger: Ledger, item_id: str, owner: str, mode: ClaimMode = ClaimMode.ARBITRATED,
-          **lane: str) -> Claimed:
+          snapshot: Snapshot | None = None, **lane: str) -> Claimed:
     """Write the claim, or refuse. The caller has already checked the item is approved and unblocked.
 
     `lane` carries the optional lane fields (lane, workspace, kind) of the `claimed` event. `ClaimMode.OFFLINE`
@@ -103,7 +103,7 @@ def claim(config: Config, ledger: Ledger, item_id: str, owner: str, mode: ClaimM
     if mode is ClaimMode.OFFLINE:
         return _provisional(ledger, item_id, owner, lane)
     if config.authority != "none":
-        return _claim_on_primary(config, ledger, item_id, owner, lane)
+        return _claim_on_primary(config, ledger, item_id, owner, lane, snapshot)
     repo = LedgerRepo(config.ledger_path, config.replication.branch)
     rep = config.replication
     if repo.vcs is None or not repo.has_remote() or not rep.auto_push:
@@ -134,10 +134,11 @@ def _confirmed(ledger: Ledger, item_id: str, owner: str, lane: dict[str, str]) -
     ledger.append_event(item_id, "claim_confirmed", ref=event.id)
 
 
-def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, lane: dict[str, str]) -> Claimed:
+def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, lane: dict[str, str],
+                      snapshot: Snapshot | None = None) -> Claimed:
     allowed = config.offline_claims is OfflineClaims.ALLOW
     try:
-        forge, number = _primary_forge(config, ledger, item_id)
+        forge, number = _primary_forge(config, ledger, item_id, snapshot)
     except QewError:
         if allowed:  # no issue there yet, or the forge cannot be built: work on, sync settles it
             return _provisional(ledger, item_id, owner, lane)
@@ -158,11 +159,11 @@ def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, 
     return Claimed.CONFIRMED
 
 
-def release(config: Config, ledger: Ledger, item_id: str) -> None:
+def release(config: Config, ledger: Ledger, item_id: str, snapshot: Snapshot | None = None) -> None:
     """Free the reservation on the primary before the ledger forgets it; no-op without a primary."""
     if config.authority == "none":
         return
-    forge, number = _primary_forge(config, ledger, item_id)
+    forge, number = _primary_forge(config, ledger, item_id, snapshot)
     try:
         forge.create_comment(number, release_comment(item_id))
     except ForgeError as error:
