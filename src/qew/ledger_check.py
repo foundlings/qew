@@ -118,6 +118,8 @@ def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) 
     snapshot, problems = load(ledger, verify=deep)  # a deep check reads every file itself and repairs the snapshot cache
     items = snapshot.items
     _check_attachments(snapshot, problems, deep)
+    if deep:
+        _check_attachments_committed(snapshot, problems)
     _check_edges(snapshot, problems)
     unknown_evidence = _check_evidence_resolves(snapshot, problems, resolve) if resolve is not None else 0
     imported, without_code, by_quote = _check_completed(snapshot, problems, ledger.evidence_strict)
@@ -175,6 +177,22 @@ def _load_events(files: Files, stem: str, problems: list[str]) -> list[Event]:
             except QewError as error:
                 problems.append(str(error))
     return sorted(found, key=lambda event: event.id)
+
+
+def _check_attachments_committed(snapshot: Snapshot, problems: list[str]) -> None:
+    """An attachment file that is on disk but not in the committed tree was never pushed (jj refuses to snapshot a large new file
+    by default; qew raises that limit, so this is a file left from before, or an out-of-band deletion from the commit)."""
+    from qew.ledger_repo import LedgerRepo
+
+    ledger = snapshot.ledger
+    wanted: dict[str, str] = {}
+    for item_id, events in snapshot.events.items():
+        for row in attachments_after(events).values():
+            blob = ledger.find_blob(item_id, row.blob)
+            if blob is not None:
+                wanted[str(blob.relative_to(ledger.path))] = f"items/{item_id}/{attachments.DIRECTORY}/{row.blob}"
+    for path in LedgerRepo(ledger.path, "main").uncommitted(sorted(wanted)):
+        problems.append(f"{wanted[path]}: not committed (the file is on disk only; the next qew write commits it, or commit it by hand)")
 
 
 def _check_attachments(snapshot: Snapshot, problems: list[str], deep: bool) -> None:
