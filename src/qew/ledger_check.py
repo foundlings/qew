@@ -14,8 +14,9 @@ from qew.evidence_resolve import Resolver
 from qew.ledger_config import LEDGER_FILE, SCHEMA_VERSIONS
 from qew.ledger_event import Event, State, attachments_after, fold, needs_after, parse_event, valid_actor
 from qew.ledger_ids import sort_key
-from qew.ledger_item import Item, Kind, check_header_values, parse_item, read_item_text
-from qew.ledger_store import Ledger, Snapshot
+from qew.ledger_item import Item, Kind, check_header_values, clean_item_text, parse_item
+from qew.ledger_store import Files, Ledger, Snapshot
+from qew.snapshot_cache import Unreadable
 
 SCHEMA_VERSION = 1
 _MIRROR_KEYS = ("forge", "url", "kind")
@@ -28,7 +29,7 @@ def check(ledger: Ledger, deep: bool = True) -> list[str]:
     return check_report(ledger, deep)[0]
 
 
-def load(ledger: Ledger) -> tuple[Snapshot, list[str]]:
+def load(ledger: Ledger, verify: bool = False) -> tuple[Snapshot, list[str]]:
     """Parse every file of the ledger: the snapshot of what parsed and the structural problems.
 
     Structural problems (unreadable or malformed files, duplicate ids, orphaned history, illegal
@@ -40,15 +41,15 @@ def load(ledger: Ledger) -> tuple[Snapshot, list[str]]:
     claimed: dict[str, str] = {}
     folds = {}
     events = {}
-    aliases = ledger.aliases()
+    files = ledger.read_files(verify)
+    aliases = files.aliases
     owners: dict[str, str] = {}
-    for path in sorted(p / ITEM_FILE for p in ledger.items_dir.iterdir() if (p / ITEM_FILE).is_file()) if ledger.items_dir.is_dir() else []:
-        stem = path.parent.name
+    for stem in files.ids:  # a leftover under an old id is skipped: the renamed copy holds the item (`qew migrate-ids` removes it)
         where = f"items/{stem}/{ITEM_FILE}"
-        if stem in aliases.superseded:
-            continue  # the renamed copy holds this item; the leftover goes when `qew migrate-ids` finishes
         try:
-            item = parse_item(read_item_text(path, where), where)
+            if isinstance(files.texts[stem], Unreadable):
+                raise QewError(str(files.texts[stem]), 1)
+            item = parse_item(clean_item_text(files.texts[stem], where), where)
         except (QewError, OSError, UnicodeError) as error:
             problems.append(str(error))
             continue
@@ -62,7 +63,7 @@ def load(ledger: Ledger) -> tuple[Snapshot, list[str]]:
         for alias in item.aliases:
             if owners.setdefault(alias, item.id) != item.id:
                 problems.append(f"{where}: alias {alias} is also an alias of {owners[alias]}")
-        events[item.id] = _load_events(ledger, item.id, problems)
+        events[item.id] = _load_events(files, stem, problems)
         items[item.id] = replace(item, needs=needs_after(item.needs, events[item.id]))
         result = fold(events[item.id])
         folds[item.id] = result
@@ -114,7 +115,7 @@ def check_report(ledger: Ledger, deep: bool = True, resolve: Resolver | None = N
 
 
 def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> Report:
-    snapshot, problems = load(ledger)
+    snapshot, problems = load(ledger, verify=deep)  # a deep check reads every file itself and repairs the snapshot cache
     items = snapshot.items
     _check_attachments(snapshot, problems, deep)
     _check_edges(snapshot, problems)
@@ -131,6 +132,8 @@ def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) 
     found = contradictions(snapshot)
     findings = text_findings(snapshot)
     notes = [*warnings]
+    if deep and ledger.cache_mismatches():
+        notes.append(f"snapshot cache: {ledger.cache_mismatches()} entries differed from the files (repaired)")
     if imported:
         notes.append(f"imported without evidence: {imported}")
     if without_code:
@@ -157,17 +160,19 @@ def _check_metadata(ledger: Ledger, problems: list[str]) -> None:
         problems.append(f"{LEDGER_FILE}: schema_version must be one of {', '.join(map(str, SCHEMA_VERSIONS))}")
 
 
-def _load_events(ledger: Ledger, item_id: str, problems: list[str]) -> list[Event]:
+def _load_events(files: Files, stem: str, problems: list[str]) -> list[Event]:
     found: list[Event] = []
     seen: set[str] = set()
-    for directory in ledger.events_homes(item_id):
-        for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
-            if path.stem in seen:
+    for home in files.homes[stem]:
+        for name, text in files.rows.get(home, []):
+            if name in seen:
                 continue  # copied under the new id by a migration that stopped before removing this one
-            seen.add(path.stem)
+            seen.add(name)
             try:
-                found.append(parse_event(path.stem, path.read_text(encoding="utf-8"), f"events/{directory.name}/{path.name}"))
-            except (QewError, OSError, UnicodeError) as error:
+                if isinstance(text, Unreadable):
+                    raise QewError(str(text), 1)
+                found.append(parse_event(name, text, f"events/{home}/{name}.json"))
+            except QewError as error:
                 problems.append(str(error))
     return sorted(found, key=lambda event: event.id)
 

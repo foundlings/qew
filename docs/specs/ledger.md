@@ -122,11 +122,18 @@ non-epic child is claimed, held by exactly those children's actors; a completed 
 - `comment` (`body`; legal in every state, never changes it)
 State machine: draft → approved → claimed → completed (closed from any). Illegal transitions refused.
 
-## Reading cost
-A snapshot (`Ledger.snapshot`) reads every item and event file, on several threads once a ledger passes a couple of hundred items, and a command
-takes one. Epic claims and releases pass it down, so `qew start`/`release` of an epic with many claimed descendants cost one read plus one forge
-comment per descendant, not one read each; a release checks its own item's events afterwards. A read command that finds the write lock held skips
-its refresh (the writer fetched at its own start) instead of waiting for it.
+## Reading cost and the snapshot cache
+Opening a file costs about 150 microseconds, so reading a large ledger (foundlings: 22,565 items, 165,000 files, 17 to 27 s) is dominated by
+opens, not parsing (all of it parses in about 3 s). `.qew/snapshot.db` (SQLite from the standard library; never committed, excluded like the
+rest of `.qew/`) caches the TEXT of every item file and event file with a stat signature; a read stats the files (about 0.5 s), re-reads
+only those whose signature moved and runs the same parsers on the text, so a cached read means exactly what a file read means. An item file
+is trusted while its (mtime, size, inode) is unchanged, an events directory while its (mtime, inode) is (event files are immutable, every
+qew write replaces or adds a file); an entry cached less than 2 s after its modification is read again next time (a racy timestamp).
+A damaged, locked, foreign-format or unwritable database is never an error: the files are read as if there were none. `QEW_NO_CACHE=1`
+bypasses it. `qew check` (deep) reads every file itself, reports `snapshot cache: N entries differed from the files (repaired)` and
+rewrites what differed. Designed for ledgers up to about 500,000 files. A snapshot is one pass: `qew start`/`release` of an epic pass it
+down (one forge comment per descendant, not one read each), and a read command that finds the write lock held skips its refresh
+instead of waiting for it.
 
 ## Mirrors (`mirrors/<ID>/<target>.json`)
 `{"forge": "github|forgejo|gitlab", "url": "https://host/owner/repo", "kind": "issue|pr|project_item",

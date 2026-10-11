@@ -12,20 +12,28 @@ import threading
 import tomllib
 from pathlib import Path
 from typing import Any, cast
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 
-from qew import attachments, evidence_header, ledger_aliases
+from qew import attachments, evidence_header, ledger_aliases, snapshot_cache
 from qew.errors import QewError
 from qew.mirror_types import MirrorRecord
 from qew.ledger_aliases import ITEM_FILE
 from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, valid_actor
-from qew.ledger_item import Item, parse_item, read_item_text, render_item
+from qew.ledger_item import Item, clean_item_text, parse_item, raw_item_text, read_item_text, render_item
 from qew.jsontypes import JsonObject
 from qew.ledger_ids import DEFAULT_MODES, event_id, next_id, parse_modes, sort_key
 
 SNAPSHOT_READERS = 16  # threads reading item and event files at once
-SNAPSHOT_PARALLEL_FROM = 200  # a ledger smaller than this is read in one thread
+SNAPSHOT_PARALLEL_FROM = 200  # fewer files than this are read in one thread
+
+
+def _parallel[T](read: Callable[[str], T], names: list[str]) -> list[T]:
+    """`read` over the names, on several threads once there are many: the reads wait on the disk, not the interpreter."""
+    if len(names) <= SNAPSHOT_PARALLEL_FROM:
+        return [read(name) for name in names]
+    with ThreadPoolExecutor(max_workers=SNAPSHOT_READERS) as pool:
+        return list(pool.map(read, names))
 _INTENTS = threading.Lock()  # sync workers add and clear creating intents in one shared file
 
 def now() -> str:
@@ -61,6 +69,18 @@ def actor() -> str:
         raise QewError("no identity: run `git config user.name NAME` (or set QEW_ACTOR); qew never uses the OS login", 2)
     # A configured display name is routinely "First Last": flatten whitespace and commas, refuse control characters.
     return _safe("-".join(_configured.replace(",", " ").split()), "git/jj user.name")
+
+
+@dataclass(frozen=True)
+class Files:
+    """What a read of the ledger's files gave: item texts by directory name, the alias map, the event directories of each item
+    (its own and any it had before a migration) and their event files as (name, text)."""
+
+    ids: list[str]
+    texts: dict[str, str]
+    aliases: ledger_aliases.Aliases
+    homes: dict[str, list[str]]
+    rows: dict[str, snapshot_cache.Rows]
 
 
 @dataclass(frozen=True)
@@ -126,7 +146,8 @@ class Ledger:
         return True
 
     def aliases(self) -> ledger_aliases.Aliases:
-        return ledger_aliases.scan(self.items_dir)
+        cache = snapshot_cache.for_ledger(self.path)
+        return ledger_aliases.scan(self.items_dir, (lambda: cache.items(self.items_dir, self._raw_item)) if cache is not None else None)
 
     def events_homes(self, item_id: str) -> list[Path]:
         return self._homes(self.events_dir, item_id)
@@ -146,20 +167,39 @@ class Ledger:
             raise QewError(f"{path}: header id {item.id} does not match the directory name", 1)
         return item
 
-    def load_events(self, item_id: str) -> list[Event]:
+    def _raw_item(self, name: str) -> str:
+        path = self.items_dir / name / ITEM_FILE
+        try:
+            return raw_item_text(path)
+        except (OSError, UnicodeError) as error:
+            return snapshot_cache.Unreadable(f"{path}: {error}")
+
+    def _event_rows(self, directory: Path) -> snapshot_cache.Rows:
+        """(name, text) of each event file of a directory, by name."""
+        rows = []
+        for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
+            try:
+                rows.append((path.stem, path.read_text(encoding="utf-8")))
+            except (OSError, UnicodeError) as error:
+                rows.append((path.stem, snapshot_cache.Unreadable(f"{path}: {error}")))
+        return rows
+
+    def _events_of(self, item_id: str, homes: list[str], rows: Mapping[str, snapshot_cache.Rows]) -> list[Event]:
         events = []
         seen = set()
-        for directory in self._homes(self.events_dir, item_id):
-            for path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
-                if path.stem in seen:
+        for home in homes:
+            for name, text in rows.get(home, []):
+                if name in seen:
                     continue  # a migration copied it under the new id before removing the old file
-                seen.add(path.stem)
-                try:
-                    text = path.read_text(encoding="utf-8")
-                except (OSError, UnicodeError) as error:
-                    raise QewError(f"{path}: {error}", 1) from None
-                events.append(parse_event(path.stem, text, str(path)))
+                seen.add(name)
+                if isinstance(text, snapshot_cache.Unreadable):
+                    raise QewError(str(text), 1)
+                events.append(parse_event(name, text, f"{self.events_dir / home / name}.json"))
         return sorted(events, key=lambda event: event.id)
+
+    def load_events(self, item_id: str) -> list[Event]:
+        homes = [item_id, *self.aliases().of(item_id)]
+        return self._events_of(item_id, homes, {home: self._event_rows(self.events_dir / home) for home in homes})
 
     def load_mirrors(self, item_id: str) -> list[MirrorRecord]:
         """Mirror records: the committed identity merged with this machine's local sync state."""
@@ -193,24 +233,47 @@ class Ledger:
             return {}  # a damaged cache only costs a redundant forge update; the ledger is untouched
         return value if isinstance(value, dict) else {}
 
-    def snapshot(self) -> Snapshot:
+    def read_files(self, verify: bool = False) -> Files:
+        """The text of every item file and event file, through the snapshot cache (`snapshot_cache`): only the files whose stat
+        changed are read. `verify` reads them all, counts what the cache had wrong and repairs it (`qew check`)."""
+        cache = snapshot_cache.for_ledger(self.path)
+        if cache is not None:
+            texts = cache.items(self.items_dir, self._raw_item, verify)
+        else:
+            names = sorted(entry.name for entry in os.scandir(self.items_dir) if (Path(entry.path) / ITEM_FILE).is_file()) if self.items_dir.is_dir() else []
+            texts = dict(zip(names, _parallel(self._raw_item, names), strict=True))
+        aliases = ledger_aliases.scan(self.items_dir, lambda: texts)
+        ids = sorted(name for name in texts if name not in aliases.superseded)
+        homes = {item_id: [item_id, *aliases.of(item_id)] for item_id in ids}
+        wanted = {home for each in homes.values() for home in each}
+        if cache is not None:
+            rows = cache.events(self.events_dir, wanted, self._event_rows, verify)
+        else:
+            listed = sorted(wanted)
+            rows = dict(zip(listed, _parallel(lambda home: self._event_rows(self.events_dir / home), listed), strict=True))
+        return Files(ids, texts, aliases, homes, rows)
+
+    def snapshot(self, verify: bool = False) -> Snapshot:
+        files = self.read_files(verify)
         items: dict[str, Item] = {}
         folds: dict[str, Folded] = {}
         events: dict[str, list[Event]] = {}
-        aliases = self.aliases()
-        ids = self.item_ids()
-
-        def load(item_id: str) -> tuple[list[Event], Item]:
-            return self.load_events(item_id), self.load_item(item_id)
-
-        # tens of thousands of small files: the reads wait on the disk, not the interpreter, so they overlap
-        with ThreadPoolExecutor(max_workers=SNAPSHOT_READERS) as pool:
-            loaded = list(pool.map(load, ids)) if len(ids) > SNAPSHOT_PARALLEL_FROM else [load(item_id) for item_id in ids]
-        for item_id, (item_events, raw) in zip(ids, loaded, strict=True):
-            events[item_id] = item_events
-            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, item_events)), aliases)
-            folds[item_id] = fold(item_events)
+        for item_id in files.ids:
+            where = str(self.item_path(item_id))
+            if isinstance(files.texts[item_id], snapshot_cache.Unreadable):
+                raise QewError(str(files.texts[item_id]), 1)
+            raw = parse_item(clean_item_text(files.texts[item_id], where), where)
+            if raw.id != item_id:
+                raise QewError(f"{where}: header id {raw.id} does not match the directory name", 1)
+            events[item_id] = self._events_of(item_id, files.homes[item_id], files.rows)
+            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events[item_id])), files.aliases)
+            folds[item_id] = fold(events[item_id])
         return Snapshot(self, items, folds, events)
+
+    def cache_mismatches(self) -> int:
+        """How many entries the last verifying snapshot found different from the files."""
+        cache = snapshot_cache.for_ledger(self.path)
+        return cache.mismatches if cache is not None else 0
 
     # -- resolving
     def resolve(self, reference: str, ids: Iterable[str] | None = None) -> str:

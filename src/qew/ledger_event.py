@@ -18,7 +18,7 @@ CLOSE_REASONS = ("not_planned", "duplicate", "superseded")
 
 def valid_actor(text: str) -> bool:
     """An actor is one printable token: no whitespace, commas or control characters (it may become a forge label)."""
-    return bool(text) and all(c.isprintable() and not c.isspace() and c != "," for c in text)
+    return bool(text) and text.isprintable() and " " not in text and "," not in text  # the only printable whitespace is U+0020
 
 
 class State(str, Enum):
