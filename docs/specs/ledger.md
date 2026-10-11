@@ -122,6 +122,12 @@ non-epic child is claimed, held by exactly those children's actors; a completed 
 - `comment` (`body`; legal in every state, never changes it)
 State machine: draft → approved → claimed → completed (closed from any). Illegal transitions refused.
 
+## Reading cost
+A snapshot (`Ledger.snapshot`) reads every item and event file, on several threads once a ledger passes a couple of hundred items, and a command
+takes one. Epic claims and releases pass it down, so `qew start`/`release` of an epic with many claimed descendants cost one read plus one forge
+comment per descendant, not one read each; a release checks its own item's events afterwards. A read command that finds the write lock held skips
+its refresh (the writer fetched at its own start) instead of waiting for it.
+
 ## Mirrors (`mirrors/<ID>/<target>.json`)
 `{"forge": "github|forgejo|gitlab", "url": "https://host/owner/repo", "kind": "issue|pr|project_item",
 "number": 123, "node_id": "...", "synced_at": "...", "synced_event": "<last event id pushed>"}`

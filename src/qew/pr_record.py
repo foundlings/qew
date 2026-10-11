@@ -4,6 +4,7 @@ The forge's text is never the source of either fact; both come from the `pr` mir
 wrote after the forge accepted the open.
 """
 
+from collections import deque
 from dataclasses import dataclass
 from typing import cast
 
@@ -43,7 +44,7 @@ def find(ledger: Ledger, number: int, target: str | None) -> PrRecord:
                 continue
             found.append(_record(item_id, record))
     if not found:
-        raise QewError(f"pull request #{number} is not recorded in the ledger; open it with `qew pr open`", 2)
+        raise QewError(f"pull request #{number} is not recorded in the ledger; open it with `qew pr open`, or adopt and close an unmerged legacy one with `qew pr close {number} --item ID --reason TEXT`", 2)
     if len(found) > 1:
         raise QewError(f"pull request #{number} exists on several targets; pass --target", 2)
     return found[0]
@@ -64,14 +65,16 @@ def covered_by(snapshot: Snapshot, root: str) -> list[str]:
         return [root]
     kids = children(snapshot)
     found: list[str] = []
-    stack = [root]
-    while stack:
-        item_id = stack.pop(0)
-        if item_id in found:
+    seen: set[str] = set()
+    queue = deque([root])
+    while queue:
+        item_id = queue.popleft()
+        if item_id in seen:
             continue
+        seen.add(item_id)
         if item_id == root or snapshot.folds[item_id].state not in (State.CLOSED,):
             found.append(item_id)
-            stack.extend(kids.get(item_id, []))
+            queue.extend(kids.get(item_id, []))
     return found
 
 

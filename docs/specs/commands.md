@@ -498,7 +498,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   changed since it was read is exit 3 with no write; the result is read back and a write that did not stick is exit 3.
 - `qew pr ready NUMBER [--target T] [--json]`: marks ready, then re-reads; still a draft is exit 4. Already ready
   writes nothing. Refused while a covered item is a draft. `--json`: `{number, ready, changed, schema_version}`.
-- `qew pr close NUMBER [--target T] [--json]`: closes a recorded, unmerged pull request (same ownership rule as ready),
+- `qew pr close NUMBER [--target T] [--item ID --reason TEXT] [--json]`: closes a recorded, unmerged pull request (same ownership rule as ready). `--item ID --reason TEXT` is the way for an unmerged pull request qew never recorded (a legacy draft from before qew): it adopts the pull request onto that item (which carries its remainder), closes it, read back, writes its `pr` mirror as closed and keeps the reason as a comment on the item; a merged one is refused (exit 2), `--item` on a pull request recorded for another item is refused, and a rerun is unchanged.
   re-reads, and records `closed` in its mirror; still open is exit 4, merged is exit 2, already closed writes nothing.
   An orphan is adopted with `qew pr open` first. `--json`: `{number, closed, changed, schema_version}`.
 - `qew pr merge NUMBER [--target T] [--auto] [--admin] [--other-author] [--reason TEXT] [--json]`: refuses, writing

@@ -23,9 +23,7 @@ class LegacyCloseWalk(unittest.TestCase):
         self.legacy = self.w.forge.open_pull_request(PullRequestSpec("old-branch", "main", "Old draft", "pre-qew body", True, "someone")).number
 
     def mirror(self) -> dict:
-        files = self.w.mirror_files(self.item)
-        stem = next(f for f in files if f.endswith(f"-pr-{self.legacy}.json"))
-        return json.loads((self.w.world.ledger / "mirrors" / self.item / stem).read_text())
+        return next(m for m in self.w.ledger.load_mirrors(self.item) if m["_target"].endswith(f"-pr-{self.legacy}"))
 
     def test_an_unrecorded_pull_request_is_closed_and_recorded_on_the_named_item(self) -> None:
         """Prevents legacy drafts living on forever: --item adopts the pull request, closes it and keeps the reason in the ledger."""
@@ -34,7 +32,7 @@ class LegacyCloseWalk(unittest.TestCase):
         self.assertEqual(self.w.forge.pulls[self.legacy].state, "closed")
         record = self.mirror()
         self.assertEqual((record["kind"], record["state"], record["number"], record["items"]), ("pr", "closed", self.legacy, [self.item]))
-        self.assertIn("carried by #4375", json.dumps(record) + "".join(str(e) for e in self.w.events(self.item)))
+        self.assertIn("carried by #4375", json.dumps(self.w.events(self.item)))
         again = self.w.qew("pr", "close", str(self.legacy), "--item", self.item, "--reason", "carried by #4375")
         self.assertEqual(again.code, 0, again)
 

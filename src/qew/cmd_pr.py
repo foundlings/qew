@@ -63,6 +63,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     closed = sub.add_parser("close", help="close an unmerged pull request without merging it")
     closed.add_argument("number", type=int, help="pull request number")
     closed.add_argument("--target", help=_TARGET_HELP)
+    closed.add_argument("--item", metavar="ID", help="a pull request qew never recorded (a legacy draft): adopt it onto this item, which carries its remainder, then close it")
+    closed.add_argument("--reason", help="with --item: why it is closed (kept in the ledger)")
     closed.add_argument("--json", action="store_true", help="machine-readable output")
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
     merge.add_argument("number", type=int, help="pull request number")
@@ -97,7 +99,7 @@ def run(arguments: argparse.Namespace) -> bool:
     elif command == "ready":
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "close":
-        print(close_pull_request(config, arguments.number, arguments.target).render(arguments.json))
+        print(close_pull_request(config, arguments.number, arguments.target, item=arguments.item, reason=arguments.reason).render(arguments.json))
     else:
         merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason)
         print(merge_pull_request(config, arguments.number, arguments.target, merge_options).render(arguments.json))
@@ -390,9 +392,14 @@ class Closed:
 
 def close_pull_request(
     config: Config, number: int, target: str | None, build: Build | None = None,
-    sleep: Callable[[float], None] | None = None,
+    sleep: Callable[[float], None] | None = None, item: str | None = None, reason: str | None = None,
 ) -> Closed:
-    """Close a recorded, unmerged pull request, read it back, then record `closed` in its mirror."""
+    """Close a recorded, unmerged pull request, read it back, then record `closed` in its mirror.
+
+    `item` names the item that carries the remainder of a pull request qew never recorded (a legacy draft): it is
+    adopted onto that item and closed, with `reason` kept in the ledger. A merged one is refused either way."""
+    if item is not None:
+        return _close_legacy(config, number, target, build, sleep, item, reason)
     loaded = load(config, number, target, build)
     forge = loaded.forge
     with forge_errors(loaded.record.target):
@@ -409,6 +416,55 @@ def close_pull_request(
     if outcome == Outcome.NOT_APPLIED:
         raise QewError(f"pr #{number} is still open after the forge accepted the close; nothing is known to have changed", 4)
     pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, state="closed")
+    return Closed(number, outcome == Outcome.VERIFIED)
+
+
+def _close_legacy(config: Config, number: int, target: str | None, build: Build | None, sleep: Callable[[float], None] | None,
+                  item: str, reason: str | None) -> Closed:
+    pr_record.positive_number(number)
+    if not (reason or "").strip():
+        raise QewError("closing an unrecorded pull request needs --reason TEXT: say why it is closed", 2)
+    ledger = ledger_for(config)
+    try:
+        recorded = pr_record.find(ledger, number, target)
+    except QewError:
+        recorded = None
+    snapshot = ledger.snapshot()
+    item_id = ledger.resolve(item, list(snapshot.items))
+    if recorded is not None:
+        if item_id in recorded.items:  # a rerun of the adoption: closed already is the answer, else the ordinary close
+            with forge_errors(recorded.target):
+                if _build(build, mirror_for(config, ledger, recorded.target)).read_pull_request(number).state == "closed":
+                    return Closed(number, True)
+            return close_pull_request(config, number, target, build, sleep)
+        raise QewError(f"pull request #{number} is already recorded for {' '.join(recorded.items)}; close it without --item", 2)
+    mirrors = [m for m in mirrors_with_boards(ledger, config) if not target or target in ledger_config.mirror_slug(m)]
+    if len(mirrors) != 1:
+        raise QewError(f"{len(mirrors)} mirror targets match; pass --target", 2)
+    mirror = mirrors[0]
+    slug = ledger_config.mirror_slug(mirror)
+    forge = _build(build, mirror)
+    with forge_errors(slug):
+        before = forge.read_pull_request(number)
+        if before.state == "merged":
+            raise QewError(f"pr #{number} is merged; a merged pull request cannot be closed", 2)
+        outcome = Outcome.VERIFIED
+        if before.state == "open":
+            outcome = apply_and_verify(
+                before,
+                lambda: forge.close_pull_request(number),
+                lambda: forge.read_pull_request(number),
+                lambda pull: pull.state == "closed",
+                sleep=sleep,
+            )
+    if outcome == Outcome.NOT_APPLIED:
+        raise QewError(f"pr #{number} is still open after the forge accepted the close; nothing is known to have changed", 4)
+    text = (reason or "").strip()
+    ledger.write_mirror(item_id, f"{slug}-pr-{number}", {
+        "forge": mirror.forge, "url": mirror.repo, "kind": "pr", "draft": before.draft, "state": "closed", "number": number,
+        "pr_url": before.url, "head": before.head_branch, "opener": "", "items": [item_id], "synced_at": now(),
+    })
+    ledger.append_event(item_id, "commented", text=f"closed legacy pull request #{number}: {text}", author=actor())
     return Closed(number, outcome == Outcome.VERIFIED)
 
 
