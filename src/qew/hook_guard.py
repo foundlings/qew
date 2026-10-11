@@ -490,9 +490,10 @@ def _push_revset(arguments: list[str]) -> str | None:
             elif flag in ("--revisions", "-r"):
                 selectors.append(f"({value})")
             else:
-                return f"({value}) & mutable()"
+                return f"(({value}) & mutable()) ~ ::remote_bookmarks()"
         position += 1
-    return "mutable() & ::(" + " | ".join(selectors or ["@"]) + ")"
+    # new work only: not what any remote bookmark already has (another actor's commit on its own branch is theirs, not the pusher's)
+    return "(mutable() & ::(" + " | ".join(selectors or ["@"]) + ")) ~ ::remote_bookmarks()"
 
 
 def qew_pr_merges(command: str) -> list[int]:
