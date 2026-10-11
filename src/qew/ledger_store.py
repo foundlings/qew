@@ -19,7 +19,7 @@ from qew.errors import QewError
 from qew.mirror_types import MirrorRecord
 from qew.ledger_aliases import ITEM_FILE
 from qew.ledger_config import LEDGER_FILE
-from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, valid_actor
+from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, parse_event_trusted, valid_actor
 from qew.ledger_item import Item, clean_item_text, parse_item, raw_item_text, read_item_text, render_item
 from qew.jsontypes import JsonObject
 from qew.ledger_ids import DEFAULT_MODES, event_id, next_id, parse_modes, sort_key
@@ -81,6 +81,7 @@ class Files:
     aliases: ledger_aliases.Aliases
     homes: dict[str, list[str]]
     rows: dict[str, snapshot_cache.Rows]
+    trusted: frozenset[str] = frozenset()  # event directories whose text the cache has validated
 
 
 @dataclass(frozen=True)
@@ -184,7 +185,8 @@ class Ledger:
                 rows.append((path.stem, snapshot_cache.Unreadable(f"{path}: {error}")))
         return rows
 
-    def _events_of(self, item_id: str, homes: list[str], rows: Mapping[str, snapshot_cache.Rows]) -> list[Event]:
+    def _events_of(self, item_id: str, homes: list[str], rows: Mapping[str, snapshot_cache.Rows],
+                   trusted: frozenset[str] = frozenset()) -> list[Event]:
         events = []
         seen = set()
         prefix = str(self.events_dir)  # strings, not pathlib: this runs once per event (142,000 on foundlings)
@@ -195,7 +197,7 @@ class Ledger:
                 seen.add(name)
                 if isinstance(text, snapshot_cache.Unreadable):
                     raise QewError(str(text), 1)
-                events.append(parse_event(name, text, f"{prefix}/{home}/{name}.json"))
+                events.append(parse_event_trusted(name, text) if home in trusted else parse_event(name, text, f"{prefix}/{home}/{name}.json"))
         return sorted(events, key=lambda event: event.id)
 
     def load_events(self, item_id: str) -> list[Event]:
@@ -248,11 +250,12 @@ class Ledger:
         homes = {item_id: [item_id, *aliases.of(item_id)] for item_id in ids}
         wanted = {home for each in homes.values() for home in each}
         if cache is not None:
-            rows = cache.events(self.events_dir, wanted, self._event_rows, verify)
+            rows, trusted = cache.events(self.events_dir, wanted, self._event_rows, verify)
         else:
+            trusted = frozenset()
             listed = sorted(wanted)
             rows = dict(zip(listed, _parallel(lambda home: self._event_rows(self.events_dir / home), listed), strict=True))
-        return Files(ids, texts, aliases, homes, rows)
+        return Files(ids, texts, aliases, homes, rows, trusted)
 
     def snapshot(self, verify: bool = False) -> Snapshot:
         files = self.read_files(verify)
@@ -266,7 +269,7 @@ class Ledger:
             raw = parse_item(clean_item_text(files.texts[item_id], where), where)
             if raw.id != item_id:
                 raise QewError(f"{where}: header id {raw.id} does not match the directory name", 1)
-            events[item_id] = self._events_of(item_id, files.homes[item_id], files.rows)
+            events[item_id] = self._events_of(item_id, files.homes[item_id], files.rows, files.trusted)
             items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events[item_id])), files.aliases)
             folds[item_id] = fold(events[item_id])
         return Snapshot(self, items, folds, events)

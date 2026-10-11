@@ -106,6 +106,12 @@ class Event:
         ) + "\n"
 
 
+def parse_event_trusted(event_id: str, text: str) -> Event:
+    """An event from text that `parse_event` already accepted (the snapshot cache validated it when it entered): no checks again."""
+    value = json.loads(text)
+    return Event(event_id, value["type"], value["at"], value["actor"], {key: item for key, item in value.items() if key not in ("type", "at", "actor")})
+
+
 def parse_event(event_id: str, text: str, where: str = "event") -> Event:
     try:
         value = json.loads(text)
