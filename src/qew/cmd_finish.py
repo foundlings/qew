@@ -33,6 +33,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     evidence.add_argument("--dry-run", action="store_true", help="with --manifest: say what would be recorded and write nothing")
     evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
     evidence.add_argument("--vcs", choices=["jj", "git"], help="override the detected VCS")
+    evidence.add_argument("--on-behalf-of", metavar="ACTOR", help="record the evidence for a claim ACTOR holds (the integrator citing an elf's change); both actors are recorded, the claim does not move")
     complete = commands.add_parser("complete", help="finish claimed work once the gate passes")
     complete.add_argument("item", nargs="?", help="item id or alias (not with --manifest)")
     complete.add_argument("--manifest", metavar="FILE", help="instead of ITEM: a JSON Lines file of {item, reason} rows, completed in one commit on a human's --quote")
@@ -75,7 +76,7 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command == "reopen" and (not arguments.item or arguments.dry_run):
         raise QewError("give ITEM, or --manifest FILE (--dry-run belongs to --manifest)", 2)
     if arguments.command == "evidence" and arguments.manifest:
-        if arguments.item or arguments.change or arguments.vcs:
+        if arguments.item or arguments.change or arguments.vcs or arguments.on_behalf_of:
             raise QewError("--manifest replaces ITEM and the single-item options: give the manifest alone", 2)
         print(evidence_manifest(config, Path(arguments.manifest), arguments.dry_run))
         return True
@@ -84,7 +85,7 @@ def run(arguments: argparse.Namespace) -> bool:
             raise QewError("give ITEM, or --manifest FILE", 2)
         if arguments.dry_run:
             raise QewError("--dry-run belongs to --manifest", 2)
-        print(evidence(config, arguments.item, arguments.change, arguments.vcs))
+        print(evidence(config, arguments.item, arguments.change, arguments.vcs, arguments.on_behalf_of))
         return True
     if arguments.command == "complete" and arguments.manifest:
         if arguments.item or arguments.take_over or arguments.no_commit or arguments.reason or arguments.landed_on:
@@ -186,14 +187,16 @@ def evidence_manifest(config: Config, manifest: Path, dry_run: bool) -> str:
     return evidence_batch.summary(batch, "would record" if dry_run else "recorded")
 
 
-def evidence(config: Config, reference: str, changes: list[str], vcs: str | None) -> str:
+def evidence(config: Config, reference: str, changes: list[str], vcs: str | None, on_behalf_of: str | None = None) -> str:
     ledger, snapshot, item_id = _load(config, reference)
     if snapshot.folds[item_id].state not in (State.APPROVED, State.CLAIMED):
         raise _refuse(snapshot, item_id, "record evidence for", "an approved or claimed item")
     folded = snapshot.folds[item_id]
-    if folded.state == State.CLAIMED and folded.owner != actor() and not holds_ancestor(snapshot, item_id, actor()):
+    if on_behalf_of is not None:
+        _require_holder(snapshot, item_id, on_behalf_of)
+    elif folded.state == State.CLAIMED and folded.owner != actor() and not holds_ancestor(snapshot, item_id, actor()):
         raise QewError(f"cannot record evidence for {item_id}: it is claimed by {holding(snapshot, item_id)}; "
-                       "evidence needs the claim or the claim of its epic", 3)
+                       "evidence needs the claim or the claim of its epic (or --on-behalf-of the holder)", 3)
     kind = vcs or code_vcs.detect(config.root)
     cited = changes or [code_vcs.current_change(config.root, kind)]
     for change in cited:
@@ -203,10 +206,21 @@ def evidence(config: Config, reference: str, changes: list[str], vcs: str | None
                 for c in e.get("change_ids", [])}
     if set(cited) <= recorded:  # a retry of evidence that already landed
         return f"{item_id} evidence {kind} {' '.join(cited)} (unchanged)"
+    named = {} if on_behalf_of is None else {"on_behalf_of": on_behalf_of}
     ledger.append_event(
-        item_id, "evidence", vcs=kind, change_ids=cited, repo=code_vcs.repository_url(config.root)
+        item_id, "evidence", vcs=kind, change_ids=cited, repo=code_vcs.repository_url(config.root), **named
     )
-    return f"{item_id} evidence {kind} {' '.join(cited)}"
+    return f"{item_id} evidence {kind} {' '.join(cited)}" + ("" if on_behalf_of is None else f" (for {on_behalf_of})")
+
+
+def _require_holder(snapshot: Snapshot, item_id: str, holder: str) -> None:
+    """`--on-behalf-of` is for a claim somebody else really holds: the named actor holds the item (or its epic); never oneself."""
+    if holder == actor():
+        raise QewError(f"--on-behalf-of {holder} is you: record the evidence plainly", 2)
+    folded = snapshot.folds[item_id]
+    if not ((folded.state == State.CLAIMED and folded.owner == holder) or holds_ancestor(snapshot, item_id, holder)):
+        held = f"claimed by {holding(snapshot, item_id)}" if folded.state == State.CLAIMED else "not claimed by anyone"
+        raise QewError(f"cannot record evidence for {item_id} on behalf of {holder}: {holder} does not hold it ({held})", 3)
 
 
 def _holder_check(snapshot: Snapshot, item_id: str, take_over: bool) -> str | None:  # "completed" when already done

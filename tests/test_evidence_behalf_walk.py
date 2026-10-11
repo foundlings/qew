@@ -44,7 +44,7 @@ class EvidenceBehalfWalk(unittest.TestCase):
         stranger = self.w.run("evidence", self.item, "--change", self.sha[:10], "--on-behalf-of", "carol", env=BOB)
         self.assertEqual(stranger.returncode, 3, stranger.stderr)
         self.assertIn("carol", stranger.stderr)
-        unclaimed = approved(self.w, "Nobody holds it")
+        unclaimed = approved(self.w, title="Nobody holds it")
         refused = self.w.run("evidence", unclaimed, "--change", self.sha[:10], "--on-behalf-of", "tester", env=BOB)
         self.assertNotEqual(refused.returncode, 0)
         self.assertEqual(self.evidence_events(), [])

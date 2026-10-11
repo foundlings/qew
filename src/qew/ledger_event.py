@@ -189,6 +189,9 @@ def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None
             claim_fields.validate(value.get("lane"), value.get("workspace"), value.get("kind"), exit_code=1)
         except QewError as error:
             raise QewError(f"{where}: {error}", 1) from None
+    elif kind == "evidence":
+        if "on_behalf_of" in value and (not isinstance(value["on_behalf_of"], str) or not valid_actor(value["on_behalf_of"])):
+            raise QewError(f"{where}: `on_behalf_of` must be one actor name without spaces or commas", 1)
     elif kind == "released":
         text("reason")
         text("previous_owner")

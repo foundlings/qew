@@ -289,7 +289,7 @@ shape prime: additional_context context_bytes schema_version
   changes landed is `qew complete`'s check, as with the single form. A row may also name a completed item whose header says
   `evidence_absent: historical` (or that has ids): the evidence is recorded and the header gets the ids, replacing the historical
   absence (recovered proof); other stated absences are refused.
-- `qew evidence ITEM [--change ID]... [--vcs jj|git]`: record the code changes; default is the current one.
+- `qew evidence ITEM [--change ID]... [--vcs jj|git] [--on-behalf-of ACTOR]`: record the code changes; default is the current one. Evidence on a claimed item needs the claim (or its epic's). `--on-behalf-of ACTOR` lets another actor (the integrator) record it for a claim ACTOR really holds (the item or its epic; a claim nobody holds, another holder, or oneself is refused, exit 3 / 2): the event records the recording actor and `on_behalf_of`; the claim does not move and `complete` stays the holder's.
 - `qew complete --manifest FILE --quote "Name: 'their words'" [--dry-run]`: complete many approved items in one commit on a human's
   quote, without claims or evidence. FILE is JSON Lines of `{item, change_ids?, absent?, reason?}`: strict ledgers need `change_ids` (the work's changes) or `absent` (no-code, historical, children or superseded-by:ITEM, with a `reason`) on every row. Every row is checked before the first write and one
   bad row refuses all, naming its line: an unknown, duplicate, draft or closed item (exit 2), an item claimed by another login

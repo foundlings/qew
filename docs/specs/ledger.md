@@ -102,7 +102,7 @@ Append-only facts; current state = fold of events in ID order. One JSON object p
   claim by another actor is a recorded lost race (`qew check` notes `lost claim: ITEM ACTOR`, not an error), and a
   later claim by the same actor is ignored. The merged-claim moment is known only after the fetch, so `qew start`
   re-reads after its write is committed and merged and exits 3 naming the winner when it lost.
-- `evidence` (`{"vcs": "jj", "change_ids": [...], "repo": "<code repo url>"}`)
+- `evidence` (`{"vcs": "jj", "change_ids": [...], "repo": "<code repo url>"}`, plus `on_behalf_of` when another actor recorded it for the claim holder it names)
 - `completed` with `"provenance": "import"` (+ a non-empty `original_ids`; `qew check` refuses it without) is written only by an import path
   (`create --from-file --import`) for history without resolvable change ids; `qew check` counts these
   (`imported without evidence: N`) and does not fail on them. Everything else:
