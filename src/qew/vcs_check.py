@@ -44,7 +44,8 @@ def git_pushed(root: Path, pre_push_input: str) -> list[Commit]:
         _, local, _, remote = parts
         if set(local) <= _ZERO:
             continue  # a deletion sends no commits
-        attempts = ([[local, "--not", remote]] if not set(remote) <= _ZERO else []) + [[local, "--not", "--remotes"]]
+        # new work only: nothing already reachable from any remote ref (another actor's commit on its own branch is theirs)
+        attempts = ([[local, "--not", remote, "--remotes"]] if not set(remote) <= _ZERO else []) + [[local, "--not", "--remotes"]]
         for revisions in attempts:
             result = _run(root, ["git", "log", f"--format=%H{_FIELD}%B{_RECORD}", *revisions])
             if result.returncode == 0:
