@@ -17,6 +17,7 @@ from qew import ledger_lineage
 from qew.errors import QewError
 
 # Directories and files whose changes are qew's own writes (never a human's notes).
+JJ_SNAPSHOT_LIMIT = 128 * 1024 * 1024  # jj refuses to snapshot a NEW file over `snapshot.max-new-file-size` (1 MiB by default); qew's own attachment limit is 100 MiB
 JJ_READ = ["jj", "--ignore-working-copy", "--no-pager"]  # a query, a fetch or a push never needs the working copy snapshotted: that scans every file
 OWNED = ("items", "events", "mirrors", "boards", "views", "proposals")
 SHOWN_CONFLICTS = 5
@@ -211,8 +212,10 @@ class LedgerRepo:
             stdin: str | None = None) -> subprocess.CompletedProcess[str]:
         started = time.monotonic()
         attempt = 0
-        if timeout is not None and argv and argv[0] == "jj":
-            timeout = max(timeout, jj_timeout_floor())
+        if argv and argv[0] == "jj":  # every jj call of qew's snapshots with a limit above what qew accepts as an attachment
+            argv = [argv[0], "--config", f"snapshot.max-new-file-size={JJ_SNAPSHOT_LIMIT}", *argv[1:]]
+            if timeout is not None:
+                timeout = max(timeout, jj_timeout_floor())
         while True:
             result = self._run_once(argv, timeout, stdin)
             if result.returncode == 0 or not LOCK_ERROR.search(result.stderr or ""):
@@ -250,6 +253,18 @@ class LedgerRepo:
             exclude.write_text(text + ("" if text.endswith("\n") or not text else "\n") + ".qew/\n", encoding="utf-8")
 
     # -- state
+    def uncommitted(self, paths: Sequence[str]) -> list[str]:
+        """Of these ledger-relative files, the ones missing from the committed tree (git HEAD, jj `@-`): on disk, never committed."""
+        if self.vcs is None or not paths:
+            return []
+        if self.vcs == "git":
+            if self.run(["git", "rev-parse", "--verify", "-q", "HEAD"], check=False).returncode != 0:
+                return list(paths)
+            listed = self.run(["git", "ls-tree", "-r", "--name-only", "HEAD", "--", *paths], check=False).stdout.splitlines()
+        else:
+            listed = self.run([*JJ_READ, "file", "list", "-r", "@-", *_jj_filesets(paths)], check=False).stdout.splitlines()
+        return [path for path in paths if path not in set(listed)]
+
     def dirty_owned(self) -> list[str]:
         """Changed or untracked paths inside qew's own directories."""
         if self.vcs == "git":

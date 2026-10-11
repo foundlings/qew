@@ -56,7 +56,7 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
   mismatch, a stored file whose directory belongs to no item, and a body link `[text](attachment:NAME)` to a name that is
   not attached. A ledger that uses attachments needs a qew that knows these events; older versions refuse the unknown
   event type loudly.
-- Limits: 100 MiB per file (a warning above 25 MiB), 500 MiB of distinct bytes per item; git-lfs is out of scope.
+- Limits: 100 MiB per file (a warning above 25 MiB), 500 MiB of distinct bytes per item; git-lfs is out of scope. jj refuses to snapshot a NEW file over `snapshot.max-new-file-size` (1 MiB by default), which would leave a larger attachment on disk, never committed or pushed; every jj call qew makes therefore passes `--config snapshot.max-new-file-size=128MiB`, a file already refused is committed by the recovery of the next qew write, and `qew check` reports an attachment file that is not in the committed tree (`not committed`).
 
 ## Item file (`items/<ID>/item.md`)
 Header = first lines, `key: value`, one per line, terminated by a line `---`. Parsers read the
