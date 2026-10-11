@@ -245,6 +245,7 @@ class RemotePullRequest:
     assignee: str = ""  # forge login it is assigned to, "" when nobody
     auto_merge: bool = False  # the forge will merge it once its checks pass
     merge_sha: str = ""  # the merge commit once state is "merged", else ""
+    title: str = ""  # the forge's title (untrusted text); "" from a backend that does not read it
 
 
 @dataclass(frozen=True)
