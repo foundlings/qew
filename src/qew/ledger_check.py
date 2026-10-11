@@ -12,7 +12,7 @@ from qew.ledger_aliases import ITEM_FILE
 from qew.code_vcs import Landing
 from qew.evidence_resolve import Resolver
 from qew.ledger_config import LEDGER_FILE, SCHEMA_VERSIONS
-from qew.ledger_event import Event, State, attachments_after, fold, needs_after, parse_event, valid_actor
+from qew.ledger_event import Event, State, attachments_after, fold, needs_after, parse_event, parse_event_trusted, valid_actor
 from qew.ledger_ids import sort_key
 from qew.ledger_item import Item, Kind, check_header_values, clean_item_text, parse_item
 from qew.ledger_store import Files, Ledger, Snapshot
@@ -173,7 +173,7 @@ def _load_events(files: Files, stem: str, problems: list[str]) -> list[Event]:
             try:
                 if isinstance(text, Unreadable):
                     raise QewError(str(text), 1)
-                found.append(parse_event(name, text, f"events/{home}/{name}.json"))
+                found.append(parse_event_trusted(name, text) if home in files.trusted else parse_event(name, text, f"events/{home}/{name}.json"))
             except QewError as error:
                 problems.append(str(error))
     return sorted(found, key=lambda event: event.id)

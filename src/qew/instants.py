@@ -6,14 +6,18 @@ from collections.abc import Iterable
 
 from qew.errors import QewError
 
-_INSTANT = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z")
+_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):\d{2}:\d{2}Z", re.ASCII)  # hour 24 would roll to the next day in fromisoformat
 _DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
 
 def parse_instant(text: str) -> datetime | None:
     """The instant `text` spells, or None when it is not exactly `YYYY-MM-DDTHH:MM:SSZ` (an impossible date is None)."""
-    found = _INSTANT.fullmatch(text)
-    return _build(found.groups()) if found else None
+    if _INSTANT.fullmatch(text) is None:
+        return None
+    try:
+        return datetime.fromisoformat(text)  # C-implemented; an impossible date raises
+    except ValueError:
+        return None
 
 
 def parse_date_or_instant(text: str) -> datetime | None:

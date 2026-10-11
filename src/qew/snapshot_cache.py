@@ -20,6 +20,9 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from qew.errors import QewError
+from qew.ledger_event import parse_event
+
 FORMAT = "1"
 RACY_NS = 2_000_000_000
 READERS = 16
@@ -64,6 +67,7 @@ class SnapshotCache:
         self._lock = threading.RLock()
         self._items: dict[str, tuple[str, int, str]] = {}  # item dir -> (signature, racy, text)
         self._homes: dict[str, tuple[str, int]] = {}  # events dir name -> (signature, racy)
+        self._valid: set[str] = set()  # events dirs whose every file `parse_event` accepted when it was cached
         self._events: dict[str, Rows] = {}
         self._loaded = False
 
@@ -81,6 +85,8 @@ class SnapshotCache:
         connection.execute("insert or replace into meta values('format', ?)", (FORMAT,))
         connection.execute("create table if not exists items(id text primary key, sig text not null, racy integer not null, body text not null)")
         connection.execute("create table if not exists homes(name text primary key, sig text not null, racy integer not null)")
+        if "ok" not in [column[1] for column in connection.execute("pragma table_info(homes)")]:
+            connection.execute("alter table homes add column ok integer not null default 0")
         connection.execute("create table if not exists events(home text not null, name text not null, body text not null, primary key(home, name)) without rowid")
         connection.commit()
         return connection
@@ -101,7 +107,12 @@ class SnapshotCache:
                 connection = self._connect()
                 try:
                     self._items = {i: (s, r, b) for i, s, r, b in connection.execute("select id, sig, racy, body from items")}
-                    self._homes = {n: (s, r) for n, s, r in connection.execute("select name, sig, racy from homes")}
+                    self._homes = {}
+                    self._valid = set()
+                    for n, s, r, ok in connection.execute("select name, sig, racy, ok from homes"):
+                        self._homes[n] = (s, r)
+                        if ok:
+                            self._valid.add(n)
                     self._events = {}
                     for home, name, body in connection.execute("select home, name, body from events order by home, name"):
                         self._events.setdefault(home, []).append((name, body))
@@ -110,7 +121,7 @@ class SnapshotCache:
                 self._loaded = True
                 return
             except (sqlite3.Error, OSError):
-                self._items, self._homes, self._events = {}, {}, {}
+                self._items, self._homes, self._events, self._valid = {}, {}, {}, set()
                 for suffix in ("", "-wal", "-shm", "-journal"):
                     try:
                         os.unlink(f"{self.path}{suffix}")
@@ -134,7 +145,8 @@ class SnapshotCache:
                     for home in (*gone_homes, *events):
                         connection.execute("delete from events where home = ?", (home,))
                     connection.executemany("delete from homes where name = ?", [(h,) for h in gone_homes])
-                    connection.executemany("insert or replace into homes values(?, ?, ?)", [(h, s, r) for h, (s, r) in homes.items()])
+                    connection.executemany("insert or replace into homes values(?, ?, ?, ?)",
+                                           [(h, s, r, int(h in self._valid)) for h, (s, r) in homes.items()])
                     connection.executemany("insert or replace into events values(?, ?, ?)",
                                            [(home, name, body) for home, rows in events.items() for name, body in rows])
             finally:
@@ -183,8 +195,11 @@ class SnapshotCache:
             return {name: fresh[name] if isinstance(fresh.get(name), Unreadable) else known[name][2] for name in current}
 
     # -- events
-    def events(self, events_dir: Path, homes: set[str], read: Callable[[Path], Rows], verify: bool = False) -> dict[str, Rows]:
-        """The event files (name, text) of each wanted events directory, reading only the directories whose stat changed."""
+    def events(self, events_dir: Path, homes: set[str], read: Callable[[Path], Rows],
+               verify: bool = False) -> tuple[dict[str, Rows], frozenset[str]]:
+        """The event files (name, text) of each wanted events directory, reading only the directories whose stat changed, and the
+        directories whose files were all validated when they entered the cache (a reader may skip validating those again; a verifying
+        read trusts none)."""
         with self._lock:
             self._load()
             signatures: dict[str, tuple[str, int]] = {}
@@ -215,12 +230,34 @@ class SnapshotCache:
                     changed_rows[home] = rows
                     self._events[home] = rows
             self._homes.update(changed_homes)
+            for home in changed_rows:
+                self._valid.discard(home)
+            pending = [home for home in signatures if home not in damaged and home not in self._valid and home in self._homes]
+            for home in pending:  # validate once, when the text enters the cache (or when an older cache first meets it)
+                if _validates(events_dir, home, self._events.get(home, [])):
+                    self._valid.add(home)
+                    changed_homes[home] = self._homes[home]
             gone = {home for home in self._homes if home not in signatures}
             for home in gone:
                 self._homes.pop(home)
                 self._events.pop(home, None)
+                self._valid.discard(home)
             self._save({}, set(), changed_homes, changed_rows, gone)
-            return {home: fresh[home] if home in damaged else self._events.get(home, []) for home in signatures}
+            result = {home: fresh[home] if home in damaged else self._events.get(home, []) for home in signatures}
+            trusted = frozenset() if verify else frozenset(home for home in signatures if home in self._valid and home not in damaged)
+            return result, trusted
+
+
+def _validates(events_dir: Path, home: str, rows: Rows) -> bool:
+    """Whether `parse_event` accepts every file of the directory."""
+    try:
+        for name, text in rows:
+            if isinstance(text, Unreadable):
+                return False
+            parse_event(name, text, f"{events_dir}/{home}/{name}.json")
+    except QewError:
+        return False
+    return True
 
 
 def _read_all[T](names: list[str], read: Callable[[str], T]) -> dict[str, T]:
