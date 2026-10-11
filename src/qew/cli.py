@@ -49,7 +49,7 @@ Work
 Drafts (only a human's quoted words release work)
   qew draft       list | approve | revert
 Pull requests
-  qew pr          open | check | ready | merge
+  qew pr          open | check | ready | sync | merge
   qew land        complete the items of a merged pull request
   qew branch      prune: delete merged branches no open pull request uses
 Mirrors

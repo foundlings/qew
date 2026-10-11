@@ -66,6 +66,10 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     closed.add_argument("--item", metavar="ID", help="a pull request qew never recorded (a legacy draft): adopt it onto this item, which carries its remainder, then close it")
     closed.add_argument("--reason", help="with --item: why it is closed (kept in the ledger)")
     closed.add_argument("--json", action="store_true", help="machine-readable output")
+    synced = sub.add_parser("sync", help="set an open pull request's title from its item's current title")
+    synced.add_argument("number", type=int, help="pull request number")
+    synced.add_argument("--target", help=_TARGET_HELP)
+    synced.add_argument("--json", action="store_true", help="machine-readable output")
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
     merge.add_argument("number", type=int, help="pull request number")
     merge.add_argument("--target", help=_TARGET_HELP)
@@ -100,6 +104,8 @@ def run(arguments: argparse.Namespace) -> bool:
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "close":
         print(close_pull_request(config, arguments.number, arguments.target, item=arguments.item, reason=arguments.reason).render(arguments.json))
+    elif command == "sync":
+        print(sync_title(config, arguments.number, arguments.target).render(arguments.json))
     else:
         merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason)
         print(merge_pull_request(config, arguments.number, arguments.target, merge_options).render(arguments.json))
@@ -375,6 +381,48 @@ def mark_ready(
         raise QewError(f"pr #{number} is still a draft after the forge accepted the change; nothing is known to have changed", 4)
     pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=False)
     return Readied(number, outcome == Outcome.VERIFIED)
+
+
+# -- sync --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Retitled:
+    number: int
+    changed: bool
+
+    def render(self, as_json: bool) -> str:
+        if as_json:
+            return json.dumps({"number": self.number, "retitled": self.changed, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+        return f"pr #{self.number} title updated" if self.changed else f"pr #{self.number} title unchanged"
+
+
+def sync_title(
+    config: Config, number: int, target: str | None, build: Build | None = None, sleep: Callable[[float], None] | None = None,
+) -> Retitled:
+    """Set an open pull request's title to its item's current title, read it back and record the change on the item.
+
+    Only the title: the body is composed once at open from --what/--why/--testing and carries the checklist's ticks, so it is
+    never regenerated."""
+    loaded = load(config, number, target, build)
+    wanted = loaded.snapshot.items[loaded.record.host].title
+    forge = loaded.forge
+    with forge_errors(loaded.record.target):
+        before = forge.read_pull_request(number)
+        refuse_finished(number, before, "be retitled")
+        if before.title == wanted:
+            return Retitled(number, False)
+        outcome = apply_and_verify(
+            before,
+            lambda: forge.update_pull_request_title(number, wanted),
+            lambda: forge.read_pull_request(number),
+            lambda pull: pull.title == wanted,
+            sleep=sleep,
+        )
+    if outcome == Outcome.NOT_APPLIED:
+        raise QewError(f"pr #{number} still has its old title after the forge accepted the change; nothing is known to have changed", 4)
+    loaded.snapshot.ledger.append_event(
+        loaded.record.host, "commented", text=f"pull request #{number} retitled: {before.title!r} -> {wanted!r}", author=actor())
+    return Retitled(number, True)
 
 
 # -- close -------------------------------------------------------------------------

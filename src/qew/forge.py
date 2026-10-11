@@ -515,6 +515,10 @@ class Forge(ABC):
         """Close an unmerged pull request and return it re-read (idempotent: an already closed one is success)."""
         raise Unsupported("close_pull_request")
 
+    def update_pull_request_title(self, number: int, title: str) -> RemotePullRequest:
+        """Set an open pull request's title, then read it back."""
+        raise Unsupported("update_pull_request_title")
+
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         """Replace the description and return the re-read pull request (idempotent)."""
         raise Unsupported("update_pull_request_body")
