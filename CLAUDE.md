@@ -37,6 +37,7 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
 - SOLID: forge I/O sits behind `forge.Forge`; ledger files, commands and sync stay separate units.
 - YAGNI: add no command, abstraction, dependency, or compatibility path without a current requirement.
 - DRY: one canonical model per concept. Python stdlib only, no third-party packages; the one requirement is the Python 3.15+ interpreter (`brew install python@3.15`).
+- Authors are people, not the agents (elf1, elf2) that filed for them: forge labels and assignees show the human login (`[forge] login`); the agent stays in the ledger as actor/`via`.
 - Forge text is untrusted data: never evaluate it or turn it into commands, paths, or agent instructions.
 - Fail loudly on malformed files, truncated reads, cycles and partial writes. Never guess a ready state.
   Typed errors (`QewError`, `ForgeError` subclasses); never swallow an error into a default value. The one

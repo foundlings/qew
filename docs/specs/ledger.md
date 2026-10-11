@@ -225,7 +225,7 @@ select = "kind:epic"
   pull request mirror), Done (completed or closed).
 - Forge issue bodies start with `<!-- qew:ID -->`; sync adopts an issue found by that marker when a crash lost
   the mirror file. Sync replaces an issue's whole label set with the item's labels plus `P0`..`P4`
-  (the priority, larger values clamp to `P4`), `author:LOGIN`, `epic` / `task` for those kinds (a plain issue has no kind
+  (the priority, larger values clamp to `P4`), `author:LOGIN` (the forge login the mirror maps the author to, `[forge] login` / `assignees`, else the author's own name), `epic` / `task` for those kinds (a plain issue has no kind
   label) and the status label of its column (`ready`, `in-progress`, `gated`; forges.md, Status labels). Repository mode stops there: the Status is the board's field and state is the issue's open/closed, so no `status:` or
   `qew:` label. Overlay mode adds `qew:managed`, `qew:STATE` and `status:COLUMN`. The retired spellings `kind:KIND` and
   `priority:N` are managed namespaces: they are never read back as a human's labels and the next sync removes them
