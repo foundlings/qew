@@ -139,7 +139,7 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
     with _lock(config.ledger_path, "lock", verb):
         repo.exclude_cache()
         if committing:
-            _recover(repo)
+            _recover(repo, deferred=True)
         if replicating and verb != "resolve":  # resolve settles a conflict the fetch would only re-raise
             _note(config, repo.fetch_merge(rep.timeout_s), repo.last_failure)
             (config.ledger_path / ".qew" / "last-fetch").touch()
@@ -236,7 +236,7 @@ def _sync_session(config: Config, repo: LedgerRepo, committing: bool, replicatin
     with _lock(config.ledger_path, "lock", "sync"):
         repo.exclude_cache()
         if committing:
-            _recover(repo)
+            _recover(repo, deferred=True)
         if replicating:
             repo.fetch_merge(rep.timeout_s)
     ledger_store.journal_start()
@@ -373,8 +373,11 @@ def _commit(repo: LedgerRepo, config: Config, verb: str, entries: Entries, rollb
         raise
 
 
-def _recover(repo: LedgerRepo) -> None:
-    """Commit qew-owned files a crashed command left behind, before this command writes."""
+def _recover(repo: LedgerRepo, deferred: bool = False) -> None:
+    """Commit qew-owned files a crashed command left behind, before this command writes. On a jj ledger a writing command
+    (`deferred`) skips the scan: its own commit snapshots once and sweeps what it finds (`LedgerRepo.commit`)."""
+    if deferred and repo.vcs == "jj":
+        return
     stray = repo.dirty_owned()
     if stray:
         repo.commit(stray, f"qew: recover {len(stray)} files")

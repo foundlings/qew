@@ -295,7 +295,7 @@ class LedgerRepo:
         return bool(self.run(["git", "remote"], check=False).stdout.strip())
 
     # -- writing
-    def commit(self, paths: Sequence[str], message: str) -> None:
+    def commit(self, paths: Sequence[str], message: str, sweep: bool = True) -> None:
         if self.vcs == "git":
             # paths go to git on stdin: an import can touch more files than one command line can name
             names = "\0".join(paths) + "\0"
@@ -307,8 +307,19 @@ class LedgerRepo:
                 self.run(["git", "reset", "-q", *from_stdin], stdin=names, check=False)
                 raise
         elif self.vcs == "jj":
-            self.run(["jj", "--no-pager", "commit", "-m", message, *_jj_filesets(paths)])
-            self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@-"])
+            self.run(["jj", "--no-pager", "commit", "-m", message, *_jj_filesets(paths)])  # the one command that snapshots the working copy
+            self.run([*JJ_READ, "bookmark", "set", self.branch, "-r", "@-"])
+            if sweep:
+                self._sweep_strays()
+
+    def _sweep_strays(self) -> None:
+        """Commit the qew-owned files that the commit's own snapshot picked up beyond the paths it named (a killed writer's, or a file
+        jj had refused): they now sit in the working-copy commit, so no second scan is needed to find them."""
+        shown = self.run([*JJ_READ, "diff", "--summary", "-r", "@"]).stdout
+        paths = sorted({line[2:].strip() for line in shown.splitlines() if line[2:].strip()})
+        stray = [path for path in paths if path.split("/", 1)[0] in OWNED]
+        if stray:
+            self.commit(stray, f"qew: recover {len(stray)} files", sweep=False)
 
     # -- replication (best effort; the caller decides what a failure means)
     @trace.traced("ledger fetch+merge")

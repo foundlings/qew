@@ -140,6 +140,9 @@ read path never lets it: the fetch, the revset queries and the push use that fla
 commits are unpushed, and it looks for files a killed writer left behind only when `.qew/writing` exists (a command creates it when
 it takes the write lock to write and removes it when it finishes, even on failure; a kill leaves it). On the loaded live foundlings
 ledger one read dropped from 14.7 s (8.5 s of fetch and merge, kernel time 56 s) to 5.1 s (1.5 s).
+A write on a jj ledger snapshots the working copy once: its commit. Moving the bookmark ignores the working copy, and the qew-owned files the
+commit's snapshot found beyond the paths it named (a killed writer's, a file jj had refused) are swept into a `qew: recover N files` commit
+from that same snapshot, so no separate scan precedes the write. On a copy of the live ledger the jj time of one write fell from 8.6 s to 2.8 s.
 
 ## Mirrors (`mirrors/<ID>/<target>.json`)
 `{"forge": "github|forgejo|gitlab", "url": "https://host/owner/repo", "kind": "issue|pr|project_item",
