@@ -123,13 +123,22 @@ def parse_item(text: str, where: str = "item") -> Item:
 _LONE_CR = re.compile(r"\r(?!\n)")
 
 
-def read_item_text(path: Path, where: str) -> str:
-    """Read an item file without newline translation, refusing a lone carriage return (a title that spans lines)."""
+def raw_item_text(path: Path) -> str:
+    """An item file exactly as stored: no newline translation."""
     with open(path, encoding="utf-8", newline="") as handle:
-        text = handle.read()
+        return handle.read()
+
+
+def clean_item_text(text: str, where: str) -> str:
+    """Refuse a lone carriage return (a title that spans lines) and fold CRLF to LF."""
     if _LONE_CR.search(text):
         raise QewError(f"{where}: a carriage return outside a line ending (a title must be one line)", 1)
     return text.replace("\r\n", "\n")
+
+
+def read_item_text(path: Path, where: str) -> str:
+    """Read an item file without newline translation, refusing a lone carriage return (a title that spans lines)."""
+    return clean_item_text(raw_item_text(path), where)
 
 
 def title_is_one_line(title: str) -> bool:

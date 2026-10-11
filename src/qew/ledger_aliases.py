@@ -7,6 +7,7 @@ a leftover file under an old id is superseded by the renamed copy. The map is de
 headers; nothing else stores it.
 """
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -41,6 +42,12 @@ def _header_values(path: Path) -> dict[str, str]:
             text = stream.read(MAX_HEADER_BYTES).decode("utf-8", "replace").replace("\r\n", "\n")
     except OSError:
         return {}
+    return header_values_of(text)
+
+
+def header_values_of(text: str) -> dict[str, str]:
+    """The `id` and `aliases` values of an item file's text, read like the file itself: header only, bounded bytes."""
+    text = text[:MAX_HEADER_BYTES].replace("\r\n", "\n")
     found: dict[str, str] = {}
     for line in text.split("\n"):
         if line == RULE:
@@ -103,9 +110,15 @@ def _build(aliased: dict[str, tuple[str, ...]], headers: dict[str, tuple[str, ..
     return Aliases(by_alias, superseded, owned)
 
 
-def scan(items_dir: Path) -> Aliases:
+def _aliases_in(stem: str, text: str) -> tuple[str, ...] | None:
+    header = header_values_of(text)
+    return tuple(header.get("aliases", "").split()) if header.get("id") == stem else None
+
+
+def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None) -> Aliases:
     """The alias map. Headers are read once; later this process re-reads only the files it wrote, and a directory
-    that changed behind its back (another process) is read again in full."""
+    that changed behind its back (another process) is read again in full. `texts` gives every item file's text by
+    directory name (the snapshot cache): the full build then reads no file."""
     try:
         stamp = items_dir.stat().st_mtime_ns
     except OSError:
@@ -115,10 +128,16 @@ def scan(items_dir: Path) -> Aliases:
     index = _indexes.get(key)
     if index is None or (not changed and index.stamp != stamp):
         headers = {}
-        for directory in sorted(p for p in items_dir.iterdir() if p.is_dir()):
-            found = _read(directory / ITEM_FILE)
-            if found is not None:
-                headers[directory.name] = found
+        if texts is not None:
+            for stem, text in sorted(texts().items()):
+                found = _aliases_in(stem, text)
+                if found is not None:
+                    headers[stem] = found
+        else:
+            for directory in sorted(p for p in items_dir.iterdir() if p.is_dir()):
+                found = _read(directory / ITEM_FILE)
+                if found is not None:
+                    headers[directory.name] = found
         index = _indexes[key] = _Index(stamp, headers)
     elif changed:
         index.refresh(stamp, changed, items_dir)

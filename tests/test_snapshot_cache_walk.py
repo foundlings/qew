@@ -40,7 +40,7 @@ class SnapshotCacheWalk(unittest.TestCase):
 
     def test_a_warm_cache_serves_the_files_without_reading_them(self) -> None:
         """Prevents a cache that still reads 165,000 files: with every item and event file unreadable the warm read still works."""
-        first = self.make("First")
+        first = self.world.create("--kind", "epic", "--title", "First", "--quote", QUOTE)
         self.make("Second", "--parent", first)
         self.assertEqual(self.world.run("start", first).returncode, 0)
         time.sleep(2.2)  # the entries are old enough to be trusted
@@ -86,9 +86,10 @@ class SnapshotCacheWalk(unittest.TestCase):
         self.assertIn("typed by hand", self.out("show", other))
         later.unlink()
         self.assertNotIn("typed by hand", self.out("show", other))
-        for entry in (self.world.ledger / "items" / other).iterdir():
-            entry.unlink()
-        (self.world.ledger / "items" / other).rmdir()
+        for kind in ("items", "events"):
+            for entry in (self.world.ledger / kind / other).iterdir():
+                entry.unlink()
+            (self.world.ledger / kind / other).rmdir()
         self.assertNotIn("Other", self.out("list"))
 
     def test_a_broken_or_foreign_cache_is_rebuilt_not_trusted(self) -> None:
@@ -109,6 +110,8 @@ class SnapshotCacheWalk(unittest.TestCase):
     def test_no_cache_means_no_database(self) -> None:
         """Prevents the escape hatch writing anyway: QEW_NO_CACHE=1 reads the files and leaves no database behind."""
         self.make("Work")
+        for suffix in ("", "-wal", "-shm", "-journal"):
+            self.db.with_name(self.db.name + suffix).unlink(missing_ok=True)
         self.out("list", env=NO_CACHE)
         self.assertFalse(self.db.exists())
 

@@ -121,7 +121,7 @@ class HostileInputWalk(unittest.TestCase):
     def test_malformed_payloads_exit_zero_silently_for_every_event_and_agent(self) -> None:
         """A hook crash must not break every shell call; Cursor's pre-tool answers an explicit allow."""
         payloads = ("", "not json", "[]", '{"tool_input":{"command":7}}', '{"tool_input":3,"cwd":5}')
-        before = sorted(p.name for p in self.world.ledger.rglob("*") if p.is_file())
+        before = sorted(p.name for p in self.world.ledger.rglob("*") if p.is_file() and ".qew" not in p.parts)  # the local read cache is not ledger content
         for agent in AGENTS:
             for event in ("pre-tool", "post-tool"):
                 for raw in payloads:
@@ -134,7 +134,7 @@ class HostileInputWalk(unittest.TestCase):
                 with self.subTest(agent=agent, event="session-start", raw=raw):
                     result = feed(self.world, "session-start", agent, raw=raw)
                     self.assertEqual(result.returncode, 0, result.stderr)
-        after = sorted(p.name for p in self.world.ledger.rglob("*") if p.is_file())
+        after = sorted(p.name for p in self.world.ledger.rglob("*") if p.is_file() and ".qew" not in p.parts)  # the local read cache is not ledger content
         self.assertEqual(before, after)
 
     def test_an_unparseable_ledger_keeps_post_tool_silent(self) -> None:
