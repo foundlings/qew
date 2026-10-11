@@ -92,3 +92,12 @@ def tick(body: str, targets: Sequence[Box]) -> str:
             raise QewError("the checklist changed while it was being edited", 3)
         lines[box.line] = matched.group("lead") + "x" + matched.group("tail") + ending
     return "".join(lines)
+
+
+def drop(body: str, target: Box) -> str:
+    """`body` without the line of the target box; all other bytes are untouched."""
+    lines = body.splitlines(keepends=True)
+    if _BOX.match(_split(lines[target.line])[0]) is None:
+        raise QewError("the checklist changed while it was being edited", 3)
+    del lines[target.line]
+    return "".join(lines)

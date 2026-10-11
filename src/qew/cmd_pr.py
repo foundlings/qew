@@ -57,6 +57,9 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     check.add_argument("ids", nargs="*", help="checklist items to tick: marker id, position, or @position")
     check.add_argument("--all", action="store_true", help="tick every open item")
     check.add_argument("--list", action="store_true", help="show the items and whether they are ticked; write nothing")
+    check.add_argument("--drop", metavar="ID", help="remove this item's box (the PR will not finish it); every other tick stays (needs --reason)")
+    check.add_argument("--reason", help="why: required with --drop")
+    check.add_argument("--force", action="store_true", help="with --drop: also drop a box that is already ticked")
     check.add_argument("--target", help=_TARGET_HELP)
     ready = sub.add_parser("ready", help="mark a draft pull request ready for review")
     ready.add_argument("number", type=int, help="pull request number")
@@ -107,7 +110,8 @@ def run(arguments: argparse.Namespace) -> bool:
                 file=sys.stderr,
             )
     elif command == "check":
-        print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target))
+        print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target,
+                                 drop=arguments.drop, reason=arguments.reason, force=arguments.force))
     elif command == "ready":
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "close":
@@ -338,8 +342,16 @@ def _describe(box: pr_checklist.Box) -> str:
 
 def check_pull_request(
     config: Config, number: int, names: list[str], every: bool, listing: bool, target: str | None,
-    build: Build | None = None,
+    build: Build | None = None, drop: str | None = None, reason: str | None = None, force: bool = False,
 ) -> str:
+    if drop is not None:
+        if names or every or listing:
+            raise QewError("--drop stands alone: it cannot be combined with ticking, --all or --list", 2)
+        if not (reason or "").strip():
+            raise QewError("--drop needs --reason TEXT: say why the item will not be finished", 2)
+        return _drop_item(config, number, drop, reason or "", force, target, build)
+    if reason or force:
+        raise QewError("--reason and --force belong to --drop", 2)
     chosen = [bool(names), every, listing]
     if sum(chosen) != 1:
         raise QewError("name checklist items, or pass exactly one of --all and --list", 2)
@@ -363,6 +375,32 @@ def check_pull_request(
     if written.body != edited:
         raise QewError(f"pr #{number} body did not take the edit; the forge still shows the old checklist", 3)
     return f"pr #{number} checked: {' '.join(b.address for b in targets)}"
+
+
+def _drop_item(config: Config, number: int, name: str, reason: str, force: bool, target: str | None, build: Build | None) -> str:
+    """Remove one checklist box from the body, keep every other byte, and record the drop on the item and the pull request record."""
+    loaded = load(config, number, target, build)
+    with forge_errors(loaded.record.target):
+        first = loaded.forge.read_pull_request(number)
+    refuse_finished(number, first, "have its checklist edited")
+    (box,) = pr_checklist.resolve(pr_checklist.boxes(first.body), [name])
+    if box.ticked and not force:
+        raise QewError(f"checklist item `{name}` is already ticked: it is finished work; pass --force to drop it anyway", 2)
+    edited = pr_checklist.drop(first.body, box)
+    with forge_errors(loaded.record.target):
+        latest = loaded.forge.read_pull_request(number)
+        if latest.body != first.body:
+            raise QewError(f"pr #{number} body changed while it was being edited; nothing written, run again", 3)
+        written = loaded.forge.update_pull_request_body(number, edited)
+    if written.body != edited:
+        raise QewError(f"pr #{number} body did not take the edit; the forge still shows the old checklist", 3)
+    ledger = loaded.snapshot.ledger
+    text = reason.strip()
+    for item_id in loaded.record.items or (loaded.record.host,):
+        ledger.append_event(item_id, "commented", text=f"dropped checklist item {box.address} ({box.text}) from pull request #{number}: {text}", author=actor())
+    current = next(m for m in ledger.load_mirrors(loaded.record.host) if m["_target"] == loaded.record.mirror_file)
+    pr_record.update_mirror(ledger, loaded.record, dropped=[*current.get("dropped", []), f"{box.address}: {text}"])
+    return f"pr #{number} dropped: {box.address}"
 
 
 # -- ready -------------------------------------------------------------------------
