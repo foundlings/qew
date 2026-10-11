@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from tests.ledger_harness import QUOTE, World
 
-LATEST = "schema_version = 5"
+LATEST = "schema_version = 6"
 
 
 def to_old_layout(world: World, version: int) -> dict[str, bytes]:
@@ -52,13 +52,13 @@ class MigrateLayoutWalk(unittest.TestCase):
         return world, to_old_layout(world, version)
 
     def test_schema_1_and_2_both_move_to_the_latest_in_one_go_with_identical_item_bytes(self) -> None:
-        """Prevents intermediate steps and rewritten content: from 1 or 2 straight to 5, every item's bytes unchanged."""
+        """Prevents intermediate steps and rewritten content: from 1 or 2 straight to 6, every item's bytes unchanged."""
         for version in (1, 2):
             with self.subTest(schema=version):
                 world, before = self.ledger(version)
                 preview = world.run("migrate-layout", "--dry-run")
                 self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
-                self.assertIn(f"schema_version {version} -> 5", preview.stdout)
+                self.assertIn(f"schema_version {version} -> 6", preview.stdout)
                 self.assertIn("3 item files", preview.stdout)
                 self.assertTrue((world.ledger / "items" / f"{next(iter(before))}.md").is_file())
                 done = world.run("migrate-layout")

@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from tests.ledger_harness import QUOTE, World, jj_available
+from tests.ledger_harness import _GIT_ENV, QUOTE, World, jj, jj_available
 from tests.test_init_walk import init
 
 
@@ -23,6 +23,10 @@ def setting(world: World) -> str:
 def downgrade(world: World, version: int = 5) -> None:
     toml = world.ledger / "qew-ledger.toml"
     toml.write_text(toml.read_text().replace("schema_version = 6", f"schema_version = {version}"))
+    if world.ledger_vcs == "git":  # the old declaration is what the ledger committed, as in a real ledger of that age
+        subprocess.run(["git", "-C", str(world.ledger), "commit", "-q", "-am", "an older schema"], check=True, env={**os.environ, **_GIT_ENV})
+    elif world.ledger_vcs == "jj":
+        jj(world.ledger, "commit", "-m", "an older schema")
 
 
 class UntrackedCacheWalk(unittest.TestCase):

@@ -4,7 +4,7 @@ import argparse
 import re
 from pathlib import Path
 
-from qew import evidence_backfill, evidence_resolve, id_migration, ledger_check, ledger_config, ledger_store
+from qew import evidence_backfill, evidence_resolve, id_migration, ledger_check, ledger_config, ledger_repo, ledger_store
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_aliases import ITEM_FILE
@@ -49,9 +49,13 @@ def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
         text = f"would change schema_version {current} -> {latest}"
         if old:
             text += f": move {len(old)} item files to items/ID/{ITEM_FILE} (contents unchanged)"
-        else:
+        elif current < 4:
             text += f": evidence headers for completed items: {evidence_backfill.summary(evidence_backfill.plan(ledger.snapshot(), resolve))}"
-        return text + f"{'' if resolve else ' (no code repository here: cited ids are kept unverified)'}; `qew check` and the claim check run on the result and roll everything back on a problem"
+        else:
+            text += ": no item file changes"
+        if (ledger.path / ".git").exists():
+            text += "; sets core.untrackedCache in the ledger's git config (git status of a large ledger gets about 4 times faster)"
+        return text + f"{'' if resolve or current >= 4 else ' (no code repository here: cited ids are kept unverified)'}; `qew check` and the claim check run on the result and roll everything back on a problem"
     for path in old:
         text = ledger_store.read_text_exact(path)
         ledger_store.write_new(ledger.item_path(path.stem), text)
@@ -70,7 +74,8 @@ def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
     if problems:
         raise QewError("qew check fails on the migrated ledger; nothing was changed:\n" + "\n".join(problems), 1)
     moved = f"moved {len(old)} item files to items/ID/{ITEM_FILE}; " if old else ""
-    return f"schema_version {current} -> {latest}; {moved}evidence headers: {evidence_backfill.summary(filled)}"
+    cached = "core.untrackedCache set; " if ledger_repo.enable_untracked_cache(ledger.path) else ""
+    return f"schema_version {current} -> {latest}; {moved}{cached}evidence headers: {evidence_backfill.summary(filled)}"
 
 
 def run(arguments: argparse.Namespace) -> bool:
