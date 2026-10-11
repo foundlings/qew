@@ -34,7 +34,13 @@ class ReadCostWalk(unittest.TestCase):
         self.env = {"PATH": f"{shims}{os.pathsep}{os.environ['PATH']}"}
 
     def calls(self) -> list[str]:
-        return self.log.read_text().splitlines() if self.log.exists() else []
+        calls: list[str] = []
+        for line in (self.log.read_text().splitlines() if self.log.exists() else []):
+            if line.startswith("--"):
+                calls.append(line)
+            elif calls:
+                calls[-1] += " " + line  # an argument with a newline in it (a revset template)
+        return calls
 
     def read(self, *argv: str):
         self.log.unlink(missing_ok=True)
