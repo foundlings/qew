@@ -49,6 +49,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     opened.add_argument("--why", help="the Why section")
     opened.add_argument("--testing", help="the Testing section")
     opened.add_argument("--body-file", help="append this file to the body, e.g. a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines")
+    opened.add_argument("--adopt-legacy", type=int, metavar="NUMBER", help="take over this unmarked pull request qew never recorded (from before qew) on --head: it keeps its number and head (needs --reason)")
+    opened.add_argument("--reason", help="why: required with --adopt-legacy")
     opened.add_argument("--json", action="store_true", help="machine-readable output")
     check = sub.add_parser("check", help="tick progress checklist items in a pull request body")
     check.add_argument("number", type=int, help="pull request number")
@@ -88,7 +90,7 @@ def run(arguments: argparse.Namespace) -> bool:
     if command == "open":
         options = OpenOptions(
             arguments.target, arguments.head, arguments.base, arguments.ready,
-            arguments.what, arguments.why, arguments.testing, arguments.body_file,
+            arguments.what, arguments.why, arguments.testing, arguments.body_file, arguments.adopt_legacy, arguments.reason,
         )
         opened = open_pull_request(config, arguments.item, options)
         print(opened.render(arguments.json))
@@ -190,6 +192,8 @@ class OpenOptions:
     why: str | None = None
     testing: str | None = None
     body_file: str | None = None
+    adopt_legacy: int | None = None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -252,6 +256,10 @@ def _ancestor_issues(config: Config, ledger: Ledger, snapshot: Snapshot, item_id
 
 def open_pull_request(config: Config, reference: str, options: OpenOptions = OpenOptions(), build: Build | None = None) -> Opened:
     extra = _body_file(options.body_file)
+    if options.adopt_legacy is not None:
+        pr_record.positive_number(options.adopt_legacy)
+        if not (options.reason or "").strip():
+            raise QewError("--adopt-legacy needs --reason TEXT: say who assigned the pull request to this item and why", 2)
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
     item_id = ledger.resolve(reference, list(snapshot.items))
@@ -288,7 +296,7 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     forge = _build(build, mirror)
     base = options.base or config.target
     with forge_errors(issue["_target"]):
-        remote = pr_adopt.find_adoptable(ledger, issue["_target"], forge, head, base, item_id)
+        remote = pr_adopt.find_adoptable(ledger, issue["_target"], forge, head, base, item_id, options.adopt_legacy)
         adopted = remote is not None
         if remote is None:
             remote = forge.open_pull_request(spec)
@@ -309,6 +317,8 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
             "synced_at": now(),
         },
     )
+    if options.adopt_legacy is not None:
+        ledger.append_event(item_id, "commented", text=f"adopted legacy pull request #{remote.number}: {(options.reason or '').strip()}", author=actor())
     return Opened(item_id, remote.number, remote.url, remote.draft, "" if remote.assignee == login else login, adopted)
 
 

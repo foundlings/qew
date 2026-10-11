@@ -481,7 +481,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   item, and the issue it references and the target come from the nearest mirrored ancestor, as task claims do; ready, check and
   merge then work as for any other item. An item the mirror does select but has not synced still asks for `qew sync`.
 - `qew pr open ITEM [--target T] [--head BRANCH] [--base BRANCH] [--ready] [--what TEXT] [--why TEXT]
-  [--testing TEXT] [--body-file FILE] [--json]`: a draft assigned to its opener (the forge login: `QEW_FORGE_LOGIN`, else the mirror's `assignees` entry for the actor, `[forge.logins]`, `[forge] login`, else the actor itself; a login
+  [--testing TEXT] [--body-file FILE] [--adopt-legacy NUMBER --reason TEXT] [--json]`: a draft assigned to its opener (the forge login: `QEW_FORGE_LOGIN`, else the mirror's `assignees` entry for the actor, `[forge.logins]`, `[forge] login`, else the actor itself; a login
   the forge refuses leaves it unassigned and prints a note on stderr); the mirror file is written only
   after the forge accepted the open. Approved work needs the caller's claim; a draft item needs none, and `--ready`
   on drafts is refused (also when a covered item is a draft). An epic's pull request covers the epic and its open
@@ -492,7 +492,10 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   An open pull request already on the head whose body carries this item's marker (an orphan: the forge accepted the
   open and the ledger record was never written) is adopted instead of opened again: only the record is written and the
   result ends with `adopted`. Any other open pull request on the head (no marker, another item's, a different base,
-  several) is refused with exit 2 naming it, never taken over. A forge that cannot list by head opens as before.
+  several) is refused with exit 2 naming it, never taken over. The owner's explicit exception is `--adopt-legacy NUMBER --reason TEXT`:
+  the open, unrecorded, unmarked pull request NUMBER on the head (one from before qew) keeps its number and head, gets this item's
+  marker line, is recorded and the reason is kept as a comment on the item; a merged, closed, recorded or marked one is refused.
+  A forge that cannot list by head opens as before.
 - `qew pr check NUMBER (ID... | --all | --list) [--target T]`: tick checklist boxes (outside code fences) addressed by marker,
   position, or `@N`; unknown or repeated ids, merged or closed pull requests are exit 2 with no write; a body that
   changed since it was read is exit 3 with no write; the result is read back and a write that did not stick is exit 3.
