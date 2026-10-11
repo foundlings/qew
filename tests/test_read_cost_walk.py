@@ -68,6 +68,16 @@ class ReadCostWalk(unittest.TestCase):
         self.assertEqual(self.world.ledger_dirty(), [])
         self.assertFalse((self.world.ledger / ".qew" / "writing").exists())
 
+    def test_a_write_snapshots_the_working_copy_once_and_still_sweeps_strays(self) -> None:
+        """Prevents ~3 s of repeated scans per write: only the commit snapshots; a stray file is swept from that same snapshot."""
+        stray = next((self.world.ledger / "events" / self.item).glob("*.json")).with_name("9999999zz.json")
+        stray.write_text('{"type": "commented", "at": "2026-10-11T00:00:00Z", "actor": "tester", "text": "left behind"}\n')
+        self.read("create", "--title", "Another", "--quote", QUOTE)
+        snapshotting = [c for c in self.calls() if "--ignore-working-copy" not in c]
+        self.assertEqual(len(snapshotting) <= 2, True, snapshotting)  # the commit, and the commit of the swept stray
+        self.assertTrue(all(" commit " in f" {c} " for c in snapshotting), snapshotting)
+        self.assertEqual(self.world.ledger_dirty(), [], "the stray was committed too")
+
     def test_a_clean_write_leaves_no_marker(self) -> None:
         """Prevents every later read scanning for leftovers: the marker is gone once the write has committed."""
         self.world.create("--title", "More work", "--quote", QUOTE)

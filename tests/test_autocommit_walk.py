@@ -82,7 +82,7 @@ class AutoCommitWalk(unittest.TestCase):
         orphan = w.ledger / "events" / item / "ZZZZZZZZZ.json"
         orphan.write_text('{"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "x"}\n')
         w.create("--title", "Next", "--draft")
-        self.assertIn("qew: recover 1 files", self.subjects()[1])
+        self.assertTrue(any("qew: recover 1 files" in subject for subject in self.subjects()[:2]), self.subjects())  # before the write's commit on git, swept after it on jj
         self.assertEqual(w.ledger_dirty(), [])
 
     def test_auto_commit_can_be_switched_off(self) -> None:
