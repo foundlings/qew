@@ -135,6 +135,12 @@ rewrites what differed. Designed for ledgers up to about 500,000 files. A snapsh
 down (one forge comment per descendant, not one read each), and a read command that finds the write lock held skips its refresh
 instead of waiting for it.
 
+A jj command snapshots the working copy (it scans every file: about 1 to 8 s on foundlings) unless given `--ignore-working-copy`, so the
+read path never lets it: the fetch, the revset queries and the push use that flag (`ledger_repo.JJ_READ`), a read pushes only when
+commits are unpushed, and it looks for files a killed writer left behind only when `.qew/writing` exists (a command creates it when
+it takes the write lock to write and removes it when it finishes, even on failure; a kill leaves it). On the loaded live foundlings
+ledger one read dropped from 14.7 s (8.5 s of fetch and merge, kernel time 56 s) to 5.1 s (1.5 s).
+
 ## Mirrors (`mirrors/<ID>/<target>.json`)
 `{"forge": "github|forgejo|gitlab", "url": "https://host/owner/repo", "kind": "issue|pr|project_item",
 "number": 123, "node_id": "...", "synced_at": "...", "synced_event": "<last event id pushed>"}`

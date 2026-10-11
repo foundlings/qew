@@ -17,6 +17,7 @@ from qew import ledger_lineage
 from qew.errors import QewError
 
 # Directories and files whose changes are qew's own writes (never a human's notes).
+JJ_READ = ["jj", "--ignore-working-copy", "--no-pager"]  # a query, a fetch or a push never needs the working copy snapshotted: that scans every file
 OWNED = ("items", "events", "mirrors", "boards", "views", "proposals")
 SHOWN_CONFLICTS = 5
 JJ_FILESET_BYTES = 100_000  # beyond this the paths no longer fit one command line: name the owned directories instead
@@ -325,7 +326,7 @@ class LedgerRepo:
     def file_at(self, revision: str, relative: str) -> str | None:
         """The text of a ledger file at a commit, or None when that commit has no such file."""
         argv = (["git", "show", f"{revision}:{relative}"] if self.vcs == "git"
-                else ["jj", "--no-pager", "file", "show", "-r", revision, relative])
+                else [*JJ_READ, "file", "show", "-r", revision, relative])
         shown = self.run(argv, check=False)
         return shown.stdout if shown.returncode == 0 else None
 
@@ -446,11 +447,11 @@ class LedgerRepo:
         ledger_lineage.refuse_foreign_merge(local.read_text(encoding="utf-8"), remote_file.stdout, remote)
 
     def _jj_ids(self, revset: str) -> list[str]:
-        out = self.run(["jj", "--no-pager", "log", "--no-graph", "-r", revset, "-T", 'commit_id ++ "\n"']).stdout
+        out = self.run([*JJ_READ, "log", "--no-graph", "-r", revset, "-T", 'commit_id ++ "\n"']).stdout
         return out.split()
 
     def _jj_fetch_merge(self, timeout: float) -> str:
-        fetched = self.run(["jj", "--no-pager", "git", "fetch"], timeout=timeout, check=False)
+        fetched = self.run([*JJ_READ, "git", "fetch"], timeout=timeout, check=False)
         if fetched.returncode != 0:
             self._remember_failure(fetched)
             return "offline"
@@ -459,7 +460,7 @@ class LedgerRepo:
         if not remote or not sides:
             return "ok"
         tip = remote[0]
-        self._refuse_foreign(self.run(["jj", "--no-pager", "file", "show", "-r", tip, "qew-ledger.toml"], check=False), f"{self.branch}@origin")
+        self._refuse_foreign(self.run([*JJ_READ, "file", "show", "-r", tip, "qew-ledger.toml"], check=False), f"{self.branch}@origin")
         local = [x for x in sides if x != tip]  # a conflicted bookmark lists the remote tip as one side
         if not local:
             if len(sides) == 1:
@@ -468,10 +469,10 @@ class LedgerRepo:
         containing = [x for x in local if self._jj_ids(f"{tip} & ::{x}")]
         if containing:  # local already has everything the remote has
             if len(sides) > 1:
-                self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", containing[0]])
+                self.run([*JJ_READ, "bookmark", "set", self.branch, "-r", containing[0]])
             return "ok"
         if all(self._jj_ids(f"{x} & ::{tip}") for x in local):  # remote is ahead: fast-forward
-            self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", tip])
+            self.run([*JJ_READ, "bookmark", "set", self.branch, "-r", tip])
             self._move_working_copy()
             return "ok"
         sides = local
@@ -520,7 +521,7 @@ class LedgerRepo:
                 if self.vcs == "git":
                     pushed = self.run(["git", "push", "-q", "origin", f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
                 else:
-                    pushed = self.run(["jj", "--no-pager", "git", "push", "--bookmark", self.branch], timeout=timeout, check=False)
+                    pushed = self.run([*JJ_READ, "git", "push", "--bookmark", self.branch], timeout=timeout, check=False)
         except CommandTimeout as slow:
             self.last_failure = str(slow)  # the commit is local; the next write or `qew sync` pushes it
             return "offline"

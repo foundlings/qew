@@ -89,14 +89,25 @@ def _who() -> str:
         return ""
 
 
+WRITING = "writing"  # `.qew/writing`: present while a command holds the write lock and writes; a killed one leaves it behind
+
+
 @contextmanager
 def _lock(ledger_path: Path, name: str = "lock", verb: str = "", wait_s: float = LOCK_WAIT_SECONDS) -> Iterator[None]:
     """The write lock (`lock`), or the push lock (`push.lock`): held by a write while its worker starts and its push runs,
     so the worker commits its mirror files only after that push is done. A kernel lock (see filelock): a dead holder
     frees it, and the file left behind is inert."""
+    marker = ledger_path / ".qew" / WRITING
     with filelock.hold(ledger_path / ".qew" / name, verb=verb, who=_who(), wait_s=wait_s,
                        what=f"the ledger {ledger_path}", polite=verb == "sync"):  # a sync lets waiting verbs go first
-        yield
+        writing = name == "lock" and verb != "read"
+        if writing:
+            marker.touch()
+        try:
+            yield
+        finally:
+            if writing:
+                marker.unlink(missing_ok=True)
 
 
 _ACTIVE: tuple[Config, LedgerRepo, bool, bool] | None = None  # (config, repo, verb) of the running sync session, for checkpoints
@@ -327,10 +338,13 @@ def _pull_for_read(arguments: argparse.Namespace) -> None:
     try:
         with _lock(config.ledger_path, "lock", "read", wait_s=0):  # a writer holds it: it fetched at its own start, so a read goes on with what is local
             repo.exclude_cache()
-            _recover(repo) if rep.auto_commit else None
+            crashed = config.ledger_path / ".qew" / WRITING
+            if rep.auto_commit and crashed.exists():  # a killed writer left files behind; looking for them otherwise scans every file
+                _recover(repo)
+                crashed.unlink(missing_ok=True)
             fetched = repo.fetch_merge(rep.timeout_s)
             _note(config, fetched, repo.last_failure)
-            if fetched == "ok":
+            if fetched == "ok" and repo.unpushed():
                 _note(config, repo.push(rep.timeout_s), repo.last_failure)  # catch up commits made while the remote was unreachable
             stamp.touch()
     except filelock.LockTimeout:
