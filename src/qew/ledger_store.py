@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from datetime import datetime, UTC
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import shutil
@@ -23,6 +24,8 @@ from qew.ledger_item import Item, parse_item, read_item_text, render_item
 from qew.jsontypes import JsonObject
 from qew.ledger_ids import DEFAULT_MODES, event_id, next_id, parse_modes, sort_key
 
+SNAPSHOT_READERS = 16  # threads reading item and event files at once
+SNAPSHOT_PARALLEL_FROM = 200  # a ledger smaller than this is read in one thread
 _INTENTS = threading.Lock()  # sync workers add and clear creating intents in one shared file
 
 def now() -> str:
@@ -195,11 +198,18 @@ class Ledger:
         folds: dict[str, Folded] = {}
         events: dict[str, list[Event]] = {}
         aliases = self.aliases()
-        for item_id in self.item_ids():
-            events[item_id] = self.load_events(item_id)
-            raw = self.load_item(item_id)
-            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events[item_id])), aliases)
-            folds[item_id] = fold(events[item_id])
+        ids = self.item_ids()
+
+        def load(item_id: str) -> tuple[list[Event], Item]:
+            return self.load_events(item_id), self.load_item(item_id)
+
+        # tens of thousands of small files: the reads wait on the disk, not the interpreter, so they overlap
+        with ThreadPoolExecutor(max_workers=SNAPSHOT_READERS) as pool:
+            loaded = list(pool.map(load, ids)) if len(ids) > SNAPSHOT_PARALLEL_FROM else [load(item_id) for item_id in ids]
+        for item_id, (item_events, raw) in zip(ids, loaded, strict=True):
+            events[item_id] = item_events
+            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, item_events)), aliases)
+            folds[item_id] = fold(item_events)
         return Snapshot(self, items, folds, events)
 
     # -- resolving

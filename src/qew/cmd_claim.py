@@ -5,13 +5,14 @@ Refusals are distinct for agent loops: 2 the work may not start or the usage is 
 """
 
 import argparse
+from collections import deque
 from typing import Any
 
 from qew import claim_authority, claim_fields, ledger_graph, outcome, replication
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
-from qew.ledger_event import Folded, State
+from qew.ledger_event import Folded, State, fold
 from qew.ledger_item import Kind
 from qew.ledger_store import Ledger, Snapshot, actor
 
@@ -129,9 +130,9 @@ def start(config: Config, reference: str, take_over: bool = False, reason: str |
         return _start_epic(config, ledger, snapshot, item_id, me, fields, mode)
     _enforce_cap(config, snapshot, me)
     if take_over:
-        claim_authority.release(config, ledger, item_id)
+        claim_authority.release(config, ledger, item_id, snapshot)
         ledger.append_event(item_id, "released", reason=(reason or "").strip(), previous_owner=holder, forced=True)
-    claimed = claim_authority.claim(config, ledger, item_id, me, mode, **fields)
+    claimed = claim_authority.claim(config, ledger, item_id, me, mode, snapshot, **fields)
     title = snapshot.items[item_id].title
     short = title if len(title) <= TITLE_SHOWN else title[:TITLE_SHOWN - 1] + "…"
     return {"line": f"{item_id} claimed by {me}: {short}" + _PROVISIONAL_NOTE[claimed], "id": item_id, "state": "started",
@@ -154,10 +155,12 @@ def _descendants(snapshot: Snapshot, root: str) -> list[str]:
     """Every item below `root`, breadth first, each once."""
     kids = ledger_graph.children(snapshot)
     found: list[str] = []
-    queue = list(kids.get(root, []))
+    seen: set[str] = set()
+    queue = deque(kids.get(root, []))
     while queue:
-        item_id = queue.pop(0)
-        if item_id not in found:
+        item_id = queue.popleft()
+        if item_id not in seen:
+            seen.add(item_id)
             found.append(item_id)
             queue.extend(kids.get(item_id, []))
     return found
@@ -190,12 +193,12 @@ def _start_epic(config: Config, ledger: Ledger, snapshot: Snapshot, epic_id: str
     outcomes: list[claim_authority.Claimed] = []
     try:
         for item_id in targets:
-            outcomes.append(claim_authority.claim(config, ledger, item_id, me, mode, **fields))
+            outcomes.append(claim_authority.claim(config, ledger, item_id, me, mode, snapshot, **fields))
             posted.append(item_id)
     except QewError:
         for item_id in posted:
             try:
-                claim_authority.release(config, ledger, item_id)
+                claim_authority.release(config, ledger, item_id, snapshot)
             except QewError:
                 pass  # best effort: the refusal that stopped the cascade is the error to report
         claim_authority.take_pending()
@@ -258,10 +261,10 @@ def release(config: Config, reference: str, reason: str, force: bool = False, la
         released += [d for d in _descendants(snapshot, item_id)
                      if snapshot.folds[d].state == State.CLAIMED and snapshot.folds[d].owner == folded.owner]
     for released_id in released:
-        claim_authority.release(config, ledger, released_id)
+        claim_authority.release(config, ledger, released_id, snapshot)
         ledger.append_event(released_id, "released", **data)
-    after = ledger.snapshot().folds[item_id]
+    after = fold(ledger.load_events(item_id))  # this item's own events: re-reading the whole ledger here would cost minutes
     if after.state == State.CLAIMED and after.owner == folded.owner and _lane_of(after) == held_lane:
-        raise QewError(f"release of {item_id} did not take effect: it is still claimed by {holding(ledger.snapshot(), item_id)}", 3)
+        raise QewError(f"release of {item_id} did not take effect: it is still claimed by {after.owner}", 3)
     return {"line": f"{item_id} released", "id": item_id, "state": "released", "previous_owner": folded.owner,
             "released": released, "by": me, "lane": held_lane}

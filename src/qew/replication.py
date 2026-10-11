@@ -90,11 +90,11 @@ def _who() -> str:
 
 
 @contextmanager
-def _lock(ledger_path: Path, name: str = "lock", verb: str = "") -> Iterator[None]:
+def _lock(ledger_path: Path, name: str = "lock", verb: str = "", wait_s: float = LOCK_WAIT_SECONDS) -> Iterator[None]:
     """The write lock (`lock`), or the push lock (`push.lock`): held by a write while its worker starts and its push runs,
     so the worker commits its mirror files only after that push is done. A kernel lock (see filelock): a dead holder
     frees it, and the file left behind is inert."""
-    with filelock.hold(ledger_path / ".qew" / name, verb=verb, who=_who(), wait_s=LOCK_WAIT_SECONDS,
+    with filelock.hold(ledger_path / ".qew" / name, verb=verb, who=_who(), wait_s=wait_s,
                        what=f"the ledger {ledger_path}", polite=verb == "sync"):  # a sync lets waiting verbs go first
         yield
 
@@ -324,14 +324,17 @@ def _pull_for_read(arguments: argparse.Namespace) -> None:
     stamp = config.ledger_path / ".qew" / "last-fetch"
     if stamp.exists() and time.time() - stamp.stat().st_mtime < rep.fetch_interval_s:
         return
-    with _lock(config.ledger_path, "lock", "read"):
-        repo.exclude_cache()
-        _recover(repo) if rep.auto_commit else None
-        fetched = repo.fetch_merge(rep.timeout_s)
-        _note(config, fetched, repo.last_failure)
-        if fetched == "ok":
-            _note(config, repo.push(rep.timeout_s), repo.last_failure)  # catch up commits made while the remote was unreachable
-        stamp.touch()
+    try:
+        with _lock(config.ledger_path, "lock", "read", wait_s=0):  # a writer holds it: it fetched at its own start, so a read goes on with what is local
+            repo.exclude_cache()
+            _recover(repo) if rep.auto_commit else None
+            fetched = repo.fetch_merge(rep.timeout_s)
+            _note(config, fetched, repo.last_failure)
+            if fetched == "ok":
+                _note(config, repo.push(rep.timeout_s), repo.last_failure)  # catch up commits made while the remote was unreachable
+            stamp.touch()
+    except filelock.LockTimeout:
+        return
     if config.mirrors and rep.auto_forge_sync and not rep.offline:
         from qew import syncworker
 
