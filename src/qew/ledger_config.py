@@ -47,7 +47,7 @@ class Replication:
     auto_forge_sync: bool = True
     background_sync: bool = True
     timeout_s: float = 5.0
-    fetch_interval_s: float = 2.0
+    fetch_interval_s: float = 10.0
     sync_retry_s: float = 10.0
     sync_budget_s: float = 20.0
     forge_concurrency: int = 4  # forge writes in flight at once during a sync (1: one at a time)
