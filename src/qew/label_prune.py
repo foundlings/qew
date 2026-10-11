@@ -40,7 +40,7 @@ def retired(ledger: Ledger, mirror: Mirror, forge: Forge) -> list[str]:
     snapshot = ledger.snapshot()
     overlay = mirror.mode == "overlay"
     wanted = {label for item_id in sync_plan.selected(snapshot, mirror.select)
-              for label in sync_plan.labels(snapshot, snapshot.items[item_id], overlay)}
+              for label in sync_plan.labels(snapshot, snapshot.items[item_id], overlay, False, mirror.options.get("assignees"))}
     in_use = forge.labels_in_use()
     fields = field_names(snapshot, mirror)
     return [name for name in forge.list_repo_labels()

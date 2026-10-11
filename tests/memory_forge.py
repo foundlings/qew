@@ -68,6 +68,7 @@ class MemoryForge(Forge):
         self.merge_lag: dict[int, int] = {}
         self.after_read: list[Callable[[MemoryForge], None]] = []  # run once after the next read, as a concurrent edit
         self.body_write_ignored = False
+        self.label_write_ignored = False  # accept the label change yet apply none
         self.required_checks: dict[str, bool] = {}
         self.rules_error: ForgeError | None = None
         self.supports_rules = True
@@ -275,6 +276,12 @@ class MemoryForge(Forge):
         if not self.body_write_ignored:
             self.pulls[number] = self._with(number, body=body)
         self.body_writes.append(body)
+        return self.pulls[number]
+
+    def set_pull_request_labels(self, number: int, labels: tuple[str, ...]) -> RemotePullRequest:
+        self._live("set_pr_labels")
+        if not self.label_write_ignored:
+            self.pulls[number] = self._with(number, labels=labels)
         return self.pulls[number]
 
     def update_pull_request_title(self, number: int, title: str) -> RemotePullRequest:

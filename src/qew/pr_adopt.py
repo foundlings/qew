@@ -3,6 +3,9 @@
 Only an unrecorded pull request whose body carries this item's marker line is ever adopted: a stranger's pull
 request, or another item's, on the same head is refused, never taken over. A pull request the ledger already
 records for another item is that item's business and is left to the forge's own duplicate rule.
+
+The one exception is the owner's explicit word: `legacy` names the number of an unmarked pull request (one from before qew)
+on that head; it keeps its number and head, and gets this item's marker line so qew recognises it from then on.
 """
 
 import re
@@ -14,7 +17,8 @@ from qew.ledger_store import Ledger
 _MARKER = re.compile(rf"^<!-- {re.escape(MARKER_PREFIX)}(\S+) -->$", re.MULTILINE)
 
 
-def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: str, item_id: str) -> RemotePullRequest | None:
+def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: str, item_id: str,
+                   legacy: int | None = None) -> RemotePullRequest | None:
     """The open pull request on `head` that is this item's, or None when the head is free; refuses any other one.
 
     A forge that cannot list pull requests by head (`Unsupported`) has nothing to adopt: the open proceeds as before.
@@ -26,6 +30,7 @@ def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: s
     recorded = {m["number"] for host in ledger.item_ids() if host != item_id for m in ledger.load_mirrors(host)
                 if m.get("kind") == "pr" and m["_target"].startswith(f"{target}-pr-") and isinstance(m.get("number"), int)}
     mine: list[RemotePullRequest] = []
+    taken = False
     for pull in found:
         if pull.number in recorded:
             continue
@@ -33,8 +38,15 @@ def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: s
             mine.append(pull)
             continue
         owner = _MARKER.search(pull.body)
-        whose = f"belongs to {owner.group(1)}; open it for that item to adopt it" if owner else "carries no qew marker; close it on the forge first"
+        if owner is None and pull.number == legacy:
+            mine.append(forge.update_pull_request_body(pull.number, f"{marker_for(item_id)}\n\n{pull.body}".rstrip() + "\n"))
+            taken = True
+            continue
+        whose = (f"belongs to {owner.group(1)}; open it for that item to adopt it" if owner
+                 else f"carries no qew marker; the owner can adopt it with --adopt-legacy {pull.number} --reason TEXT")
         raise QewError(f"an open pull request #{pull.number} already uses head {head} and {whose}", 2)
+    if legacy is not None and not taken:
+        raise QewError(f"pull request #{legacy} is not an open, unrecorded, unmarked pull request on head {head}; --adopt-legacy takes only that", 2)
     if len(mine) > 1:
         raise QewError(f"{len(mine)} open pull requests ({', '.join('#' + str(p.number) for p in mine)}) already use head {head} for {item_id}; close all but one on the forge", 2)
     if mine and mine[0].base_branch != base:

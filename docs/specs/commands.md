@@ -481,7 +481,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   item, and the issue it references and the target come from the nearest mirrored ancestor, as task claims do; ready, check and
   merge then work as for any other item. An item the mirror does select but has not synced still asks for `qew sync`.
 - `qew pr open ITEM [--target T] [--head BRANCH] [--base BRANCH] [--ready] [--what TEXT] [--why TEXT]
-  [--testing TEXT] [--body-file FILE] [--json]`: a draft assigned to its opener (the forge login: `QEW_FORGE_LOGIN`, else the mirror's `assignees` entry for the actor, `[forge.logins]`, `[forge] login`, else the actor itself; a login
+  [--testing TEXT] [--body-file FILE] [--adopt-legacy NUMBER --reason TEXT] [--json]`: a draft assigned to its opener (the forge login: `QEW_FORGE_LOGIN`, else the mirror's `assignees` entry for the actor, `[forge.logins]`, `[forge] login`, else the actor itself; a login
   the forge refuses leaves it unassigned and prints a note on stderr); the mirror file is written only
   after the forge accepted the open. Approved work needs the caller's claim; a draft item needs none, and `--ready`
   on drafts is refused (also when a covered item is a draft). An epic's pull request covers the epic and its open
@@ -492,12 +492,16 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   An open pull request already on the head whose body carries this item's marker (an orphan: the forge accepted the
   open and the ledger record was never written) is adopted instead of opened again: only the record is written and the
   result ends with `adopted`. Any other open pull request on the head (no marker, another item's, a different base,
-  several) is refused with exit 2 naming it, never taken over. A forge that cannot list by head opens as before.
+  several) is refused with exit 2 naming it, never taken over. The owner's explicit exception is `--adopt-legacy NUMBER --reason TEXT`:
+  the open, unrecorded, unmarked pull request NUMBER on the head (one from before qew) keeps its number and head, gets this item's
+  marker line, is recorded and the reason is kept as a comment on the item; a merged, closed, recorded or marked one is refused.
+  A forge that cannot list by head opens as before.
 - `qew pr check NUMBER (ID... | --all | --list) [--target T]`: tick checklist boxes (outside code fences) addressed by marker,
   position, or `@N`; unknown or repeated ids, merged or closed pull requests are exit 2 with no write; a body that
   changed since it was read is exit 3 with no write; the result is read back and a write that did not stick is exit 3.
 - `qew pr ready NUMBER [--target T] [--json]`: marks ready, then re-reads; still a draft is exit 4. Already ready
   writes nothing. Refused while a covered item is a draft. `--json`: `{number, ready, changed, schema_version}`.
+- `qew pr label NUMBER [--add L]... [--remove L]... [--target T] [--json]`: adds and removes labels on a recorded pull request (the ownership rule of `ready`; any state), creating a missing label and keeping every label it was not told about, then reads the pull request back; success is printed only when the forge shows the wanted set (accepted but not shown: exit 4). A rerun that changes nothing prints `(unchanged)` and writes nothing. No labels asked, a label both added and removed, or a malformed name (1 to 50 printable characters, no comma) is exit 2. `--json`: `{number, changed, labels, schema_version}`. GitHub only (other backends raise `Unsupported`).
 - `qew pr sync NUMBER [--target T] [--json]`: sets an open pull request's title to the current title of the item it was opened for (the ownership rule of `ready`), reads it back, and records `pull request #N retitled: OLD -> NEW` as a comment on the item; a title that already matches prints `unchanged` and writes nothing; a merged or closed pull request is refused (exit 2). The body is not touched: it is composed once at open from `--what/--why/--testing` and carries the checklist's ticks, so regenerating it would erase them. GitHub only (other backends raise `Unsupported`).
 - `qew pr close NUMBER [--target T] [--item ID --reason TEXT] [--json]`: closes a recorded, unmerged pull request (same ownership rule as ready). `--item ID --reason TEXT` is the way for an unmerged pull request qew never recorded (a legacy draft from before qew): it adopts the pull request onto that item (which carries its remainder), closes it, read back, writes its `pr` mirror as closed and keeps the reason as a comment on the item; a merged one is refused (exit 2), `--item` on a pull request recorded for another item is refused, and a rerun is unchanged.
   re-reads, and records `closed` in its mirror; still open is exit 4, merged is exit 2, already closed writes nothing.

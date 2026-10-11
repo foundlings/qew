@@ -179,10 +179,12 @@ def status_label(snapshot: Snapshot, item_id: str) -> str | None:
     return STATUS_LABELS.get(column(snapshot, item_id))
 
 
-def labels(snapshot: Snapshot, item: Item, overlay: bool = False, diverged: bool = False) -> tuple[str, ...]:
+def labels(snapshot: Snapshot, item: Item, overlay: bool = False, diverged: bool = False,
+           logins: Mapping[str, object] | object = None) -> tuple[str, ...]:
     """The item's own labels, its priority, its author and `epic`/`task`, and the label of its status (`ready`,
     `in-progress`, `gated`: derived, display only; the ledger's own `gated` shows only while the item sits in Gated);
-    overlay mirrors add the state and Status labels.
+    overlay mirrors add the state and Status labels. The author label names the forge login the mirror maps the author to
+    (`logins`, the mirror's `assignees`): authors are people, not the agents that filed for them.
 
     Repository mode keeps the tracker quiet: the board's Status field carries state, so no `qew:` or `status:` label.
     """
@@ -197,10 +199,11 @@ def labels(snapshot: Snapshot, item: Item, overlay: bool = False, diverged: bool
         managed.append(DIVERGED_LABEL)
     author = ledger_author.author(snapshot, item.id)
     if author:
-        problem = ledger_author.label_problem(author)
+        shown_author = assignee_of(logins, author) or author
+        problem = ledger_author.label_problem(shown_author)
         if problem:
             raise InvalidAuthor(item.id, problem)
-        managed.append(f"author:{author}")
+        managed.append(f"author:{shown_author}")
     shown = status_label(snapshot, item.id)
     own = [label for label in item.labels if label not in DERIVED_LABELS]
     return tuple(dict.fromkeys((*own, *managed, *([shown] if shown else []))))
@@ -222,7 +225,7 @@ def issue_spec(
     return IssueSpec(
         title=item.title,
         body=_body(item, state, numbers, attachments_after(snapshot.events[item.id]), link),
-        labels=labels(snapshot, item, overlay, diverged),
+        labels=labels(snapshot, item, overlay, diverged, assignees),
         open=state not in (State.COMPLETED, State.CLOSED),
         close_reason=closed_reason,
         assignee=assignee_of(assignees, folded.owner),

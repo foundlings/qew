@@ -376,6 +376,7 @@ class _PullFacts:
     auto_merge: bool
     merge_sha: str
     title: str = ""
+    labels: tuple[str, ...] = ()
 
 
 def _login(data: dict[str, Any], key: str, what: str, nullable: bool) -> str:
@@ -410,6 +411,7 @@ def parse_pull(data: Any) -> _PullFacts:
         auto_merge=_auto_merge(pull),
         merge_sha=_nullable_str(pull, "merge_commit_sha", "pull") if _bool(pull, "merged", "pull") else "",
         title=_nullable_str(pull, "title", "pull"),
+        labels=tuple(_str(_obj(label, "pull.labels[]"), "name", "label") for label in _array(pull.get("labels", []), "pull.labels")),
     )
 
 
@@ -1002,6 +1004,12 @@ class GitHub(Forge):
         return self.read_pull_request(number)
 
     @override
+    def set_pull_request_labels(self, number: int, labels: tuple[str, ...]) -> RemotePullRequest:
+        self._ensure_labels(labels)
+        self._wire.rest("PATCH", f"{self._repo_path}/issues/{number}", {"labels": list(labels)})  # a pull request is an issue to GitHub
+        return self.read_pull_request(number)
+
+    @override
     def requires_status_checks(self, branch: str) -> bool:
         name = quote(branch, safe="")
         rules = _array(self._wire.rest("GET", f"{self._repo_path}/rules/branches/{name}"), "branch rules")
@@ -1053,7 +1061,7 @@ class GitHub(Forge):
             head_sha=facts.head_sha, head_branch=facts.head_branch, base_branch=facts.base_branch,
             mergeable=facts.mergeable, checks=self._checks(facts.head_sha), body=facts.body,
             author=facts.author, assignee=facts.assignee, auto_merge=facts.auto_merge, merge_sha=facts.merge_sha,
-            title=facts.title,
+            title=facts.title, labels=facts.labels,
         )
 
     def _checks(self, sha: str) -> str:

@@ -243,6 +243,7 @@ class FakeGitHub:
             "assignee": None if not self.issues[pull["number"]]["assignee"] else {"login": self.issues[pull["number"]]["assignee"]},
             "auto_merge": {"merge_method": "merge"} if pull.get("auto_merge") else None,
             "merge_commit_sha": pull.get("merge_sha"),
+            "labels": [{"name": name} for name in self.issues[pull["number"]]["labels"]],
         }
 
     def new_pull(self, payload: dict[str, Any]) -> dict[str, Any]:
