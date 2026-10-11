@@ -62,6 +62,12 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     ready.add_argument("number", type=int, help="pull request number")
     ready.add_argument("--target", help=_TARGET_HELP)
     ready.add_argument("--json", action="store_true", help="machine-readable output")
+    labelled = sub.add_parser("label", help="add and remove labels on a pull request, keeping the others")
+    labelled.add_argument("number", type=int, help="pull request number")
+    labelled.add_argument("--add", action="append", default=[], metavar="LABEL", help="label to add, repeatable")
+    labelled.add_argument("--remove", action="append", default=[], metavar="LABEL", help="label to remove, repeatable")
+    labelled.add_argument("--target", help=_TARGET_HELP)
+    labelled.add_argument("--json", action="store_true", help="machine-readable output")
     closed = sub.add_parser("close", help="close an unmerged pull request without merging it")
     closed.add_argument("number", type=int, help="pull request number")
     closed.add_argument("--target", help=_TARGET_HELP)
@@ -106,6 +112,8 @@ def run(arguments: argparse.Namespace) -> bool:
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "close":
         print(close_pull_request(config, arguments.number, arguments.target, item=arguments.item, reason=arguments.reason).render(arguments.json))
+    elif command == "label":
+        print(label_pull_request(config, arguments.number, arguments.add, arguments.remove, arguments.target).render(arguments.json))
     elif command == "sync":
         print(sync_title(config, arguments.number, arguments.target).render(arguments.json))
     else:
@@ -391,6 +399,58 @@ def mark_ready(
         raise QewError(f"pr #{number} is still a draft after the forge accepted the change; nothing is known to have changed", 4)
     pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=False)
     return Readied(number, outcome == Outcome.VERIFIED)
+
+
+# -- label -------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Labelled:
+    number: int
+    changed: bool
+    labels: tuple[str, ...]
+
+    def render(self, as_json: bool) -> str:
+        if as_json:
+            return json.dumps({"number": self.number, "changed": self.changed, "labels": list(self.labels), "schema_version": SCHEMA_VERSION}, sort_keys=True)
+        return f"pr #{self.number} labels: {', '.join(self.labels) or 'none'}" + ("" if self.changed else " (unchanged)")
+
+
+def _label_name(name: str) -> str:
+    if not name.strip() or name != name.strip() or len(name) > 50 or "," in name or not name.isprintable():
+        raise QewError(f"label {name!r} is not a label name: 1 to 50 printable characters, no comma, no edge whitespace", 2)
+    return name
+
+
+def label_pull_request(
+    config: Config, number: int, add: list[str], remove: list[str], target: str | None, build: Build | None = None,
+    sleep: Callable[[float], None] | None = None,
+) -> Labelled:
+    """Add and remove labels on a recorded pull request (same ownership as ready), keeping every other label, and succeed only
+    once the forge shows the wanted set."""
+    adding, removing = [_label_name(n) for n in dict.fromkeys(add)], [_label_name(n) for n in dict.fromkeys(remove)]
+    if not adding and not removing:
+        raise QewError("name labels to --add or --remove", 2)
+    clash = sorted(set(adding) & set(removing))
+    if clash:
+        raise QewError(f"{', '.join(clash)} is both added and removed", 2)
+    loaded = load(config, number, target, build)
+    forge = loaded.forge
+    with forge_errors(loaded.record.target):
+        before = forge.read_pull_request(number)
+        wanted = tuple(dict.fromkeys([*(l for l in before.labels if l not in removing), *adding]))
+        if set(wanted) == set(before.labels):
+            return Labelled(number, False, before.labels)
+        outcome = apply_and_verify(
+            before,
+            lambda: forge.set_pull_request_labels(number, wanted),
+            lambda: forge.read_pull_request(number),
+            lambda pull: set(pull.labels) == set(wanted),
+            sleep=sleep,
+        )
+        after = forge.read_pull_request(number)
+    if outcome == Outcome.NOT_APPLIED:
+        raise QewError(f"pr #{number} does not show {', '.join(adding + removing)} after the forge accepted the change; nothing is known to have changed", 4)
+    return Labelled(number, True, after.labels)
 
 
 # -- sync --------------------------------------------------------------------------

@@ -524,6 +524,10 @@ class Forge(ABC):
         """Replace the description and return the re-read pull request (idempotent)."""
         raise Unsupported("update_pull_request_body")
 
+    def set_pull_request_labels(self, number: int, labels: tuple[str, ...]) -> RemotePullRequest:
+        """Make `labels` the pull request's whole label set (creating the ones the repository lacks) and return it re-read."""
+        raise Unsupported("set_pull_request_labels")
+
     def requires_status_checks(self, branch: str) -> bool:
         """True when `branch` is protected by a rule that requires status checks.
 
