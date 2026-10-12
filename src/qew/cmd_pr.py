@@ -59,6 +59,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     check.add_argument("--list", action="store_true", help="show the items and whether they are ticked; write nothing")
     check.add_argument("--drop", metavar="ID", help="remove this item's box (the PR will not finish it); every other tick stays (needs --reason)")
     check.add_argument("--reason", help="why: required with --drop")
+    check.add_argument("--add", action="append", metavar="ITEM", help="add an unticked Progress entry for this item (its title) after the last box; repeat for several")
     check.add_argument("--force", action="store_true", help="with --drop: also drop a box that is already ticked")
     check.add_argument("--target", help=_TARGET_HELP)
     ready = sub.add_parser("ready", help="mark a draft pull request ready for review")
@@ -111,7 +112,7 @@ def run(arguments: argparse.Namespace) -> bool:
             )
     elif command == "check":
         print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target,
-                                 drop=arguments.drop, reason=arguments.reason, force=arguments.force))
+                                 drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add))
     elif command == "ready":
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "close":
@@ -343,7 +344,12 @@ def _describe(box: pr_checklist.Box) -> str:
 def check_pull_request(
     config: Config, number: int, names: list[str], every: bool, listing: bool, target: str | None,
     build: Build | None = None, drop: str | None = None, reason: str | None = None, force: bool = False,
+    add: list[str] | None = None,
 ) -> str:
+    if add:
+        if names or every or listing or drop is not None or reason or force:
+            raise QewError("--add stands alone: it cannot be combined with ticking, --all, --list, --drop, --reason or --force", 2)
+        return _add_items(config, number, add, target, build)
     if drop is not None:
         if names or every or listing:
             raise QewError("--drop stands alone: it cannot be combined with ticking, --all or --list", 2)
@@ -367,6 +373,12 @@ def check_pull_request(
     if not targets:
         return f"pr #{number} checked: nothing to tick"
     edited = pr_checklist.tick(first.body, targets)
+    _write_body(loaded, number, first, edited)
+    return f"pr #{number} checked: {' '.join(b.address for b in targets)}"
+
+
+def _write_body(loaded: Loaded, number: int, first: RemotePullRequest, edited: str) -> None:
+    """Write `edited` only if the body is still what `first` read, and succeed only once the forge shows it."""
     with forge_errors(loaded.record.target):
         latest = loaded.forge.read_pull_request(number)
         if latest.body != first.body:
@@ -374,7 +386,32 @@ def check_pull_request(
         written = loaded.forge.update_pull_request_body(number, edited)
     if written.body != edited:
         raise QewError(f"pr #{number} body did not take the edit; the forge still shows the old checklist", 3)
-    return f"pr #{number} checked: {' '.join(b.address for b in targets)}"
+
+
+def _entry_text(snapshot: Snapshot, item_id: str) -> str:
+    title = " ".join(snapshot.items[item_id].title.split())
+    if "<!--" in title or "-->" in title:
+        raise QewError(f"{item_id}: the title carries a comment marker; rename the item first", 2)
+    pr_body.refuse_closing_references(title, f"the title of {item_id}")
+    return title
+
+
+def _add_items(config: Config, number: int, references: list[str], target: str | None, build: Build | None) -> str:
+    """Add an unticked Progress entry for each item (named by its title), keep every other byte, and note it on the covered items."""
+    loaded = load(config, number, target, build)
+    ledger = loaded.snapshot.ledger
+    ids = [ledger.resolve(reference, list(loaded.snapshot.items)) for reference in references]
+    if len(set(ids)) != len(ids):
+        raise QewError("an item is named twice", 2)
+    entries = [(item_id, _entry_text(loaded.snapshot, item_id)) for item_id in ids]
+    with forge_errors(loaded.record.target):
+        first = loaded.forge.read_pull_request(number)
+    refuse_finished(number, first, "have its checklist edited")
+    edited = pr_checklist.add(first.body, entries)
+    _write_body(loaded, number, first, edited)
+    for item_id in loaded.record.items or (loaded.record.host,):
+        ledger.append_event(item_id, "commented", text=f"added progress entries to pull request #{number}: {' '.join(ids)}", author=actor())
+    return f"pr #{number} added: {' '.join(ids)}"
 
 
 def _drop_item(config: Config, number: int, name: str, reason: str, force: bool, target: str | None, build: Build | None) -> str:
@@ -387,13 +424,7 @@ def _drop_item(config: Config, number: int, name: str, reason: str, force: bool,
     if box.ticked and not force:
         raise QewError(f"checklist item `{name}` is already ticked: it is finished work; pass --force to drop it anyway", 2)
     edited = pr_checklist.drop(first.body, box)
-    with forge_errors(loaded.record.target):
-        latest = loaded.forge.read_pull_request(number)
-        if latest.body != first.body:
-            raise QewError(f"pr #{number} body changed while it was being edited; nothing written, run again", 3)
-        written = loaded.forge.update_pull_request_body(number, edited)
-    if written.body != edited:
-        raise QewError(f"pr #{number} body did not take the edit; the forge still shows the old checklist", 3)
+    _write_body(loaded, number, first, edited)
     ledger = loaded.snapshot.ledger
     text = reason.strip()
     for item_id in loaded.record.items or (loaded.record.host,):

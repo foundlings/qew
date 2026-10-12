@@ -54,6 +54,8 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
         return f"pr-{arguments.pr_command}"
     if command == "item" and arguments.item_command in ("attach", "detach", "rename", "assign", "unassign") and not getattr(arguments, "dry_run", False):
         return str(arguments.item_command)
+    if command == "pr" and arguments.pr_command == "check" and (arguments.add or arguments.drop):
+        return "pr-check"  # these record a comment on the covered items; ticking and listing write only the forge
     if command == "land":
         return "land"
     if command == "mirror" and arguments.mirror_command == "rehome":
