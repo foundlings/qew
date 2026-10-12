@@ -564,7 +564,13 @@ class LedgerRepo:
                 if self.vcs == "git":
                     pushed = self.run(["git", "push", "-q", "origin", f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
                 else:
-                    pushed = self.run([*JJ_READ, "git", "push", "--bookmark", self.branch], timeout=timeout, check=False)
+                    # Empty checkpoints carry no ledger change to describe. Keep their history intact, but retain
+                    # jj's description check if any unpublished content commit is undescribed.
+                    undescribed_content = self._jj_ids(
+                        f'(::bookmarks(exact:"{self.branch}") ~ ::remote_bookmarks()) & description(exact:"") ~ empty()')
+                    description_args = [] if undescribed_content else ["--allow-empty-description"]
+                    pushed = self.run([*JJ_READ, "git", "push", "--bookmark", self.branch, *description_args],
+                                      timeout=timeout, check=False)
         except CommandTimeout as slow:
             self.last_failure = str(slow)  # the commit is local; the next write or `qew sync` pushes it
             return "offline"
