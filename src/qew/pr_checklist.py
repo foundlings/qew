@@ -101,3 +101,31 @@ def drop(body: str, target: Box) -> str:
         raise QewError("the checklist changed while it was being edited", 3)
     del lines[target.line]
     return "".join(lines)
+
+
+def add(body: str, entries: Sequence[tuple[str, str]]) -> str:
+    """`body` with a new unticked, marked box for each (item id, text), after the last box (or in a new `## Progress` section at the end).
+
+    Nothing already in the body changes. An id that already has a marker anywhere in a box is exit 2.
+    """
+    existing = {box.marker for box in boxes(body)}
+    for item_id, _ in entries:
+        if item_id in existing:
+            raise QewError(f"checklist item `{item_id}` is already in the pull request body", 2)
+    lines = body.splitlines(keepends=True)
+    listing = boxes(body)
+    ending = "\n"
+    if listing:
+        ending = _split(lines[listing[-1].line])[1] or "\n"
+        position = listing[-1].line + 1
+        if not _split(lines[position - 1])[1]:
+            lines[position - 1] += ending
+    else:
+        if lines and not _split(lines[-1])[1]:
+            lines[-1] += ending
+        lines.extend([ending] if lines else [])
+        lines.extend([f"## Progress{ending}", ending])
+        position = len(lines)
+    new = [f"- [ ] {text} <!-- pr-progress:{item_id} -->{ending}" for item_id, text in entries]
+    lines[position:position] = new
+    return "".join(lines)

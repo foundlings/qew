@@ -35,6 +35,7 @@ class CheckAddWalk(unittest.TestCase):
         added = f"- [ ] Discovered follow-up <!-- pr-progress:{self.later} -->\n"
         self.assertEqual(self.body(), BODY.replace("\n\nTrailer", "\n" + added + "\nTrailer"))
         self.assertIn(self.later, json.dumps(self.w.events(self.item)))
+        self.assertEqual(self.w.qew("pr", "check", "1", "--list").code, 0)
         self.assertEqual(self.w.qew("pr", "check", "1", self.later).code, 0)
         self.assertIn(f"- [x] Discovered follow-up <!-- pr-progress:{self.later} -->", self.body())
         self.assertIn("- [x] RED test", self.body())
