@@ -43,5 +43,44 @@ class MirrorCwdWalk(unittest.TestCase):
         self.assertEqual(len(self.fake.issues), 1)
 
 
+class MirrorRehomeWalk(unittest.TestCase):
+    def setUp(self) -> None:
+        self.wrong = FakeForgejo().start()
+        self.right = FakeForgejo().start()
+        self.addCleanup(self.wrong.stop)
+        self.addCleanup(self.right.stop)
+        self.quiet = "\n[replication]\nfetch_interval_s = 0\nauto_forge_sync = false\n"
+        entry = lambda fake: f'\n[[mirror]]\nforge = "forgejo"\nrepo = "{fake.repo_url}"\napi = "{fake.api}"\n'
+        self.w = World(entry(self.wrong), ledger_vcs="git", replication=self.quiet)
+        self.addCleanup(self.w.close)
+        self.item = self.w.create("--title", "Strayed", "--quote", QUOTE)
+        self.assertEqual(self.w.run("sync", env=ENV).returncode, 0)
+        self.slug = self.w.run("mirror", "list").stdout.split()[0]
+        config = self.w.code / ".qew" / "config.toml"
+        config.write_text(config.read_text().replace(entry(self.wrong), entry(self.right)))  # the ledger's real home
+        self.record = self.w.ledger / "mirrors" / self.item / f"{self.slug}.json"
+
+    def test_rehome_closes_the_stray_issue_with_a_pointer_forgets_the_record_and_the_next_sync_files_it_right(self) -> None:
+        """Prevents a mis-filed issue staying open in the wrong repo, or the item staying bound to it so sync never files it right."""
+        result = self.w.run("mirror", "rehome", self.item, "--from", self.slug, env=ENV)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        stray = self.wrong.issues[1]
+        self.assertEqual(stray["state"], "closed")
+        self.assertIn(self.item, stray["discussion"][-1]["body"])
+        self.assertFalse(self.record.exists())
+        self.assertEqual(self.w.ledger_dirty(), [])
+        self.assertEqual(self.w.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(len(self.right.issues), 1)
+        self.assertEqual(len(self.wrong.issues), 1)
+
+    def test_rehome_refuses_a_target_the_ledger_is_configured_for_and_an_unknown_one(self) -> None:
+        """Prevents rehoming the item away from its real home, or inventing a record that is not there."""
+        right_slug = self.w.run("mirror", "list").stdout.split()[0]
+        self.assertEqual(self.w.run("mirror", "rehome", self.item, "--from", right_slug, env=ENV).returncode, 2)
+        self.assertEqual(self.w.run("mirror", "rehome", self.item, "--from", "nowhere", env=ENV).returncode, 2)
+        self.assertEqual(self.wrong.issues[1]["state"], "open")
+        self.assertTrue(self.record.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
