@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from tests.ledger_harness import World, git, jj_available
+from tests.ledger_harness import World, git, jj, jj_available
 
 
 def remote_subjects(world: World) -> list:
@@ -119,6 +119,25 @@ class MirrorConflictWalk(unittest.TestCase):
 @unittest.skipUnless(jj_available(), "jj is not installed")
 class LedgerRemoteJujutsuWalk(LedgerRemoteWalk):
     vcs = "jj"
+
+    def test_empty_undescribed_ancestor_does_not_block_automatic_push(self) -> None:
+        """Prevents an empty checkpoint wedging every later write; its commit and change IDs survive."""
+        checkpoint = jj(self.a.ledger, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+        change = jj(self.a.ledger, "log", "-r", "@", "--no-graph", "-T", "change_id")
+        jj(self.a.ledger, "new")
+        item = self.a.create("--title", "After checkpoint", "--draft")
+        self.assertEqual(remote_subjects(self.a)[0], f"qew: create {item} by tester")
+        self.assertEqual(git(self.a.base, "--git-dir", str(self.a.remote), "rev-parse", "main^"), checkpoint)
+        self.assertEqual(jj(self.a.ledger, "log", "-r", checkpoint, "--no-graph", "-T", "change_id"), change)
+        self.assertIn("unpushed=0", self.a.run("status").stdout)
+
+    def test_undescribed_content_ancestor_still_refuses_push(self) -> None:
+        """Prevents the empty-checkpoint exception publishing undescribed content commits."""
+        (self.a.ledger / "note.txt").write_text("unreviewed content\n", encoding="utf-8")
+        jj(self.a.ledger, "new")
+        self.a.create("--title", "Must stay local", "--draft")
+        self.assertEqual(remote_subjects(self.a), ["init ledger"])
+        self.assertIn("remote=offline", self.a.run("status").stdout)
 
     def test_a_real_text_conflict_is_reported_loudly_and_never_auto_resolved(self) -> None:
         self.skipTest("conflict construction uses git commits; covered by the git walk")
