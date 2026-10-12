@@ -189,6 +189,9 @@ def load(start: Path | None = None) -> Config:
         raise QewError(f"{root / CONFIG}: [ledger] path is required", 1)
     override = os.environ.get("QEW_LEDGER")
     ledger_path = Path(override) if override else (root / section["path"])
+    if override and data.get("mirror") and ledger_path.resolve() != (root / section["path"]).resolve():
+        raise QewError(f"QEW_LEDGER names {ledger_path.resolve()} but the mirror targets in {root / CONFIG} belong to the ledger "
+                       f"{(root / section['path']).resolve()}; run from that ledger's own code repo (or from the ledger itself)", 2)
     _refuse_real_ledger_under_test(ledger_path)
     ledger_prefix = _ledger_prefix(ledger_path.resolve())
     prefix = section.get("prefix") or ledger_prefix
