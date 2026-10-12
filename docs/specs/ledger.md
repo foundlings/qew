@@ -242,6 +242,9 @@ select = "kind:epic"
 ## Replication (self-updating ledger, bidirectional forge sync)
 
 The ledger records and replicates itself; the person or agent never remembers to commit, push or sync.
+
+On a jj ledger, empty undescribed checkpoints do not block automatic pushes; their commit and change IDs
+stay intact. Undescribed commits containing changes still fail jj's push validation, as do conflicts and private commits.
 Everything below is best-effort and offline-first: no network failure ever fails or blocks a write.
 
 1. **Every write commits itself.** A write command (`create set start release evidence complete close reopen
