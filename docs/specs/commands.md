@@ -385,6 +385,12 @@ shape prime: additional_context context_bytes schema_version
   the target's mirror files. A target is one-way (`read-only`) when marked `read_only = true` or when a primary is set
   and it is not the primary: pull never imports its content edits, new issues or comments, and only flags a close or
   reopen as a divergence. `list` prints `SLUG primary|two-way|read-only FORGE REPO`.
+- `qew mirror rehome ITEM --from TARGET`: move an item that was filed as an issue in a repository that is not this ledger's.
+  It comments a pointer on that issue, closes it (`not_planned`, read back; exit 4 if still open), and forgets the item's
+  mirror record for TARGET, so the next `qew sync` files it in the configured targets. TARGET need not be configured (the
+  forge and repository come from the record); a configured target, or no matching issue record, is exit 2.
+- Mirror targets come from the `.qew/config.toml` of the repository the command runs in. With `QEW_LEDGER` naming a
+  ledger other than the one that config names, a config that has mirror targets is refused (exit 2) rather than used.
 - `qew ledger fork --to REMOTE [--primary TARGET]`: push a copy of the ledger to the empty git repository REMOTE under a
   new identity: `ledger_id` (random) and `forked_from = "<origin id or name>@<commit>"` in `qew-ledger.toml`. Items and
   their events keep their ids; `mirrors/`, `boards/`, the claim in force on open work (the item is approved again) and

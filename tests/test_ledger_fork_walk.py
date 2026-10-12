@@ -43,7 +43,7 @@ class LedgerForkWalk(unittest.TestCase):
         return target
 
     def in_fork(self, *arguments: str) -> subprocess.CompletedProcess:
-        return subprocess.run([sys.executable, "-m", "qew.cli", *arguments], capture_output=True, text=True, check=False,
+        return subprocess.run([sys.executable, "-m", "qew.cli", *arguments], capture_output=True, text=True, check=False, cwd=self.world.base / "fork-clone",
                               env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT / "src"), "QEW_LEDGER": str(self.world.base / "fork-clone"), "QEW_OFFLINE": "1"})
 
     def test_the_fork_keeps_items_and_history_and_drops_mirrors_claims_and_divergences(self) -> None:
