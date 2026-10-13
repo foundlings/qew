@@ -1,6 +1,6 @@
 # Agent hooks (v1)
 
-`qew hook install|remove [--claude] [--codex] [--cursor] [--opencode]` (no flag = all four)
+`qew hook install|remove [--claude] [--codex] [--cursor] [--opencode]` (no flag = all four; `install --claude --skip-pre-tool` leaves PreToolUse as it is, for a repo that runs `qew hook pre-tool` from its own gate script)
 writes project-relative config at the nearest ancestor holding `.git` or `.jj`, through the
 safe-write foundation described below (atomic, private, idempotent, foreign entries kept).
 Outside a repository it fails with exit 2 and creates nothing.
@@ -25,7 +25,8 @@ They run `qew hook session-start|pre-tool|post-tool --agent NAME`; the agent pay
   Contradictions. The whole text is at most 2000 bytes. Outside a
   Qew repository, or on an unreadable ledger, it prints nothing. opencode has no session-start
   entry (its plugin API has no context-injection point at session start).
-- **pre-tool** refuses, only inside a Qew-managed repository (`.qew/config.toml` at or above the
+- **pre-tool** answers at once, without loading the CLI (`qew.entry`), when the command names none of `gh glab tea fj curl wget http xh push` (a substring test on the text
+  with quotes and backslashes removed; `hook_words.py`, which a test keeps in step with the guard's rules). Otherwise it refuses, only inside a Qew-managed repository (`.qew/config.toml` at or above the
   payload `cwd`), shell commands that bypass the ledger, naming the qew command to use. The command
   text is tokenized and matched structurally (`hook_guard.py`), never executed; quoted examples such
   as `echo "gh issue edit 3"` are one argument and pass; `sh -c STRING` is unwrapped.

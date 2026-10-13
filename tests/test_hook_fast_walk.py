@@ -49,7 +49,7 @@ class PreToolFastPathWalk(unittest.TestCase):
     def test_the_fast_path_words_cover_every_binary_the_guard_knows(self) -> None:
         """Prevents a new guarded binary being added to hook_guard without the fast path learning it (it would be silently allowed)."""
         known = set(hook_guard._CLI_RULES) | set(hook_guard._HTTPIE) | {"curl", "wget", "push"}
-        self.assertLessEqual(known, set(hook_words.GUARDED))
+        self.assertEqual([name for name in sorted(known) if hook_words.inert(name)], [])
 
 
 class SkipPreToolWalk(unittest.TestCase):

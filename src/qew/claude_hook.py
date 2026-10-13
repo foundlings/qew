@@ -54,8 +54,10 @@ _LEGACY: dict[str, list[JsonObject]] = {
 }
 
 
-def install(root: Path) -> bool:
-    return install_json_hooks(root, _SETTINGS_PATH, "Claude settings", _WANTED, _LEGACY)
+def install(root: Path, pre_tool: bool = True) -> bool:
+    """Add the entries; `pre_tool=False` leaves PreToolUse as it is (a repo that calls `qew hook pre-tool` from its own gate)."""
+    wanted = _WANTED if pre_tool else {event: entries for event, entries in _WANTED.items() if event != "PreToolUse"}
+    return install_json_hooks(root, _SETTINGS_PATH, "Claude settings", wanted, _LEGACY)
 
 
 def remove(root: Path) -> bool:

@@ -6,14 +6,14 @@ from pathlib import Path
 import sys
 
 from qew import (
-    claude_hook, cmd_items, codex_hook, inbox, ledger_check, ledger_conflicts, prime, cursor_hook, git_hook, hook_guard, hook_merge, ledger_config,
+    claude_hook, cmd_items, codex_hook, inbox, ledger_check, ledger_conflicts, prime, cursor_hook, git_hook, hook_guard, hook_merge, hook_words, ledger_config,
     opencode_hook, vcs_check,
 )
 from qew.errors import QewError
 from qew.ledger_event import State
 from qew.ledger_store import actor
 
-AGENTS = ("claude", "codex", "cursor", "opencode")
+AGENTS = hook_words.AGENTS
 TARGETS = AGENTS + ("git",)
 EVENTS = ("session-start", "pre-tool", "post-tool")
 
@@ -24,7 +24,7 @@ _ADAPTERS = {
     "opencode": opencode_hook,
     "git": git_hook,
 }
-_PAYLOAD_LIMIT = 1_000_000
+_PAYLOAD_LIMIT = hook_words.PAYLOAD_LIMIT
 _REFUSAL_EXIT = 2
 _SCHEMA_VERSION = 1
 _TRUST_LINE = "review and trust it with /hooks before it will run"
@@ -35,6 +35,9 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     actions = hook.add_subparsers(dest="hook_command", required=True)
     for name, text in (("install", "wire Qew into agent configuration"), ("remove", "remove Qew's agent hook entries")):
         sub = actions.add_parser(name, help=text)
+        if name == "install":
+            sub.add_argument("--skip-pre-tool", action="store_true",
+                             help="with --claude only: leave PreToolUse alone (the repo runs `qew hook pre-tool` from its own gate script)")
         for agent in AGENTS:
             sub.add_argument(f"--{agent}", action="store_true", help=f"only {agent}")
         sub.add_argument("--git", action="store_true", help="the tracked git pre-push hook that checks Refs: citations (never part of the default)")
@@ -79,10 +82,13 @@ def _configure(arguments: argparse.Namespace) -> str:
     chosen = [target for target in TARGETS if getattr(arguments, target)] or list(AGENTS)
     root = _checkout_root()
     installing = arguments.hook_command == "install"
+    skip_pre_tool = installing and arguments.skip_pre_tool
+    if skip_pre_tool and chosen != ["claude"]:
+        raise QewError("--skip-pre-tool applies to the Claude adapter only: pass --claude and no other agent", 2)
     results = []
     for agent in chosen:
         adapter = _ADAPTERS[agent]
-        changed = adapter.install(root) if installing else adapter.remove(root)
+        changed = claude_hook.install(root, pre_tool=False) if skip_pre_tool else adapter.install(root) if installing else adapter.remove(root)
         action = ("installed" if installing else "removed") if changed else "unchanged"
         result: dict[str, str | bool] = {"agent": agent, "action": action}
         if agent == "codex" and installing:
@@ -153,11 +159,9 @@ def _payload(raw: str) -> tuple[str | None, Path | None]:
         return None, None
     if not isinstance(payload, dict):
         return None, None
-    tool_input = payload.get("tool_input")
-    command = tool_input.get("command") if isinstance(tool_input, dict) else payload.get("command")
     cwd = payload.get("cwd")
     return (
-        command if isinstance(command, str) else None,
+        hook_words.command_of(raw),
         Path(cwd) if isinstance(cwd, str) and Path(cwd).is_dir() else None,
     )
 

@@ -41,7 +41,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml` once, at the repository
   root (nearest `.git` or `.jj`; outside one, exit 2), atomically and never through a symlink (exit 2). Prints
   `created PATH` lines plus the trust guidance; a rerun prints `already initialized` and changes nothing.
-- `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: wire agents (none = all four; output order claude, codex, cursor, opencode, git). `--git` installs the tracked `.githooks/pre-push` and sets `core.hooksPath`; it is never part of the default.
+- `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--git] [--skip-pre-tool] [--json]`: wire agents (none = all four; `--skip-pre-tool` needs `--claude` alone, exit 2 otherwise, and leaves PreToolUse as it is; output order claude, codex, cursor, opencode, git). `--git` installs the tracked `.githooks/pre-push` and sets `core.hooksPath`; it is never part of the default.
 - `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: remove exactly Qew's entries.
 - `qew hook session-start --agent NAME`, `qew hook pre-tool --agent NAME`, `qew hook post-tool --agent NAME`:
   the events agents call; see hooks.md.
