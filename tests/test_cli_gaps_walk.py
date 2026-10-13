@@ -38,6 +38,10 @@ class BoardCommandWalk(unittest.TestCase):
         self.assertEqual(pruned.returncode, 0, pruned.stderr)
         self.assertIn("removed 0", pruned.stdout)
         self.assertEqual(w.run("project", "status", env=self.env).returncode, 0)
+        orphans = w.run("project", "prune", "--orphans", env=self.env)
+        self.assertEqual(orphans.returncode, 0, orphans.stderr)
+        self.assertIn("removed 0", orphans.stdout)
+        self.assertEqual(w.run("project", "prune", "--orphans", "--from", "acme/other", env=self.env).returncode, 2)
 
 
 class AdHocForgeWalk(unittest.TestCase):

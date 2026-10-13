@@ -59,7 +59,7 @@ class ProjectStatusWalk(unittest.TestCase):
         self.forge.columns[99] = "In progress"
         text, code = status(self.config, None, True, self.build)
         row = json.loads(text)
-        self.assertEqual((code, row["orphan"], row["in_sync"]), (1, [99], False))
+        self.assertEqual((code, row["orphan"], row["in_sync"]), (1, ["#99"], False))
         self.assertIn("prune --orphans", row["fix"])
         plain, _ = status(self.config, None, False, self.build)
         self.assertIn("orphan #99", plain)

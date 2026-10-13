@@ -41,6 +41,7 @@ class ProjectPruneWalk(unittest.TestCase):
 
     def test_prune_orphans_removes_only_own_cards_no_item_mirrors_and_verifies(self) -> None:
         """Prevents a stray issue's card staying on the board after its issue was closed: mirrored cards and other repositories' stay."""
+        self.forge.columns = {}  # the setUp cards are not any item's
         self.world.create("--title", "Mirrored", "--quote", QUOTE)
         ensure(self.config, None, self.build)
         sync_command(self.config, None, None, False, build=self.build)

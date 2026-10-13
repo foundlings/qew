@@ -116,4 +116,5 @@ def rehome(config: Config, item_id: str, wanted: str) -> str:
     if forge.read_issue(number).open:
         raise QewError(f"{record['url']}#{number} is still open after closing it", 4)
     ledger.remove_mirror(item_id, slug)
-    return f"rehomed {item_id}: closed {record['url']}/issues/{number}; the next sync files it in {', '.join(configured) or 'its targets'}"
+    return (f"rehomed {item_id}: closed {record['url']}/issues/{number}; the next sync files it in {', '.join(configured) or 'its targets'}; "
+            "its card, if it had one, is removed by `qew project prune --orphans` run in the repository that owns that board")
