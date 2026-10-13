@@ -200,6 +200,8 @@ def release(config: Config, ledger: Ledger, item_id: str, snapshot: Snapshot | N
     if config.authority == "none":
         return
     forge, number = _primary_forge(config, ledger, item_id, snapshot)
+    if item_id in POSTED:
+        POSTED.remove(item_id)  # released here: the session must not release it a second time
     try:
         forge.create_comment(number, release_comment(item_id))
     except ForgeError as error:
