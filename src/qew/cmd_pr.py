@@ -78,8 +78,9 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     closed.add_argument("--item", metavar="ID", help="a pull request qew never recorded (a legacy draft): adopt it onto this item, which carries its remainder, then close it")
     closed.add_argument("--reason", help="with --item: why it is closed (kept in the ledger)")
     closed.add_argument("--json", action="store_true", help="machine-readable output")
-    synced = sub.add_parser("sync", help="set an open pull request's title from its item's current title")
+    synced = sub.add_parser("sync", help="set an open pull request's title from its item's current title, or with --items re-derive the items it covers")
     synced.add_argument("number", type=int, help="pull request number")
+    synced.add_argument("--items", action="store_true", help="instead of the title, re-derive the covered items: recorded + the root's open descendants + items with a Progress box")
     synced.add_argument("--target", help=_TARGET_HELP)
     synced.add_argument("--json", action="store_true", help="machine-readable output")
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
@@ -120,7 +121,10 @@ def run(arguments: argparse.Namespace) -> bool:
     elif command == "label":
         print(label_pull_request(config, arguments.number, arguments.add, arguments.remove, arguments.target).render(arguments.json))
     elif command == "sync":
-        print(sync_title(config, arguments.number, arguments.target).render(arguments.json))
+        if arguments.items:
+            print(sync_items(config, arguments.number, arguments.target))
+        else:
+            print(sync_title(config, arguments.number, arguments.target).render(arguments.json))
     else:
         merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason)
         print(merge_pull_request(config, arguments.number, arguments.target, merge_options).render(arguments.json))
@@ -411,7 +415,35 @@ def _add_items(config: Config, number: int, references: list[str], target: str |
     _write_body(loaded, number, first, edited)
     for item_id in loaded.record.items or (loaded.record.host,):
         ledger.append_event(item_id, "commented", text=f"added progress entries to pull request #{number}: {' '.join(ids)}", author=actor())
+    _cover(ledger, loaded.record, ids)
     return f"pr #{number} added: {' '.join(ids)}"
+
+
+def _cover(ledger: Ledger, record: pr_record.PrRecord, wanted: list[str]) -> list[str]:
+    """Append the items not yet covered to the pull request record; returns the ones added."""
+    added = [i for i in dict.fromkeys(wanted) if i not in record.items]
+    if added:
+        pr_record.update_mirror(ledger, record, items=[*record.items, *added])
+    return added
+
+
+def sync_items(config: Config, number: int, target: str | None, build: Build | None = None) -> str:
+    """Re-derive the covered items: the recorded ones, the root's open descendants, and every item with a Progress box.
+
+    Only adds: a covered item never leaves the record here (that is `--drop`). Items whose box was dropped are not re-added."""
+    loaded = load(config, number, target, build)
+    snapshot = loaded.snapshot
+    with forge_errors(loaded.record.target):
+        body = loaded.forge.read_pull_request(number)
+    refuse_finished(number, body, "have its covered items changed")
+    dropped = {str(d).split(":", 1)[0] for d in next(m for m in snapshot.ledger.load_mirrors(loaded.record.host) if m["_target"] == loaded.record.mirror_file).get("dropped", [])}
+    boxed = [b.address for b in pr_checklist.boxes(body.body) if b.address in snapshot.items]
+    wanted = [i for i in [*pr_record.covered_by(snapshot, loaded.record.host), *boxed] if i not in dropped]
+    added = _cover(snapshot.ledger, loaded.record, wanted)
+    if added:
+        for item_id in loaded.record.items:
+            snapshot.ledger.append_event(item_id, "commented", text=f"pull request #{number} now covers: {' '.join(added)}", author=actor())
+    return f"pr #{number} covers {' '.join([*loaded.record.items, *added])}" + (f" (added {' '.join(added)})" if added else " (unchanged)")
 
 
 def _drop_item(config: Config, number: int, name: str, reason: str, force: bool, target: str | None, build: Build | None) -> str:
