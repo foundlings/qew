@@ -78,9 +78,9 @@ class PushDecisionWalk(unittest.TestCase):
         env = self.fake_jj(f'echo "$@" >> "{record}"\nexit 0\n')
         result = self.decide(env)
         self.assertEqual(result.returncode, 0, result.stderr)
-        calls = record.read_text().splitlines()
+        calls = [line for line in record.read_text().splitlines() if " log " in line]  # the template spans lines
         self.assertTrue(calls)
-        self.assertTrue(all("--ignore-working-copy" in call.split() for call in calls), calls)
+        self.assertTrue(all(call.startswith("--ignore-working-copy ") for call in calls), calls)
 
     def test_a_jj_that_hangs_ends_the_decision_within_the_bound_and_says_so(self) -> None:
         """Prevents a stuck jj holding the hook past the caller's cap, which fails the push closed with no reason."""

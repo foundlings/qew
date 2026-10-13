@@ -27,9 +27,11 @@ class Commit:
         return self.change_id or self.commit_id
 
 
-def _run(root: Path, argv: list[str]) -> subprocess.CompletedProcess[str]:
+def _run(root: Path, argv: list[str], timeout: float | None = None) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(argv, cwd=root, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False)
+        return subprocess.run(argv, cwd=root, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise QewError(f"`{' '.join(argv[:3])}` did not answer within {timeout:g}s", 3) from None
     except OSError as error:
         raise QewError(f"cannot run `{' '.join(argv)}`: {error}", 3) from None
 
@@ -56,9 +58,10 @@ def git_pushed(root: Path, pre_push_input: str) -> list[Commit]:
     return commits
 
 
-def jj_revisions(root: Path, revset: str) -> list[Commit]:
+def jj_revisions(root: Path, revset: str, timeout: float | None = None) -> list[Commit]:
     template = f'commit_id ++ "{_FIELD}" ++ change_id.short(12) ++ "{_FIELD}" ++ description ++ "{_RECORD}"'
-    result = _run(root, ["jj", "log", "--no-graph", "-r", revset, "-T", template])
+    # a listing never needs the working copy snapshotted: that scans every file and takes jj's working-copy lock
+    result = _run(root, ["jj", "--ignore-working-copy", "--no-pager", "log", "--no-graph", "-r", revset, "-T", template], timeout)
     if result.returncode != 0:
         raise QewError(f"jj could not list {revset}: {result.stderr.strip()}", 3)
     return _parse(result.stdout, with_change=True)
@@ -118,10 +121,10 @@ def message_ids(snapshot: Snapshot, message: str) -> tuple[list[str], bool]:
     return lines, unknown
 
 
-def jj_push_problems(snapshot: Snapshot, root: Path, revset: str) -> list[str] | None:
-    """Refusals for a `jj git push`; None when jj cannot answer (the guard then stays silent)."""
+def jj_push_problems(snapshot: Snapshot, root: Path, revset: str, timeout: float | None = None) -> list[str] | None:
+    """Refusals for a `jj git push`; None when jj cannot answer within `timeout` (the caller says it could not decide)."""
     try:
-        commits = jj_revisions(root, revset)
+        commits = jj_revisions(root, revset, timeout)
     except QewError:
         return None
     return report(snapshot, commits)[1]
