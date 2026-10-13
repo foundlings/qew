@@ -51,5 +51,48 @@ class CoveredItemsWalk(unittest.TestCase):
         self.assertNotIn("open children", self.w.qew("pr", "merge", "1").err)
 
 
+class MergeCheckWalk(unittest.TestCase):
+    """`qew pr merge N --check`: every merge refusal, no merge, no write."""
+
+    def setUp(self) -> None:
+        self.w = PrWorld()
+        self.addCleanup(self.w.close)
+        self.root = self.w.item("Root", kind="epic")
+        self.assertEqual(self.w.open(self.root).code, 0)
+        self.assertEqual(self.w.qew("pr", "ready", "1").code, 0)
+
+    def ledger_files(self) -> dict[str, str]:
+        base = self.w.world.ledger
+        return {str(p.relative_to(base)): p.read_text() for p in sorted(base.rglob("*.json")) + sorted(base.rglob("*.md")) if ".jj" not in p.parts and ".git" not in p.parts}
+
+    def test_an_uncovered_child_is_refused_by_check_with_the_merge_message_and_nothing_is_written(self) -> None:
+        """Prevents a hook running a multi-minute gate for a merge qew itself would refuse in seconds, or --check differing from the merge."""
+        self.w.item("Child", parent=self.root, claim=False)
+        before, writes = self.ledger_files(), list(self.w.forge.body_writes)
+        real = self.w.qew("pr", "merge", "1")
+        self.assertEqual(real.code, 2)
+        checked = self.w.qew("pr", "merge", "1", "--check")
+        self.assertEqual((checked.code, checked.err), (real.code, real.err))
+        listed = json.loads(self.w.qew("pr", "merge", "1", "--check", "--json").out)
+        self.assertFalse(listed["mergeable"])
+        self.assertIn("open children", listed["refusals"][0]["message"])
+        self.assertEqual(self.w.forge.pulls[1].state, "open")
+        self.assertEqual((self.ledger_files(), self.w.forge.body_writes), (before, writes))
+
+    def test_a_clean_pull_request_passes_check_and_is_not_merged(self) -> None:
+        """Prevents --check merging the pull request it was only asked to judge."""
+        run = self.w.qew("pr", "merge", "1", "--check")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.w.forge.pulls[1].state, "open")
+        self.assertTrue(json.loads(self.w.qew("pr", "merge", "1", "--check", "--json").out)["mergeable"])
+
+    def test_check_lists_every_refusal_not_only_the_first(self) -> None:
+        """Prevents a caller fixing one refusal at a time, one gate run each."""
+        self.w.forge.edit_pull(1, body="## Progress\n\n- [ ] open box <!-- pr-progress:x -->\n")
+        self.w.item("Child", parent=self.root, claim=False)
+        listed = json.loads(self.w.qew("pr", "merge", "1", "--check", "--json").out)["refusals"]
+        self.assertGreaterEqual(len(listed), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
