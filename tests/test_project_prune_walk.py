@@ -10,7 +10,9 @@ from qew import ledger_config
 from qew.errors import QewError
 from qew.forge import Card
 from qew.project_prune import prune
-from tests.ledger_harness import World
+from qew.cmd_project import ensure
+from qew.cmd_sync import sync_command
+from tests.ledger_harness import QUOTE, World
 from tests.memory_forge import MemoryForge
 
 MIRRORS = '\n[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/o/r"\nproject = 1\n'
@@ -36,6 +38,29 @@ class ProjectPruneWalk(unittest.TestCase):
         self.assertEqual([card.id for card in self.forge.foreign_cards], ["F3"])
         self.assertEqual(sorted(self.forge.columns), [1, 2, 3])
         self.assertEqual(self.forge.count("delete_card"), 2)
+
+    def test_prune_orphans_removes_only_own_cards_no_item_mirrors_and_verifies(self) -> None:
+        """Prevents a stray issue's card staying on the board after its issue was closed: mirrored cards and other repositories' stay."""
+        self.forge.columns = {}  # the setUp cards are not any item's
+        self.world.create("--title", "Mirrored", "--quote", QUOTE)
+        ensure(self.config, None, self.build)
+        sync_command(self.config, None, None, False, build=self.build)
+        self.forge.columns[98] = "In progress"
+        self.forge.columns[99] = "In progress"
+        text = prune(self.config, None, None, self.build, orphans=True)
+        self.assertTrue(text.endswith("removed 2"), text)
+        self.assertNotIn(99, self.forge.columns)
+        self.assertNotIn(98, self.forge.columns)
+        self.assertEqual(len(self.forge.foreign_cards), 3)
+        self.assertEqual(prune(self.config, None, None, self.build, orphans=True).split()[-1], "0")
+
+    def test_prune_needs_exactly_one_of_a_source_and_orphans(self) -> None:
+        """Prevents an ambiguous prune: both, or neither, is refused before any call."""
+        for source, orphans in (("acme/other", True), (None, False)):
+            with self.assertRaises(QewError) as raised:
+                prune(self.config, None, source, self.build, orphans=orphans)
+            self.assertEqual(raised.exception.exit_code, 2)
+        self.assertEqual(self.forge.calls, [])
 
     def test_prune_refuses_the_boards_own_repository_before_any_call(self) -> None:
         """Pruning the target's own repository would empty its board."""

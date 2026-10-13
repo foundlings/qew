@@ -54,8 +54,15 @@ def status(config: Config, wanted: str | None, as_json: bool,
     return "\n".join(lines) or "no mirror targets configured", code
 
 
+def orphan_numbers(ledger: Ledger, snapshot: Snapshot, slug: str, cards: dict[int, Card]) -> list[int]:
+    """Issue numbers of the board's own repository that have a card but are no ledger item's issue (a stray or foreign-filed issue)."""
+    owned = {m["number"] for item_id in snapshot.items for m in ledger.load_mirrors(item_id) if m["_target"] == slug and m.get("kind") == "issue"}
+    return sorted(number for number in cards if number not in owned)
+
+
 def _drift(ledger: Ledger, snapshot: Snapshot, mirror: Mirror, slug: str, cards: dict[int, Card]) -> dict[str, list[str]]:
-    drift: dict[str, list[str]] = {"missing": [], "stale_column": [], "stale_priority": []}
+    drift: dict[str, list[str]] = {"missing": [], "stale_column": [], "stale_priority": [],
+                                   "orphan": [f"#{n}" for n in orphan_numbers(ledger, snapshot, slug, cards)]}
     for item_id in sync_plan.topological(snapshot, sync_plan.selected(snapshot, mirror.select)):
         record = next((m for m in ledger.load_mirrors(item_id) if m["_target"] == slug and m.get("kind") == "issue"), None)
         card = cards.get(record["number"]) if record else None
@@ -69,12 +76,18 @@ def _drift(ledger: Ledger, snapshot: Snapshot, mirror: Mirror, slug: str, cards:
     return drift
 
 
+def _fix(drift: dict[str, list[str]]) -> str:
+    """`qew sync` repairs the cards of mirrored items; a card no item owns is removed by `prune --orphans`."""
+    commands = (["`qew sync`"] if any(ids for name, ids in drift.items() if name != "orphan") else []) + (["`qew project prune --orphans`"] if drift["orphan"] else [])
+    return " and ".join(commands)
+
+
 def _render(slug: str, drift: dict[str, list[str]], as_json: bool) -> str:
     in_sync = not any(drift.values())
     if as_json:
         return json.dumps({"schema_version": SCHEMA_VERSION, "target": slug, "in_sync": in_sync, **drift,
-                           "fix": "" if in_sync else "qew sync"})
+                           "fix": "" if in_sync else _fix(drift)})
     if in_sync:
         return f"{slug}: in sync"
     parts = [f"{name} {' '.join(ids)}" for name, ids in drift.items() if ids]
-    return f"{slug}: drifted: " + "; ".join(parts) + "; run `qew sync`"
+    return f"{slug}: drifted: " + "; ".join(parts) + f"; run {_fix(drift)}"

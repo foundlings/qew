@@ -16,9 +16,11 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     sub = project.add_subparsers(dest="project_command", required=True)
     ensure = sub.add_parser("ensure", help="create the seven-status board on each target")
     ensure.add_argument("--target", help="only this target (slug or unique part of it)")
-    prune = sub.add_parser("prune", help="remove another repository's cards from a shared board")
+    prune = sub.add_parser("prune", help="remove another repository's cards, or cards no item owns, from a board")
     prune.add_argument("--target", help="the target whose board to prune (slug or unique part of it)")
-    prune.add_argument("--from", dest="source", required=True, help="OWNER/REPO whose cards to remove")
+    which = prune.add_mutually_exclusive_group(required=True)
+    which.add_argument("--from", dest="source", help="OWNER/REPO whose cards to remove")
+    which.add_argument("--orphans", action="store_true", help="the board's own repository's cards that no ledger item mirrors")
     report = sub.add_parser("status", help="report board drift from the ledger")
     report.add_argument("--target", help="only this target (slug or unique part of it)")
     report.add_argument("--json", action="store_true", help="machine-readable output")
@@ -28,7 +30,7 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "project":
         return False
     if arguments.project_command == "prune":
-        print(project_prune.prune(ledger_config.load(), arguments.target, arguments.source))
+        print(project_prune.prune(ledger_config.load(), arguments.target, arguments.source, orphans=arguments.orphans))
         return True
     if arguments.project_command == "status":
         text, code = project_status.status(ledger_config.load(), arguments.target, arguments.json)

@@ -461,14 +461,14 @@ shape prime: additional_context context_bytes schema_version
 - `qew restore [--to TARGET | --forge F --repo URL [--api URL]]`: recreate the issues, links and board of a target from the ledger
   alone; mirror files whose remote issue is gone are forgotten first. Idempotent and resumable.
 - `qew project`: the group for `ensure`, `status` and `prune`.
-- `qew project prune --from OWNER/REPO [--target T]`: delete exactly the cards whose issue is in the named repository
+- `qew project prune (--from OWNER/REPO | --orphans) [--target T]`: with `--orphans`, delete the cards of the target's own repository whose issue no ledger item mirrors (a stray issue closed or moved by `qew mirror rehome` keeps its card); exactly one of the two is required (exit 2). With `--from`, delete exactly the cards whose issue is in the named repository
   (case-insensitive, never a prefix) from a board shared by two targets, then re-read; cards left over are an
   `indeterminate` error (exit 1). Refused before any call (exit 2): a source that is not `OWNER/REPO` and the
   target's own repository. Issues are never touched; `removed 0` when nothing matches. Prints `SLUG: removed N`.
 - `qew project status [--target T] [--json]`: read-only drift report of each target's board against the ledger: per
   target `<slug>: in sync`, or the lists `missing` (selected items with no card, or no mirror), `stale_column`,
-  `stale_priority` and the fix (`qew sync`). JSON rows: `schema_version`, `target`, `in_sync`, `missing`,
-  `stale_column`, `stale_priority`, `fix`. Exit 0 in sync (also `boards unsupported`), 1 drifted or the forge failed,
+  `stale_priority`, `orphan` (`#N` cards of the board's own repository that no item mirrors) and the fix (`qew sync`, and `qew project prune --orphans` for orphans). JSON rows: `schema_version`, `target`, `in_sync`, `missing`,
+  `stale_column`, `stale_priority`, `orphan`, `fix`. Exit 0 in sync (also `boards unsupported`), 1 drifted or the forge failed,
   2 a bad target or no recorded or configured board (names `qew project ensure`). Cards of other repositories are
   ignored. Drift is advisory: forge state is never read back as truth for the ledger.
 - `qew project ensure [--target T]`: create or repair the full board where the forge has boards: the eight
