@@ -36,6 +36,18 @@ def discard_writes() -> None:
     """A dry run: the session undoes what the command wrote instead of committing it."""
     global _DISCARD
     _DISCARD = True
+    claim_authority.DRY_RUN = True
+
+
+def _withdraw(config: Config) -> None:
+    """The command's ledger writes were undone: take back the claims it put on the primary forge, and say which it could not."""
+    from qew.ledger_store import open_ledger
+
+    if not claim_authority.POSTED:
+        return
+    failed = claim_authority.withdraw_posted(config, open_ledger(config.ledger_path, config.prefix))
+    if failed:
+        print(f"qew: warning: could not withdraw the primary forge's claim on {' '.join(failed)}; clear each with `qew release ID --force --reason TEXT`", file=sys.stderr)
 
 
 def after_settle(callback: Callable[[], None]) -> None:
@@ -169,6 +181,7 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
                         repo.push(rep.timeout_s)
             else:
                 ledger_store.journal_rollback(entries)
+                _withdraw(config)
             raise
         entries = ledger_store.journal_take()
         pending = claim_authority.take_pending()
@@ -176,7 +189,12 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
             ledger_store.journal_rollback(entries)
             return
         if committing and entries:
-            _commit(repo, config, verb, entries, rollback_on_failure=True)
+            try:
+                _commit(repo, config, verb, entries, rollback_on_failure=True)
+            except QewError:
+                _withdraw(config)
+                raise
+        claim_authority.POSTED.clear()
         if replicating and pending:
             _settle_claim(config, repo, pending)
         confirmed, _AFTER_SETTLE[:] = list(_AFTER_SETTLE), []

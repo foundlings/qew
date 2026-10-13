@@ -33,6 +33,8 @@ def run(arguments: argparse.Namespace) -> bool:
         return False
     config = ledger_config.load()
     ledger = cmd_items.ledger_for(config)
+    if arguments.dry_run:
+        replication.discard_writes()  # before any row: a dry run's start rows must never post a claim on the primary
     with snapshot_reuse.reusing():
         rows = _read(ledger, Path(arguments.manifest))
         for op, item_id, fields, line in rows:
@@ -40,8 +42,6 @@ def run(arguments: argparse.Namespace) -> bool:
                 OPS[op][1](config, ledger, item_id, fields)
             except QewError as error:
                 raise QewError(f"line {line}: {op} {item_id}: {error}", error.exit_code) from None
-    if arguments.dry_run:
-        replication.discard_writes()
     print(f"{'would apply' if arguments.dry_run else 'applied'} {len(rows)} rows")
     return True
 
