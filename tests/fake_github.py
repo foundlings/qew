@@ -857,6 +857,14 @@ class _Handler(BaseHTTPRequestHandler):
         issue["blocked_by"].append(blocker["number"])
         self._send(201, self.fake.issue_json(blocker))
 
+    def _delete_blocked_by_issue(self, number: str, issue_id: str, query: dict[str, list[str]], body: Any) -> None:
+        issue = self.fake.issues.get(int(number))
+        blocker = next((i for i in self.fake.issues.values() if i["id"] == int(issue_id)), None)
+        if issue is None or blocker is None or blocker["number"] not in issue["blocked_by"]:
+            return self._send(404, {"message": "Not Found"})
+        issue["blocked_by"].remove(blocker["number"])
+        self._send(200, self.fake.issue_json(blocker))
+
     # -- pull requests -----------------------------------------------------------
 
     def _get_repo(self, query: dict[str, list[str]], body: Any) -> None:
@@ -964,6 +972,7 @@ _ROUTES = (
     (r"/issues/comments/(\d+)", "issue_comment"),
     (r"/issues/(\d+)/events", "events"),
     (r"/issues/(\d+)/dependencies/blocked_by", "blocked_by"),
+    (r"/issues/(\d+)/dependencies/blocked_by/(\d+)", "blocked_by_issue"),
     (r"/pulls", "pulls"),
     (r"/pulls/(\d+)", "pull"),
     (r"/pulls/(\d+)/merge", "merge"),

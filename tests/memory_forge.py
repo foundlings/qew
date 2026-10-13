@@ -136,6 +136,13 @@ class MemoryForge(Forge):
         if (number, blocked_by) not in self.links:
             self.links.append((number, blocked_by))
 
+    def unlink_dependency(self, number: int, blocked_by: int) -> None:
+        if not self.supports_links:
+            raise Unsupported("unlink_dependency")
+        self._live("unlink")
+        if (number, blocked_by) in self.links:
+            self.links.remove((number, blocked_by))
+
     def ensure_board(self, columns: tuple[str, ...], managed_filter: str = "") -> Board:
         if not self.supports_boards:
             raise Unsupported("ensure_board")

@@ -89,7 +89,7 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   updated (`updateProjectV2View`) and reported in `Board.notes`; views outside the model are never touched.
 - `find_issue` scans the repository issue list (all states, pull requests skipped) for the marker; a listing longer
   than `MAX_PAGES` pages, or a `Link` that leaves the API root, raises `ForgeRejected` rather than truncating or following.
-- `link_dependency` uses the issue dependencies REST endpoints (`blocked_by`), listing first so repeats are no-ops.
+- `link_dependency` uses the issue dependencies REST endpoints (`blocked_by`), listing first so repeats are no-ops; `unlink_dependency` deletes the link by the blocker's issue id (absent is a no-op). Sync unlinks only links it recorded (`linked`) whose need the ledger dropped; a link a human added is left alone.
 - Pull request `checks` folds the combined commit status (ignored when it has no statuses) with all check runs:
   any failure is `failing`, else any unfinished is `pending`, else `passing`; nothing at all is `none`.
 - `merge_pull_request` re-reads the head and refuses locally when it moved, and also sends the expected `sha` to GitHub.
@@ -104,7 +104,7 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
 - There is no close reason on this API: `close_reason` is accepted and not sent.
 - No draft field: a draft pull request has the title prefix `WIP:`; `mark_pull_request_ready` strips `WIP:` / `[WIP]`.
 - `checks` come from the combined commit status of the head: no statuses -> `none`; `warning` is treated as `failing` (fail closed).
-- Dependencies are listed first, so `link_dependency` is idempotent without relying on a 409.
+- Dependencies are listed first, so `link_dependency` is idempotent without relying on a 409; `unlink_dependency` is `DELETE /issues/N/dependencies` with the blocker as the body.
 - Pagination ends on `X-Total-Count`, an empty page, or a short page with no `rel="next"` Link; more than `MAX_PAGES` raises `ForgeRejected`.
 - Merge sends `Do=merge` and `head_commit_id`; a moved head is the forge's 409, surfaced as `ForgeRejected(409)`.
 
@@ -112,7 +112,7 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
 - `RemoteIssue.number` is the project-scoped iid; `node_id` is the global issue id as a string.
 - Labels travel as a comma-joined `labels` parameter, so a label containing a comma is `ForgeRejected(400)` before any request. Labels starting with `board::` are carried over on `update_issue`.
 - `close_reason` is ignored: GitLab issues have no close reasons. A null `description` reads as "".
-- `link_dependency` posts `link_type=is_blocked_by`; only HTTP 409 (already linked) counts as success.
+- `link_dependency` posts `link_type=is_blocked_by`; only HTTP 409 (already linked) counts as success. `unlink_dependency` is unsupported on GitLab (a stale link stays and sync reports the skipped capability).
 - `Board.id` is the numeric board id as a string; `ensure_board` matches the mirror `project` option against a board id first, then a board name (default the repo name), and creates a board only when neither matches. It adds a list per `board::<Column>` label, creating labels as needed.
 - `place_on_board` rejects a column not in `Board.columns` with `ForgeRejected(400)`; it writes nothing when the issue already carries exactly the target `board::*` label.
 - Merge requests: `Draft:` title prefix (a leading `[Draft]`, `(Draft)` or `Draft:` is stripped on ready). `mergeable` is True for `detailed_merge_status` "mergeable", None while undecided (checking, unchecked, preparing, approvals_syncing, ci_still_running), False otherwise. Pipeline status maps to checks (success passing; failed, canceled failing; skipped none; others pending; an unknown status is `ForgeRejected`). A moved head yields GitLab's 409 as `ForgeRejected(409)`.
