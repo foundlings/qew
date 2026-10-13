@@ -90,6 +90,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     merge.add_argument("--admin", action="store_true", help="merge past pending or failing checks only (needs --reason)")
     merge.add_argument("--other-author", action="store_true", help="merge a pull request someone else opened (needs --reason)")
     merge.add_argument("--reason", help=_REASON_HELP)
+    merge.add_argument("--check", action="store_true", help="run every refusal the merge would apply, then stop: merges and writes nothing, exits as the merge would")
     merge.add_argument("--json", action="store_true", help="machine-readable output")
 
 
@@ -126,8 +127,25 @@ def run(arguments: argparse.Namespace) -> bool:
         else:
             print(sync_title(config, arguments.number, arguments.target).render(arguments.json))
     else:
-        merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason)
+        merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason, arguments.check)
+        if arguments.check:
+            return _report_check(arguments, merge_check(config, arguments.number, arguments.target, merge_options))
         print(merge_pull_request(config, arguments.number, arguments.target, merge_options).render(arguments.json))
+    return True
+
+
+def _report_check(arguments: argparse.Namespace, refusals: list[QewError]) -> bool:
+    """Print what `pr merge --check` found and exit with the code the merge would exit with (the first refusal's)."""
+    if arguments.json:
+        rows = [{"message": str(r), "exit_code": r.exit_code} for r in refusals]
+        print(json.dumps({"number": arguments.number, "mergeable": not refusals, "refusals": rows, "schema_version": SCHEMA_VERSION}, sort_keys=True))
+    elif not refusals:
+        print(f"pr #{arguments.number} passes every merge check; nothing was merged")
+    if refusals:
+        if not arguments.json:
+            for refusal in refusals[1:]:
+                print(f"qew: {refusal}", file=sys.stderr)
+        raise QewError(str(refusals[0]), refusals[0].exit_code) if not arguments.json else SystemExit(refusals[0].exit_code)
     return True
 
 
@@ -695,6 +713,7 @@ class MergeOptions:
     admin: bool = False
     other_author: bool = False
     reason: str | None = None
+    check: bool = False
 
 
 @dataclass(frozen=True)
@@ -771,6 +790,64 @@ def _branch_line(cleanup: branch_cleanup.HeadFate, branch: str) -> list[str]:
     return []
 
 
+def _merge_gates(config: Config, loaded: Loaded, pull: RemotePullRequest, options: MergeOptions) -> list[Callable[[], None]]:
+    """Every refusal `pr merge` applies before it touches anything, in the order it applies them; each raises `QewError`."""
+    number = loaded.record.number
+
+    def draft() -> None:
+        if pull.draft:
+            raise QewError(f"pr #{number} is a draft; run `qew pr ready {number}`", 2)
+
+    def mergeable() -> None:
+        if pull.mergeable is None:
+            raise QewError(f"pr #{number} merge state unknown, retry in a moment", 2)
+        if not pull.mergeable:
+            raise QewError(f"pr #{number} has conflicts with {pull.base_branch}", 2)
+
+    def boxes() -> None:
+        unticked = [b for b in pr_checklist.boxes(pull.body) if not b.ticked]
+        if unticked:
+            raise QewError(f"pr #{number} has unticked checklist items: {'; '.join(b.address + ' ' + b.text for b in unticked)}", 2)
+
+    def checks() -> None:
+        if pull.checks not in ("passing", "none", "failing", "pending"):
+            raise QewError(f"pr #{number} checks are {pull.checks!r}, which is not a known state; refusing to guess", 4)
+        if pull.checks == "failing" and not options.admin:
+            raise QewError(f"pr #{number} checks are failing", 3)
+        if pull.checks == "pending" and not options.admin and not options.auto:
+            raise QewError(f"pr #{number} checks are pending (wait, or pass --auto where the base branch requires checks)", 3)
+
+    return [
+        lambda: refuse_held(loaded, "merge"),
+        lambda: refuse_finished(number, pull, "merge"),
+        draft, mergeable, boxes,
+        lambda: pr_gate.refuse_open_children(loaded.snapshot, loaded.record, loaded.states),
+        lambda: pr_gate.refuse_missing_evidence(config, loaded.snapshot, loaded.record, loaded.states, pull.head_sha),
+        checks,
+    ]
+
+
+def merge_check(
+    config: Config, number: int, target: str | None, options: MergeOptions = MergeOptions(), build: Build | None = None,
+) -> list[QewError]:
+    """Every refusal `pr merge` would raise for these options, without merging or writing anything; empty when it would go ahead."""
+    pr_record.positive_number(number)
+    reason = _merge_options(options)
+    try:
+        loaded = load(config, number, target, build, reason if options.other_author else "", merging=True)
+        with forge_errors(loaded.record.target):
+            pull = loaded.forge.read_pull_request(number)
+    except QewError as error:
+        return [error]
+    found: list[QewError] = []
+    for gate in _merge_gates(config, loaded, pull, options):
+        try:
+            gate()
+        except QewError as error:
+            found.append(error)
+    return found
+
+
 def merge_pull_request(
     config: Config, number: int, target: str | None, options: MergeOptions = MergeOptions(),
     build: Build | None = None, sleep: Callable[[float], None] | None = None,
@@ -779,28 +856,11 @@ def merge_pull_request(
     reason = _merge_options(options)
     loaded = load(config, number, target, build, reason if options.other_author else "", merging=True)
     forge, slug = loaded.forge, loaded.record.target
-    refuse_held(loaded, "merge")
     with forge_errors(slug):
         pull = forge.read_pull_request(number)
-    refuse_finished(number, pull, "merge")
-    if pull.draft:
-        raise QewError(f"pr #{number} is a draft; run `qew pr ready {number}`", 2)
-    if pull.mergeable is None:
-        raise QewError(f"pr #{number} merge state unknown, retry in a moment", 2)
-    if not pull.mergeable:
-        raise QewError(f"pr #{number} has conflicts with {pull.base_branch}", 2)
-    unticked = [b for b in pr_checklist.boxes(pull.body) if not b.ticked]
-    if unticked:
-        raise QewError(f"pr #{number} has unticked checklist items: {'; '.join(b.address + ' ' + b.text for b in unticked)}", 2)
-    pr_gate.refuse_open_children(loaded.snapshot, loaded.record, loaded.states)
-    pr_gate.refuse_missing_evidence(config, loaded.snapshot, loaded.record, loaded.states, pull.head_sha)
-    if pull.checks not in ("passing", "none", "failing", "pending"):
-        raise QewError(f"pr #{number} checks are {pull.checks!r}, which is not a known state; refusing to guess", 4)
-    if pull.checks == "failing" and not options.admin:
-        raise QewError(f"pr #{number} checks are failing", 3)
+    for gate in _merge_gates(config, loaded, pull, options):
+        gate()
     waiting = pull.checks == "pending" and not options.admin
-    if waiting and not options.auto:
-        raise QewError(f"pr #{number} checks are pending (wait, or pass --auto where the base branch requires checks)", 3)
     covered = tuple(loaded.record.items)
     lead = [loaded.note] if loaded.note else []
     if waiting:

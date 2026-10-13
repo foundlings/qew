@@ -69,6 +69,8 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
         return "view"
     if command == "forge":
         return "migrate"
+    if command == "pr" and arguments.pr_command == "merge" and arguments.check:
+        return None  # a check writes nothing
     if command == "pr" and arguments.pr_command in ("open", "ready", "close", "merge"):
         return f"pr-{arguments.pr_command}"
     if command == "item" and arguments.item_command in ("attach", "detach", "rename", "assign", "unassign") and not getattr(arguments, "dry_run", False):
