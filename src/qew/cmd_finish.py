@@ -332,7 +332,7 @@ def complete(config: Config, reference: str, reason: str | None = None, take_ove
     if provisional is not None:
         data["provisional_claim"] = provisional  # sync settles the claim; the completion stands whatever the arbiter says
     ledger.append_event(item_id, "completed", **data)
-    released = sorted(set(ledger_graph.ready(ledger.snapshot())) - set(ledger_graph.ready(snapshot)))
+    released = ledger_graph.released_by(snapshot, ledger.snapshot(), item_id)
     line = f"{item_id} completed" + (f"; ready: {' '.join(released[:RELEASED_SHOWN])}" if released else "")
     result: dict[str, object] = {"line": line, "id": item_id, "state": "completed", "released": released}
     result.update(_finish_parent(ledger, item_id))

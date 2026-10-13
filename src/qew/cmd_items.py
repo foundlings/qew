@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 from dataclasses import replace
@@ -68,6 +69,11 @@ def init(ledger: str | None) -> str:
 
     if ledger_repo.enable_untracked_cache(config.ledger_path):
         created.append("git config core.untrackedCache=true in the ledger")
+    from qew import fsmonitor
+
+    advice = fsmonitor.warning(config.ledger_path)
+    if advice:
+        print(f"qew: {advice}", file=sys.stderr)
     if not created:
         return "already initialized"
     return "\n".join([*(f"created {path}" for path in created), TRUST_GUIDANCE])

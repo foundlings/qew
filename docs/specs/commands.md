@@ -40,7 +40,12 @@ shape prime: additional_context context_bytes schema_version
 - `qew --version`: print `qew X.Y.Z` (the installed package version); needs no repository, ledger or network.
 - `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml` once, at the repository
   root (nearest `.git` or `.jj`; outside one, exit 2), atomically and never through a symlink (exit 2). Prints
-  `created PATH` lines plus the trust guidance; a rerun prints `already initialized` and changes nothing.
+  `created PATH` lines plus the trust guidance; a rerun prints `already initialized` and changes nothing. On a jj ledger without
+  watchman enabled it also warns on stderr (see `qew doctor`).
+- `qew doctor [--fix]`: check the environment. For a jj ledger it reports `ok: watchman is enabled`, or a `warning:` when watchman is not
+  installed (`brew install watchman`) or not enabled; jj stats every file of the working copy per snapshot and a ledger is one file per event, so watchman
+  cuts a 171,000-file ledger from about 2 s to 0.4 s per commit. `--fix` runs `jj config set --repo fsmonitor.backend watchman` for the ledger's
+  repository only (exit 4 when watchman is not installed, exit 2 on a git ledger). A git ledger prints `ok: git ledger, nothing to check`.
 - `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--git] [--skip-pre-tool] [--json]`: wire agents (none = all four; `--skip-pre-tool` needs `--claude` alone, exit 2 otherwise, and leaves PreToolUse as it is; output order claude, codex, cursor, opencode, git). `--git` installs the tracked `.githooks/pre-push` and sets `core.hooksPath`; it is never part of the default.
 - `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: remove exactly Qew's entries.
 - `qew hook session-start --agent NAME`, `qew hook pre-tool --agent NAME`, `qew hook post-tool --agent NAME`:
@@ -325,6 +330,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew reopen ITEM --reason TEXT [--json]`, or `qew reopen --manifest FILE [--dry-run]`: completed or closed work returns to approved with the reason recorded. The manifest is JSON Lines of `{item, reason}`: every row is checked first (an unknown or duplicate item, or finished work without a reason, refuses all), the `reopened` events land in one commit, and an item that is already open is `unchanged`, so a rerun adds nothing;
   an item that is already open prints `unchanged ITEM (already open)`, exit 0, and writes nothing.
 
+- `qew batch --manifest FILE [--dry-run]`: many mutations in one write session, so one lock, one fetch, one full ledger read, one commit and one push however many rows. The manifest is JSON Lines of `{op, item, ...}`; the ops and their fields are `start` (lane, workspace, kind, offline), `evidence` (change_ids, on_behalf_of), `complete` (reason, absent, no_commit, landed_on, take_over), `close` (reason, of, by, note, delivered_by, landed_on), `reopen` (reason), `comment` (text, key) and `set` (title, parent, priority, kind, add_label, remove_label, body, closed, reason), each as the single command's option of that name. Every row is parsed and its item resolved before anything is written (bad JSON, an unknown op or field, a wrong type or an unknown item refuses the file, naming the line); the rows then run in file order through the single commands' own checks, so a row sees what the row before it did (`start`, `evidence`, `complete` of one item can follow each other). One failing row undoes the whole file (exit as that command would, message `line N: OP ITEM: ...`). Claims made by one file stand or fall together at the ledger remote, as for an epic start. `--dry-run` runs every row and undoes it. Rows cannot create items. Prints `applied N rows`;
 - `qew block ITEM --on BLOCKER [--closed] [--json]`, `qew unblock ITEM --from BLOCKER [--closed] [--json]`: add or
   remove one need, validated like `set` (cycle, self edge), a no-op (`unchanged`, no event) when the edge already
   is or is not there, one `field` audit event otherwise, read back after the write (mismatch is exit 3).

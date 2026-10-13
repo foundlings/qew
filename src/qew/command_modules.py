@@ -14,5 +14,5 @@ COMMAND_MODULE: dict[str, str] = {
     "ready": "cmd_read", "reject": "cmd_divergence", "release": "cmd_claim", "reopen": "cmd_finish", "repair-closes": "cmd_repair", "repair-evidence": "cmd_repair",
     "resolve": "cmd_conflicts", "restore": "cmd_forgeio", "search": "cmd_search", "show": "cmd_read", "start": "cmd_claim",
     "status": "cmd_status", "sync": "cmd_sync", "triage": "cmd_triage", "unblock": "cmd_block", "unlock": "cmd_unlock",
-    "block": "cmd_block",
+    "block": "cmd_block", "batch": "cmd_batch", "doctor": "cmd_doctor",
 }

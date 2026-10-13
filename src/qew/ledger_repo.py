@@ -12,7 +12,7 @@ import time
 from contextlib import AbstractContextManager
 from collections.abc import Sequence
 
-from qew import filelock, trace
+from qew import filelock, snapshot_reuse, trace
 from qew import ledger_lineage
 from qew.errors import QewError
 
@@ -292,7 +292,13 @@ class LedgerRepo:
     def has_remote(self) -> bool:
         if self.vcs is None:
             return False
-        return bool(self.run(["git", "remote"], check=False).stdout.strip())
+        held = snapshot_reuse.held()  # inside a batch the remote does not change between rows: ask git once
+        if held is not None and (self.path, "remote") in held:
+            return bool(held[(self.path, "remote")][0])
+        found = bool(self.run(["git", "remote"], check=False).stdout.strip())
+        if held is not None:
+            held[(self.path, "remote")] = (found, 0)
+        return found
 
     # -- writing
     def commit(self, paths: Sequence[str], message: str, sweep: bool = True) -> None:

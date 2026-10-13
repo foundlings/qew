@@ -45,6 +45,7 @@ Work
   qew block       make an item wait for another
   qew unblock     stop an item waiting for another
   qew reopen      reopen completed or closed work (one item, or --manifest)
+  qew batch       many start, evidence, complete, close, reopen, set and comment rows in one commit
   qew correct-author credit items to their human author, the tool kept as via
 Drafts (only a human's quoted words release work)
   qew draft       list | approve | revert
@@ -69,6 +70,7 @@ Mirrors
   qew unlock      remove a stale repository lock a crashed git left, with a human's quoted approval
 Setup
   qew init        create the config and the ledger
+  qew doctor      check the environment: watchman for a jj ledger (--fix enables it)
   qew ledger      fork the ledger into a new identity
   qew migrate-ids rewrite letter, counter and imported ids to base35-time ids (old ids stay as aliases)
   qew migrate-layout move an older ledger to the latest layout: each item file into its own directory
@@ -86,7 +88,7 @@ _MODULES: tuple[str, ...] = ("cmd_read", "cmd_comment", "cmd_triage", "cmd_searc
 _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
-_MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
+_MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish", "cmd_batch", "cmd_doctor")
 _MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author")
 
 

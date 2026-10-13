@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 from collections.abc import Callable, Iterable, Mapping
 
-from qew import attachments, evidence_header, ledger_aliases, snapshot_cache
+from qew import attachments, evidence_header, ledger_aliases, snapshot_cache, snapshot_reuse, trace
 from qew.errors import QewError
 from qew.mirror_types import MirrorRecord
 from qew.ledger_aliases import ITEM_FILE
@@ -258,6 +258,45 @@ class Ledger:
         return Files(ids, texts, aliases, homes, rows, trusted)
 
     def snapshot(self, verify: bool = False) -> Snapshot:
+        held = snapshot_reuse.held()
+        if held is None or verify or JOURNAL is None:
+            return self._build(verify)
+        key = str(self.path)
+        earlier = held.get(key)
+        fresh = self._refreshed(cast(Snapshot, earlier[0]), JOURNAL[earlier[1]:]) if earlier is not None and earlier[1] <= len(JOURNAL) else None
+        built = fresh if fresh is not None else self._build(False)
+        held[key] = (built, len(JOURNAL))
+        return built
+
+    def _refreshed(self, earlier: Snapshot, entries: list[tuple[Path, str | None]]) -> Snapshot | None:
+        """`earlier` with the items the journal `entries` wrote read again; None when only a full build can be trusted."""
+        ids = snapshot_reuse.touched(self.path, entries)
+        if ids is None:
+            return None
+        if not ids:
+            return earlier
+        aliases = self.aliases()
+        items, folds, events = dict(earlier.items), dict(earlier.folds), dict(earlier.events)
+        for item_id in sorted(ids):
+            if item_id not in items or item_id in aliases.superseded or aliases.of(item_id):
+                return None
+            where = str(self.item_path(item_id))
+            text = self._raw_item(item_id)
+            if isinstance(text, snapshot_cache.Unreadable):
+                return None
+            raw = parse_item(clean_item_text(text, where), where)
+            if raw.id != item_id:
+                return None
+            events[item_id] = self._events_of(item_id, [item_id], {item_id: self._event_rows(self.events_dir / item_id)})
+            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events[item_id])), aliases)
+            folds[item_id] = fold(events[item_id])
+        return Snapshot(self, items, folds, events)
+
+    def _build(self, verify: bool) -> Snapshot:
+        with trace.phase("ledger snapshot (full)"):
+            return self._assemble(verify)
+
+    def _assemble(self, verify: bool) -> Snapshot:
         files = self.read_files(verify)
         items: dict[str, Item] = {}
         folds: dict[str, Folded] = {}

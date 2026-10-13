@@ -23,7 +23,7 @@ being down never blocks reading, planning or finishing work.
 
 ## Install
 
-Python 3.15+ (macOS: `brew install python@3.15`) and nothing else at runtime: no third-party packages (the type checker is a developer tool). On Linux and macOS `sh scripts/install.sh` installs `qew` into `~/.local/bin`
+Python 3.15+ (macOS: `brew install python@3.15`) and nothing else at runtime: no third-party packages (the type checker is a developer tool). A jj ledger also wants `watchman` (`brew install watchman`; `qew doctor --fix` enables it): without it every commit stats every file. On Linux and macOS `sh scripts/install.sh` installs `qew` into `~/.local/bin`
 (details: `docs/specs/installation.md`).
 
 ## Quickstart
@@ -117,11 +117,11 @@ Run `qew --help` for the workflow groups and `qew COMMAND --help` for flags; the
 
 - Read: `qew show`, `qew list`, `qew ready`, `qew blocked`, `qew graph`, `qew plan status`, `qew check`, `qew export`, `qew inbox`
 - Board (offline kanban): `qew board`, `qew board columns`, `qew board list`, `qew board create`, `qew board set`
-- Work: `qew create`, `qew next-id`, `qew item` (group), `qew item attach`, `qew item detach`, `qew item extract`, `qew item rename`, `qew item assign`, `qew item unassign`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew correct-author` (credit imported items to their human author: reviewed events, the tool kept as `via`), `qew block`, `qew unblock`
+- Work: `qew create`, `qew next-id`, `qew item` (group), `qew item attach`, `qew item detach`, `qew item extract`, `qew item rename`, `qew item assign`, `qew item unassign`, `qew set`, `qew start`, `qew release`, `qew evidence`, `qew complete`, `qew close`, `qew reopen`, `qew batch` (many mixed rows under one lock, one snapshot and one commit), `qew correct-author` (credit imported items to their human author: reviewed events, the tool kept as `via`), `qew block`, `qew unblock`
 - Drafts: `qew draft` (group), `qew draft list`, `qew draft approve`, `qew draft revert`
 - Pull requests: `qew pr` (group), `qew pr open` (adopts an orphan pull request already open on its head; `--adopt-legacy N --reason` takes over a pre-qew one), `qew pr check`, `qew pr ready`, `qew pr label` (add and remove labels, others kept), `qew pr sync` (retitle an open pull request from its item), `qew pr close`, `qew pr merge` (deletes the merged head branch), `qew land` once one merged, and `qew branch` (group), `qew branch prune` (`--base`, `--dry-run`) to clear the backlog of merged branches
 - Mirrors: `qew sync`, `qew mirror` (group), `qew mirror add`, `qew mirror remove`, `qew mirror list`, `qew mirror rehome`, `qew forge` (group), `qew forge migrate`, `qew status`, `qew accept`, `qew reject`, `qew conflicts`, `qew resolve`, `qew unlock --stale`, `qew repair-closes`, `qew import` (a forge, or `qew import DIRECTORY` for an exported tree), `qew restore`, `qew project` (group), `qew project ensure`, `qew project status`, `qew project prune`
-- Setup: `qew --version`, `qew init`, `qew ledger` (group), `qew ledger fork`, `qew hook install` (`--skip-pre-tool` with `--claude`), `qew hook remove`
+- Setup: `qew --version`, `qew init`, `qew doctor` (watchman check for a jj ledger, `--fix`), `qew ledger` (group), `qew ledger fork`, `qew hook install` (`--skip-pre-tool` with `--claude`), `qew hook remove`
 
 Hook events agents call: `qew hook` (group), `qew hook session-start`, `qew hook pre-tool`, `qew hook post-tool` (each with `--agent`), `qew hook vcs-check`.
 
