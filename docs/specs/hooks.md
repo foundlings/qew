@@ -90,7 +90,8 @@ can no longer take evidence). Evidence matches the commit id or the jj change id
   and unsets `core.hooksPath` when `.githooks` holds nothing else. A jj-only checkout has no git hooks (exit 2).
 - jj: there is no pre-push hook, so `--revisions REVSET` serves scripts, and the agent pre-tool guard checks
   `jj git push` (the mutable ancestors, not yet on any remote bookmark, of what `--bookmark`, `-r`, `--change`, `--all` or the working copy name) and
-  denies with the same message. If jj cannot answer, the guard stays silent.
+  denies with the same message. The check is read-only and bounded: `jj --ignore-working-copy` (no snapshot, no jj working-copy lock), no
+  ledger lock, 5 seconds. If jj does not answer in time the push is allowed and the hook says it could not decide.
 - `--message-file FILE` prints `known ID` or `unknown ID` per cited id and exits 2 when any is unknown.
 
 # Superseded design (v0)

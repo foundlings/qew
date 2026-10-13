@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
@@ -50,6 +51,46 @@ class PreToolFastPathWalk(unittest.TestCase):
         """Prevents a new guarded binary being added to hook_guard without the fast path learning it (it would be silently allowed)."""
         known = set(hook_guard._CLI_RULES) | set(hook_guard._HTTPIE) | {"curl", "wget", "push"}
         self.assertEqual([name for name in sorted(known) if hook_words.inert(name)], [])
+
+
+class PushDecisionWalk(unittest.TestCase):
+    def setUp(self) -> None:
+        self.w = World()
+        self.addCleanup(self.w.close)
+        self.bin = self.w.base / "fakebin"
+        self.bin.mkdir()
+
+    def fake_jj(self, body: str) -> dict[str, str]:
+        script = self.bin / "jj"
+        script.write_text("#!/bin/sh\n" + body)
+        script.chmod(0o755)
+        return {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"}
+
+    def decide(self, env: dict[str, str]) -> subprocess.CompletedProcess:
+        payload = json.dumps({"tool_name": "Bash", "cwd": str(self.w.code), "tool_input": {"command": "jj git push --bookmark x"}})
+        return subprocess.run([sys.executable, "-m", "qew.entry", "hook", "pre-tool", "--agent", "claude"], input=payload, cwd=self.w.code,
+                              capture_output=True, text=True, check=False, timeout=60,
+                              env={**os.environ, **env, "PYTHONPATH": str(PROJECT_ROOT / "src"), "QEW_ACTOR": "tester"})
+
+    def test_the_push_decision_never_snapshots_the_working_copy(self) -> None:
+        """Prevents the decision taking jj's working-copy lock (and scanning every file) behind other agents' jj commands."""
+        record = self.w.base / "argv"
+        env = self.fake_jj(f'echo "$@" >> "{record}"\nexit 0\n')
+        result = self.decide(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [line for line in record.read_text().splitlines() if " log " in line]  # the template spans lines
+        self.assertTrue(calls)
+        self.assertTrue(all(call.startswith("--ignore-working-copy ") for call in calls), calls)
+
+    def test_a_jj_that_hangs_ends_the_decision_within_the_bound_and_says_so(self) -> None:
+        """Prevents a stuck jj holding the hook past the caller's cap, which fails the push closed with no reason."""
+        env = self.fake_jj("exec sleep 120\n")
+        started = time.monotonic()
+        result = self.decide(env)
+        self.assertLess(time.monotonic() - started, 20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("could not decide", result.stdout)
+        self.assertNotIn('"deny"', result.stdout)
 
 
 class SkipPreToolWalk(unittest.TestCase):

@@ -140,6 +140,8 @@ def _vcs_check(arguments: argparse.Namespace) -> bool:
     return True
 
 
+_PUSH_CHECK_SECONDS = 5.0  # under the callers' own cap (foundlings: 10 s), so a stuck jj yields a reason, not a timeout
+
 # -- hook events
 
 def _answer(event: str, agent: str, raw: str) -> tuple[str, int]:
@@ -168,8 +170,10 @@ def _payload(raw: str) -> tuple[str | None, Path | None]:
 
 def _pre_tool(agent: str, command: str | None, cwd: Path | None) -> tuple[str, int]:
     refusals = hook_guard.refusals(command) if command and ledger_config.find_root(cwd) else []
-    unevidenced = _unevidenced_jj_pushes(command, cwd) if command and not refusals else []
+    unevidenced, undecided = _unevidenced_jj_pushes(command, cwd) if command and not refusals else ([], [])
     if not refusals and not unevidenced:
+        if undecided:  # the check ran out of time: allow, and say so rather than answer nothing
+            return _render_context(agent, "PreToolUse", "\n".join(undecided)) or json.dumps({"permission": "allow"}), 0
         return (json.dumps({"permission": "allow"}) if agent == "cursor" else ""), 0
     reason = "\n".join([refusal.reason() for refusal in refusals] + unevidenced)
     if agent in ("claude", "codex"):
@@ -180,19 +184,24 @@ def _pre_tool(agent: str, command: str | None, cwd: Path | None) -> tuple[str, i
     return reason, _REFUSAL_EXIT
 
 
-def _unevidenced_jj_pushes(command: str, cwd: Path | None) -> list[str]:
-    """jj has no pre-push hook: refuse `jj git push` of changes that cite unevidenced items."""
+def _unevidenced_jj_pushes(command: str, cwd: Path | None) -> tuple[list[str], list[str]]:
+    """jj has no pre-push hook: refuse `jj git push` of changes that cite unevidenced items.
+
+    Read-only and bounded (`_PUSH_CHECK_SECONDS`, no working-copy snapshot, no ledger lock): returns (refusals, could-not-decide notes)."""
     revsets = hook_guard.jj_push_revsets(command)
     if not revsets or cwd is None or ledger_config.find_root(cwd) is None:
-        return []
+        return [], []
     config = ledger_config.load(cwd)
     snapshot = cmd_items.ledger_for(config).snapshot()
     reasons: list[str] = []
+    undecided: list[str] = []
     for revset in revsets:
-        problems = vcs_check.jj_push_problems(snapshot, config.root, revset)
+        problems = vcs_check.jj_push_problems(snapshot, config.root, revset, _PUSH_CHECK_SECONDS)
+        if problems is None:
+            undecided.append(f"qew could not decide whether `{revset}` cites unevidenced items (jj did not answer within {_PUSH_CHECK_SECONDS:g}s); the push is allowed unchecked.")
         for problem in problems or []:
             reasons.append(f"Blocked `jj git push`: {problem}.")
-    return reasons
+    return reasons, undecided
 
 
 def _render_context(agent: str, event: str, text: str | None) -> str:
