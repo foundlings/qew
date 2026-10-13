@@ -243,7 +243,12 @@ def release(config: Config, reference: str, reason: str, force: bool = False, la
             return {"line": f"{item_id} released (unchanged)", "id": item_id, "state": "released", "previous_owner": last.get("previous_owner", ""),
                     "released": [], "by": me, "lane": last.get("previous_lane") or None}
     if folded.state != State.CLAIMED:
-        raise QewError(f"cannot release {item_id}: it is not claimed", 2)
+        stale = claim_authority.stale_holder(config, ledger, item_id, snapshot) if force else None
+        if stale is None:
+            raise QewError(f"cannot release {item_id}: it is not claimed", 2)
+        claim_authority.release(config, ledger, item_id, snapshot)  # the primary holds a claim the ledger does not: the ledger has nothing to record
+        return {"line": f"{item_id} released: cleared {stale}'s claim on the primary (the ledger held none)", "id": item_id, "state": "released",
+                "previous_owner": stale, "released": [], "by": me, "lane": None}
     held_lane = _lane_of(folded)
     overrides = folded.owner != me or lane != held_lane  # a lane-scoped claim is released by naming its lane
     if overrides and not force:

@@ -18,6 +18,8 @@ from qew.ledger_repo import LedgerRepo
 from qew.ledger_store import Ledger, Snapshot
 
 _MARK = re.compile(r"<!-- qew:(claim|release) ([A-Za-z0-9._-]+)(?: (\S+) (\S+))? -->")
+DRY_RUN = False  # a dry run reads the primary and never writes it
+POSTED: list[str] = []  # items whose won claim this command put on the primary: withdrawn if the command's ledger writes are undone
 PENDING: list[tuple[str, str]] = []  # (item id, claimed event id) awaiting the ledger remote's verdict; one command may claim several
 
 
@@ -143,6 +145,15 @@ def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, 
         if allowed:  # no issue there yet, or the forge cannot be built: work on, sync settles it
             return _provisional(ledger, item_id, owner, lane)
         raise
+    if DRY_RUN:
+        try:
+            held = holder(forge.list_comments(number), item_id)
+        except ForgeError as error:
+            raise QewError(f"cannot check {item_id} on the primary forge ({error.detail})", 3) from None
+        if held is not None:
+            raise QewError(f"cannot claim {item_id}: already claimed by {held[0]} on the primary", 2)
+        _confirmed(ledger, item_id, owner, lane)
+        return Claimed.CONFIRMED
     nonce = secrets.token_hex(4)
     try:
         forge.create_comment(number, claim_comment(item_id, owner, nonce))
@@ -155,8 +166,33 @@ def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, 
     if winner is None or winner[1] != nonce:
         who = winner[0] if winner else "someone else"
         raise QewError(f"cannot claim {item_id}: already claimed by {who} on the primary", 2)
+    POSTED.append(item_id)
     _confirmed(ledger, item_id, owner, lane)
     return Claimed.CONFIRMED
+
+
+def stale_holder(config: Config, ledger: Ledger, item_id: str, snapshot: Snapshot | None = None) -> str | None:
+    """Who holds the item on the primary forge, or None (also without a primary). The ledger is not consulted."""
+    if config.authority == "none":
+        return None
+    forge, number = _primary_forge(config, ledger, item_id, snapshot)
+    try:
+        held = holder(forge.list_comments(number), item_id)
+    except ForgeError as error:
+        raise QewError(f"cannot read {item_id} on the primary forge ({error.detail})", 3) from None
+    return held[0] if held else None
+
+
+def withdraw_posted(config: Config, ledger: Ledger) -> list[str]:
+    """Release the claims this command won on the primary because its ledger writes are being undone; the items it could not."""
+    failed: list[str] = []
+    for item_id in list(POSTED):
+        try:
+            release(config, ledger, item_id)
+        except QewError:
+            failed.append(item_id)
+    POSTED.clear()
+    return failed
 
 
 def release(config: Config, ledger: Ledger, item_id: str, snapshot: Snapshot | None = None) -> None:
