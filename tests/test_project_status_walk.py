@@ -53,6 +53,17 @@ class ProjectStatusWalk(unittest.TestCase):
         self.assertIn("qew sync", row["fix"])
         self.assertEqual(self.forge.count("place") + self.forge.count("remove"), writes)
 
+    def test_status_reports_a_card_of_the_boards_own_repository_that_no_item_mirrors(self) -> None:
+        """Prevents 'in sync' while a closed stray issue's card sits in In progress: a card no ledger item owns is drift."""
+        self.synced(1)
+        self.forge.columns[99] = "In progress"
+        text, code = status(self.config, None, True, self.build)
+        row = json.loads(text)
+        self.assertEqual((code, row["orphan"], row["in_sync"]), (1, [99], False))
+        self.assertIn("prune --orphans", row["fix"])
+        plain, _ = status(self.config, None, False, self.build)
+        self.assertIn("orphan #99", plain)
+
     def test_status_reports_in_sync_in_one_line(self) -> None:
         """Nothing drifted: one line, exit 0."""
         self.synced()
