@@ -40,7 +40,12 @@ shape prime: additional_context context_bytes schema_version
 - `qew --version`: print `qew X.Y.Z` (the installed package version); needs no repository, ledger or network.
 - `qew init [--ledger PATH]`: write `.qew/config.toml` and the ledger's `qew-ledger.toml` once, at the repository
   root (nearest `.git` or `.jj`; outside one, exit 2), atomically and never through a symlink (exit 2). Prints
-  `created PATH` lines plus the trust guidance; a rerun prints `already initialized` and changes nothing.
+  `created PATH` lines plus the trust guidance; a rerun prints `already initialized` and changes nothing. On a jj ledger without
+  watchman enabled it also warns on stderr (see `qew doctor`).
+- `qew doctor [--fix]`: check the environment. For a jj ledger it reports `ok: watchman is enabled`, or a `warning:` when watchman is not
+  installed (`brew install watchman`) or not enabled; jj stats every file of the working copy per snapshot and a ledger is one file per event, so watchman
+  cuts a 171,000-file ledger from about 2 s to 0.4 s per commit. `--fix` runs `jj config set --repo fsmonitor.backend watchman` for the ledger's
+  repository only (exit 4 when watchman is not installed, exit 2 on a git ledger). A git ledger prints `ok: git ledger, nothing to check`.
 - `qew hook install [--claude] [--codex] [--cursor] [--opencode] [--git] [--skip-pre-tool] [--json]`: wire agents (none = all four; `--skip-pre-tool` needs `--claude` alone, exit 2 otherwise, and leaves PreToolUse as it is; output order claude, codex, cursor, opencode, git). `--git` installs the tracked `.githooks/pre-push` and sets `core.hooksPath`; it is never part of the default.
 - `qew hook remove [--claude] [--codex] [--cursor] [--opencode] [--git] [--json]`: remove exactly Qew's entries.
 - `qew hook session-start --agent NAME`, `qew hook pre-tool --agent NAME`, `qew hook post-tool --agent NAME`:

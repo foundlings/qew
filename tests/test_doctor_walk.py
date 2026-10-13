@@ -34,7 +34,7 @@ def fake_watchman(base: Path) -> None:
 
 def configured(ledger: Path) -> str:
     result = subprocess.run(["jj", "--ignore-working-copy", "config", "get", "fsmonitor.backend"], cwd=ledger, capture_output=True, text=True, check=False)
-    return result.stdout.strip() if result.returncode == 0 else ""
+    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() != "none" else ""  # jj's default is `none`
 
 
 class DoctorWalk(unittest.TestCase):
