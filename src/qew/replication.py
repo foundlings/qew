@@ -29,6 +29,13 @@ KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land
 
 
 _AFTER_SETTLE: list[Callable[[], None]] = []
+_DISCARD = False
+
+
+def discard_writes() -> None:
+    """A dry run: the session undoes what the command wrote instead of committing it."""
+    global _DISCARD
+    _DISCARD = True
 
 
 def after_settle(callback: Callable[[], None]) -> None:
@@ -58,6 +65,8 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
         return "pr-check"  # these record a comment on the covered items; ticking and listing write only the forge
     if command == "land":
         return "land"
+    if command == "batch":
+        return "batch"
     if command == "mirror" and arguments.mirror_command == "rehome":
         return "rehome"
     if command == "correct-author" and not arguments.dry_run:
@@ -163,6 +172,9 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
             raise
         entries = ledger_store.journal_take()
         pending = claim_authority.take_pending()
+        if _DISCARD:
+            ledger_store.journal_rollback(entries)
+            return
         if committing and entries:
             _commit(repo, config, verb, entries, rollback_on_failure=True)
         if replicating and pending:
@@ -186,16 +198,18 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
         _after_write(config, touched)
 
 
-def _write_claim_event(config: Config, repo: LedgerRepo, ledger_path: Path | None, item_id: str, event_type: str, **data: Any) -> None:
+def _write_claim_events(config: Config, repo: LedgerRepo, events: list[tuple[str, str, dict[str, Any]]]) -> None:
+    """Record (item id, event type, data) claim events as one commit and one push, however many claims the command made."""
     from qew.ledger_store import open_ledger
 
     ledger = open_ledger(config.ledger_path, config.prefix)
     ledger_store.journal_start()
     try:
-        ledger.append_event(item_id, event_type, **data)
+        for item_id, event_type, data in events:
+            ledger.append_event(item_id, event_type, **data)
     finally:
         entries = ledger_store.journal_take()
-    _commit(repo, config, event_type.replace("_", "-"), entries, rollback_on_failure=True)
+    _commit(repo, config, events[0][1].replace("_", "-"), entries, rollback_on_failure=True)
     repo.push(config.replication.timeout_s)
 
 
@@ -212,15 +226,13 @@ def _settle_claim(config: Config, repo: LedgerRepo, pending: list[tuple[str, str
     ledger = open_ledger(config.ledger_path, config.prefix)
 
     def lose(winner: str) -> None:
-        for item_id, claim_id in pending:
-            _write_claim_event(config, repo, None, item_id, "claim_lost", ref=claim_id, winner=winner)
+        _write_claim_events(config, repo, [(item_id, "claim_lost", {"ref": claim_id, "winner": winner}) for item_id, claim_id in pending])
 
     for _ in range(3):
         outcome = repo.push_strict(rep.timeout_s)
         _note(config, "ok" if outcome == "ok" else "offline" if outcome == "offline" else "ok", repo.last_failure)
         if outcome == "ok":
-            for item_id, claim_id in pending:
-                _write_claim_event(config, repo, None, item_id, "claim_confirmed", ref=claim_id)
+            _write_claim_events(config, repo, [(item_id, "claim_confirmed", {"ref": claim_id}) for item_id, claim_id in pending])
             return
         if outcome == "offline":
             lose("(authority unreachable)")

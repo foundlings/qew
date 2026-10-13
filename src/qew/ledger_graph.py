@@ -84,21 +84,30 @@ def chain_depths(snapshot: Snapshot, roots: list[str]) -> dict[str, int]:
     return depth
 
 
+def is_ready(snapshot: Snapshot, item_id: str) -> bool:
+    """Whether `ready` lists the item: approved, unclaimed, not an epic, no human gate, every need completed."""
+    item = snapshot.items[item_id]
+    return (
+        item.kind != Kind.EPIC
+        and APPROVAL_LABEL not in item.labels
+        and GATED_LABEL not in item.labels
+        and state_of(snapshot, item_id) == State.APPROVED
+        and not blockers(snapshot, item_id)
+    )
+
+
+def released_by(before: Snapshot, after: Snapshot, item_id: str) -> list[str]:
+    """The items that became ready when `item_id` finished: only work that needs it can, so only its dependents are looked at."""
+    return sorted(i for i in blocks(after).get(item_id, []) if i in before.items and is_ready(after, i) and not is_ready(before, i))
+
+
 def ready(snapshot: Snapshot) -> list[str]:
     """Approved, unclaimed, not an epic, not awaiting a human gate, every need completed.
 
     Within a priority: the longest chain of unfinished work it unblocks first, then the most direct
     dependents, then id, so work that frees others is never starved by leaf work.
     """
-    found = [
-        item_id
-        for item_id, item in snapshot.items.items()
-        if item.kind != Kind.EPIC
-        and APPROVAL_LABEL not in item.labels
-        and GATED_LABEL not in item.labels
-        and state_of(snapshot, item_id) == State.APPROVED
-        and not blockers(snapshot, item_id)
-    ]
+    found = [item_id for item_id in snapshot.items if is_ready(snapshot, item_id)]
     depth = chain_depths(snapshot, found)
     direct = _open_dependents(snapshot)
     return sorted(

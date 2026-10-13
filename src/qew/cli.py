@@ -45,6 +45,7 @@ Work
   qew block       make an item wait for another
   qew unblock     stop an item waiting for another
   qew reopen      reopen completed or closed work (one item, or --manifest)
+  qew batch       many start, evidence, complete, close, reopen, set and comment rows in one commit
   qew correct-author credit items to their human author, the tool kept as via
 Drafts (only a human's quoted words release work)
   qew draft       list | approve | revert
@@ -86,7 +87,7 @@ _MODULES: tuple[str, ...] = ("cmd_read", "cmd_comment", "cmd_triage", "cmd_searc
 _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
-_MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish")
+_MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish", "cmd_batch")
 _MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author")
 
 

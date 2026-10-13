@@ -108,15 +108,74 @@ class BatchWalk(unittest.TestCase):
         self.assertEqual([self.shown(item)["state"] for item in (self.a, self.b, self.c)], ["closed", "closed", "approved"])
 
     def test_a_row_naming_the_same_item_twice_sees_the_first_rows_result(self) -> None:
-        """Prevents stale reuse: a comment key posted twice in one file is the same comment, and close then close is refused by line."""
+        """Prevents stale reuse: a comment key posted twice in one file is the same comment, and a row after a close sees the item closed."""
         self.manifest({"op": "comment", "item": self.a, "text": "once", "key": "k"}, {"op": "comment", "item": self.a, "text": "once", "key": "k"})
         self.assertEqual(self.w.run("batch", "--manifest", str(self.path)).returncode, 0)
         self.assertEqual(json.dumps(self.shown(self.a)).count("once"), 1)
-        self.manifest({"op": "close", "item": self.b, "reason": "not_planned"}, {"op": "close", "item": self.b, "reason": "not_planned"})
+        self.manifest({"op": "close", "item": self.b, "reason": "not_planned"}, {"op": "complete", "item": self.b, "reason": "too late"})
         result = self.w.run("batch", "--manifest", str(self.path))
         self.assertEqual(result.returncode, 2)
         self.assertIn("line 2", result.stderr)
         self.assertEqual(self.shown(self.b)["state"], "approved")
+
+
+class ReleasedWalk(unittest.TestCase):
+    def test_complete_names_only_the_work_it_just_made_ready(self) -> None:
+        """Prevents the ready list after a completion naming work that was ready already, or work that still has another need."""
+        w = World(ledger_vcs="git")
+        self.addCleanup(w.close)
+        base, other, free = (w.create("--title", name, "--quote", QUOTE) for name in ("base", "other", "free"))
+        freed = w.create("--title", "freed", "--needs", base, "--quote", QUOTE)
+        held = w.create("--title", "held", "--needs", base, "--needs", other, "--quote", QUOTE)
+        w.run("start", base)
+        result = w.run("complete", base, "--absent", "historical", "--reason", "shipped earlier")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"ready: {freed}", result.stdout)
+        for name in (held, free, other):
+            self.assertNotIn(name, result.stdout)
+
+
+class BatchClaimsWalk(unittest.TestCase):
+    def test_claims_of_one_file_are_confirmed_in_one_commit_and_one_push(self) -> None:
+        """Prevents a commit and a push per claim after the batch: with a ledger remote, N starts confirm together."""
+        w = World(ledger_vcs="git", remote=True)
+        self.addCleanup(w.close)
+        items = [w.create("--title", name, "--quote", QUOTE) for name in "AB"]
+        path = w.base / "claims.jsonl"
+        path.write_text("\n".join(json.dumps({"op": "start", "item": item}) for item in items) + "\n", encoding="utf-8")
+        result = w.run("batch", "--manifest", str(path))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        subjects = w.ledger_log()
+        self.assertEqual([s for s in subjects if "claim-confirmed" in s], [f"qew: claim-confirmed 2 items by {subjects[0].rsplit(' ', 1)[-1]}"])
+        self.assertEqual([json.loads(w.run("show", item, "--json").stdout)["state"] for item in items], ["claimed", "claimed"])
+        self.assertEqual(w.ledger_dirty(), [])
+
+
+class ReusedSnapshotWalk(unittest.TestCase):
+    def test_a_reused_snapshot_equals_a_fresh_build_after_writes(self) -> None:
+        """Prevents the reuse drifting from the truth: after events and an item rewrite the refreshed snapshot is the full build."""
+        from qew import ledger_store, snapshot_reuse
+
+        w = World(ledger_vcs="git")
+        self.addCleanup(w.close)
+        one, two = w.create("--title", "One", "--quote", QUOTE), w.create("--title", "Two", "--quote", QUOTE)
+        ledger = ledger_store.open_ledger(w.ledger, "TST")
+        os.environ["QEW_ACTOR"] = "tester"
+        self.addCleanup(os.environ.pop, "QEW_ACTOR", None)
+        with snapshot_reuse.reusing():
+            ledger_store.journal_start()
+            try:
+                ledger.snapshot()
+                ledger.append_event(one, "claimed", owner="tester")
+                ledger.append_event(one, "commented", text="hi", author="tester")
+                ledger.append_event(two, "closed", reason="not_planned")
+                reused = ledger.snapshot()
+                self.assertIs(ledger.snapshot(), reused)
+                fresh = ledger._build(False)
+                self.assertEqual((reused.items, reused.folds, reused.events), (fresh.items, fresh.folds, fresh.events))
+                self.assertEqual(reused.folds[one].state.value, "claimed")
+            finally:
+                ledger_store.journal_rollback(ledger_store.journal_take())
 
 
 if __name__ == "__main__":

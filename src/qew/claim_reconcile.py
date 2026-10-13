@@ -47,21 +47,26 @@ def settled_refs(events: list[Event]) -> set[Any]:
     return {e.get("ref") for e in events if e.type in ("claim_confirmed", "claim_lost")}
 
 
+def _provisional_in(snapshot: Snapshot, item_id: str) -> list[Event]:
+    """The provisional claims of one item still waiting for the arbiter."""
+    events = snapshot.events[item_id]
+    done = settled_refs(events)
+    completed_under = {e.get("provisional_claim") for e in events if e.type == "completed"}
+    folded = snapshot.folds[item_id]
+    contested = {claim_id for claim_id, _ in folded.lost_claims}  # a rival's claim already sorts before it
+    found = []
+    for event in events:
+        if event.type != "claimed" or not event.get("provisional") or event.id in done:
+            continue
+        holds = folded.state == State.CLAIMED and folded.owner == event.get("owner")
+        if holds or event.id in completed_under or event.id in contested:
+            found.append(event)
+    return found
+
+
 def provisional_claims(snapshot: Snapshot) -> list[tuple[str, Event]]:
     """(item id, claimed event) of every provisional claim still waiting for the arbiter."""
-    found = []
-    for item_id, events in snapshot.events.items():
-        done = settled_refs(events)
-        completed_under = {e.get("provisional_claim") for e in events if e.type == "completed"}
-        folded = snapshot.folds[item_id]
-        contested = {claim_id for claim_id, _ in folded.lost_claims}  # a rival's claim already sorts before it
-        for event in events:
-            if event.type != "claimed" or not event.get("provisional") or event.id in done:
-                continue
-            holds = folded.state == State.CLAIMED and folded.owner == event.get("owner")
-            if holds or event.id in completed_under or event.id in contested:
-                found.append((item_id, event))
-    return found
+    return [(item_id, event) for item_id in snapshot.events for event in _provisional_in(snapshot, item_id)]
 
 
 def lost_provisional_claims(snapshot: Snapshot) -> list[tuple[str, Any]]:
@@ -81,8 +86,8 @@ def lost_provisional_claims(snapshot: Snapshot) -> list[tuple[str, Any]]:
 
 def provisional_claim_of(snapshot: Snapshot, item_id: str, owner: str) -> str | None:
     """Id of the unsettled provisional claim `owner` holds on the item, or None."""
-    for found_id, event in provisional_claims(snapshot):
-        if found_id == item_id and event.get("owner") == owner:
+    for event in _provisional_in(snapshot, item_id):
+        if event.get("owner") == owner:
             return event.id
     return None
 

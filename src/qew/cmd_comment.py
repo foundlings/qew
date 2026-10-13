@@ -56,7 +56,19 @@ def run(arguments: argparse.Namespace) -> bool:
         ledger.append_event(item_id, "comment_edited", ref=target.id, text=text, **changed)
         print(f"edited comment {target.id} on {item_id}")
         return True
-    key = arguments.key
+    event_id, unchanged = post(ledger, item_id, text, arguments.key, arguments.reply_to)
+    if unchanged:
+        print(f"commented on {item_id} as {event_id} (unchanged)")
+        return True
+    for line in code_text.warnings(text):
+        print(line, file=sys.stderr)
+    print(f"commented on {item_id} as {event_id}")
+    return True
+
+
+def post(ledger: Ledger, item_id: str, text: str, key: str | None = None, reply_to: str | None = None) -> tuple[str, bool]:
+    """Append one comment by the acting login: (event id, unchanged). The same key with the same text posts nothing new."""
+    extra: dict[str, Any] = {}
     if key is not None:
         if not key.strip() or any(c.isspace() for c in key) or key.startswith("@"):
             raise QewError("--key must be one word without a leading @", 2)
@@ -64,18 +76,11 @@ def run(arguments: argparse.Namespace) -> bool:
         if earlier:
             if earlier[0].get("text") != text:
                 raise QewError(f"key `{key}` already posted a different comment on {item_id}; use another key", 2)
-            print(f"commented on {item_id} as {earlier[0].id} (unchanged)")
-            return True
-    extra: dict[str, Any] = {}
-    if key is not None:
+            return earlier[0].id, True
         extra["key"] = key
-    if arguments.reply_to:
-        extra["reply_to"] = comments.find(comments.comments_after(ledger.load_events(item_id)), arguments.reply_to).id
-    event = ledger.append_event(item_id, "commented", text=text, author=actor(), **extra)
-    for line in code_text.warnings(text):
-        print(line, file=sys.stderr)
-    print(f"commented on {item_id} as {event.id}")
-    return True
+    if reply_to:
+        extra["reply_to"] = comments.find(comments.comments_after(ledger.load_events(item_id)), reply_to).id
+    return ledger.append_event(item_id, "commented", text=text, author=actor(), **extra).id, False
 
 
 def _manifest(ledger: Ledger, manifest: Path, dry_run: bool) -> str:
