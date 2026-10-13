@@ -177,7 +177,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew set ITEM... [--title T] [--parent ID] [--needs ID...] [--tracks ID] [--pr ID] [--labels L...] [--field NAME=VALUE]... [--clear-field NAME]... [--priority N] [--due YYYY-MM-DD]
   [--body TEXT | --edit] [--body-file F|-] [--kind K] [--add-label L] [--remove-label L] [--reason TEXT] [--closed] [--json]`: edits the header; adding the label `gated` (work blocked outside the repository: keys, credentials, hardware, an account) needs `--reason TEXT`, kept as a comment `gated: TEXT`, and moves the item to the Gated column, out of `qew ready`; each change appends a `field` audit event. The whole result is validated
   against the graph before the first write (exit 2, nothing changed): no self edge, unknown or duplicate
-  need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic);
+  need, `needs` cycle (named), or nesting other than epic > issue > task (a task may also sit under an epic, and an epic under an epic), a parent cycle;
   a kind or parent change must keep existing children valid. Completed or closed work is edited only with
   `--closed`. Several items may share parent, needs, labels or priority; `--title` and `--body` take one item.
   `--field NAME=VALUE` (repeatable) sets a field to those values, replacing it (a repeated NAME is one field with several values), `--clear-field NAME` removes one; the change is one `field` event with `key` `fields`. `--add-label`/`--remove-label` are additive and idempotent (never with `--labels`); `--kind` is revalidated

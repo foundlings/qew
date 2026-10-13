@@ -50,7 +50,7 @@ class GraphWriteWalk(unittest.TestCase):
         task = self.item("T", "--parent", issue, kind="task")
         self.refused("create", "--kind", "task", "--title", "x", "--parent", task, fragment="cannot sit under")
         self.refused("create", "--kind", "issue", "--title", "x", "--parent", issue, fragment="cannot sit under")
-        self.refused("create", "--kind", "epic", "--title", "x", "--parent", epic, fragment="cannot sit under")
+        self.refused("create", "--kind", "epic", "--title", "x", "--parent", issue, fragment="cannot sit under")
         self.refused("set", epic, "--parent", issue, fragment="cannot sit under")
         self.refused("set", issue, "--parent", task, fragment="cannot sit under")
         self.assertEqual(self.world.run("check").returncode, 0)

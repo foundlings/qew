@@ -9,7 +9,7 @@ from qew.errors import QewError
 from qew.ledger_item import Item, Kind
 
 # Which parent kinds may hold each child kind: epic > issue > task, and a task may also sit directly under an epic.
-PARENT_KINDS: dict[Kind, tuple[Kind, ...]] = {Kind.EPIC: (), Kind.ISSUE: (Kind.EPIC,), Kind.TASK: (Kind.ISSUE, Kind.EPIC)}
+PARENT_KINDS: dict[Kind, tuple[Kind, ...]] = {Kind.EPIC: (Kind.EPIC,), Kind.ISSUE: (Kind.EPIC,), Kind.TASK: (Kind.ISSUE, Kind.EPIC)}
 
 
 def _components(items: Mapping[str, Item]) -> dict[str, int]:
@@ -97,7 +97,8 @@ def validate_edges(items: Mapping[str, Item], changed: Iterable[str]) -> None:
         if item.parent and item.parent not in items:
             raise QewError(f"{item_id}: unknown parent {item.parent}", 2)
     _check_nesting(items, changed_ids)
-    components = _components(items)  # parent cycles are impossible once nesting holds (epic > issue > task)
+    _check_parent_cycles(items, changed_ids)
+    components = _components(items)
     sizes: dict[int, int] = {}
     for number in components.values():
         sizes[number] = sizes.get(number, 0) + 1
@@ -105,6 +106,20 @@ def validate_edges(items: Mapping[str, Item], changed: Iterable[str]) -> None:
         if sizes[components[item_id]] > 1:
             members = {i for i, number in components.items() if number == components[item_id]}
             raise QewError(f"needs cycle: {' -> '.join(_cycle_path(items, item_id, members))}", 2)
+
+
+def _check_parent_cycles(items: Mapping[str, Item], changed: list[str]) -> None:
+    """Epics nest, so a parent chain can loop: walk up from each changed item and refuse a chain that meets itself."""
+    for item_id in changed:
+        path = [item_id]
+        current = items[item_id].parent
+        while current and current in items:
+            if current == item_id:
+                raise QewError(f"{item_id}: parent cycle: {' -> '.join([*path, item_id])}", 2)
+            if current in path:
+                break  # a loop not through this item: its own write was refused
+            path.append(current)
+            current = items[current].parent
 
 
 def _check_nesting(items: Mapping[str, Item], changed: list[str]) -> None:

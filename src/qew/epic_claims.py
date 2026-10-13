@@ -1,7 +1,7 @@
 """The derived claim of an epic: in progress while a direct child is claimed, held by those children's actors.
 
-Nothing here is stored. Only open direct non-epic children count (not `needs` edges, grandchildren or child
-epics); a completed or closed epic shows nothing derived.
+Nothing here is stored. Only claimed non-epic items under it count, directly or through nested epics (not `needs`
+edges); a completed or closed epic shows nothing derived.
 """
 
 
@@ -14,8 +14,14 @@ def derive(snapshot: Snapshot) -> dict[str, tuple[State | None, tuple[str, ...]]
     """Every item's effective state and holders; only epics differ from their folded state."""
     held: dict[str, set[str]] = {}
     for item in snapshot.items.values():
-        if item.parent and item.kind != Kind.EPIC and snapshot.folds[item.id].state == State.CLAIMED:
-            held.setdefault(item.parent, set()).add(snapshot.folds[item.id].owner)
+        if item.kind == Kind.EPIC or snapshot.folds[item.id].state != State.CLAIMED:
+            continue
+        seen = {item.id}
+        above = item.parent
+        while above and above in snapshot.items and above not in seen:  # every epic above, through nested epics
+            seen.add(above)
+            held.setdefault(above, set()).add(snapshot.folds[item.id].owner)
+            above = snapshot.items[above].parent
     result: dict[str, tuple[State | None, tuple[str, ...]]] = {}
     for item_id, item in snapshot.items.items():
         folded = snapshot.folds[item_id]

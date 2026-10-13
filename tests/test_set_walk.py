@@ -84,7 +84,7 @@ class SetWalk(unittest.TestCase):
         other = w.create("--kind", "epic", "--title", "Other plan", "--draft")
         third = w.create("--title", "Third", "--draft")
         before = snapshot(w)
-        bad = w.run("set", third, other, "--parent", epic)
+        bad = w.run("set", third, other, "--parent", one)  # an epic cannot sit under an issue
         self.assertEqual(bad.returncode, 2)
         self.assertEqual(snapshot(w), before)
 

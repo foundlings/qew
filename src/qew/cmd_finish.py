@@ -391,24 +391,30 @@ def _merged_pull_requests(ledger: Ledger, item_id: str) -> list[int]:
 
 
 def _finish_parent(ledger: Ledger, child_id: str) -> dict[str, object]:
-    """Complete the epic above `child_id` when its last open child just finished.
+    """Complete the epic above `child_id` when its last open child just finished, then the epic above that, and so on.
 
     The child's own event is already written; a failure here is only a warning naming the explicit command.
     """
+    finished: list[str] = []
+    current = child_id
     try:
-        snapshot = ledger.snapshot()
-        parent_id = snapshot.items[child_id].parent
-        parent = snapshot.items.get(parent_id)
-        if parent is None or parent.kind != Kind.EPIC or snapshot.folds[parent_id].state != State.APPROVED:  # an epic someone holds is finished by its holder
-            return {}
-        kids = ledger_graph.children(snapshot)[parent_id]
-        states = [snapshot.folds[k].state for k in kids]
-        if any(s not in (State.COMPLETED, State.CLOSED) for s in states) or State.COMPLETED not in states:
-            return {}
-        ledger.append_event(parent_id, "completed", children_finished=len(kids), reason=f"all {len(kids)} children finished")
-        return {"epic_completed": parent_id}
+        while True:
+            snapshot = ledger.snapshot()
+            parent_id = snapshot.items[current].parent
+            parent = snapshot.items.get(parent_id)
+            if parent is None or parent.kind != Kind.EPIC or snapshot.folds[parent_id].state != State.APPROVED:  # an epic someone holds is finished by its holder
+                break
+            kids = ledger_graph.children(snapshot)[parent_id]
+            states = [snapshot.folds[k].state for k in kids]
+            if any(s not in (State.COMPLETED, State.CLOSED) for s in states) or State.COMPLETED not in states:
+                break
+            ledger.append_event(parent_id, "completed", children_finished=len(kids), reason=f"all {len(kids)} children finished")
+            finished.append(parent_id)
+            current = parent_id
     except QewError as error:
-        return {"warning": f"{child_id} is done, but its epic was not completed automatically ({error}); run `qew complete {snapshot.items[child_id].parent}`"}
+        return {"warning": f"{current} is done, but its epic was not completed automatically ({error}); run `qew complete {snapshot.items[current].parent}`",
+                **({"epic_completed": finished[0]} if finished else {})}
+    return {"epic_completed": finished[0], **({"epics_completed": finished} if len(finished) > 1 else {})} if finished else {}
 
 
 def close(config: Config, reference: str, reason: str | None = None, of: str | None = None,
