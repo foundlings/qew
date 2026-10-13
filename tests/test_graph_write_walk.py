@@ -59,7 +59,7 @@ class GraphWriteWalk(unittest.TestCase):
         """Parent loops would make a plan its own child."""
         outer = self.item("Outer", kind="epic")
         inner = self.item("Inner", "--parent", outer)
-        self.refused("set", outer, "--parent", inner, fragment="parent cycle")
+        self.refused("set", outer, "--parent", inner, fragment="cannot sit under")
 
     def test_finished_work_is_edited_only_with_closed_and_the_audit_event_is_written(self) -> None:
         """Stale edits of finished work by accident are refused; the deliberate form works and is audited."""

@@ -213,7 +213,7 @@ select = "kind:epic"
 - The header `owner:` stays empty: ownership is derived from `claimed`/`released` events so claims merge cleanly.
   `qew check` refuses a non-empty value.
 - Extra event `reverted` (`reason`, `quote`) returns approved, unclaimed work to draft.
-- Kinds nest epic > issue > task (a task may sit directly under an epic); `check` refuses other parents.
+- Kinds nest epic > issue > task (a task may sit directly under an epic, and an epic under an epic); `check` refuses other parents and parent cycles. An epic is held while any claimed item sits under it, through nested epics, and completes automatically (unclaimed) when its last child finishes, then the epic above it, and so on. Each epic is the forge sub-issue of its parent epic.
 - `complete`: the item must be claimed; every child must be completed or closed; non-epics need an
   `evidence` event all of whose change ids are ancestors of the target branch (`[code] target` in
   `.qew/config.toml`, default `main`; jj revset `::target`, git `merge-base --is-ancestor`). An epic needs
