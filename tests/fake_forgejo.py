@@ -395,6 +395,11 @@ def _route(
                 raise _Reply(409, "dependency already exists")
             blockers.append(index)
             return ok(fake._issue_json(number), 201)
+        if method == "DELETE":
+            if payload["index"] not in blockers:
+                raise _Reply(404, "dependency not found")
+            blockers.remove(payload["index"])
+            return ok(fake._issue_json(number))
     if method == "POST" and re.match(_BASE + r"/pulls$", path):
         for field in ("head", "base", "title"):
             if not payload.get(field):

@@ -410,6 +410,14 @@ class Forgejo(Forge):
         target = {"owner": self._namespace, "repo": self._repo, "index": blocked_by}
         self._call("POST", f"/issues/{number}/dependencies", target)
 
+    @override
+    def unlink_dependency(self, number: int, blocked_by: int) -> None:
+        existing = self._list(f"/issues/{number}/dependencies")
+        if not any(_parse_issue(issue).number == blocked_by for issue in existing):
+            return
+        target = {"owner": self._namespace, "repo": self._repo, "index": blocked_by}
+        self._call("DELETE", f"/issues/{number}/dependencies", target)
+
     # -- pull requests --
 
     @override

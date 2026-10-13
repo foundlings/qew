@@ -515,17 +515,32 @@ def _push(ledger: Ledger, target: Target, record: MirrorRecord, item_id: str, sp
 
 def _link(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, numbers: dict[str, int],
           record: MirrorRecord) -> None:
+    """Make the forge's blocked-by links match the ledger's needs: add the missing ones, remove the ones qew linked that the ledger
+    dropped. A link qew did not record is never removed."""
     linked = list(record.get("linked", []))
-    missing = [n for n in snapshot.items[item_id].needs if n in numbers and n not in linked]
+    needs = snapshot.items[item_id].needs
+    missing = [n for n in needs if n in numbers and n not in linked]
+    stale = [n for n in linked if n not in needs and n in numbers]
+    changed = False
     for need in missing:
         try:
             target.forge.link_dependency(numbers[item_id], numbers[need])
         except Unsupported as error:
             if error.capability not in report.skipped:
                 report.skipped.append(error.capability)
-            return
+            break
         linked.append(need)
-    if missing:
+        changed = True
+    for need in stale:
+        try:
+            target.forge.unlink_dependency(numbers[item_id], numbers[need])
+        except Unsupported as error:
+            if error.capability not in report.skipped:
+                report.skipped.append(error.capability)
+            break
+        linked.remove(need)
+        changed = True
+    if changed:
         ledger.write_mirror(item_id, target.slug, updated(record, linked=sorted(linked)))
 
 

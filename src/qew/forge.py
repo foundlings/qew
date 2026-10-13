@@ -422,6 +422,10 @@ class Forge(ABC):
         """Record on the forge that issue `number` is blocked by issue `blocked_by` (idempotent)."""
         raise Unsupported("link_dependency")
 
+    def unlink_dependency(self, number: int, blocked_by: int) -> None:
+        """Remove the forge link that issue `number` is blocked by issue `blocked_by` (idempotent: absent is success)."""
+        raise Unsupported("unlink_dependency")
+
     def ensure_board(self, columns: tuple[str, ...], managed_filter: str = "") -> Board:
         """Find or create the board named by the mirror's `project` with these columns.
 

@@ -960,6 +960,15 @@ class GitHub(Forge):
         blocker = _obj(self._wire.rest("GET", f"{self._repo_path}/issues/{blocked_by}"), "issue")
         self._wire.rest("POST", path, {"issue_id": _int(blocker, "id", "issue")})
 
+    @override
+    def unlink_dependency(self, number: int, blocked_by: int) -> None:
+        path = f"{self._repo_path}/issues/{number}/dependencies/blocked_by"
+        for page in self._wire.pages(f"{path}?per_page=100"):
+            for entry in _array(page, "dependencies"):
+                if _int(_obj(entry, "dependency"), "number", "dependency") == blocked_by:
+                    self._wire.rest("DELETE", f"{path}/{_int(_obj(entry, 'dependency'), 'id', 'dependency')}")
+                    return
+
     # pull requests
 
     @override
