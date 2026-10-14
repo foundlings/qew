@@ -578,10 +578,13 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   caller holds every claim on; otherwise exit 3 naming the opener and the ways forward (`qew start ITEM --take-over
   --reason TEXT`; for merge also `--other-author --reason TEXT`). A merge also refuses an item another actor holds,
   even for the opener. A covered item with unreadable history is exit 4.
-- `qew land NUMBER [--target T] [--json]`: after the merge, per covered item the caller holds: record the pull request head
+- `qew land NUMBER [--target T] [--integrator --reason TEXT] [--json]`: after the merge, per covered item the caller holds: record the pull request head
   as evidence when none covers it, then complete it (children before epics). Items held by others or not started
   are listed and skipped (an item another actor holds is reported with the exact `qew complete ITEM --take-over`
   command, never touched); a failed gate is reported per item and exits 2. A pull request merged into a branch other
   than the configured target leaves its items `still open`; a merge head that is not a commit id is exit 4 and writes
   nothing; a run that landed nothing prints `nothing to land`. `--json`: `{state, landed, held: [{id, holder}], clean,
-  open, schema_version}`.
+  open, schema_version}`. `--integrator --reason TEXT` is for the one who merged: it also lands the items another actor
+  holds, on the `complete --take-over` path (evidence recorded for the holder, the completion event carrying the holder
+  and `integrator landed pr #N (held by HOLDER): TEXT`); `--reason` alone, or `--integrator` without it, is exit 2, and an
+  unmerged pull request is still refused. It never trusts the forge's `merged_by`: a shared token would make that match everyone.
