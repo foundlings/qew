@@ -52,6 +52,7 @@ class FakeGitHub:
         self.cards_page_size = 100  # cards per ProjectCards page
         self.cards_overlap = False  # each later page repeats the previous page's last card (cards added meanwhile)
         self.cards_endless = False  # every ProjectCards page says another follows
+        self.node_limit_page: int | None = None  # a listing asking for a larger `$page` is refused with GitHub's node-limit error
         self.label_store: dict[str, dict[str, str]] = {}  # name -> {color, description}
         self.drop_label_creates = False  # accept a label create yet store nothing
         self.secondary_after: int | None = None  # block issue creation (once) with GitHub's secondary-limit 403 after this many creates
@@ -132,8 +133,11 @@ class FakeGitHub:
                 "content": {"number": issue["number"], "repository": {"nameWithOwner": f"{OWNER}/{REPO}"}},
                 "fieldValues": {"nodes": values},
             })
+        start = int(variables.get("cursor") or 0)
+        size = min(self.cards_page_size, variables.get("page", self.cards_page_size))
+        more = start + size < len(nodes)
         return {"data": {"repositoryOwner": {"projectV2": {"items": {
-            "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes,
+            "pageInfo": {"hasNextPage": more, "endCursor": str(start + size)}, "nodes": nodes[start:start + size],
         }}}}}
 
     def calls(self, method: str, path_part: str) -> list[Any]:
@@ -270,6 +274,8 @@ class FakeGitHub:
         found = re.search(r"\b(?:query|mutation)\s+(\w+)", query)
         name = found.group(1) if found else ""
         handler = getattr(self, f"gql_{name}", None)
+        if self.node_limit_page is not None and variables.get("page", 100) > self.node_limit_page:
+            return {"errors": [{"type": "MAX_NODE_LIMIT_EXCEEDED", "message": f"This query could return up to {variables.get('page', 100) * 9000:,} nodes, exceeding the 500,000 node limit"}]}
         if handler is None:
             return {"errors": [{"type": "UNKNOWN", "message": f"unknown operation {name!r}"}]}
         return handler(variables)
@@ -421,7 +427,7 @@ class FakeGitHub:
                 "fieldValues": {"nodes": values},
             })
         start = int(variables["cursor"] or 0)
-        size = self.cards_page_size
+        size = min(self.cards_page_size, variables.get("page", self.cards_page_size))
         window = cards[start:start + size]
         more = self.cards_endless or start + size < len(cards)
         next_start = start + size - (1 if self.cards_overlap and start + size < len(cards) else 0)
