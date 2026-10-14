@@ -109,6 +109,32 @@ class LandWalk(unittest.TestCase):
         self.assertIn("not merged", run.err)
         self.assertEqual(self.state(self.item), "claimed")
 
+    def test_a_non_opener_landing_a_pull_request_whose_items_are_all_complete_is_not_an_error(self) -> None:
+        """Prevents an after-merge sweep reading as a failure when there is nothing left to land."""
+        self.assertEqual(self.w.qew("evidence", self.item, "--change", self.sha).code, 0)
+        self.assertEqual(self.w.qew("pr", "merge", "1").code, 0)
+        self.assertEqual(self.w.qew("land", "1").code, 0)
+        run = self.w.qew("land", "1", "--integrator", "--reason", "sweep", actor="rudolph")
+        self.assertEqual(run.code, 0, run)
+        self.assertIn("nothing to land: all covered items complete", run.out)
+
+    def test_an_integrator_who_neither_opened_nor_claimed_lands_the_held_item(self) -> None:
+        """Prevents the PR-level owner rule refusing the merger before land's own per-item check runs."""
+        self.w.forge.edit_pull(1, state="merged")
+        self.w.qew("release", self.item, "--reason", "handover")
+        self.w.qew("start", self.item, actor="claimer")
+        run = self.w.qew("land", "1", "--integrator", "--reason", "rudolph merged", actor="rudolph")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.state(self.item), "completed")
+
+    def test_a_non_opener_without_the_flag_still_cannot_complete_a_held_item(self) -> None:
+        """Prevents dropping the owner rule from letting any actor complete another's claim."""
+        self.w.forge.edit_pull(1, state="merged")
+        run = self.w.qew("land", "1", actor="rudolph")
+        self.assertEqual(run.code, 0, run)
+        self.assertIn("claimed by", run.out)
+        self.assertEqual(self.state(self.item), "claimed")
+
     def test_an_epic_pull_request_lands_its_children_before_the_epic(self) -> None:
         epic = self.w.item("Epic", kind="epic")
         child = self.w.item("Child", parent=epic)
