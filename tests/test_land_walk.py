@@ -70,6 +70,45 @@ class LandWalk(unittest.TestCase):
         self.assertIn(f"{self.item}: claimed by other; not landed", run.out)
         self.assertEqual(self.state(self.item), "claimed")
 
+    def hand_to_other(self) -> None:
+        self.w.forge.edit_pull(1, state="merged")
+        self.w.qew("release", self.item, "--reason", "handover")
+        self.w.qew("start", self.item, actor="other")
+
+    def test_the_integrator_lands_an_item_another_actor_holds_and_the_reason_is_recorded(self) -> None:
+        """Prevents merged work staying claimed because its merger is not the claimant."""
+        self.hand_to_other()
+        run = self.w.qew("land", "1", "--integrator", "--reason", "integrator merged it")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.state(self.item), "completed")
+        taken = [e for e in self.w.events(self.item) if e["type"] == "completed"]
+        self.assertIn("integrator merged it", str(taken[-1]))
+        self.assertIn("other", str(taken[-1]))
+
+    def test_the_integrator_flag_needs_a_reason_and_writes_nothing_without_one(self) -> None:
+        """Prevents an unexplained takeover of other actors' claims."""
+        self.hand_to_other()
+        before = len(self.w.events(self.item))
+        run = self.w.qew("land", "1", "--integrator")
+        self.assertEqual(run.code, 2)
+        self.assertIn("--reason", run.err)
+        self.assertEqual(len(self.w.events(self.item)), before)
+
+    def test_a_reason_without_the_integrator_flag_is_refused(self) -> None:
+        """Prevents a reason silently ignored on a plain land."""
+        run = self.w.qew("land", "1", "--reason", "why")
+        self.assertEqual(run.code, 2)
+        self.assertIn("--integrator", run.err)
+
+    def test_the_integrator_still_cannot_land_an_unmerged_pull_request(self) -> None:
+        """Prevents the flag completing work that never merged."""
+        self.w.qew("release", self.item, "--reason", "handover")
+        self.w.qew("start", self.item, actor="other")
+        run = self.w.qew("land", "1", "--integrator", "--reason", "sweep")
+        self.assertEqual(run.code, 2)
+        self.assertIn("not merged", run.err)
+        self.assertEqual(self.state(self.item), "claimed")
+
     def test_an_epic_pull_request_lands_its_children_before_the_epic(self) -> None:
         epic = self.w.item("Epic", kind="epic")
         child = self.w.item("Child", parent=epic)
