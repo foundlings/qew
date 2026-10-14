@@ -55,9 +55,21 @@ class BoardColumnsWalk(unittest.TestCase):
         expected = {
             draft: "Draft", imported_like: "Draft", epic_idle: "Backlog", epic_busy: "In progress", gated: "Needs approval",
             reviewed: "In review", claimed: "In progress", child: "In progress", ready: "Ready", blocker: "Ready",
-            blocked: "Backlog", finished: "Done", closed: "Done",
+            blocked: "Backlog", finished: "Done", closed: "Closed",
         }
         self.assertEqual({item: self.column(item) for item in expected}, expected)
+
+    def test_every_close_reason_lands_in_closed_and_completed_stays_done(self) -> None:
+        """Prevents work abandoned, duplicated or replaced looking as delivered as work that shipped."""
+        w = self.w
+        keeper = self.make("--title", "the original", "--quote", QUOTE)
+        reasons = {"not_planned": (), "duplicate": ("--of", keeper), "superseded": ("--by", keeper)}
+        dropped = {}
+        for reason, link in reasons.items():
+            item = self.make("--title", f"dropped {reason}", "--quote", QUOTE)
+            self.assertEqual(w.run("close", item, "--reason", reason, *link).returncode, 0)
+            dropped[item] = "Closed"
+        self.assertEqual({item: self.column(item) for item in dropped}, dropped)
 
 
 if __name__ == "__main__":
