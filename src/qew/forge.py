@@ -12,7 +12,7 @@ from typing import Literal, get_args
 
 from qew.jsontypes import JsonObject
 
-# (name, GitHub color, description): the eight Status values, in board order.
+# (name, GitHub color, description): the nine Status values, in board order.
 STATUS_OPTIONS = (
     ("Draft", "GRAY", "Not workable yet: drafts, and work missing approval, a type or a priority"),
     ("Backlog", "GREEN", "Approved but blocked, deferred, or a planning container"),
@@ -22,6 +22,7 @@ STATUS_OPTIONS = (
     ("In progress", "YELLOW", "Claimed and actively being implemented"),
     ("In review", "PURPLE", "Implementation has an open linked pull request"),
     ("Done", "ORANGE", "Closed and completed"),
+    ("Closed", "GRAY", "Closed without delivery: not planned, superseded or duplicate"),
 )
 COLUMNS = tuple(name for name, _color, _description in STATUS_OPTIONS)
 # Priority P0..P4 (index = item priority); larger priorities clamp to the last.

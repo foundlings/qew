@@ -222,6 +222,21 @@ class SyncWalk(unittest.TestCase):
         report = self.sync("forgejo-git.example-o-r")[0]
         self.assertEqual(report.failures, [])
 
+    def test_a_closed_card_that_sat_in_done_moves_to_closed_on_the_next_sync(self) -> None:
+        """Prevents dropped work staying beside delivered work on boards built before the Closed column."""
+        w = self.world
+        (w.code / ".qew" / "config.toml").write_text(
+            (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = 1')
+        )
+        item = w.create("--kind", "issue", "--title", "E", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        self.sync("forgejo-git.example-o-r")
+        self.assertEqual(w.run("close", item, "--reason", "not_planned").returncode, 0)
+        self.sync("forgejo-git.example-o-r")
+        self.assertEqual(self.a.columns[1], "Closed")
+        self.a.columns[1] = "Done"  # where an older qew left it
+        self.sync("forgejo-git.example-o-r")
+        self.assertEqual(self.a.columns[1], "Closed")
+
 
 if __name__ == "__main__":
     unittest.main()
