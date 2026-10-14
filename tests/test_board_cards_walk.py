@@ -6,7 +6,9 @@ duplicate, and a listing cut short that would make a card look missing.
 """
 
 import unittest
+from unittest import mock
 
+from qew import forge_github
 from qew.board_cards import DuplicateCards, local_cards
 from qew.forge import COLUMNS, ForgeRejected
 from tests.test_forge_github_walk import SPEC, GitHubWalk
@@ -58,8 +60,9 @@ class BoardCardsWalk(GitHubWalk):
         """A cut-short listing would report cards as missing."""
         self.issue_on_board()
         self.fake.cards_endless = True
-        with self.assertRaises(ForgeRejected):
-            self.backend.read_board_cards(self.board)
+        with mock.patch.object(forge_github, "PROJECT_ITEM_LIMIT", 250, create=True), mock.patch.object(forge_github, "ARCHIVED_ITEM_LIMIT", 50, create=True):
+            with self.assertRaises(ForgeRejected):
+                self.backend.read_board_cards(self.board)
 
 
 if __name__ == "__main__":
