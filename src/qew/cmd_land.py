@@ -19,13 +19,15 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     land = commands.add_parser("land", help="after a pull request merged, record its head as evidence and complete its claimed items")
     land.add_argument("number", type=int, help="pull request number")
     land.add_argument("--target", help="mirror target (slug or unique part)")
+    land.add_argument("--integrator", action="store_true", help="land the items another actor claimed too, as the one who merged (needs --reason)")
+    land.add_argument("--reason", help="with --integrator: why the merger lands them, recorded on each item")
     land.add_argument("--json", action="store_true", help="machine-readable output")
 
 
 def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "land":
         return False
-    result = land(ledger_config.load(), arguments.number, arguments.target)
+    result = land(ledger_config.load(), arguments.number, arguments.target, integrator=arguments.integrator, reason=arguments.reason)
     if arguments.json:
         print(outcome.render(arguments, "", state=result.state, landed=result.landed, held=result.held,
                              clean=result.clean, open=result.open))
@@ -55,9 +57,16 @@ def _order(loaded: Loaded) -> list[str]:
     return sorted(loaded.record.items, key=lambda item_id: kinds[item_id].kind == Kind.EPIC)
 
 
-def land(config: Config, number: int, target: str | None, build: Build | None = None) -> Landing:
-    """Evidence and completion for every claimed item the merged pull request covered."""
+def land(config: Config, number: int, target: str | None, build: Build | None = None, integrator: bool = False,
+         reason: str | None = None) -> Landing:
+    """Evidence and completion for every claimed item the merged pull request covered.
+
+    `integrator`: the caller merged it and lands the items another actor holds too, on the take-over path with `reason`."""
     positive_number(number)
+    if integrator and not (reason or "").strip():
+        raise QewError("--integrator needs --reason TEXT: say why the merger lands items another actor claimed", 2)
+    if reason is not None and not integrator:
+        raise QewError("--reason is only for --integrator", 2)
     loaded = load(config, number, target, build)
     with forge_errors(loaded.record.target):
         pull = loaded.forge.read_pull_request(number)
@@ -75,29 +84,31 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
         elif state != State.CLAIMED:
             result.lines.append(f"{item_id}: {state.value}, unclaimed; not landed")
             result.open.append(item_id)
-        elif owner != actor():
-            result.lines.append(f"{item_id}: claimed by {owner}; not landed (to finish it anyway: qew complete {item_id} --take-over --reason TEXT)")
+        elif owner != actor() and not integrator:
+            result.lines.append(f"{item_id}: claimed by {owner}; not landed (to finish it anyway: qew complete {item_id} --take-over --reason TEXT, or qew land {number} --integrator --reason TEXT if you merged it)")
             result.held.append({"id": item_id, "holder": owner})
         elif pull.base_branch != config.target:
             result.lines.append(f"{item_id}: still open: merged into {pull.base_branch}, not the target {config.target}")
             result.open.append(item_id)
         else:
-            result.failures += _land_one(config, loaded, item_id, pull.head_sha, result)
+            takeover = f"integrator landed pr #{number} (held by {owner}): {reason}" if owner != actor() and integrator else None
+            result.failures += _land_one(config, loaded, item_id, pull.head_sha, result, takeover)
     if not result.landed and not result.failures:
         result.lines.append("nothing to land")
     return result
 
 
-def _land_one(config: Config, loaded: Loaded, item_id: str, head_sha: str, result: Landing) -> int:
+def _land_one(config: Config, loaded: Loaded, item_id: str, head_sha: str, result: Landing, takeover: str | None = None) -> int:
     snapshot = loaded.snapshot.ledger.snapshot()
+    holder = snapshot.folds[item_id].owner
     if snapshot.folds[item_id].state == State.COMPLETED:  # an epic finishes by itself with its last child
         result.lines.append(f"{item_id}: completed with its children")
         result.landed.append(item_id)
         return 0
     if snapshot.items[item_id].kind != Kind.EPIC and not pr_gate.evidence_covers(config, snapshot.folds[item_id].evidence, head_sha):
-        cmd_finish.evidence(config, item_id, [head_sha], None)
+        cmd_finish.evidence(config, item_id, [head_sha], None, holder if takeover else None)
     try:
-        result.lines.append(cast(str, cmd_finish.complete(config, item_id)["line"]))
+        result.lines.append(cast(str, cmd_finish.complete(config, item_id, takeover, takeover is not None)["line"]))
         result.landed.append(item_id)
     except QewError as error:
         result.lines.append(f"{item_id}: not completed: {error}")
