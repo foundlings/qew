@@ -8,7 +8,7 @@ import re
 import threading
 from dataclasses import dataclass
 from typing import Any, TypedDict, override
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from urllib.parse import quote
 
 from qew import forge_retry, label_style
@@ -55,14 +55,19 @@ DOTCOM_API = "https://api.github.com"
 STATUS_FIELD = "Status"
 PRIORITY_FIELD = "Priority"
 DEFAULT_VIEW = "View 1"
+PAGE = 100  # nodes asked per page of a listing; halved (down to MIN_PAGE) when GitHub refuses the call as too large
+MIN_PAGE = 5
+NODE_LIMIT = 500_000  # GitHub refuses a GraphQL call that could return more nodes than this (every `first` multiplies)
+PROJECT_ITEM_LIMIT = 50_000  # GitHub's cap on the items of one project ...
+ARCHIVED_ITEM_LIMIT = 10_000  # ... plus the archived ones a listing may still show
 _NEXT_LINK = re.compile(r'<([^>]+)>([^,<]*)')
 
 _OWNER_PROJECTS = """
-query OwnerProjects($owner: String!, $cursor: String) {
+query OwnerProjects($owner: String!, $cursor: String, $page: Int!) {
   repositoryOwner(login: $owner) {
     id
     ... on ProjectV2Owner {
-      projectsV2(first: 100, after: $cursor) {
+      projectsV2(first: $page, after: $cursor) {
         nodes { id number title url fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name color description } } } } views(first: 50) { nodes { id name layout filter } } }
         pageInfo { hasNextPage endCursor }
       }
@@ -136,10 +141,10 @@ query ItemPlacement($contentId: ID!) {
   }
 }"""
 _PROJECT_CARDS = """
-query ProjectCards($projectId: ID!, $cursor: String) {
+query ProjectCards($projectId: ID!, $cursor: String, $page: Int!) {
   node(id: $projectId) {
     ... on ProjectV2 {
-      items(first: 100, after: $cursor) {
+      items(first: $page, after: $cursor) {
         nodes {
           id
           content { ... on Issue { number repository { nameWithOwner } } }
@@ -151,11 +156,11 @@ query ProjectCards($projectId: ID!, $cursor: String) {
   }
 }"""
 _BOARD_ITEMS = """
-query BoardItems($owner: String!, $number: Int!, $cursor: String) {
+query BoardItems($owner: String!, $number: Int!, $cursor: String, $page: Int!) {
   repositoryOwner(login: $owner) {
     ... on ProjectV2Owner {
       projectV2(number: $number) {
-        items(first: 100, after: $cursor) {
+        items(first: $page, after: $cursor) {
           pageInfo { hasNextPage endCursor }
           nodes {
             id
@@ -586,7 +591,7 @@ class _Wire:
                 forge_retry.rate_backoff(limited, wait_from(headers) or 0.0, rate)
                 limited += 1
                 continue
-            raise _graphql_error(errors, wait_from(headers))
+            raise _graphql_error(errors, wait_from(headers), _operation(query))
 
 
 def _is_rate_limited(errors: Any) -> bool:
@@ -595,10 +600,29 @@ def _is_rate_limited(errors: Any) -> bool:
         isinstance(e, dict) and (e.get("type") == "RATE_LIMITED" or "rate limit" in str(e.get("message", "")).lower()) for e in errors)
 
 
-def _graphql_error(errors: Any, wait: float | None = None) -> Exception:
+class NodeLimit(ForgeRejected):
+    """GitHub refused a GraphQL call because it could return more than NODE_LIMIT nodes: a smaller page may succeed."""
+
+    def __init__(self, operation: str, detail: str) -> None:
+        super().__init__(200, f"GraphQL {operation} exceeds GitHub's {NODE_LIMIT:,}-node limit: {detail}")
+
+
+def _is_node_limit(errors: Any) -> bool:
+    return isinstance(errors, list) and any(
+        isinstance(e, dict) and ("NODE_LIMIT" in str(e.get("type", "")) or "node limit" in str(e.get("message", "")).lower()) for e in errors)
+
+
+def _operation(query: str) -> str:
+    found = re.search(r"\b(?:query|mutation)\s+(\w+)", query)
+    return found.group(1) if found else "call"
+
+
+def _graphql_error(errors: Any, wait: float | None = None, operation: str = "call") -> Exception:
     entries = [e for e in errors if isinstance(e, dict)] if isinstance(errors, list) else []
     kinds = {e.get("type") for e in entries}
     detail = "; ".join(str(e.get("message", "")) for e in entries)[:300] or "unparseable GraphQL errors"
+    if _is_node_limit(errors):
+        return NodeLimit(operation, detail)
     if _is_rate_limited(errors):
         return ForgeUnavailable(f"GraphQL: {detail}", wait if wait is not None else DEFAULT_WAIT)
     if kinds & {"FORBIDDEN", "INSUFFICIENT_SCOPES", "UNAUTHORIZED"}:
@@ -1255,18 +1279,43 @@ class GitHub(Forge):
     def read_board_fields(self, board: Board) -> dict[int, dict[str, str]]:
         return self._board_values(board)
 
+    def _pages(self, query: str, variables: Mapping[str, Any], listing: Callable[[dict[str, Any]], dict[str, Any]], what: str, limit: int) -> Iterator[list[Any]]:
+        """The node arrays of a paged connection. A page GitHub refuses as too large (the node limit) is halved down to
+        MIN_PAGE and asked again; a listing past `limit` nodes is refused, never cut short."""
+        size, cursor, seen, calls = PAGE, None, 0, 0
+        while True:
+            calls += 1
+            try:
+                data = self._wire.graphql(query, {**variables, "cursor": cursor, "page": size})
+            except NodeLimit as error:
+                if size <= MIN_PAGE:
+                    raise ForgeRejected(200, f"{error.args[0].removeprefix('HTTP 200: ')}; reading {what} failed even at {MIN_PAGE} per page") from error
+                size = max(MIN_PAGE, size // 2)
+                continue
+            connection = listing(data)
+            nodes = _array(connection.get("nodes"), f"{what}.nodes")
+            seen += len(nodes)
+            yield nodes
+            info = _obj(connection.get("pageInfo"), "pageInfo")
+            if not _bool(info, "hasNextPage", "pageInfo"):
+                return
+            if seen >= limit or calls > limit // MIN_PAGE + 2:  # the second bound ends a listing that claims more pages but sends no nodes
+                raise ForgeRejected(200, f"more than {limit:,} {what}: GitHub caps a project at {PROJECT_ITEM_LIMIT:,} items (plus {ARCHIVED_ITEM_LIMIT:,} archived), "
+                                         "so this listing is past that cap; refusing a truncated listing")
+            cursor = _str(info, "endCursor", "pageInfo")
+
     def _board_values(self, board: Board) -> dict[int, dict[str, str]]:
         wanted = _project_number(board.id)
         found: dict[int, dict[str, str]] = {}
-        cursor: str | None = None
-        for _ in range(MAX_PAGES):
-            data = self._wire.graphql(_BOARD_ITEMS, {"owner": self._owner, "number": wanted, "cursor": cursor})
-            owner = _obj(data.get("repositoryOwner"), "repositoryOwner")
-            project = owner.get("projectV2")
+
+        def listing(data: dict[str, Any]) -> dict[str, Any]:
+            project = _obj(data.get("repositoryOwner"), "repositoryOwner").get("projectV2")
             if project is None:
                 raise ForgeRejected(404, f"project number {wanted} not found for {self._owner}")
-            listing = _obj(_obj(project, "projectV2").get("items"), "items")
-            for entry in _array(listing.get("nodes"), "items.nodes"):
+            return _obj(_obj(project, "projectV2").get("items"), "items")
+
+        for nodes in self._pages(_BOARD_ITEMS, {"owner": self._owner, "number": wanted}, listing, "board items", PROJECT_ITEM_LIMIT + ARCHIVED_ITEM_LIMIT):
+            for entry in nodes:
                 entry = _obj(entry, "board item")
                 content = entry.get("content")
                 if not isinstance(content, dict) or not content:
@@ -1275,11 +1324,7 @@ class GitHub(Forge):
                 if _str(repository, "nameWithOwner", "item.repository") != f"{self._owner}/{self._repo}":
                     continue
                 found[_int(content, "number", "item.content")] = _field_values(entry)
-            info = _obj(listing.get("pageInfo"), "pageInfo")
-            if not _bool(info, "hasNextPage", "pageInfo"):
-                return found
-            cursor = _str(info, "endCursor", "pageInfo")
-        raise ForgeRejected(200, f"more than {MAX_PAGES} pages of board items; refusing a truncated listing")
+        return found
 
     @override
     def ensure_text_fields(self, board: Board, names: Sequence[str]) -> list[str]:
@@ -1349,11 +1394,9 @@ class GitHub(Forge):
     def read_board_cards(self, board: Board) -> tuple[Card, ...]:
         project_id = self._board_project(board).id
         cards: list[Card] = []
-        cursor: str | None = None
-        for _ in range(MAX_PAGES):
-            data = self._wire.graphql(_PROJECT_CARDS, {"projectId": project_id, "cursor": cursor})
-            listing = _obj(_obj(data.get("node"), "node").get("items"), "items")
-            for entry in _array(listing.get("nodes"), "items.nodes"):
+        for nodes in self._pages(_PROJECT_CARDS, {"projectId": project_id}, lambda data: _obj(_obj(data.get("node"), "node").get("items"), "items"),
+                                 "cards", PROJECT_ITEM_LIMIT + ARCHIVED_ITEM_LIMIT):
+            for entry in nodes:
                 entry = _obj(entry, "card")
                 content = _obj(entry.get("content"), "card.content")
                 if not content:  # a pull request or draft card is not an issue of ours
@@ -1363,11 +1406,7 @@ class GitHub(Forge):
                     _str(entry, "id", "card"), _str(_obj(content.get("repository"), "card.repository"), "nameWithOwner", "card.repository"),
                     _int(content, "number", "card.content"), values.get(STATUS_FIELD, ""), values.get(PRIORITY_FIELD, ""),
                 ))
-            info = _obj(listing.get("pageInfo"), "pageInfo")
-            if not _bool(info, "hasNextPage", "pageInfo"):
-                return tuple(cards)
-            cursor = _str(info, "endCursor", "pageInfo")
-        raise ForgeRejected(200, f"more than {MAX_PAGES} pages of cards; refusing a truncated listing")
+        return tuple(cards)
 
     @override
     def delete_card(self, board: Board, card_id: str) -> None:
@@ -1401,22 +1440,22 @@ class GitHub(Forge):
 
     def _owner_projects(self) -> tuple[str, list[_Project]]:
         projects: list[_Project] = []
-        cursor: str | None = None
-        for _ in range(MAX_PAGES):
-            data = self._wire.graphql(_OWNER_PROJECTS, {"owner": self._owner, "cursor": cursor})
+        owner_id = ""
+
+        def listing(data: dict[str, Any]) -> dict[str, Any]:
+            nonlocal owner_id
             if data.get("repositoryOwner") is None:
                 raise ForgeRejected(404, f"owner {self._owner} not found")
             owner = _obj(data["repositoryOwner"], "repositoryOwner")
-            listing = _obj(owner.get("projectsV2"), "projectsV2")
-            for node in _array(listing.get("nodes"), "projectsV2.nodes"):
+            owner_id = _str(owner, "id", "repositoryOwner")
+            return _obj(owner.get("projectsV2"), "projectsV2")
+
+        for nodes in self._pages(_OWNER_PROJECTS, {"owner": self._owner}, listing, "projects", MAX_PAGES * PAGE):
+            for node in nodes:
                 project = parse_project(node)
                 projects.append(project)
                 self._raw_projects[project.number] = _obj(node, "project")
-            info = _obj(listing.get("pageInfo"), "pageInfo")
-            if not _bool(info, "hasNextPage", "pageInfo"):
-                return _str(owner, "id", "repositoryOwner"), projects
-            cursor = _str(info, "endCursor", "pageInfo")
-        raise ForgeRejected(200, f"more than {MAX_PAGES} pages of projects; refusing a truncated listing")
+        return owner_id, projects
 
     def _project_title(self) -> str:
         title = self.mirror.options.get("project_title")

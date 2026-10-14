@@ -135,7 +135,10 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   is repainted only while it still has a default colour (`ededed`, empty, `000000`, GitLab's `428bca`) and keeps its description;
   a colour a human picked is never overwritten and no label is ever renamed or deleted here. A create that is not visible afterwards fails that item (`LabelNotPersisted`, reported against it).
 - `read_board_cards(board)` lists every card (id, repository, issue number, Status, Priority) or raises `Unsupported`; a listing
-  past the page cap raises instead of truncating. `qew.board_cards.local_cards` is the one reading rule: cards of another
+  past GitHub's project cap (50,000 items plus 10,000 archived) raises instead of truncating, naming the cap. GitHub listings
+  (projects, board items, cards) take a page size of 100; GitHub's 500,000-node refusal halves it down to 5 and asks again, and a
+  refusal at 5 fails naming the node limit and the listing. `tests/test_graphql_limits_walk.py` estimates every query's nodes and
+  fails above 100,000. `qew.board_cards.local_cards` is the one reading rule: cards of another
   repository are ignored (a shared board's numbers collide), one card id seen twice is a pagination overlap, two ids for one
   issue is an error naming both (exit 1). `delete_card(board, card_id)` removes a card and never touches its issue.
 - Milestones (opt-in per target, see commands.md `sync`): `find_milestone(title)`, `create_milestone`, `update_milestone`,
