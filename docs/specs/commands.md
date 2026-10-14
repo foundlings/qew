@@ -583,7 +583,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   are listed and skipped (an item another actor holds is reported with the exact `qew complete ITEM --take-over`
   command, never touched); a failed gate is reported per item and exits 2. A pull request merged into a branch other
   than the configured target leaves its items `still open`; a merge head that is not a commit id is exit 4 and writes
-  nothing; a run that landed nothing prints `nothing to land`. `--json`: `{state, landed, held: [{id, holder}], clean,
+  nothing; a run that landed nothing prints `nothing to land` (`nothing to land: all covered items complete` when every covered item is already finished; exit 0). `land` does not apply the opener rule of the other `pr` commands: it checks the holder of each item itself, so any actor may run it and only items it holds (or `--integrator` names) are touched. `--json`: `{state, landed, held: [{id, holder}], clean,
   open, schema_version}`. `--integrator --reason TEXT` is for the one who merged: it also lands the items another actor
   holds, on the `complete --take-over` path (evidence recorded for the holder, the completion event carrying the holder
   and `integrator landed pr #N (held by HOLDER): TEXT`); `--reason` alone, or `--integrator` without it, is exit 2, and an

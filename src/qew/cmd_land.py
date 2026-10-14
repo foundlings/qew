@@ -67,7 +67,7 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
         raise QewError("--integrator needs --reason TEXT: say why the merger lands items another actor claimed", 2)
     if reason is not None and not integrator:
         raise QewError("--reason is only for --integrator", 2)
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, owned=False)  # the holder is checked per item below, not per pull request
     with forge_errors(loaded.record.target):
         pull = loaded.forge.read_pull_request(number)
     if pull.state != "merged":
@@ -94,7 +94,8 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
             takeover = f"integrator landed pr #{number} (held by {owner}): {reason}" if owner != actor() and integrator else None
             result.failures += _land_one(config, loaded, item_id, pull.head_sha, result, takeover)
     if not result.landed and not result.failures:
-        result.lines.append("nothing to land")
+        everything_done = bool(result.clean) and len(result.clean) == len(loaded.record.items)
+        result.lines.append("nothing to land: all covered items complete" if everything_done else "nothing to land")
     return result
 
 
