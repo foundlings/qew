@@ -52,6 +52,7 @@ class Replication:
     sync_budget_s: float = 20.0
     forge_concurrency: int = 4  # forge writes in flight at once during a sync (1: one at a time)
     divergences: str = "ledger"  # "ledger": sync undoes forge-side changes itself (the ledger is the truth); "report": they wait for accept or reject
+    sync_limit: int = 300  # pending writes an unscoped `qew sync` makes before it asks for --all or a scope (0: no limit)
     forge_failure_limit: int = 5  # consecutive items failing on a 5xx or a lost connection before a sync stops the target
     branch: str = "main"
 
@@ -62,7 +63,7 @@ class Replication:
 
 _REPLICATION_KEYS: dict[str, type | tuple[type, ...]] = {
     "auto_commit": bool, "auto_push": bool, "auto_forge_sync": bool, "background_sync": bool,
-    "timeout_s": (int, float), "fetch_interval_s": (int, float), "sync_retry_s": (int, float), "sync_budget_s": (int, float), "forge_concurrency": int, "forge_failure_limit": int, "divergences": str, "branch": str,
+    "timeout_s": (int, float), "fetch_interval_s": (int, float), "sync_retry_s": (int, float), "sync_budget_s": (int, float), "forge_concurrency": int, "forge_failure_limit": int, "sync_limit": int, "divergences": str, "branch": str,
 }
 
 
@@ -81,6 +82,8 @@ def _replication(section: object) -> Replication:
         raise QewError("[replication] forge_concurrency must be between 1 and 32", 1)
     if "divergences" in section and section["divergences"] not in ("ledger", "report"):
         raise QewError('[replication] divergences must be "ledger" or "report"', 1)
+    if "sync_limit" in section and not 0 <= section["sync_limit"] <= 1_000_000:
+        raise QewError("[replication] sync_limit must be between 0 and 1000000", 1)
     if "forge_failure_limit" in section and not 1 <= section["forge_failure_limit"] <= 1000:
         raise QewError("[replication] forge_failure_limit must be between 1 and 1000", 1)
     return Replication(**section)

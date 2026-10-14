@@ -7,8 +7,9 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from collections.abc import Callable, Sequence
 
-from qew import trace, claim_reconcile, cmd_divergence, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, syncworker
+from qew import trace, claim_reconcile, cmd_divergence, forge_registry, instants, label_prune, ledger_check, ledger_config, replication, sync_plan, sync_scope, syncworker
 from qew.cmd_items import ledger_for
+from qew.cmd_read import limit_type
 from qew.errors import QewError
 from qew.forge import Forge, ForgeError
 from qew.ledger_config import Config, Mirror
@@ -23,6 +24,12 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     sync.add_argument("--item", action="append", help="only this item (repeatable): the cheap pass the background worker runs after writes")
     sync.add_argument("--full", action="store_true", help="re-read every issue from the forge, ignoring the pull cursor and cached pages")
     sync.add_argument("--dry-run", action="store_true", help="show what would change; reads the forge listing but writes nothing (with --prune-labels: deletes nothing)")
+    sync.add_argument("--all", action="store_true", help="write every pending item even when that is more than [replication] sync_limit (default 300)")
+    sync.add_argument("--since", help="only items with an event since this UTC instant or date (the targeted pass: no whole-board read, no pruning)")
+    sync.add_argument("--author", help="only items this person created")
+    sync.add_argument("--owner", help="only items this person currently holds")
+    sync.add_argument("--tree", help="only this item and everything below it")
+    sync.add_argument("--limit", type=limit_type, default=0, help="write at most N pending items, parents first; a rerun continues (0 = no cap)")
     sync.add_argument("--prune-labels", action="store_true",
                       help="instead of syncing, delete the labels qew retired from the target(s): prefixes converted to fields, and its own qew: kind: priority: status: author: labels it no longer emits (never a label that is merely unused)")
 
@@ -32,8 +39,8 @@ def run(arguments: argparse.Namespace) -> bool:
         return False
     config = ledger_config.load()
     if arguments.prune_labels:
-        if arguments.item or arguments.full:
-            raise QewError("--prune-labels works on whole targets; it takes neither --item nor --full", 2)
+        if arguments.item or arguments.full or scope_of(arguments) != sync_scope.Scope():
+            raise QewError("--prune-labels works on whole targets; it takes neither --item, --full nor a scope flag", 2)
         mirrors = choose(mirrors_with_boards(ledger_for(config), config), arguments.target)
         print(label_prune.prune(ledger_for(config), config, mirrors, arguments.dry_run) if mirrors else "no mirror targets configured")
         return True
@@ -41,8 +48,13 @@ def run(arguments: argparse.Namespace) -> bool:
         syncworker.run_worker(config, lambda: _worker_round(config, arguments))
         return True
     print(sync_command(config, arguments.target, arguments.item, arguments.dry_run, tick=replication.checkpoint,
-                        full=arguments.full))
+                        full=arguments.full, scope=scope_of(arguments)))
     return True
+
+
+def scope_of(arguments: argparse.Namespace) -> sync_scope.Scope:
+    since = instants.require_window_start(arguments.since) if arguments.since else None
+    return sync_scope.Scope(arguments.all, since, arguments.author or "", arguments.owner or "", arguments.tree or "", arguments.limit)
 
 
 def _worker_round(config: Config, arguments: argparse.Namespace) -> bool:
@@ -54,8 +66,15 @@ def _worker_round(config: Config, arguments: argparse.Namespace) -> bool:
     queued = syncworker.take_queue(config)
     items = arguments.item or ([] if syncworker.catch_up_pending(config) else queued)
     try:
-        print(sync_command(config, arguments.target, items or None, False, tick=replication.checkpoint, full=arguments.full))
+        print(sync_command(config, arguments.target, items or None, False, tick=replication.checkpoint, full=arguments.full,
+                           scope=scope_of(arguments)))
         return True
+    except sync_scope.SyncTooLarge as error:
+        # the catch-up is too big to run unattended: say so loudly, and still mirror the writes that just happened
+        print(f"qew: {error}")
+        if queued:
+            print(sync_command(config, arguments.target, queued, False, tick=replication.checkpoint, full=arguments.full))
+        return False
     except QewError as error:
         print(f"qew: {error}")
         return False
@@ -87,9 +106,10 @@ def choose(mirrors: list[Mirror], wanted: str | None) -> list[Mirror]:
 def sync_command(config: Config, wanted: str | None, item: None | str | Sequence[str], dry_run: bool,
                  build: Callable[[Mirror], Forge] = forge_registry.build, budget_s: float | None = None,
                  tick: Callable[[], None] | None = None, full: bool = False,
-                 clock: Callable[[], datetime] = instants.now) -> str:
+                 clock: Callable[[], datetime] = instants.now, scope: sync_scope.Scope = sync_scope.Scope()) -> str:
     ledger = ledger_for(config)
     items = [item] if isinstance(item, str) else list(item or ())
+    named = list(items)
     # Contradictions and unsafe actor names are reported by `qew check` but must never stop mirroring.
     with trace.phase("ledger check"):
         problems = [p for p in ledger_check.check(ledger, deep=False) if not p.startswith("contradiction:") and "actor is not a single token" not in p]
@@ -107,6 +127,24 @@ def sync_command(config: Config, wanted: str | None, item: None | str | Sequence
                     raise QewError(lost, 3)
                 return output
         return "no mirror targets configured"
+    if scope.narrows or scope.limit:
+        snapshot = ledger.snapshot()
+        picked = sync_scope.chosen(ledger, snapshot, items, scope)
+        if scope.limit and picked:
+            pending = pending_by_target(ledger, mirrors, picked)
+            picked = list(dict.fromkeys(i for rows in pending.values() for _action, i in rows))[:scope.limit]
+            if not picked:
+                return "nothing to sync in the scope"
+        if not picked:
+            return "no item matches the scope"
+        items = picked
+    limit = config.replication.sync_limit
+    if limit and sync_scope.needs_limit(scope, named):
+        count = sum(len(rows) for rows in pending_by_target(ledger, mirrors, items or None).values())
+        if count > limit:
+            if not dry_run:
+                raise sync_scope.refuse(count, len(mirrors), limit)
+            return plan(ledger, mirrors, items, build) + f"\nnote: {count} writes pending, more than sync_limit ({limit}); a real sync needs --all or a scope"
     if dry_run:
         return plan(ledger, mirrors, items, build)
     lines = []

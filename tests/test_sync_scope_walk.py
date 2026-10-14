@@ -100,12 +100,14 @@ class SyncScopeWalk(unittest.TestCase):
 
     def test_dry_run_with_a_scope_lists_only_that_scope_and_is_never_refused(self) -> None:
         """Prevents a plan that shows more than the real run would write, or a refused preview."""
+        self.lower_limit()
         scoped = self.world.run("sync", "--dry-run", "--tree", self.epic)
         self.assertEqual(scoped.returncode, 0, scoped.stderr)
         self.assertEqual(sum("create" in line for line in scoped.stdout.splitlines()), 3)
         everything = self.world.run("sync", "--dry-run")
         self.assertEqual(everything.returncode, 0, everything.stderr)
         self.assertEqual(sum("create" in line for line in everything.stdout.splitlines()), 5)
+        self.assertIn("sync_limit", everything.stdout)
 
     def test_a_bad_since_is_a_usage_error(self) -> None:
         """Prevents a typo in the window from meaning 'everything'."""
