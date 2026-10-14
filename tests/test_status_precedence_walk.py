@@ -26,14 +26,14 @@ class StatusPrecedenceWalk(unittest.TestCase):
         self.assertEqual(w.run("draft", "revert", item, "--reason", "not yet", "--quote", QUOTE).returncode, 0)
         self.assertEqual(self.status(item), "Draft")
 
-    def test_closed_work_is_done_even_when_it_was_a_draft(self) -> None:
+    def test_closed_work_is_closed_even_when_it_was_a_draft(self) -> None:
         """Prevents stale Draft or Ready cards for work that was closed."""
         w = self.world
         draft = w.create("--title", "never approved", "--draft")
         approved = w.create("--title", "approved", "--quote", QUOTE)
         for item in (draft, approved):
             self.assertEqual(w.run("close", item, "--reason", "not_planned").returncode, 0)
-            self.assertEqual(self.status(item), "Done")
+            self.assertEqual(self.status(item), "Closed")
 
 
 if __name__ == "__main__":

@@ -191,7 +191,7 @@ select = "kind:epic"
 - `qew start` (claim), `qew release`, `qew evidence ID --change ...`, `qew complete ID`, `qew close`
 - `qew draft list|approve|revert`
 - `qew sync [--target ...]` (push ledger → forges, record mirrors; pull forge numbers only)
-- `qew project ensure` (board with Draft / Ready / In progress / In review / Done per mirror target)
+- `qew project ensure` (board with Draft / Ready / In progress / In review / Done / Closed per mirror target)
 - `qew hook install` (claude, codex, cursor, opencode; flags pick a subset)
 - `qew check` (validate ledger: schema, cycles, dangling needs, illegal state) — exit non-zero
 - `qew import` is NOT in qew: project-specific converters live in the project repo and emit items via `qew create --from-file`.
@@ -222,7 +222,7 @@ select = "kind:epic"
   `qew ready` orders by priority, then the longest chain of unfinished work an item unblocks, then its direct
   unfinished dependents, then id. A needs cycle below ready work is refused (exit 1), never skipped.
 - Board columns: Draft = not startable (draft or blocked), Ready, In progress (claimed), In review (claimed with a
-  pull request mirror), Done (completed or closed).
+  pull request mirror), Done (completed), Closed (closed: not planned, duplicate or superseded).
 - Forge issue bodies start with `<!-- qew:ID -->`; sync adopts an issue found by that marker when a crash lost
   the mirror file. Sync replaces an issue's whole label set with the item's labels plus `P0`..`P4`
   (the priority, larger values clamp to `P4`), `author:LOGIN` (the forge login the mirror maps the author to, `[forge] login` / `assignees`, else the author's own name), `epic` / `task` for those kinds (a plain issue has no kind

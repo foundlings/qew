@@ -76,15 +76,17 @@ def topological(snapshot: Snapshot, ids: list[str]) -> list[str]:
     return order
 
 
-DRAFT, BACKLOG, READY, NEEDS_APPROVAL, GATED, IN_PROGRESS, IN_REVIEW, DONE = COLUMNS
+DRAFT, BACKLOG, READY, NEEDS_APPROVAL, GATED, IN_PROGRESS, IN_REVIEW, DONE, CLOSED = COLUMNS
 
 
 def column(snapshot: Snapshot, item_id: str) -> str:
     """The Status of an item, first match wins; the one derivation shared by sync, the board and `ready`."""
     item = snapshot.items[item_id]
     state = snapshot.folds[item_id].state
-    if state in (State.COMPLETED, State.CLOSED):
+    if state == State.COMPLETED:
         return DONE
+    if state == State.CLOSED:
+        return CLOSED  # not planned, duplicate or superseded: never shown beside delivered work
     if state == State.DRAFT or state is None:
         return DRAFT
     rolled = _rolled_up(snapshot, item_id)

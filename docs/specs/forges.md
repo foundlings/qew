@@ -33,8 +33,8 @@ feature needs no GitLab scenario. `tests/test_forge_priority_walk.py` holds the 
 - Repo URLs name the project: `https://host/owner/repo`; GitLab namespaces may nest (`group/sub/repo`).
 
 ## Board columns
-The eight Status values (`forge.COLUMNS`): `Draft`, `Backlog`, `Ready`, `Needs approval`, `Gated`, `In progress`,
-`In review`, `Done`, derived by `sync_plan.column`, first match wins: completed or closed -> Done; draft -> Draft;
+The nine Status values (`forge.COLUMNS`): `Draft`, `Backlog`, `Ready`, `Needs approval`, `Gated`, `In progress`,
+`In review`, `Done`, `Closed`, derived by `sync_plan.column`, first match wins: completed -> Done; closed (not planned, duplicate or superseded) -> Closed, so work dropped never sits beside work delivered; draft -> Draft;
 epic -> the subtree's column (below), else Backlog; label `needs:approval` -> Needs approval (outranks
 claim, review and blockers); label `gated` -> Gated (work blocked on something outside the repository: keys, credentials, hardware, a live account; same precedence, next after needs:approval; added with `qew set ITEM --add-label gated --reason TEXT`, the reason kept as a comment `gated: TEXT`); open linked pull request mirror (recorded state not merged or closed) -> In review;
 claimed -> In progress; the subtree's column (below); approved with every need completed -> Ready; else Backlog.
@@ -48,7 +48,7 @@ the board is exactly what it lists. Colors and descriptions: `forge.STATUS_OPTIO
   creates one (titled by the mirror option `project_title`, default the repo name) with a `Status`
   single-select field holding these options (with colors and descriptions), a `Priority` field (P0-P4) and the views in `forge.BOARD_VIEWS`; `place_on_board` adds the issue (by `node_id`) and sets Status.
 - GitLab: issue board (REST) whose lists are the scoped labels `board::<Column>`; placing sets that label and the scoped `priority::P0`-`P4` label, and `update_issue` leaves both scopes alone.
-- Forgejo/Gitea: no stable board API: `ensure_board` raises `Unsupported`; the labels sync adds are the view (`qew:<state>`, `status:<Status>` carrying the eight-status model, `priority:N`, `kind:K`, `qew:managed`).
+- Forgejo/Gitea: no stable board API: `ensure_board` raises `Unsupported`; the labels sync adds are the view (`qew:<state>`, `status:<Status>` carrying the nine-status model, `priority:N`, `kind:K`, `qew:managed`).
 
 ## Rate limits
 A 429, or a 403 carrying `Retry-After` or an exhausted `X-RateLimit-Reset` (or naming a rate limit), is
