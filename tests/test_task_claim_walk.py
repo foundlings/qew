@@ -53,11 +53,14 @@ class TaskClaimWalk(unittest.TestCase):
         self.assertEqual(self.world.run("start", self.task, env={**ENV, "QEW_ACTOR": "rival"}).returncode, 0)
 
     def test_a_task_with_no_mirrored_ancestor_still_says_what_to_do(self) -> None:
-        """Prevents a silent failure: with nothing mirrored above it the refusal names the missing issue."""
+        """Prevents the misleading `run qew sync` hint: a parentless task is never mirrored, so the refusal names that cause and the remedy."""
         orphan = self.world.create("--kind", "task", "--title", "Floating", "--quote", QUOTE)
         refused = self.world.run("start", orphan, env=ENV)
         self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
-        self.assertIn("no issue", refused.stderr)
+        self.assertIn(f"{orphan} is a task", refused.stderr)
+        self.assertIn("not mirrored", refused.stderr)
+        self.assertIn(f"qew set {orphan} --parent", refused.stderr)
+        self.assertNotIn("qew sync", refused.stderr)
 
 
 if __name__ == "__main__":
