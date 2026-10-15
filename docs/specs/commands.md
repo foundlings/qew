@@ -213,7 +213,7 @@ shape prime: additional_context context_bytes schema_version
   no `qew show` is needed to begin. Another actor's claim is exit 3 naming the holder and
   `--take-over`; your own claim is exit 5 (no event) when the lane matches, exit 3 naming the lane when it does
   not; draft, blocked, completed or closed work is exit 2. `--take-over` writes a forced `released` event naming the
-  previous owner and a `claimed` event in one command, only for work that may start and is held by another actor.
+  previous owner and a `claimed` event in one command, only for work held by another actor. A take-over moves a claim, so it does not re-check readiness: work that gained an open need after it was claimed changes hands with its needs untouched (blockers gate starting, not handing over).
   A lane (`A-Za-z0-9._-`, 1 to 64, no `--`) tells lanes of one actor apart; `--workspace` (absolute path) and
   `--kind` need `--lane`. The lane guards `start` and `release` only, as good-faith tooling, not access control.
   After the write is merged with the ledger remote, a claim that lost to an older one exits 3 naming the winner.
