@@ -121,7 +121,7 @@ def start(config: Config, reference: str, take_over: bool = False, reason: str |
         raise QewError(f"nothing to take over: {item_id} is unclaimed", 2)
     elif folded.state != State.APPROVED:
         raise _refuse_state(snapshot, item_id, "start")
-    unmet = ledger_graph.blockers(snapshot, item_id)
+    unmet = [] if take_over else ledger_graph.blockers(snapshot, item_id)  # needs gate starting work, not a claim changing hands
     if unmet:
         raise QewError(f"cannot start {item_id}: it needs {' '.join(unmet)} completed first", 2)
     fields = {key: value for key, value in (("lane", lane), ("workspace", workspace), ("kind", kind)) if value is not None}

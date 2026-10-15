@@ -49,17 +49,17 @@ class TakeOverWalk(unittest.TestCase):
         self.assertIn("nothing to take over", unclaimed.stderr)
         self.assertEqual(tree(w), before)
 
-    def test_take_over_never_frees_work_that_may_not_start(self) -> None:
-        """Prevents freeing a claim and then failing to claim it: the item gained an unmet need after the claim."""
+    def test_take_over_of_work_with_an_open_need_records_the_reason_and_the_previous_holder(self) -> None:
+        """Prevents a handoff losing who held the claim and why, when the work gained an open need after the claim."""
         w = self.world
         item = started(w)
         blocker = approved(w, title="Blocker")
         self.assertEqual(w.run("set", item, "--needs", blocker).returncode, 0)
-        before = tree(w)
-        result = w.run("start", item, "--take-over", "--reason", "x", env=BOB)
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn(blocker, result.stderr)
-        self.assertEqual(tree(w), before)
+        result = w.run("start", item, "--take-over", "--reason", "handoff", env=BOB)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        released = [e for e in w.events(item) if e["type"] == "released"][-1]
+        self.assertEqual((released["reason"], released["previous_owner"], released["forced"]), ("handoff", "tester", True))
+        self.assertIn(blocker, w.run("show", item).stdout)
 
 
 class LaneWalk(unittest.TestCase):
