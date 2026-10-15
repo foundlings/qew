@@ -77,6 +77,28 @@ class StartWalk(unittest.TestCase):
             self.assertIn(fragment, result.stderr)
         self.assertEqual(tree(w), before)
 
+    def test_a_takeover_moves_a_claim_whose_needs_are_open_and_leaves_the_needs_alone(self) -> None:
+        """Prevents a handoff of claimed work being refused because it needs something still open."""
+        w = self.world
+        need = approved(w, title="Open on purpose")
+        item = started(w, title="Stacked")
+        self.assertEqual(w.run("block", item, "--on", need).returncode, 0)
+        result = w.run("start", item, "--take-over", "--reason", "handoff from tester", env=BOB)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        shown = w.run("show", item).stdout
+        self.assertIn("claimed", shown)
+        self.assertIn("bob", shown)
+        self.assertIn(need, shown)
+
+    def test_a_plain_start_of_unclaimed_work_with_open_needs_is_still_refused(self) -> None:
+        """Prevents the handoff exception opening readiness for work nobody holds."""
+        w = self.world
+        need = approved(w, title="Open")
+        item = approved(w, "--needs", need, title="Blocked")
+        result = w.run("start", item)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("needs", result.stderr)
+
 
 class ReleaseWalk(unittest.TestCase):
     def setUp(self) -> None:
