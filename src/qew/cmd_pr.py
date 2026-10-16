@@ -70,6 +70,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     labelled.add_argument("number", type=int, help="pull request number")
     labelled.add_argument("--add", action="append", default=[], metavar="LABEL", help="label to add, repeatable")
     labelled.add_argument("--remove", action="append", default=[], metavar="LABEL", help="label to remove, repeatable")
+    labelled.add_argument("--on-behalf-of", metavar="ACTOR", help="label as this actor would: allowed only where ACTOR could label the pull request (its opener, or the holder of its claims)")
     labelled.add_argument("--target", help=_TARGET_HELP)
     labelled.add_argument("--json", action="store_true", help="machine-readable output")
     closed = sub.add_parser("close", help="close an unmerged pull request without merging it")
@@ -120,7 +121,7 @@ def run(arguments: argparse.Namespace) -> bool:
     elif command == "close":
         print(close_pull_request(config, arguments.number, arguments.target, item=arguments.item, reason=arguments.reason).render(arguments.json))
     elif command == "label":
-        print(label_pull_request(config, arguments.number, arguments.add, arguments.remove, arguments.target).render(arguments.json))
+        print(label_pull_request(config, arguments.number, arguments.add, arguments.remove, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "sync":
         if arguments.items:
             print(sync_items(config, arguments.number, arguments.target))
@@ -184,18 +185,18 @@ class Loaded:
 
 def load(
     config: Config, number: int, target: str | None, build: Build | None,
-    reason: str = "", merging: bool = False, owned: bool = True,
+    reason: str = "", merging: bool = False, owned: bool = True, on_behalf_of: str | None = None,
 ) -> Loaded:
     """The recorded pull request, after the ownership rule (exit 3) and a readable-history check (exit 4).
 
-    A read-only command passes `owned=False`: anyone may look.
+    A read-only command passes `owned=False`: anyone may look. `on_behalf_of` judges the rule for that actor instead of the caller.
     """
     pr_record.positive_number(number)
     ledger = ledger_for(config)
     record = pr_record.find(ledger, number, target)
     snapshot = ledger.snapshot()
     states = pr_record.known_states(snapshot, record)
-    note = pr_record.require_owner(snapshot, record, states, actor(), reason, merging) if owned else ""
+    note = pr_record.require_owner(snapshot, record, states, on_behalf_of or actor(), reason, merging) if owned else ""
     forge = _build(build, mirror_for(config, ledger, record.target))
     return Loaded(snapshot, record, states, forge, note)
 
@@ -542,17 +543,17 @@ def _label_name(name: str) -> str:
 
 def label_pull_request(
     config: Config, number: int, add: list[str], remove: list[str], target: str | None, build: Build | None = None,
-    sleep: Callable[[float], None] | None = None,
+    sleep: Callable[[float], None] | None = None, on_behalf_of: str | None = None,
 ) -> Labelled:
-    """Add and remove labels on a recorded pull request (same ownership as ready), keeping every other label, and succeed only
-    once the forge shows the wanted set."""
+    """Add and remove labels on a recorded pull request (same ownership as ready, judged for `on_behalf_of` when given), keeping
+    every other label, and succeed only once the forge shows the wanted set."""
     adding, removing = [_label_name(n) for n in dict.fromkeys(add)], [_label_name(n) for n in dict.fromkeys(remove)]
     if not adding and not removing:
         raise QewError("name labels to --add or --remove", 2)
     clash = sorted(set(adding) & set(removing))
     if clash:
         raise QewError(f"{', '.join(clash)} is both added and removed", 2)
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     forge = loaded.forge
     with forge_errors(loaded.record.target):
         before = forge.read_pull_request(number)
