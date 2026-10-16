@@ -43,6 +43,17 @@ class PrLabelWalk(unittest.TestCase):
         self.assertEqual(run.code, 3, run)
         self.assertEqual(self.labels(), ())
 
+    def test_a_coordinator_labels_on_behalf_of_the_owner_only_when_the_owner_could(self) -> None:
+        """Prevents the ownership rule forcing a coordinator to take over items just to relabel: `--on-behalf-of` borrows the owner's
+        standing, so naming someone who could not label the pull request is still refused and nothing changes."""
+        done = self.w.qew("pr", "label", "1", "--add", "elf2", "--on-behalf-of", "tester", actor="coordinator")
+        self.assertEqual(done.code, 0, done)
+        self.assertEqual(self.labels(), ("elf2",))
+        refused = self.w.qew("pr", "label", "1", "--add", "elf9", "--on-behalf-of", "stranger", actor="coordinator")
+        self.assertEqual(refused.code, 3, refused)
+        self.assertIn("stranger", refused.err)
+        self.assertEqual(self.labels(), ("elf2",))
+
     def test_a_forge_that_accepts_but_does_not_apply_is_reported_not_recorded(self) -> None:
         """Prevents a false success: the readback shows no label, so the command fails with exit 4."""
         self.w.forge.label_write_ignored = True
