@@ -24,11 +24,11 @@ PENDING: list[tuple[str, str]] = []  # (item id, claimed event id) awaiting the 
 
 
 def claim_comment(item_id: str, owner: str, nonce: str) -> str:
-    return f"<!-- qew:claim {item_id} {owner} {nonce} -->"
+    return f"<!-- qew:claim {item_id} {owner} {nonce} -->\n{owner} claimed {item_id}."  # visible text: a lone HTML comment renders as an empty card
 
 
 def release_comment(item_id: str) -> str:
-    return f"<!-- qew:release {item_id} -->"
+    return f"<!-- qew:release {item_id} -->\nReleased {item_id}."
 
 
 def holder(comments: list[RemoteComment], item_id: str) -> tuple[str, str] | None:

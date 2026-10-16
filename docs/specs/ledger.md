@@ -386,9 +386,9 @@ offline work never produces two owners. GitHub and Forgejo/Gitea are first-class
 
 - **Primary forge per ledger.** `.qew/config.toml` `[authority] primary = "<target slug>" | "none"` (default `none`).
   - `primary = <target>`: that forge arbitrates CLAIMS. `qew start` needs it online and makes an atomic reservation
-    there: qew posts a claim comment `<!-- qew:claim ITEM OWNER NONCE -->` on the mirrored issue and re-reads the
+    there: qew posts a claim comment `<!-- qew:claim ITEM OWNER NONCE -->` plus a visible line (`OWNER claimed ITEM.`, so GitHub shows no empty card) on the mirrored issue and re-reads the
     comments; the earliest claim comment (forge order, not timestamps) wins. A lost race writes nothing and refuses.
-    On success the ledger gets `claimed` plus `claim_confirmed`. Release posts `<!-- qew:release ITEM -->`.
+    On success the ledger gets `claimed` plus `claim_confirmed`. Release posts `<!-- qew:release ITEM -->` and `Released ITEM.`.
     An unreachable primary refuses `start` unless the offline override is used (see Offline claims).
   - `primary = "none"`: the LEDGER REMOTE arbitrates. `start` writes `claimed`, pushes, and the claim counts once the
     push lands (`claim_confirmed`). A rejected push fetches and merges; if another claim for the item is already
