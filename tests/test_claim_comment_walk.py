@@ -56,6 +56,15 @@ class ClaimCommentWalk(unittest.TestCase):
         rival = self.world.run("start", self.item, env={**ENV, "QEW_ACTOR": "rival"})
         self.assertNotEqual(rival.returncode, 0, rival.stdout + rival.stderr)
 
+    def test_a_pull_keeps_arbitration_markers_out_of_the_ledger_but_imports_a_human_comment(self) -> None:
+        """Prevents claim and release markers cluttering `qew show` as discussion while a real comment still comes in."""
+        self.assertEqual(self.world.run("start", self.item, env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("release", self.item, "--reason", "pause", env=ENV).returncode, 0)
+        self.fake.add_comment(1, "bob", "a human remark")
+        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        texts = [e["text"] for e in self.world.events(self.item) if e["type"] == "commented"]
+        self.assertEqual(texts, ["a human remark"])
+
 
 if __name__ == "__main__":
     unittest.main()
