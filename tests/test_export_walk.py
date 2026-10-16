@@ -106,6 +106,32 @@ class ExportWalk(unittest.TestCase):
         self.assertEqual(neither.returncode, 2)
         self.assertIn("a directory or --json", neither.stderr)
 
+    def test_an_epic_that_needs_its_own_child_exports_and_round_trips(self) -> None:
+        """Prevents a false 'parent edges form a cycle': parent and need edges pointing opposite ways is a legal graph."""
+        w = self.world
+        self.assertEqual(w.run("set", "Z", "--needs", "A").returncode, 0)
+        exported = w.run("export", "--json")
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        target = World()
+        self.addCleanup(target.close)
+        created = target.run("create", "--from-file", "-", stdin=exported.stdout)
+        self.assertEqual(created.returncode, 0, created.stderr)
+        self.assertEqual(read(target.ledger / "items" / "Z" / "item.md"), read(w.ledger / "items" / "Z" / "item.md"))
+        self.assertEqual(w.run("export", str(self.out)).returncode, 0)
+
+    def test_a_real_parent_cycle_is_still_refused_in_both_forms(self) -> None:
+        """Prevents the false-cycle fix letting a genuine parent loop export into a broken ledger."""
+        w = self.world
+        path = w.ledger / "items" / "Z" / "item.md"
+        text = read(path)
+        self.assertRegex(text, r"(?m)^parent:")
+        path.write_text(re.sub(r"(?m)^parent:.*$", "parent: A", text))
+        for arguments in (["--json"], [str(self.out)]):
+            refused = w.run("export", *arguments)
+            self.assertEqual(refused.returncode, 1, refused.stdout)
+            self.assertIn("cycle", refused.stderr)
+        self.assertFalse(self.out.exists())
+
 
 class ExportJsonWalk(unittest.TestCase):
     def test_export_json_round_trips_through_create_from_file(self) -> None:
