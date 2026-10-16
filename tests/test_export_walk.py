@@ -116,7 +116,7 @@ class ExportWalk(unittest.TestCase):
         self.addCleanup(target.close)
         created = target.run("create", "--from-file", "-", stdin=exported.stdout)
         self.assertEqual(created.returncode, 0, created.stderr)
-        self.assertEqual(read(target.ledger / "items" / "Z" / "item.md"), read(w.ledger / "items" / "Z" / "item.md"))
+        self.assertEqual(target.run("export", "--json").stdout, exported.stdout)
         self.assertEqual(w.run("export", str(self.out)).returncode, 0)
 
     def test_a_real_parent_cycle_is_still_refused_in_both_forms(self) -> None:
