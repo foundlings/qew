@@ -23,6 +23,11 @@ POSTED: list[str] = []  # items whose won claim this command put on the primary:
 PENDING: list[tuple[str, str]] = []  # (item id, claimed event id) awaiting the ledger remote's verdict; one command may claim several
 
 
+def is_marker_comment(body: str) -> bool:
+    """True for a comment qew itself posted to arbitrate a claim: it begins with the claim or release marker."""
+    return _MARK.match(body) is not None
+
+
 def claim_comment(item_id: str, owner: str, nonce: str) -> str:
     return f"<!-- qew:claim {item_id} {owner} {nonce} -->\n{owner} claimed {item_id}."  # visible text: a lone HTML comment renders as an empty card
 
