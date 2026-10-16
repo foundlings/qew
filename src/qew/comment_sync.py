@@ -1,6 +1,6 @@
 """Comments, both ways, between a ledger item and its forge issue.
 
-Pull runs first (as for everything else): a forge comment we pushed is recognised by its marker and never imported; a human's
+Pull runs first (as for everything else): a forge comment we pushed is recognised by its marker and never imported, nor is a claim or release marker comment (arbitration, not discussion); a human's
 comment becomes a `commented` event; an edit or delete of any linked comment becomes `comment_edited` / `comment_deleted`
 (provenance forge). Push then writes what the ledger holds that the forge does not: new comments, edits, deletes. The link
 between a forge comment and a ledger comment is local sync state (`cmap`); a checkout without it adopts by marker.
@@ -9,7 +9,7 @@ between a forge comment and a ledger comment is local sync state (`cmap`); a che
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from qew import comment_mirror
+from qew import claim_authority, comment_mirror
 from qew.forge_text import clean_body, clean_line
 from qew.comments import comments_after
 from qew.forge import Forge, Unsupported
@@ -33,6 +33,8 @@ def pull(ledger: Ledger, snapshot: Snapshot, target: Target, report: PullReport,
     for comment in forge_comments:
         if comment.id not in ids:
             ids.append(comment.id)
+        if claim_authority.is_marker_comment(comment.body):  # arbitration, not discussion
+            continue
         marker, text = comment_mirror.parse(comment.body)
         sha = comment_mirror.digest(comment.body)
         remote_ref = f"{target.slug}#{number}/{comment.id}"
