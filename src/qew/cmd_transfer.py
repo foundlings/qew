@@ -54,21 +54,26 @@ def _require_whole_graph(snapshot: Snapshot) -> None:
     edges = {i: [n for n in item.needs] for i, item in snapshot.items.items()}
     for cycle in ledger_graph.find_cycles(edges):
         raise QewError(f"needs cycle {' -> '.join(cycle)}; fix the ledger (`qew check`) before exporting", 1)
+    parents = {i: [item.parent] if item.parent else [] for i, item in snapshot.items.items()}
+    for cycle in ledger_graph.find_cycles(parents):
+        raise QewError(f"parent cycle {' -> '.join(cycle)}; fix the ledger (`qew check`) before exporting", 1)
 
 
 def as_specs(snapshot: Snapshot) -> list[JsonObject]:
-    """Every item as a `create --from-file` object, each after the items it references (ties by id)."""
+    """Every item as a `create --from-file` object, each after the items it references (ties by id).
+
+    Parent and need edges can point opposite ways (an epic that needs its own child) without being a cycle of either
+    kind, and import creates every item before applying edges: when no item is free, the smallest id goes next."""
     remaining = {i: {*snapshot.items[i].needs, *([snapshot.items[i].parent] if snapshot.items[i].parent else [])}
                  for i in snapshot.items}
     ordered: list[str] = []
     while remaining:
         free = sorted((i for i, deps in remaining.items() if not deps), key=sort_key)
-        if not free:
-            raise QewError("parent edges form a cycle; fix the ledger (`qew check`) before exporting", 1)
-        ordered.append(free[0])
-        del remaining[free[0]]
+        chosen = free[0] if free else min(remaining, key=sort_key)
+        ordered.append(chosen)
+        del remaining[chosen]
         for deps in remaining.values():
-            deps.discard(free[0])
+            deps.discard(chosen)
     return [_spec(snapshot.items[i]) for i in ordered]
 
 
