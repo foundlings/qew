@@ -11,6 +11,7 @@ being down never blocks reading, planning or finishing work.
 - Items, dependencies, state and evidence are plain files in a ledger repository (any git or jj repo).
   Every write adds a file or edits one item's own file, so concurrent branches merge cleanly.
 - Readiness, blocked work and the dependency graph are derived from files: no network, no tokens spent.
+- Waiting on a human: `qew set ITEM --add-label needs:approval` puts an epic, plan or issue in the Needs approval column (out of `qew ready`, outranking claim and review); `qew set ITEM --remove-label needs:approval` is the acceptance that returns it.
 - `qew complete` is gated: claimed, children done, and evidence whose changes are ancestors of the target branch. `qew repair-evidence` rebuilds a missing evidence header from the events. Strict evidence is the default: a completed item shows its proof in its header (`evidence: ids`, or a typed `evidence_absent`; `qew complete --absent KIND --reason TEXT`). `qew complete --manifest FILE --quote Q` is the audited bulk exception: many approved items in one commit on a human's quoted words.
 - Only a human's quoted words release a draft to approved work.
 - Items carry named fields beside labels (`qew create --field phase=12`, `qew set --field`, `qew list --field`, `set --manifest` rows); a mirror's `project_fields` shows them as board fields (`field:NAME`), and `qew sync --prune-labels` deletes the labels qew retired. Schema 5 (`qew migrate-layout`).
