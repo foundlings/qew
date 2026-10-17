@@ -86,6 +86,14 @@ class MergeCheckWalk(unittest.TestCase):
         self.assertEqual(self.w.forge.pulls[1].state, "open")
         self.assertTrue(json.loads(self.w.qew("pr", "merge", "1", "--check", "--json").out)["mergeable"])
 
+    def test_a_passing_check_says_what_it_checked_and_not_that_the_merge_is_cleared(self) -> None:
+        """Prevents a caller's gate log reading a qew preflight as the final verdict: the line names its scope (ledger and forge
+        refusals only), says nothing was merged, and the exit code is unchanged."""
+        run = self.w.qew("pr", "merge", "1", "--check")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(run.out.strip(), "pr #1: qew merge preflight passed (ledger and forge refusals only); nothing was merged")
+        self.assertNotIn("every merge check", run.out)
+
     def test_check_lists_every_refusal_not_only_the_first(self) -> None:
         """Prevents a caller fixing one refusal at a time, one gate run each."""
         self.w.forge.edit_pull(1, body="## Progress\n\n- [ ] open box <!-- pr-progress:x -->\n")
