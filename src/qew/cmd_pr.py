@@ -141,7 +141,7 @@ def _report_check(arguments: argparse.Namespace, refusals: list[QewError]) -> bo
         rows = [{"message": str(r), "exit_code": r.exit_code} for r in refusals]
         print(json.dumps({"number": arguments.number, "mergeable": not refusals, "refusals": rows, "schema_version": SCHEMA_VERSION}, sort_keys=True))
     elif not refusals:
-        print(f"pr #{arguments.number} passes every merge check; nothing was merged")
+        print(f"pr #{arguments.number}: qew merge preflight passed (ledger and forge refusals only); nothing was merged")
     if refusals:
         if not arguments.json:
             for refusal in refusals[1:]:
