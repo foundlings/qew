@@ -67,6 +67,19 @@ class StatusModelWalk(unittest.TestCase):
         Ledger(w.ledger, "TST").write_mirror(item, "forgejo-x-pr-4", {"kind": "pr", "number": 4})
         self.assertEqual(self.status(item), "Needs approval")
 
+    def test_a_claimed_epic_waiting_on_a_human_projects_to_needs_approval_and_leaves_when_accepted(self) -> None:
+        """Prevents a plan awaiting acceptance sitting in In progress because a child is claimed, and the card staying in
+        Needs approval after the human accepts (the label is removed)."""
+        w = self.world
+        epic = self.make("--kind", "epic", "--label", "needs:approval", "--quote", QUOTE)
+        child = self.make("--kind", "issue", "--parent", epic, "--quote", QUOTE)
+        w.run("start", epic)
+        w.run("start", child)
+        self.assertEqual(self.status(epic), "Needs approval")
+        self.assertEqual(self.status(child), "In progress", "only the item that waits moves; its children keep their own column")
+        self.assertEqual(w.run("set", epic, "--remove-label", "needs:approval").returncode, 0)
+        self.assertEqual(self.status(epic), "In progress")
+
     def test_an_epic_is_backlog_until_a_child_is_claimed(self) -> None:
         """Prevents an unstartable planning container sitting in Ready."""
         w = self.world
