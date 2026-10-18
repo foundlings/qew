@@ -512,6 +512,13 @@ class FakeGitHub:
                 return {"data": {"markPullRequestReadyForReview": {"pullRequest": {"id": pull["node_id"]}}}}
         return {"errors": [{"type": "NOT_FOUND", "message": "pull request not found"}]}
 
+    def gql_MarkDraft(self, variables: dict[str, Any]) -> dict[str, Any]:
+        for pull in self.pulls.values():
+            if pull["node_id"] == variables["id"]:
+                pull["draft"] = True
+                return {"data": {"convertPullRequestToDraft": {"pullRequest": {"id": pull["node_id"]}}}}
+        return {"errors": [{"type": "NOT_FOUND", "message": "pull request not found"}]}
+
     def project(self, number: str) -> dict[str, Any]:
         return next(p for p in self.projects.values() if str(p["number"]) == number)
 

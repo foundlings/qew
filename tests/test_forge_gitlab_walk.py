@@ -218,6 +218,11 @@ class GitLabWalk(GitLabBase):
         self.assertFalse(ready.draft)
         self.assertEqual(self.project().merge_requests[0]["title"], "Add it")
         self.assertEqual(self.forge.mark_pull_request_ready(1), ready)
+        self.assertTrue(self.forge.mark_pull_request_draft(1).draft)
+        self.assertEqual(self.project().merge_requests[0]["title"], "Draft: Add it")
+        self.assertTrue(self.forge.mark_pull_request_draft(1).draft, "draft is idempotent")
+        self.assertEqual(self.project().merge_requests[0]["title"], "Draft: Add it")
+        ready = self.forge.mark_pull_request_ready(1)
         merged = self.forge.merge_pull_request(1, ready.head_sha)
         self.assertEqual(merged.state, "merged")
         body = self.fake.requests("PUT", "/merge_requests/1/merge")[0]["body"]

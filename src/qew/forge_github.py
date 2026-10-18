@@ -195,6 +195,10 @@ mutation SetCard($projectId: ID!, $itemId: ID!, $statusField: ID!, $statusOption
     projectV2Item { id }
   }
 }"""
+_MARK_DRAFT = """
+mutation MarkDraft($id: ID!) {
+  convertPullRequestToDraft(input: {pullRequestId: $id}) { pullRequest { id } }
+}"""
 _MARK_READY = """
 mutation MarkReady($id: ID!) {
   markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { id } }
@@ -1072,6 +1076,14 @@ class GitHub(Forge):
         facts = self._read_pull(number)
         if facts.draft:
             self._wire.graphql(_MARK_READY, {"id": facts.node_id})
+            facts = self._read_pull(number)
+        return self._with_checks(facts)
+
+    @override
+    def mark_pull_request_draft(self, number: int) -> RemotePullRequest:
+        facts = self._read_pull(number)
+        if not facts.draft:
+            self._wire.graphql(_MARK_DRAFT, {"id": facts.node_id})
             facts = self._read_pull(number)
         return self._with_checks(facts)
 

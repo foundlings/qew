@@ -66,6 +66,10 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     ready.add_argument("number", type=int, help="pull request number")
     ready.add_argument("--target", help=_TARGET_HELP)
     ready.add_argument("--json", action="store_true", help="machine-readable output")
+    drafted = sub.add_parser("draft", help="move a ready pull request back to draft (the inverse of ready)")
+    drafted.add_argument("number", type=int, help="pull request number")
+    drafted.add_argument("--target", help=_TARGET_HELP)
+    drafted.add_argument("--json", action="store_true", help="machine-readable output")
     labelled = sub.add_parser("label", help="add and remove labels on a pull request, keeping the others")
     labelled.add_argument("number", type=int, help="pull request number")
     labelled.add_argument("--add", action="append", default=[], metavar="LABEL", help="label to add, repeatable")
@@ -118,6 +122,8 @@ def run(arguments: argparse.Namespace) -> bool:
                                  drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add))
     elif command == "ready":
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
+    elif command == "draft":
+        print(mark_draft(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "close":
         print(close_pull_request(config, arguments.number, arguments.target, item=arguments.item, reason=arguments.reason).render(arguments.json))
     elif command == "label":
@@ -519,6 +525,41 @@ def mark_ready(
         raise QewError(f"pr #{number} is still a draft after the forge accepted the change; nothing is known to have changed", 4)
     pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=False)
     return Readied(number, outcome == Outcome.VERIFIED)
+
+
+@dataclass(frozen=True)
+class Drafted:
+    number: int
+    changed: bool
+
+    def render(self, as_json: bool) -> str:
+        if as_json:
+            return json.dumps({"number": self.number, "draft": True, "changed": self.changed, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+        return f"pr #{self.number} draft" if self.changed else f"pr #{self.number} already a draft (unchanged)"
+
+
+def mark_draft(
+    config: Config, number: int, target: str | None, build: Build | None = None,
+    sleep: Callable[[float], None] | None = None,
+) -> Drafted:
+    """Move a recorded pull request back to draft (same ownership as ready), read back; a pull request that is not an open
+    ready one is refused or unchanged. The inverse of `mark_ready`, so no covered item's state is touched."""
+    loaded = load(config, number, target, build)
+    forge = loaded.forge
+    with forge_errors(loaded.record.target):
+        before = forge.read_pull_request(number)
+        refuse_finished(number, before, "be moved back to draft")
+        outcome = apply_and_verify(
+            before,
+            lambda: forge.mark_pull_request_draft(number),
+            lambda: forge.read_pull_request(number),
+            lambda pull: pull.draft,
+            sleep=sleep,
+        )
+    if outcome == Outcome.NOT_APPLIED:
+        raise QewError(f"pr #{number} is still ready after the forge accepted the change; nothing is known to have changed", 4)
+    pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=True)
+    return Drafted(number, outcome == Outcome.VERIFIED)
 
 
 # -- label -------------------------------------------------------------------------
