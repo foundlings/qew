@@ -131,6 +131,10 @@ def _sub_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
         if error.capability not in report.skipped:
             report.skipped.append(error.capability)
         return record
+    except ForgeRejected as error:
+        # A refusal for a relation the forge already holds (another machine set it) is recorded, not retried on every sync.
+        if error.status != 422 or target.forge.read_issue(record["number"]).parent != desired:
+            raise
     fresh = updated(record, parent_number=desired)
     ledger.write_mirror(item_id, target.slug, fresh)
     return fresh

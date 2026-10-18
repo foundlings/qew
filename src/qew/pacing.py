@@ -9,10 +9,12 @@ from collections import deque
 import json
 import math
 from pathlib import Path
+import sys
 import threading
 import time
 from collections.abc import Callable
 
+LONG_WAIT_SECONDS = 60.0  # a pace wait longer than this is announced on stderr
 LEARNED_SPAN = 1800.0  # seconds a learned budget covers
 LEARNED_SHARE = 0.8  # of the budget a block showed
 MIN_BUDGET = 3  # smallest window limit a learned budget can impose
@@ -63,6 +65,9 @@ class Pacer:
                 return wait
             for window, _limit, _span in self._windows:
                 window.append(start)
+        if wait > LONG_WAIT_SECONDS:
+            print(f"qew: waiting {wait:.0f}s for the forge's create limit (until {time.strftime('%H:%M:%SZ', time.gmtime(time.time() + wait))})",
+                  file=sys.stderr, flush=True)
         if wait > 0:
             self.sleep(wait)
         return 0.0
