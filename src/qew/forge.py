@@ -506,6 +506,10 @@ class Forge(ABC):
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
         raise Unsupported("mark_pull_request_ready")
 
+    def mark_pull_request_draft(self, number: int) -> RemotePullRequest:
+        """The inverse of `mark_pull_request_ready`; a pull request that is already a draft is returned unchanged."""
+        raise Unsupported("mark_pull_request_draft")
+
     def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
         """Merge exactly `expected_head_sha` (no squash); refuse if the head moved.
 

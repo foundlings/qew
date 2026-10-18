@@ -512,6 +512,16 @@ class GitLab(Forge):
         return _parse_merge_request(data)
 
     @override
+    def mark_pull_request_draft(self, number: int) -> RemotePullRequest:
+        data, _ = self._call("GET", f"{self._project}/merge_requests/{number}")
+        current = _parse_merge_request(data)
+        if current.draft:
+            return current
+        title = f"Draft: {_field(_object(data, 'merge request'), 'title', str)}"
+        data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"title": title})
+        return _parse_merge_request(data)
+
+    @override
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         data, _ = self._call("PUT", f"{self._project}/merge_requests/{number}", payload={"description": body})
         return _parse_merge_request(data)

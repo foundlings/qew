@@ -64,6 +64,7 @@ class MemoryForge(Forge):
         self.assign_refused = False  # the forge opens the pull request but will not assign the login
         self.close_ignored = False  # accept the close yet stay open
         self.ready_ignored = False  # accept mark-ready yet stay a draft
+        self.draft_ignored = False  # accept mark-draft yet stay ready
         self.merge_lag_reads = 0  # reads after a merge call that still show the pull request open
         self.merge_lag: dict[int, int] = {}
         self.after_read: list[Callable[[MemoryForge], None]] = []  # run once after the next read, as a concurrent edit
@@ -252,6 +253,12 @@ class MemoryForge(Forge):
         self._live("ready_pr")
         if not self.ready_ignored:
             self.pulls[number] = self._with(number, draft=False)
+        return self.pulls[number]
+
+    def mark_pull_request_draft(self, number: int) -> RemotePullRequest:
+        self._live("draft_pr")
+        if not self.draft_ignored:
+            self.pulls[number] = self._with(number, draft=True)
         return self.pulls[number]
 
     def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:

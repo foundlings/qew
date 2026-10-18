@@ -445,6 +445,16 @@ class Forgejo(Forge):
         return self._with_checks(updated)
 
     @override
+    def mark_pull_request_draft(self, number: int) -> RemotePullRequest:
+        data, _ = self._call("GET", f"/pulls/{number}")
+        current = _parse_pull_request(data, "none")
+        if current.draft:
+            return self._with_checks(data)
+        title = f"{DRAFT_PREFIX} {_typed(data, 'title', str, 'pull request')}"
+        updated, _ = self._call("PATCH", f"/pulls/{number}", {"title": title})
+        return self._with_checks(updated)
+
+    @override
     def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
         payload: dict[str, Any] = {"Do": "merge", "head_commit_id": expected_head_sha}
         if bypass_checks:
