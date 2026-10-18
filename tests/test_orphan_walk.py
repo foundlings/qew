@@ -18,7 +18,7 @@ from qew.ledger_store import Ledger
 from qew.sync import Target, sync_target
 from tests.fake_forgejo import TOKEN as FORGEJO_TOKEN, FakeForgejo
 from tests.fake_github import TOKEN, FakeGitHub
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import QUOTE, World, baseline_files
 from tests.memory_forge import MemoryForge
 
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
@@ -126,10 +126,10 @@ class OrphanOnOtherForgesWalk(unittest.TestCase):
         env = {"FORGEJO_TOKEN": FORGEJO_TOKEN}
         item = w.create("--title", "Orphaned", "--quote", QUOTE)
         self.assertEqual(w.run("sync", "--item", item, env=env).returncode, 0)
-        state = next((w.ledger / ".qew" / "state").rglob(f"{item}.json"))
         mirror = next((w.ledger / "mirrors" / item).glob("*.json"))
         mirror.unlink()
-        state.unlink()
+        for path in baseline_files(w.ledger, item):
+            path.unlink()
         self.assertEqual(w.run("sync", "--item", item, env=env).returncode, 0)
         self.assertEqual(len([i for i in fake.issues.values() if marker_for(item) in (i.get("body") or "")]), 1)
 

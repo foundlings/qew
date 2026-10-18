@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from tests.fake_github import TOKEN as GITHUB_TOKEN, FakeGitHub
 from qew import label_style
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import QUOTE, World, baseline_path
 from tests.test_label_creation_walk import SPEC, adapters
 
 QUIET = "\n[replication]\nauto_forge_sync = false\n"
@@ -25,7 +25,7 @@ PALETTE = {"P0": ("d73a4a", "Critical priority"), "P1": ("fb8500", "High priorit
 
 def forget_last_sync(world: World, item: str) -> None:
     """What an older qew left behind: the recorded hash of the last push no longer matches the desired issue."""
-    path = next((world.ledger / ".qew" / "state").rglob(f"{item}.json"))
+    path = baseline_path(world.ledger, item)
     data = json.loads(path.read_text())
     data["synced_hash"] = "legacy"
     path.write_text(json.dumps(data))

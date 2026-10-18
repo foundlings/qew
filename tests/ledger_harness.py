@@ -39,6 +39,16 @@ def git(cwd: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
+def baseline_files(ledger: Path, item: str) -> list[Path]:
+    """The committed sync baselines of one item (one live file per target), oldest first."""
+    return sorted((ledger / "baselines" / item).glob("*/*.json"), key=lambda path: path.stem)
+
+
+def baseline_path(ledger: Path, item: str) -> Path:
+    """The newest committed sync baseline of one item."""
+    return baseline_files(ledger, item)[-1]
+
+
 class World:
     """A git code repo on `main` with `.qew/config.toml` naming a sibling ledger."""
 

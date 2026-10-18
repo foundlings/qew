@@ -19,7 +19,7 @@ from qew.errors import QewError
 # Directories and files whose changes are qew's own writes (never a human's notes).
 JJ_SNAPSHOT_LIMIT = 128 * 1024 * 1024  # jj refuses to snapshot a NEW file over `snapshot.max-new-file-size` (1 MiB by default); qew's own attachment limit is 100 MiB
 JJ_READ = ["jj", "--ignore-working-copy", "--no-pager"]  # a query, a fetch or a push never needs the working copy snapshotted: that scans every file
-OWNED = ("items", "events", "mirrors", "boards", "views", "proposals")
+OWNED = ("items", "events", "mirrors", "baselines", "boards", "views", "proposals")
 SHOWN_CONFLICTS = 5
 JJ_FILESET_BYTES = 100_000  # beyond this the paths no longer fit one command line: name the owned directories instead
 

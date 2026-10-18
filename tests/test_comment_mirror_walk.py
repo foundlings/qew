@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from qew import ledger_config
 from tests.fake_github import TOKEN, FakeGitHub
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import QUOTE, World, baseline_files
 
 OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\n"
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
@@ -108,8 +108,8 @@ class CommentMirrorWalk(unittest.TestCase):
         answer = next(b for b in bodies if "answer." in b)
         self.assertIn("In reply to", answer)
         self.assertIn("alice", answer)
-        state = self.world.ledger / ".qew" / "state" / self.slug / f"{self.item}.json"
-        state.unlink()  # a fresh checkout knows nothing of what was pushed
+        for path in baseline_files(self.world.ledger, self.item):
+            path.unlink()  # a checkout from before baselines were committed knows nothing of what was pushed
         self.sync()
         self.assertEqual(len(self.forge_comments()), 2)
 

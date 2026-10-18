@@ -205,7 +205,7 @@ class Ledger:
         return self._events_of(item_id, homes, {home: self._event_rows(self.events_dir / home) for home in homes})
 
     def load_mirrors(self, item_id: str) -> list[MirrorRecord]:
-        """Mirror records: the committed identity merged with this machine's local sync state."""
+        """Mirror records: the committed identity merged with the item's committed baseline."""
         mirrors = []
         seen = set()
         for directory in self._homes(self.mirrors_dir, item_id):
@@ -222,11 +222,32 @@ class Ledger:
                 mirrors.append(cast(MirrorRecord, {**value, **self.read_state(item_id, path.stem), "_target": path.stem}))
         return mirrors
 
-    # -- local sync state: what this machine knows about a forge, never committed
+    # -- sync baseline: what the forge was last synced to, committed one file per item and target
+    @property
+    def baselines_dir(self) -> Path:
+        return self.path / BASELINES
+
+    def baseline_files(self, item_id: str, target: str) -> list[Path]:
+        """The committed baselines of one item and target, oldest first. A writer adds a new file (a base35-time id, so
+        two machines never write the same path) and removes the older ones: concurrent writers add distinct files and
+        delete the same ones, which git merges cleanly, and the newest file wins."""
+        found = [path for home in self._homes(self.baselines_dir, item_id) for path in (sorted((home / target).glob("*.json")) if (home / target).is_dir() else [])]
+        return sorted(found, key=lambda path: path.stem)
+
     def state_path(self, item_id: str, target: str) -> Path:
+        """The pre-baseline local cache; read when no baseline is committed yet, never written."""
         return self.path / ".qew" / "state" / target / f"{item_id}.json"
 
     def read_state(self, item_id: str, target: str) -> JsonObject:
+        files = self.baseline_files(item_id, target)
+        if files:
+            try:
+                value = json.loads(files[-1].read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, ValueError) as error:
+                raise QewError(f"{files[-1]}: {error}", 1) from None
+            if not isinstance(value, dict):
+                raise QewError(f"{files[-1]}: a baseline is one JSON object", 1)
+            return value
         path = next((p for p in (self.state_path(name, target) for name in (item_id, *self.aliases().of(item_id))) if p.is_file()), None)
         if path is None:
             return {}
@@ -235,6 +256,25 @@ class Ledger:
         except (OSError, UnicodeError, ValueError):
             return {}  # a damaged cache only costs a redundant forge update; the ledger is untouched
         return value if isinstance(value, dict) else {}
+
+    def write_baseline(self, item_id: str, target: str, state: JsonObject) -> None:
+        """Record the forge-synced state of one item. Nothing is written when only the sync time changed."""
+        files = self.baseline_files(item_id, target)
+        if files:
+            current = self.read_state(item_id, target)
+            if {k: v for k, v in current.items() if k != "synced_at"} == {k: v for k, v in state.items() if k != "synced_at"}:
+                return
+        text = json.dumps(state, sort_keys=True, indent=2) + "\n"
+        directory = self.baselines_dir / item_id / target
+        if files and files[-1] in _MINTED and files[-1].parent == directory:
+            _write(files[-1], text, exclusive=False)  # this session's own file: rewrite it rather than mint another
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        fresh = directory / f"{event_id(files[-1].stem if files else '')}.json"
+        _write(fresh, text, exclusive=False)
+        _MINTED.add(fresh)
+        for older in files:
+            discard(older)
 
     def read_files(self, verify: bool = False) -> Files:
         """The text of every item file and event file, through the snapshot cache (`snapshot_cache`): only the files whose stat
@@ -362,7 +402,7 @@ class Ledger:
         return event
 
     def write_mirror(self, item_id: str, target: str, value: MirrorRecord) -> None:
-        """Identity keys go to the committed mirror file (written once); everything else is local state."""
+        """Identity keys go to the committed mirror file (written once); everything else is the item's committed baseline."""
         identity = {k: v for k, v in value.items() if k in MIRROR_IDENTITY}
         volatile = {k: v for k, v in value.items() if k not in MIRROR_IDENTITY and k != "_target"}
         directory = self.mirrors_dir / item_id
@@ -377,9 +417,7 @@ class Ledger:
             directory.mkdir(parents=True, exist_ok=True)
             merged = {**{k: v for k, v in current.items() if k in MIRROR_IDENTITY}, **identity}
             _write(path, json.dumps(merged, sort_keys=True, indent=2) + "\n", exclusive=False)
-        state_path = self.state_path(item_id, target)
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_local(state_path, json.dumps({**self.read_state(item_id, target), **volatile}, sort_keys=True, indent=2) + "\n")
+        self.write_baseline(item_id, target, {**self.read_state(item_id, target), **volatile})
 
     def cursor_path(self, target: str) -> Path:
         return self.path / ".qew" / "state" / target / "cursor.json"
@@ -479,6 +517,8 @@ class Ledger:
     def remove_mirror(self, item_id: str, target: str) -> None:
         """Forget one mirror file (journaled like every write, so the session commits the deletion)."""
         discard(self.mirrors_dir / item_id / f"{target}.json")
+        for older in self.baseline_files(item_id, target):
+            discard(older)
         self.state_path(item_id, target).unlink(missing_ok=True)
 
     def read_board(self, target: str) -> JsonObject | None:
@@ -543,6 +583,8 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
     return Ledger(path, prefix, parse_modes(data.get("id_mode"), ("epic", "issue", "task")), declared if type(declared) is int else 1, mode == "strict")
 
 
+BASELINES = "baselines"
+_MINTED: set[Path] = set()  # baseline files this process wrote
 MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items")
 JOURNAL: list[tuple[Path, str | None]] | None = None  # (path, previous text or None) while a session records
 

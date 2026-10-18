@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from qew import ledger_config
 from tests.fake_github import TOKEN, FakeGitHub
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import QUOTE, World, baseline_path
 
 OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\ndivergences = \"report\"\n"
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
@@ -55,14 +55,14 @@ class SyncBaselineWalk(unittest.TestCase):
         item = self.world.create("--kind", "issue", "--title", "Closed here", "--quote", QUOTE)
         self.assertEqual(self.world.run("close", item, "--reason", "not_planned").returncode, 0)
         self.sync()
-        state = self.world.ledger / ".qew" / "state" / self.slug / f"{item}.json"
+        state = baseline_path(self.world.ledger, item)
         data = json.loads(state.read_text())
         data["seen"]["open"] = True  # the stale baseline
         state.write_text(json.dumps(data))
         self.sync()
         status = self.world.run("status").stdout
         self.assertIn("divergences=0", status)
-        self.assertFalse(json.loads(state.read_text())["seen"]["open"])
+        self.assertFalse(json.loads(baseline_path(self.world.ledger, item).read_text())["seen"]["open"])
 
     def test_a_real_mismatch_names_the_ledgers_own_state(self) -> None:
         """Prevents a misleading report: a human closing an open item shows ledger=open from the ledger, not the baseline."""
@@ -79,7 +79,8 @@ class SyncBaselineWalk(unittest.TestCase):
 
     def fresh_checkout(self) -> None:
         """What a second machine has after cloning the ledger: the committed mirrors, none of the local sync state."""
-        shutil.rmtree(self.world.ledger / ".qew" / "state")
+        shutil.rmtree(self.world.ledger / ".qew" / "state", ignore_errors=True)
+        shutil.rmtree(self.world.ledger / "baselines")  # a ledger written before baselines were committed
 
     def status_line(self) -> str:
         return next(line for line in self.world.run("status").stdout.splitlines() if line.startswith("target "))

@@ -22,11 +22,17 @@ what it created. Nothing requires a forge to be up.
 qew-ledger.toml            # ledger metadata: name, id prefix, schema_version
 items/<ID>/item.md         # one file per item, in its own directory: fixed header + human body
 events/<ID>/<EVENT-ID>.json  # append-only; one tiny file per event, never edited
-mirrors/<ID>/<forge>-<host>-<repo-slug>.json  # one file per (item, mirror target)
+mirrors/<ID>/<forge>-<host>-<repo-slug>.json  # one file per (item, mirror target): identity (issue number, node id), written once
+baselines/<ID>/<TARGET>/<ID2>.json           # the item's forge-synced state per target: hash, newest synced event, what the forge showed
 mirrors/<ID>/<target>-pr-<N>.json            # one per pull request opened for the item (kind: pr; opener, covered items, draft, state)
 boards/<target>.json       # board id recorded by `qew project ensure`
 views/<name>.json          # named offline board: name, columns, sort, group_by, filter (`qew board create`)
 ```
+- A baseline is committed fact, not machine state: a sync that changes it adds a new file (`<ID2>` is a base35-time id) and
+  removes the older ones, so two machines record the same item as two added files and the same deletions, which git merges;
+  the newest file wins. A machine's own pending changes are never stored: they are the item's events newer than the baseline's
+  `synced_event`. A clone therefore starts from the last recorded forge state, not from nothing. `.qew/state/TARGET/ID.json`
+  (older qew) is read only while an item has no baseline, and the next write moves it.
 - No shared index file is committed. `qew index` builds a local cache (gitignored) from files.
 - Every write creates a new file or edits only the item's own file → concurrent branches merge cleanly.
 
