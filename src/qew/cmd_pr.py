@@ -70,6 +70,11 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     drafted.add_argument("number", type=int, help="pull request number")
     drafted.add_argument("--target", help=_TARGET_HELP)
     drafted.add_argument("--json", action="store_true", help="machine-readable output")
+    bodied = sub.add_parser("body", help="replace a pull request's body from a file, keeping its Progress boxes and the ticks already earned")
+    bodied.add_argument("number", type=int, help="pull request number")
+    bodied.add_argument("--body-file", required=True, metavar="FILE", help="the new body; it must keep every pr-progress box and tick none")
+    bodied.add_argument("--target", help=_TARGET_HELP)
+    bodied.add_argument("--json", action="store_true", help="machine-readable output")
     labelled = sub.add_parser("label", help="add and remove labels on a pull request, keeping the others")
     labelled.add_argument("number", type=int, help="pull request number")
     labelled.add_argument("--add", action="append", default=[], metavar="LABEL", help="label to add, repeatable")
@@ -122,6 +127,8 @@ def run(arguments: argparse.Namespace) -> bool:
                                  drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add))
     elif command == "ready":
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
+    elif command == "body":
+        print(replace_body(config, arguments.number, arguments.body_file, arguments.target).render(arguments.json))
     elif command == "draft":
         print(mark_draft(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "close":
@@ -560,6 +567,34 @@ def mark_draft(
         raise QewError(f"pr #{number} is still ready after the forge accepted the change; nothing is known to have changed", 4)
     pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=True)
     return Drafted(number, outcome == Outcome.VERIFIED)
+
+
+@dataclass(frozen=True)
+class Rebodied:
+    number: int
+    changed: bool
+
+    def render(self, as_json: bool) -> str:
+        if as_json:
+            return json.dumps({"number": self.number, "changed": self.changed, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+        return f"pr #{self.number} body replaced" if self.changed else f"pr #{self.number} body (unchanged)"
+
+
+def replace_body(config: Config, number: int, body_file: str, target: str | None, build: Build | None = None) -> Rebodied:
+    """Replace a recorded, open pull request's body with the file's text (same ownership as ready), keeping the Progress boxes."""
+    proposed = _body_file(body_file)
+    if not proposed.strip():
+        raise QewError(f"--body-file {body_file} is empty", 2)
+    pr_body.refuse_closing_references(proposed, "the new body")
+    loaded = load(config, number, target, build)
+    with forge_errors(loaded.record.target):
+        first = loaded.forge.read_pull_request(number)
+    refuse_finished(number, first, "have its body replaced")
+    edited = pr_checklist.replace(first.body, proposed)
+    if edited == first.body:
+        return Rebodied(number, False)
+    _write_body(loaded, number, first, edited)
+    return Rebodied(number, True)
 
 
 # -- label -------------------------------------------------------------------------

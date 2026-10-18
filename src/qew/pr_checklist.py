@@ -129,3 +129,20 @@ def add(body: str, entries: Sequence[tuple[str, str]]) -> str:
     new = [f"- [ ] {text} <!-- pr-progress:{item_id} -->{ending}" for item_id, text in entries]
     lines[position:position] = new
     return "".join(lines)
+
+
+def replace(current: str, proposed: str) -> str:
+    """`proposed` as the pull request's new body: every Progress marker of `current` must survive and no box may be ticked
+    that is not ticked now (only `qew pr check` ticks); the ticks `current` holds are carried into the result."""
+    old, new = boxes(current), boxes(proposed)
+    kept = {b.marker: b for b in new if b.marker}
+    missing = [b.marker for b in old if b.marker and b.marker not in kept]
+    if missing:
+        raise QewError(
+            f"the new body drops the Progress box(es) {' '.join('pr-progress:' + m for m in missing)}; keep every box "
+            "(`qew pr check N --drop ID --reason TEXT` removes an item the pull request will not finish)", 2)
+    ticked_now = {b.marker for b in old if b.marker and b.ticked}
+    ticked_new = [b for b in new if b.ticked and (not b.marker or b.marker not in ticked_now)]
+    if ticked_new:
+        raise QewError(f"the new body ticks {' '.join(b.address for b in ticked_new)}; only `qew pr check` ticks a box, send it unticked", 2)
+    return tick(proposed, [b for b in new if b.marker in ticked_now and not b.ticked])
