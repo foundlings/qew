@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from tests.ledger_harness import QUOTE, World
 
-LATEST = "schema_version = 6"
+LATEST = "schema_version = 7"
 
 
 def to_old_layout(world: World, version: int) -> dict[str, bytes]:
@@ -58,7 +58,7 @@ class MigrateLayoutWalk(unittest.TestCase):
                 world, before = self.ledger(version)
                 preview = world.run("migrate-layout", "--dry-run")
                 self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
-                self.assertIn(f"schema_version {version} -> 6", preview.stdout)
+                self.assertIn(f"schema_version {version} -> 7", preview.stdout)
                 self.assertIn("3 item files", preview.stdout)
                 self.assertTrue((world.ledger / "items" / f"{next(iter(before))}.md").is_file())
                 done = world.run("migrate-layout")
