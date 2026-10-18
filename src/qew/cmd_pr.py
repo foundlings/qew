@@ -65,10 +65,12 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     check.add_argument("--target", help=_TARGET_HELP)
     ready = sub.add_parser("ready", help="mark a draft pull request ready for review")
     ready.add_argument("number", type=int, help="pull request number")
+    ready.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     ready.add_argument("--target", help=_TARGET_HELP)
     ready.add_argument("--json", action="store_true", help="machine-readable output")
     drafted = sub.add_parser("draft", help="move a ready pull request back to draft (the inverse of ready)")
     drafted.add_argument("number", type=int, help="pull request number")
+    drafted.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     drafted.add_argument("--target", help=_TARGET_HELP)
     drafted.add_argument("--json", action="store_true", help="machine-readable output")
     bodied = sub.add_parser("body", help="replace a pull request's body from a file, keeping its Progress boxes and the ticks already earned")
@@ -86,6 +88,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     labelled.add_argument("--json", action="store_true", help="machine-readable output")
     closed = sub.add_parser("close", help="close an unmerged pull request without merging it")
     closed.add_argument("number", type=int, help="pull request number")
+    closed.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     closed.add_argument("--target", help=_TARGET_HELP)
     closed.add_argument("--item", metavar="ID", help="a pull request qew never recorded (a legacy draft): adopt it onto this item, which carries its remainder, then close it")
     closed.add_argument("--reason", help="with --item: why it is closed (kept in the ledger)")
@@ -93,6 +96,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     synced = sub.add_parser("sync", help="set an open pull request's title from its item's current title, or with --items re-derive the items it covers")
     synced.add_argument("number", type=int, help="pull request number")
     synced.add_argument("--items", action="store_true", help="instead of the title, re-derive the covered items: recorded + the root's open descendants + items with a Progress box")
+    synced.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     synced.add_argument("--target", help=_TARGET_HELP)
     synced.add_argument("--json", action="store_true", help="machine-readable output")
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
@@ -128,20 +132,20 @@ def run(arguments: argparse.Namespace) -> bool:
         print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target,
                                  drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add, on_behalf_of=arguments.on_behalf_of))
     elif command == "ready":
-        print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
+        print(mark_ready(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "body":
         print(replace_body(config, arguments.number, arguments.body_file, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "draft":
-        print(mark_draft(config, arguments.number, arguments.target).render(arguments.json))
+        print(mark_draft(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "close":
-        print(close_pull_request(config, arguments.number, arguments.target, item=arguments.item, reason=arguments.reason).render(arguments.json))
+        print(close_pull_request(config, arguments.number, arguments.target, item=arguments.item, reason=arguments.reason, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "label":
         print(label_pull_request(config, arguments.number, arguments.add, arguments.remove, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "sync":
         if arguments.items:
-            print(sync_items(config, arguments.number, arguments.target))
+            print(sync_items(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of))
         else:
-            print(sync_title(config, arguments.number, arguments.target).render(arguments.json))
+            print(sync_title(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     else:
         merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason, arguments.check)
         if arguments.check:
@@ -461,11 +465,11 @@ def _cover(ledger: Ledger, record: pr_record.PrRecord, wanted: list[str]) -> lis
     return added
 
 
-def sync_items(config: Config, number: int, target: str | None, build: Build | None = None) -> str:
+def sync_items(config: Config, number: int, target: str | None, build: Build | None = None, on_behalf_of: str | None = None) -> str:
     """Re-derive the covered items: the recorded ones, the root's open descendants, and every item with a Progress box.
 
     Only adds: a covered item never leaves the record here (that is `--drop`). Items whose box was dropped are not re-added."""
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     snapshot = loaded.snapshot
     with forge_errors(loaded.record.target):
         body = loaded.forge.read_pull_request(number)
@@ -515,9 +519,9 @@ class Readied:
 
 def mark_ready(
     config: Config, number: int, target: str | None, build: Build | None = None,
-    sleep: Callable[[float], None] | None = None,
+    sleep: Callable[[float], None] | None = None, on_behalf_of: str | None = None,
 ) -> Readied:
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     refuse_held(loaded, "be marked ready")
     forge = loaded.forge
     with forge_errors(loaded.record.target):
@@ -549,11 +553,11 @@ class Drafted:
 
 def mark_draft(
     config: Config, number: int, target: str | None, build: Build | None = None,
-    sleep: Callable[[float], None] | None = None,
+    sleep: Callable[[float], None] | None = None, on_behalf_of: str | None = None,
 ) -> Drafted:
     """Move a recorded pull request back to draft (same ownership as ready), read back; a pull request that is not an open
     ready one is refused or unchanged. The inverse of `mark_ready`, so no covered item's state is touched."""
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     forge = loaded.forge
     with forge_errors(loaded.record.target):
         before = forge.read_pull_request(number)
@@ -666,12 +670,13 @@ class Retitled:
 
 def sync_title(
     config: Config, number: int, target: str | None, build: Build | None = None, sleep: Callable[[float], None] | None = None,
+    on_behalf_of: str | None = None,
 ) -> Retitled:
     """Set an open pull request's title to its item's current title, read it back and record the change on the item.
 
     Only the title: the body is composed once at open from --what/--why/--testing and carries the checklist's ticks, so it is
     never regenerated."""
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     wanted = loaded.snapshot.items[loaded.record.host].title
     forge = loaded.forge
     with forge_errors(loaded.record.target):
@@ -708,7 +713,7 @@ class Closed:
 
 def close_pull_request(
     config: Config, number: int, target: str | None, build: Build | None = None,
-    sleep: Callable[[float], None] | None = None, item: str | None = None, reason: str | None = None,
+    sleep: Callable[[float], None] | None = None, item: str | None = None, reason: str | None = None, on_behalf_of: str | None = None,
 ) -> Closed:
     """Close a recorded, unmerged pull request, read it back, then record `closed` in its mirror.
 
@@ -716,7 +721,7 @@ def close_pull_request(
     adopted onto that item and closed, with `reason` kept in the ledger. A merged one is refused either way."""
     if item is not None:
         return _close_legacy(config, number, target, build, sleep, item, reason)
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     forge = loaded.forge
     with forge_errors(loaded.record.target):
         before = forge.read_pull_request(number)
