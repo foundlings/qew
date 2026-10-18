@@ -6,6 +6,7 @@ and could not tell what the forge looked like until it read all of it).
 
 import json
 import os
+import shutil
 import sys
 import unittest
 
@@ -13,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from qew import ledger_config
 from tests.fake_github import TOKEN, FakeGitHub
-from tests.ledger_harness import QUOTE, World, git
+from tests.ledger_harness import QUOTE, World, baseline_files, git
 
 REPLICATION = "\n[replication]\nauto_forge_sync = false\nforge_concurrency = 1\nfetch_interval_s = 0\ndivergences = \"report\"\n"
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
@@ -101,6 +102,23 @@ class BaselineCommitWalk(unittest.TestCase):
         shown = self.b.run("show", item, "--json", env=ENV).stdout
         self.assertEqual(json.loads(shown)["title"], "After")
         self.assertEqual(json.loads(self.b.run("status", "--json", env=ENV).stdout)["divergences"], [])
+
+    def test_a_machine_with_only_local_state_commits_a_baseline_for_every_item_on_its_next_sync(self) -> None:
+        """Prevents a clone staying unbaselined after the machine that synced it upgraded: unchanged items write nothing,
+        so their old local state must be committed as baselines by the sync itself."""
+        items = [self.a.create("--kind", "issue", "--title", title, "--quote", QUOTE) for title in ("One", "Two")]
+        self.sync(self.a)
+        state = self.a.ledger / ".qew" / "state" / self.slug
+        state.mkdir(parents=True, exist_ok=True)
+        for item in items:  # what qew before 6.31 left: the baseline only as local state
+            files = baseline_files(self.a.ledger, item)
+            (state / f"{item}.json").write_text(files[-1].read_text())
+        shutil.rmtree(self.a.ledger / "baselines")
+        self.sync(self.a)
+        for item in items:
+            self.assertEqual(len(baseline_files(self.a.ledger, item)), 1, item)
+        self.assertEqual(len([p for p in self.remote_files() if p.startswith("baselines/")]), 2)
+        self.assertIn("pending=0", self.status_line(self.b))
 
 
 if __name__ == "__main__":
