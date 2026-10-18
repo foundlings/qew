@@ -61,6 +61,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     check.add_argument("--reason", help="why: required with --drop")
     check.add_argument("--add", action="append", metavar="ITEM", help="add an unticked Progress entry for this item (its title) after the last box; repeat for several")
     check.add_argument("--force", action="store_true", help="with --drop: also drop a box that is already ticked")
+    check.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     check.add_argument("--target", help=_TARGET_HELP)
     ready = sub.add_parser("ready", help="mark a draft pull request ready for review")
     ready.add_argument("number", type=int, help="pull request number")
@@ -73,6 +74,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     bodied = sub.add_parser("body", help="replace a pull request's body from a file, keeping its Progress boxes and the ticks already earned")
     bodied.add_argument("number", type=int, help="pull request number")
     bodied.add_argument("--body-file", required=True, metavar="FILE", help="the new body; it must keep every pr-progress box and tick none")
+    bodied.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     bodied.add_argument("--target", help=_TARGET_HELP)
     bodied.add_argument("--json", action="store_true", help="machine-readable output")
     labelled = sub.add_parser("label", help="add and remove labels on a pull request, keeping the others")
@@ -124,11 +126,11 @@ def run(arguments: argparse.Namespace) -> bool:
             )
     elif command == "check":
         print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target,
-                                 drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add))
+                                 drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add, on_behalf_of=arguments.on_behalf_of))
     elif command == "ready":
         print(mark_ready(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "body":
-        print(replace_body(config, arguments.number, arguments.body_file, arguments.target).render(arguments.json))
+        print(replace_body(config, arguments.number, arguments.body_file, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "draft":
         print(mark_draft(config, arguments.number, arguments.target).render(arguments.json))
     elif command == "close":
@@ -380,24 +382,24 @@ def _describe(box: pr_checklist.Box) -> str:
 def check_pull_request(
     config: Config, number: int, names: list[str], every: bool, listing: bool, target: str | None,
     build: Build | None = None, drop: str | None = None, reason: str | None = None, force: bool = False,
-    add: list[str] | None = None,
+    add: list[str] | None = None, on_behalf_of: str | None = None,
 ) -> str:
     if add:
         if names or every or listing or drop is not None or reason or force:
             raise QewError("--add stands alone: it cannot be combined with ticking, --all, --list, --drop, --reason or --force", 2)
-        return _add_items(config, number, add, target, build)
+        return _add_items(config, number, add, target, build, on_behalf_of)
     if drop is not None:
         if names or every or listing:
             raise QewError("--drop stands alone: it cannot be combined with ticking, --all or --list", 2)
         if not (reason or "").strip():
             raise QewError("--drop needs --reason TEXT: say why the item will not be finished", 2)
-        return _drop_item(config, number, drop, reason or "", force, target, build)
+        return _drop_item(config, number, drop, reason or "", force, target, build, on_behalf_of)
     if reason or force:
         raise QewError("--reason and --force belong to --drop", 2)
     chosen = [bool(names), every, listing]
     if sum(chosen) != 1:
         raise QewError("name checklist items, or pass exactly one of --all and --list", 2)
-    loaded = load(config, number, target, build, owned=not listing)
+    loaded = load(config, number, target, build, owned=not listing, on_behalf_of=on_behalf_of)
     with forge_errors(loaded.record.target):
         first = loaded.forge.read_pull_request(number)
     refuse_finished(number, first, "have its checklist edited")
@@ -432,9 +434,9 @@ def _entry_text(snapshot: Snapshot, item_id: str) -> str:
     return title
 
 
-def _add_items(config: Config, number: int, references: list[str], target: str | None, build: Build | None) -> str:
+def _add_items(config: Config, number: int, references: list[str], target: str | None, build: Build | None, on_behalf_of: str | None) -> str:
     """Add an unticked Progress entry for each item (named by its title), keep every other byte, and note it on the covered items."""
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     ledger = loaded.snapshot.ledger
     ids = [ledger.resolve(reference, list(loaded.snapshot.items)) for reference in references]
     if len(set(ids)) != len(ids):
@@ -478,9 +480,9 @@ def sync_items(config: Config, number: int, target: str | None, build: Build | N
     return f"pr #{number} covers {' '.join([*loaded.record.items, *added])}" + (f" (added {' '.join(added)})" if added else " (unchanged)")
 
 
-def _drop_item(config: Config, number: int, name: str, reason: str, force: bool, target: str | None, build: Build | None) -> str:
+def _drop_item(config: Config, number: int, name: str, reason: str, force: bool, target: str | None, build: Build | None, on_behalf_of: str | None) -> str:
     """Remove one checklist box from the body, keep every other byte, and record the drop on the item and the pull request record."""
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     with forge_errors(loaded.record.target):
         first = loaded.forge.read_pull_request(number)
     refuse_finished(number, first, "have its checklist edited")
@@ -580,13 +582,13 @@ class Rebodied:
         return f"pr #{self.number} body replaced" if self.changed else f"pr #{self.number} body (unchanged)"
 
 
-def replace_body(config: Config, number: int, body_file: str, target: str | None, build: Build | None = None) -> Rebodied:
+def replace_body(config: Config, number: int, body_file: str, target: str | None, build: Build | None = None, on_behalf_of: str | None = None) -> Rebodied:
     """Replace a recorded, open pull request's body with the file's text (same ownership as ready), keeping the Progress boxes."""
     proposed = _body_file(body_file)
     if not proposed.strip():
         raise QewError(f"--body-file {body_file} is empty", 2)
     pr_body.refuse_closing_references(proposed, "the new body")
-    loaded = load(config, number, target, build)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     with forge_errors(loaded.record.target):
         first = loaded.forge.read_pull_request(number)
     refuse_finished(number, first, "have its body replaced")

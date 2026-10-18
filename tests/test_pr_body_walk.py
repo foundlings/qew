@@ -83,6 +83,23 @@ class BodyWalk(unittest.TestCase):
         self.assertIn("neither opened it", run.err)
         self.assertEqual(self.w.forge.pulls[1].body, OLD)
 
+    def test_on_behalf_of_borrows_the_owners_standing_for_body_and_check_only_when_the_owner_could(self) -> None:
+        """Prevents a coordinator being forced to take over items just to fix a body or tick a box, and the flag
+        becoming a bypass: naming someone who could not act is still refused."""
+        new = "Unblocked.\n\n- [ ] first <!-- pr-progress:a -->\n- [ ] second <!-- pr-progress:b -->\n"
+        done = self.run_body(new, "--on-behalf-of", "tester", actor="coordinator")
+        self.assertEqual(done.code, 0, done)
+        self.assertIn("Unblocked.", self.w.forge.pulls[1].body)
+        ticked = self.w.qew("pr", "check", "1", "b", "--on-behalf-of", "tester", actor="coordinator")
+        self.assertEqual(ticked.code, 0, ticked)
+        self.assertIn("- [x] second", self.w.forge.pulls[1].body)
+        before = self.w.forge.pulls[1].body
+        refused = self.w.qew("pr", "check", "1", "--all", "--on-behalf-of", "stranger", actor="coordinator")
+        self.assertEqual(refused.code, 3, refused)
+        refused_body = self.run_body("Hijack.\n" + new, "--on-behalf-of", "stranger", actor="coordinator")
+        self.assertEqual(refused_body.code, 3, refused_body)
+        self.assertEqual(self.w.forge.pulls[1].body, before)
+
 
 if __name__ == "__main__":
     unittest.main()
