@@ -257,6 +257,19 @@ class Ledger:
             return {}  # a damaged cache only costs a redundant forge update; the ledger is untouched
         return value if isinstance(value, dict) else {}
 
+    def commit_local_baselines(self, target: str) -> int:
+        """Write a committed baseline for every mirrored item of `target` that has only the older local sync state.
+        Returns how many were written; an item with a baseline is left alone."""
+        count = 0
+        for item_id in self.item_ids():
+            if self.baseline_files(item_id, target) or not (self.mirrors_dir / item_id / f"{target}.json").is_file():
+                continue
+            state = self.read_state(item_id, target)
+            if state:
+                self.write_baseline(item_id, target, state)
+                count += 1
+        return count
+
     def write_baseline(self, item_id: str, target: str, state: JsonObject) -> None:
         """Record the forge-synced state of one item. Nothing is written when only the sync time changed."""
         files = self.baseline_files(item_id, target)

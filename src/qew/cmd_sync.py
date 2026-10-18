@@ -151,6 +151,9 @@ def sync_command(config: Config, wanted: str | None, item: None | str | Sequence
     failed = False
     for mirror in mirrors:
         target = Target(mirror, ledger_config.mirror_slug(mirror), build(mirror), ledger_config.is_read_only(config, mirror))
+        if not items:  # a scoped pass stays cheap: the next whole-target sync does this
+            with trace.phase("commit local baselines"):
+                ledger.commit_local_baselines(target.slug)  # sync state kept only locally by qew before 6.31 joins the ledger
         # forge-side edits first, so the push cannot overwrite them; an item sync reads only those items' issues
         with trace.phase("pull"):
             pulled = (pull_items(ledger, target, _touched(ledger, items)) if items and not full
