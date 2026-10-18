@@ -132,7 +132,7 @@ def sync_command(config: Config, wanted: str | None, item: None | str | Sequence
         picked = sync_scope.chosen(ledger, snapshot, items, scope)
         if scope.limit and picked:
             pending = pending_by_target(ledger, mirrors, picked)
-            picked = list(dict.fromkeys(i for rows in pending.values() for _action, i in rows))[:scope.limit]
+            picked = list(dict.fromkeys(i for rows in pending.values() for action, i in rows if action != "baseline"))[:scope.limit]
             if not picked:
                 return "nothing to sync in the scope"
         if not picked:
@@ -140,7 +140,7 @@ def sync_command(config: Config, wanted: str | None, item: None | str | Sequence
         items = picked
     limit = config.replication.sync_limit
     if limit and sync_scope.needs_limit(scope, named):
-        count = sum(len(rows) for rows in pending_by_target(ledger, mirrors, items or None).values())
+        count = sum(1 for rows in pending_by_target(ledger, mirrors, items or None).values() for action, _id in rows if action != "baseline")
         if count > limit:
             if not dry_run:
                 raise sync_scope.refuse(count, len(mirrors), limit)
@@ -193,7 +193,7 @@ def _touched(ledger: Ledger, items: Sequence[str]) -> list[str]:
 
 
 def pending_by_target(ledger: Ledger, mirrors: list[Mirror], only: None | str | Sequence[str] = None) -> dict[str, list[tuple[str, str]]]:
-    """slug -> [(action, item id)]: derived from event ids and mirror files, never queued."""
+    """slug -> [(action, item id)]: derived from event ids and mirror files, never queued. `baseline` rows need no forge write."""
     snapshot = ledger.snapshot()
     wanted = [only] if isinstance(only, str) else list(only or ())
     chosen = {ledger.resolve(one, list(snapshot.items)) for one in wanted}
@@ -208,6 +208,8 @@ def pending_by_target(ledger: Ledger, mirrors: list[Mirror], only: None | str | 
             events = snapshot.events[item_id]
             if record is None:
                 rows.append(("create", item_id))
+            elif "synced_hash" not in record:
+                rows.append(("baseline", item_id))  # no local sync state: a fresh checkout; the pull baselines it, no forge write
             elif events and record.get("synced_event") != events[-1].id:
                 rows.append(("update", item_id))
         result[slug] = rows
