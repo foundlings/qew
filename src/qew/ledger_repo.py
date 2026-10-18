@@ -173,9 +173,9 @@ class Resolution:
 
 
 def only_mirrors(files: Sequence[str]) -> bool:
-    """Mirror files hold forge bookkeeping that older clients rewrote everywhere; the remote's copy is as good."""
+    """Mirror and baseline files hold forge bookkeeping that older clients rewrote everywhere; the remote's copy is as good."""
     files = list(files)
-    return bool(files) and all(f.startswith("mirrors/") for f in files)
+    return bool(files) and all(f.startswith(("mirrors/", "baselines/")) for f in files)
 
 
 def enable_untracked_cache(ledger: Path) -> bool:
@@ -314,9 +314,26 @@ class LedgerRepo:
                 raise
         elif self.vcs == "jj":
             self.run(["jj", "--no-pager", "commit", "-m", message, *_jj_filesets(paths)])  # the one command that snapshots the working copy
-            self.run([*JJ_READ, "bookmark", "set", self.branch, "-r", "@-"])
+            self._advance_branch()
             if sweep:
                 self._sweep_strays()
+
+    def _advance_branch(self) -> None:
+        """Point the branch at the commit just made (`@-`). When the branch is not an ancestor of it, the working copy sat beside
+        the branch (an earlier write failed, or a merge moved the branch past it): moving the bookmark would be refused as sideways
+        and every later write would pile onto a chain the branch never holds, so the two are merged first."""
+        if self._jj_ids(f'bookmarks(exact:"{self.branch}") ~ ::@-'):
+            self.run(["jj", "--no-pager", "new", self.branch, "@-", "-m", "qew: merge"])
+            if self._jj_ids("conflicts()"):
+                files = [line.split()[0] for line in self.run(["jj", "--no-pager", "resolve", "--list"], check=False).stdout.splitlines() if line.strip()]
+                if not only_mirrors(files):
+                    self.run(["jj", "--no-pager", "undo"], check=False)
+                    raise LedgerConflict(self.branch, files, self.path, self.branch, "@-")
+                self.run(["jj", "--no-pager", "resolve", "--tool", ":theirs"])
+            self.run([*JJ_READ, "bookmark", "set", self.branch, "-r", "@"])
+            self.run(["jj", "--no-pager", "new"])
+        else:
+            self.run([*JJ_READ, "bookmark", "set", self.branch, "-r", "@-"])
 
     def _sweep_strays(self) -> None:
         """Commit the qew-owned files that the commit's own snapshot picked up beyond the paths it named (a killed writer's, or a file
