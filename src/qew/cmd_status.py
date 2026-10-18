@@ -88,7 +88,8 @@ def collect(config: Config) -> JsonObject:
             "remote": remote_state(config),
         },
         "targets": [
-            {"target": slug, "pending": len(rows), "last_sync": last_sync(ledger, slug, ids), "repos": repos_on(mirrors, slug),
+            {"target": slug, "pending": sum(1 for action, _id in rows if action != "baseline"),
+             "unbaselined": sum(1 for action, _id in rows if action == "baseline"), "last_sync": last_sync(ledger, slug, ids), "repos": repos_on(mirrors, slug),
              "pace": _pace(ledger, slug), **pull_state(ledger, slug)}
             for slug, rows in pending.items()
         ],
@@ -108,12 +109,17 @@ def _pace(ledger: Ledger, slug: str) -> JsonObject | None:
     return None if window is None else {"limit": window[0], "per_seconds": int(window[1])}
 
 
+def unbaselined(target: JsonObject) -> str:
+    """` unbaselined=N` when this checkout has no sync state for N mirrored items: the first sync records it, writing nothing."""
+    return f" unbaselined={target['unbaselined']}" if target["unbaselined"] else ""
+
+
 def render(data: JsonObject) -> str:
     ledger = data["ledger"]
     lines = [f"authority primary={data['authority']['primary']}"]
     lines += [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]
     for target in data["targets"]:
-        lines.append(f"target {target['target']} pending={target['pending']} synced={target['last_sync'] or 'never'}"
+        lines.append(f"target {target['target']} pending={target['pending']}{unbaselined(target)} synced={target['last_sync'] or 'never'}"
                      f" repos={'on' if target['repos'] else 'off'}"
                      f" pulled={target['last_pull'] or 'never'} next_pull={target['next_pull']} full_set={target['last_full'] or 'never'}")
     for target in data["targets"]:
