@@ -238,16 +238,20 @@ class Ledger:
         """The pre-baseline local cache; read when no baseline is committed yet, never written."""
         return self.path / ".qew" / "state" / target / f"{item_id}.json"
 
+    def _newest_baseline(self, item_id: str, target: str) -> tuple[str, str] | None:
+        """(stem, text) of the newest committed baseline of one item and target, under its id or any id it had before a migration."""
+        cache = snapshot_cache.for_ledger(self.path)
+        homes = [home.name for home in self._homes(self.baselines_dir, item_id)]
+        if cache is None:
+            files = self.baseline_files(item_id, target)
+            return None if not files else (files[-1].stem, _baseline_text(files[-1]))
+        found = [one for one in (cache.baseline(self.baselines_dir, home, target, _newest_baseline_file) for home in homes) if one is not None]
+        return max(found, key=lambda one: one[0]) if found else None
+
     def read_state(self, item_id: str, target: str) -> JsonObject:
-        files = self.baseline_files(item_id, target)
-        if files:
-            try:
-                value = json.loads(files[-1].read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, ValueError) as error:
-                raise QewError(f"{files[-1]}: {error}", 1) from None
-            if not isinstance(value, dict):
-                raise QewError(f"{files[-1]}: a baseline is one JSON object", 1)
-            return value
+        newest = self._newest_baseline(item_id, target)
+        if newest is not None:
+            return _baseline_object(newest[1], f"{self.baselines_dir / item_id / target / newest[0]}.json")
         path = next((p for p in (self.state_path(name, target) for name in (item_id, *self.aliases().of(item_id))) if p.is_file()), None)
         if path is None:
             return {}
@@ -262,7 +266,7 @@ class Ledger:
         Returns how many were written; an item with a baseline is left alone."""
         count = 0
         for item_id in self.item_ids():
-            if self.baseline_files(item_id, target) or not (self.mirrors_dir / item_id / f"{target}.json").is_file():
+            if self._newest_baseline(item_id, target) is not None or not (self.mirrors_dir / item_id / f"{target}.json").is_file():
                 continue
             state = self.read_state(item_id, target)
             if state:
@@ -272,16 +276,17 @@ class Ledger:
 
     def write_baseline(self, item_id: str, target: str, state: JsonObject) -> None:
         """Record the forge-synced state of one item. Nothing is written when only the sync time changed."""
-        files = self.baseline_files(item_id, target)
-        if files:
+        newest = self._newest_baseline(item_id, target)
+        if newest is not None:
             current = self.read_state(item_id, target)
             if {k: v for k, v in current.items() if k != "synced_at"} == {k: v for k, v in state.items() if k != "synced_at"}:
                 return
         text = json.dumps(state, sort_keys=True, indent=2) + "\n"
         directory = self.baselines_dir / item_id / target
-        if files and files[-1] in _MINTED and files[-1].parent == directory:
-            _write(files[-1], text, exclusive=False)  # this session's own file: rewrite it rather than mint another
+        if newest is not None and directory / f"{newest[0]}.json" in _MINTED:
+            _write(directory / f"{newest[0]}.json", text, exclusive=False)  # this session's own file: rewrite it rather than mint another
             return
+        files = self.baseline_files(item_id, target)
         directory.mkdir(parents=True, exist_ok=True)
         fresh = directory / f"{event_id(files[-1].stem if files else '')}.json"
         _write(fresh, text, exclusive=False)
@@ -663,6 +668,32 @@ def write_new(path: Path, text: str) -> None:
 def write_replacing(path: Path, text: str) -> None:
     """Replace a ledger file whole; journaled so a failed command restores it."""
     _write(path, text, exclusive=False)
+
+
+def _baseline_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        raise QewError(f"{path}: {error}", 1) from None
+
+
+def _baseline_object(text: str, where: str) -> JsonObject:
+    try:
+        value = json.loads(text)
+    except ValueError as error:
+        raise QewError(f"{where}: {error}", 1) from None
+    if not isinstance(value, dict):
+        raise QewError(f"{where}: a baseline is one JSON object", 1)
+    return value
+
+
+def _newest_baseline_file(directory: Path) -> tuple[str, str] | None:
+    """(stem, text) of the newest baseline in one target directory, or None when it holds none."""
+    try:
+        names = sorted(path.stem for path in directory.glob("*.json"))
+    except OSError:
+        return None
+    return (names[-1], _baseline_text(directory / f"{names[-1]}.json")) if names else None
 
 
 def _write_local(path: Path, text: str) -> None:

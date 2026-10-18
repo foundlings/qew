@@ -7,6 +7,7 @@ and could not tell what the forge looked like until it read all of it).
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import unittest
 
@@ -119,6 +120,25 @@ class BaselineCommitWalk(unittest.TestCase):
             self.assertEqual(len(baseline_files(self.a.ledger, item)), 1, item)
         self.assertEqual(len([p for p in self.remote_files() if p.startswith("baselines/")]), 2)
         self.assertIn("pending=0", self.status_line(self.b))
+
+    def cached_rows(self, world: World) -> int:
+        with sqlite3.connect(world.ledger / ".qew" / "snapshot.db") as database:
+            return database.execute("select count(*) from baselines").fetchone()[0]
+
+    def test_baselines_are_cached_and_a_baseline_pulled_from_the_remote_is_seen(self) -> None:
+        """Prevents a stale cache hiding another machine's sync: B caches A's baseline, A syncs again, B pulls the new baseline
+        file with its next command, and B's status follows it exactly as an uncached read does."""
+        item = self.a.create("--kind", "issue", "--title", "Cached", "--quote", QUOTE)
+        self.sync(self.a)
+        self.assertIn("pending=0", self.status_line(self.b))
+        self.assertEqual(self.cached_rows(self.b), 1)
+        self.assertEqual(self.a.run("comment", item, "--body", "a note", env=ENV).returncode, 0)
+        self.assertIn("pending=1", self.status_line(self.b))
+        self.sync(self.a)
+        cached = self.status_line(self.b)
+        self.assertIn("pending=0", cached)
+        uncached = next(line for line in self.b.run("status", env={**ENV, "QEW_NO_CACHE": "1"}).stdout.splitlines() if line.startswith("target "))
+        self.assertEqual(cached, uncached)
 
 
 if __name__ == "__main__":
