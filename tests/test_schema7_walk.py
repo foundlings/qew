@@ -9,7 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import QUOTE, World, git
 
 
 class SchemaSevenWalk(unittest.TestCase):
@@ -19,6 +19,7 @@ class SchemaSevenWalk(unittest.TestCase):
         world.create("--title", "Existing", "--quote", QUOTE)
         toml = world.ledger / "qew-ledger.toml"
         toml.write_text(toml.read_text().replace("schema_version = 7", f"schema_version = {version}"))
+        git(world.ledger, "commit", "-q", "-am", "older layout")
         return world
 
     def test_a_schema_6_ledger_works_and_migrates_to_7_by_declaring_it(self) -> None:
