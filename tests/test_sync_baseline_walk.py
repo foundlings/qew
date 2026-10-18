@@ -6,6 +6,7 @@ pending=2 after a clean sync, and a completed item was reported as `forge=closed
 
 import json
 import os
+import shutil
 import sys
 import unittest
 
@@ -74,6 +75,50 @@ class SyncBaselineWalk(unittest.TestCase):
         self.assertIn("divergences=1", status)
         self.assertIn("forge=closed ledger=open", status)
         self.assertIn(item, status)
+
+
+    def fresh_checkout(self) -> None:
+        """What a second machine has after cloning the ledger: the committed mirrors, none of the local sync state."""
+        shutil.rmtree(self.world.ledger / ".qew" / "state")
+
+    def status_line(self) -> str:
+        return next(line for line in self.world.run("status").stdout.splitlines() if line.startswith("target "))
+
+    def test_a_fresh_checkout_is_unbaselined_not_pending(self) -> None:
+        """Prevents `pending=2049` on a second machine (seen live): the committed mirrors name every issue, the local sync
+        state (`synced_event`, `synced_hash`) is never committed, so every item read as an update that the forge never needs."""
+        self.world.create("--kind", "issue", "--title", "One", "--quote", QUOTE)
+        self.world.create("--kind", "issue", "--title", "Two", "--quote", QUOTE)
+        self.sync()
+        self.fresh_checkout()
+        line = self.status_line()
+        self.assertIn("pending=0", line)
+        self.assertIn("unbaselined=2", line)
+        plan = self.world.run("sync", "--dry-run").stdout
+        self.assertNotIn("update ", plan)
+        self.assertIn("baseline ", plan)
+
+    def test_the_first_sync_on_a_fresh_checkout_leaves_nothing_pending_or_unbaselined(self) -> None:
+        """Prevents the count surviving the sync that was meant to clear it: the baseline branch recorded the hash but not
+        the newest event, so every item stayed pending until a second sync."""
+        self.world.create("--kind", "issue", "--title", "One", "--quote", QUOTE)
+        self.sync()
+        self.fresh_checkout()
+        self.sync()
+        line = self.status_line()
+        self.assertIn("pending=0", line)
+        self.assertNotIn("unbaselined", line)
+
+    def test_a_fresh_checkout_does_not_trip_the_sync_limit(self) -> None:
+        """Prevents a plain `qew sync` refusing with 'N writes pending, more than sync_limit' on a second machine, where
+        none of the counted items needs a forge write."""
+        for title in ("One", "Two", "Three"):
+            self.world.create("--kind", "issue", "--title", title, "--quote", QUOTE)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
+        self.fresh_checkout()
+        config = self.world.code / ".qew" / "config.toml"
+        config.write_text(config.read_text().replace("forge_concurrency = 1", "forge_concurrency = 1\nsync_limit = 1"))
+        self.sync()
 
 
 if __name__ == "__main__":
