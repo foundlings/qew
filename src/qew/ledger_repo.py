@@ -419,7 +419,7 @@ class LedgerRepo:
     def _git_resolve(self, take: str, timeout: float) -> Resolution:
         remote = f"origin/{self.branch}"
         self.run(["git", "fetch", "-q", "origin"], timeout=timeout, check=False)
-        self.run(["git", "merge", "-q", "--no-commit", "--no-ff", remote], check=False)
+        self.run(["git", "merge", "-q", "-X", "no-renames", "--no-commit", "--no-ff", remote], check=False)
         files = self.run(["git", "diff", "--name-only", "--diff-filter=U"], check=False).stdout.split()
         if not files:
             self.run(["git", "merge", "--abort"], check=False)
@@ -491,12 +491,15 @@ class LedgerRepo:
         if ahead == 0:
             self.run(["git", "merge", "-q", "--ff-only", remote])
             return "ok"
-        merged = self.run(["git", "merge", "-q", "--no-edit", "-m", "qew: merge", remote], check=False)
+        merged = self.run(["git", "merge", "-q", "-X", "no-renames", "--no-edit", "-m", "qew: merge", remote], check=False)
         if merged.returncode != 0:
             files = self.run(["git", "diff", "--name-only", "--diff-filter=U"], check=False).stdout.split()
             if only_mirrors(files):
-                self.run(["git", "checkout", "--theirs", "--", *files])
-                self.run(["git", "add", "--", *files])
+                for relative in files:  # take the remote's copy; a path the remote deleted goes too
+                    if self.run(["git", "checkout", "--theirs", "--", relative], check=False).returncode == 0:
+                        self.run(["git", "add", "--", relative])
+                    else:
+                        self.run(["git", "rm", "-q", "-f", "--", relative])
                 self.run(["git", "commit", "-q", "--no-edit", "-m", "qew: merge (mirror bookkeeping taken from the remote)"])
                 return "ok"
             self.run(["git", "merge", "--abort"], check=False)

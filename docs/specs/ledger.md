@@ -30,7 +30,7 @@ views/<name>.json          # named offline board: name, columns, sort, group_by,
 ```
 - A baseline is committed fact, not machine state: a sync that changes it adds a new file (`<ID2>` is a base35-time id) and
   removes the older ones, so two machines record the same item as two added files and the same deletions, which git merges;
-  the newest file wins. A machine's own pending changes are never stored: they are the item's events newer than the baseline's
+  the newest file wins. A git ledger merges with `-X no-renames`: the old file is deleted and the new one added with nearly the same text, which rename detection would pair into a rename/rename conflict between two machines; a conflict left in `baselines/` or `mirrors/` takes the remote's copy, or removes the path when the remote deleted it. A machine's own pending changes are never stored: they are the item's events newer than the baseline's
   `synced_event`. A clone therefore starts from the last recorded forge state, not from nothing. `.qew/state/TARGET/ID.json`
   (older qew) is read only while an item has no baseline, and the next write moves it.
 - No shared index file is committed. `qew index` builds a local cache (gitignored) from files.

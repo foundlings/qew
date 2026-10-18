@@ -140,6 +140,34 @@ class BaselineCommitWalk(unittest.TestCase):
         uncached = next(line for line in self.b.run("status", env={**ENV, "QEW_NO_CACHE": "1"}).stdout.splitlines() if line.startswith("target "))
         self.assertEqual(cached, uncached)
 
+    def replace_baseline(self, world: World, item: str, stem: str, stamp: str) -> None:
+        """What a machine's sync does to a baseline: delete the old file and add a new one that differs in one line."""
+        directory = world.ledger / "baselines" / item / self.slug
+        old = next(directory.glob("*.json"))
+        data = json.loads(old.read_text())
+        data["synced_at"] = stamp
+        (directory / f"{stem}.json").write_text(json.dumps(data, sort_keys=True, indent=2) + "\n")
+        git(world.ledger, "rm", "-q", "--", str(old.relative_to(world.ledger)))
+        git(world.ledger, "add", "-A")
+        git(world.ledger, "commit", "-q", "-m", f"qew: sync by {world.ledger.name}")
+
+    def test_two_machines_replacing_one_baseline_while_apart_merge_without_a_conflict(self) -> None:
+        """Prevents the half-done merge seen live on a git ledger (qew pr merge exited 3 with DD/AU/UA paths under baselines/): each
+        machine deletes the old baseline file and adds a near-identical new one, which git's rename detection pairs into a
+        rename/rename conflict unless the merge turns it off."""
+        item = self.a.create("--kind", "issue", "--title", "Shared", "--quote", QUOTE)
+        self.sync(self.a)
+        self.status_line(self.b)
+        self.replace_baseline(self.a, item, "zzzzzzzza", "2026-01-01T00:00:01Z")
+        self.replace_baseline(self.b, item, "zzzzzzzzb", "2026-01-01T00:00:02Z")
+        git(self.a.ledger, "push", "-q", "origin", "main")
+        for world in (self.b, self.a):
+            result = world.run("ready", env=ENV)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse((world.ledger / ".git" / "MERGE_HEAD").exists())
+        newest = json.loads(self.a.run("show", item, "--json", env=ENV).stdout)
+        self.assertEqual(newest["id"], item)
+
 
 if __name__ == "__main__":
     unittest.main()
