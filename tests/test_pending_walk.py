@@ -8,7 +8,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from tests.fake_forgejo import TOKEN, FakeForgejo
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import QUOTE, World, baseline_path
 
 ENV = {"FORGEJO_TOKEN": TOKEN}
 
@@ -43,7 +43,7 @@ class PendingWalk(unittest.TestCase):
         w = self.world
         item = w.create("--kind", "issue", "--title", "A", "--draft")
         w.run("sync", env=ENV)
-        path = next((w.ledger / ".qew" / "state").rglob(f"{item}.json"))
+        path = baseline_path(w.ledger, item)
         data = json.loads(path.read_text())
         data["synced_event"] = "zzzzzzzzz"
         path.write_text(json.dumps(data))

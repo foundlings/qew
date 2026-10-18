@@ -94,7 +94,7 @@ def _item_ids(relative_paths: list[str]) -> list[str]:
     ids: set[str] = set()
     for path in relative_paths:
         parts = path.split("/")
-        if parts[0] in ("items", "events", "mirrors", "proposals") and len(parts) > 1:
+        if parts[0] in ("items", "events", "mirrors", "baselines", "proposals") and len(parts) > 1:
             ids.add(parts[1][:-3] if parts[1].endswith(".md") else parts[1])
     return sorted(ids)
 

@@ -15,7 +15,7 @@ from qew.errors import QewError
 from qew.forge_pull import pull_target
 from qew.ledger_store import Ledger
 from qew.sync import Target, sync_target
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import QUOTE, World, baseline_path
 from tests.memory_forge import MemoryForge
 
 MIRRORS = '\n[[mirror]]\nforge = "forgejo"\nrepo = "https://git.example/o/r"\n'
@@ -57,8 +57,7 @@ class PullWalk(unittest.TestCase):
 
     def test_a_baseline_recorded_before_a_label_became_managed_does_not_diverge(self) -> None:
         """Prevents a flood after an upgrade (seen live): old local baselines still holding status:* labels are normalised."""
-        state = self.world.ledger / ".qew" / "state"
-        path = next(state.rglob(f"{self.item}.json"))
+        path = baseline_path(self.world.ledger, self.item)
         data = json.loads(path.read_text())
         data["seen"]["labels"] = sorted([*data["seen"]["labels"], "status:Ready"])
         path.write_text(json.dumps(data))

@@ -1,4 +1,4 @@
-"""Mirror identity is shared and written once; sync state is local: machines never conflict on mirror files.
+"""Mirror identity is written once; the forge-synced state is a separate committed baseline: machines never conflict on mirror files.
 
 Each test is a scenario; its docstring names the failure it prevents.
 """
@@ -12,7 +12,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from tests.fake_forgejo import TOKEN, FakeForgejo
-from tests.ledger_harness import QUOTE, World
+from tests.ledger_harness import QUOTE, World, baseline_files, baseline_path
 
 ENV = {"FORGEJO_TOKEN": TOKEN}
 IDENTITY = {"forge", "url", "kind", "number", "node_id", "issue_url"}
@@ -26,7 +26,7 @@ class MirrorSplitWalk(unittest.TestCase):
         self.quiet = "\n[replication]\nfetch_interval_s = 0\nauto_forge_sync = false\n"
 
     def test_the_committed_mirror_file_holds_identity_only_and_never_changes_after_creation(self) -> None:
-        """Prevents write-write conflicts: sync state (hashes, event ids, timestamps) stays out of committed files."""
+        """Prevents write-write conflicts: sync state (hashes, event ids, timestamps) stays out of the mirror file, in the baseline."""
         w = World(self.mirrors, ledger_vcs="git", replication=self.quiet)
         self.addCleanup(w.close)
         item = w.create("--title", "Work", "--quote", QUOTE)
@@ -38,8 +38,8 @@ class MirrorSplitWalk(unittest.TestCase):
         w.run("sync", env=ENV)
         self.assertEqual(json.loads(path.read_text()), committed)
         self.assertEqual(w.ledger_dirty(), [])
-        state = next((w.ledger / ".qew" / "state").rglob(f"{item}.json"))
-        self.assertIn("synced_hash", json.loads(state.read_text()))
+        self.assertEqual(len(baseline_files(w.ledger, item)), 1)  # a sync replaces the baseline, never piles them up
+        self.assertIn("synced_hash", json.loads(baseline_path(w.ledger, item).read_text()))
 
     def test_two_checkouts_syncing_and_editing_the_same_items_merge_without_conflicts(self) -> None:
         """Prevents the conflicted-ledger failure seen live: both machines sync the same target and the ledger still converges."""
@@ -68,7 +68,8 @@ class MirrorSplitWalk(unittest.TestCase):
         path = next((w.ledger / "mirrors" / item).glob("*.json"))
         old = {**json.loads(path.read_text()), "synced_hash": "abc", "synced_event": "zzzzzzzzz", "linked": []}
         path.write_text(json.dumps(old))
-        shutil.rmtree(w.ledger / ".qew" / "state")  # a ledger from before the split has no local state
+        shutil.rmtree(w.ledger / ".qew" / "state", ignore_errors=True)  # a ledger from before the split has no sync state of its own
+        shutil.rmtree(w.ledger / "baselines")
         self.assertEqual(w.run("check").returncode, 1)  # a future synced_event is still caught
         old["synced_event"] = ""
         path.write_text(json.dumps(old))

@@ -37,7 +37,7 @@ def touched(root: Path, entries: list[tuple[Path, str | None]]) -> set[str] | No
             parts = path.relative_to(root).parts
         except ValueError:
             return None
-        if parts and parts[0] in ("mirrors", ".qew"):
+        if parts and parts[0] in ("mirrors", "baselines", ".qew"):
             continue  # a snapshot reads neither
         if len(parts) < 2 or parts[0] not in ("items", "events"):
             return None
