@@ -31,7 +31,7 @@ class ReadRacesWriterWalk(unittest.TestCase):
         source = next((ledger / "events" / self.first).glob("*.json"))
         (ledger / "events" / second).mkdir()
         shutil.copy(source, ledger / "events" / second / source.name)
-        text = (ledger / "items" / self.first / "item.md").read_text()
+        text = (ledger / "items" / self.first / "item.md").read_text().replace(self.first, second)
 
         def finish() -> None:
             time.sleep(pause)
