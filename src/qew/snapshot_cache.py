@@ -12,6 +12,7 @@ directory change is looked for; `qew check` reads every file itself, compares, a
 database (damage, a lock, a read-only directory) is never an error: the files are read as if there were no cache.
 """
 
+import atexit
 import os
 import sqlite3
 import threading
@@ -27,6 +28,7 @@ FORMAT = "1"
 RACY_NS = 2_000_000_000
 READERS = 16
 PARALLEL_FROM = 200  # fewer changed files than this are read in one thread
+FLUSH_EVERY = 512  # baselines read before they are written to the database
 
 Rows = list[tuple[str, str]]  # (event file name, text), sorted by name
 
@@ -69,7 +71,10 @@ class SnapshotCache:
         self._homes: dict[str, tuple[str, int]] = {}  # events dir name -> (signature, racy)
         self._valid: set[str] = set()  # events dirs whose every file `parse_event` accepted when it was cached
         self._events: dict[str, Rows] = {}
+        self._baselines: dict[tuple[str, str], tuple[str, int, str, str]] = {}  # (item dir, target) -> (signature, racy, stem, text)
+        self._baseline_dirty: dict[tuple[str, str], tuple[str, int, str, str]] = {}  # read since the last flush
         self._loaded = False
+        atexit.register(self.flush_baselines)
 
     # -- the database
     def _connect(self) -> sqlite3.Connection:
@@ -88,6 +93,8 @@ class SnapshotCache:
         if "ok" not in [column[1] for column in connection.execute("pragma table_info(homes)")]:
             connection.execute("alter table homes add column ok integer not null default 0")
         connection.execute("create table if not exists events(home text not null, name text not null, body text not null, primary key(home, name)) without rowid")
+        connection.execute("create table if not exists baselines(home text not null, target text not null, sig text not null, racy integer not null,"
+                           " stem text not null, body text not null, primary key(home, target)) without rowid")
         connection.commit()
         return connection
 
@@ -116,12 +123,14 @@ class SnapshotCache:
                     self._events = {}
                     for home, name, body in connection.execute("select home, name, body from events order by home, name"):
                         self._events.setdefault(home, []).append((name, body))
+                    self._baselines = {(h, t): (sig, racy, stem, body)
+                                       for h, t, sig, racy, stem, body in connection.execute("select home, target, sig, racy, stem, body from baselines")}
                 finally:
                     connection.close()
                 self._loaded = True
                 return
             except (sqlite3.Error, OSError):
-                self._items, self._homes, self._events, self._valid = {}, {}, {}, set()
+                self._items, self._homes, self._events, self._valid, self._baselines = {}, {}, {}, set(), {}
                 for suffix in ("", "-wal", "-shm", "-journal"):
                     try:
                         os.unlink(f"{self.path}{suffix}")
@@ -194,6 +203,50 @@ class SnapshotCache:
             self._save(changed, gone, {}, {}, set())
             return {name: fresh[name] if isinstance(fresh.get(name), Unreadable) else known[name][2] for name in current}
 
+    # -- baselines
+    def baseline(self, root: Path, home: str, target: str, read: Callable[[Path], tuple[str, str] | None]) -> tuple[str, str] | None:
+        """The newest committed baseline (file stem, text) of one item directory and target. One stat of the target directory
+        decides: while its signature is what was cached the cached text is used, otherwise the directory is read again. A pull
+        that brings in another machine's baseline adds or removes a file there, so exactly those directories are re-read."""
+        with self._lock:
+            self._load()
+            key = (home, target)
+            try:
+                status = os.stat(root / home / target)
+            except OSError:
+                self._baselines.pop(key, None)
+                return None
+            sig, racy = _stamp(status)
+            row = self._baselines.get(key)
+            if row is not None and row[0] == sig and not row[1]:
+                return (row[2], row[3])
+            found = read(root / home / target)
+            if found is None:
+                self._baselines.pop(key, None)
+                return None
+            self._baselines[key] = (sig, racy, found[0], found[1])
+            self._baseline_dirty[key] = self._baselines[key]
+            if len(self._baseline_dirty) >= FLUSH_EVERY:
+                self.flush_baselines()
+            return found
+
+    def flush_baselines(self) -> None:
+        """Write the baselines read since the last flush in one transaction (also run when the process exits)."""
+        with self._lock:
+            changed, self._baseline_dirty = self._baseline_dirty, {}
+            if not changed:
+                return
+            try:
+                connection = self._connect()
+                try:
+                    with connection:
+                        connection.executemany("insert or replace into baselines values(?, ?, ?, ?, ?, ?)",
+                                               [(h, t, sig, racy, stem, body) for (h, t), (sig, racy, stem, body) in changed.items()])
+                finally:
+                    connection.close()
+            except (sqlite3.Error, OSError):
+                pass
+
     # -- events
     def events(self, events_dir: Path, homes: set[str], read: Callable[[Path], Rows],
                verify: bool = False) -> tuple[dict[str, Rows], frozenset[str]]:
@@ -260,7 +313,7 @@ def _validates(events_dir: Path, home: str, rows: Rows) -> bool:
     return True
 
 
-def _read_all[T](names: list[str], read: Callable[[str], T]) -> dict[str, T]:
+def _read_all[K, T](names: list[K], read: Callable[[K], T]) -> dict[K, T]:
     if len(names) > PARALLEL_FROM:
         with ThreadPoolExecutor(max_workers=READERS) as pool:
             return dict(zip(names, pool.map(read, names), strict=True))
