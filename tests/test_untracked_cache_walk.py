@@ -22,7 +22,7 @@ def setting(world: World) -> str:
 
 def downgrade(world: World, version: int = 5) -> None:
     toml = world.ledger / "qew-ledger.toml"
-    toml.write_text(toml.read_text().replace("schema_version = 6", f"schema_version = {version}"))
+    toml.write_text(toml.read_text().replace("schema_version = 7", f"schema_version = {version}"))
     if world.ledger_vcs == "git":  # the old declaration is what the ledger committed, as in a real ledger of that age
         subprocess.run(["git", "-C", str(world.ledger), "commit", "-q", "-am", "an older schema"], check=True, env={**os.environ, **_GIT_ENV})
     elif world.ledger_vcs == "jj":
@@ -39,15 +39,15 @@ class UntrackedCacheWalk(unittest.TestCase):
         self.assertEqual(setting(world), "")
         preview = world.run("migrate-layout", "--dry-run")
         self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
-        self.assertIn("schema_version 5 -> 6", preview.stdout)
+        self.assertIn("schema_version 5 -> 7", preview.stdout)
         self.assertIn("untrackedCache", preview.stdout)
         self.assertEqual(setting(world), "", "a dry run changes nothing")
         done = world.run("migrate-layout")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(setting(world), "true")
-        self.assertIn("schema_version = 6", (world.ledger / "qew-ledger.toml").read_text())
+        self.assertIn("schema_version = 7", (world.ledger / "qew-ledger.toml").read_text())
         again = world.run("migrate-layout")
-        self.assertIn("already schema_version 6", again.stdout)
+        self.assertIn("already schema_version 7", again.stdout)
         self.assertEqual(world.run("check").returncode, 0)
 
     def test_a_schema_5_ledger_keeps_working_until_it_is_migrated(self) -> None:
@@ -86,7 +86,7 @@ class UntrackedCacheWalk(unittest.TestCase):
         subprocess.run(["git", "-C", str(ledger), "init", "-q", "-b", "main"], check=True)
         result = init(fresh, "--ledger", "../fresh-ledger")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("schema_version = 6", (ledger / "qew-ledger.toml").read_text())
+        self.assertIn("schema_version = 7", (ledger / "qew-ledger.toml").read_text())
         value = subprocess.run(["git", "-C", str(ledger), "config", "--local", "--get", "core.untrackedCache"], capture_output=True, text=True)
         self.assertEqual(value.stdout.strip(), "true")
 
