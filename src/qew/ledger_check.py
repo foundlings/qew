@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, replace
 import json
+import time
 import tomllib
 
 from qew import attachments, comments, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
@@ -83,9 +84,21 @@ def load(ledger: Ledger, verify: bool = False) -> tuple[Snapshot, list[str]]:
     return Snapshot(ledger, items, folds, events), problems
 
 
+LOOK_AGAIN = (0.2, 0.4, 0.8)  # seconds a read waits before each fresh look at a ledger that reads as broken
+
+
 def read_snapshot(ledger: Ledger) -> Snapshot:
-    """The snapshot every read command answers from; an unreadable ledger is refused, never listed in part."""
+    """The snapshot every read command answers from; an unreadable ledger is refused, never listed in part.
+
+    A writer adds an item's files one after another and a read takes no lock, so a read can meet the ledger half way (an events
+    directory before its item file). Before refusing, a read looks again after a short wait; a ledger that is still broken
+    after the last look is refused, so real damage is reported."""
     snapshot, problems = load(ledger)
+    for pause in LOOK_AGAIN:
+        if not problems:
+            break
+        time.sleep(pause)
+        snapshot, problems = load(ledger)
     if problems:
         more = f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""
         raise QewError(f"the ledger is not readable: {problems[0]}{more}; run `qew check`", 1)
