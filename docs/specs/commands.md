@@ -581,7 +581,9 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   --reason TEXT`; for merge also `--other-author --reason TEXT`). A merge also refuses an item another actor holds,
   even for the opener. A covered item with unreadable history is exit 4.
 - `qew land NUMBER [--target T] [--integrator --reason TEXT] [--json]`: after the merge, per covered item the caller holds: record the pull request head
-  as evidence when none covers it, then complete it (children before epics). Items held by others or not started
+  as evidence when none covers it, then complete it (children before epics). Items named only by a Progress box of the merged body (the
+  record froze at open) are covered too, but only when their own evidence is the merged head or an ancestor of it; without that the line
+  says `has a Progress box in pr #N but no evidence on its merged head` and names `qew evidence`, because the head is no proof for them. Items held by others or not started
   are listed and skipped (an item another actor holds is reported with the exact `qew complete ITEM --take-over`
   command, never touched); a failed gate is reported per item and exits 2. A pull request merged into a branch other
   than the configured target leaves its items `still open`; a merge head that is not a commit id is exit 4 and writes
