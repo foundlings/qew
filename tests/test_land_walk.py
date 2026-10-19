@@ -157,6 +157,24 @@ class LandWalk(unittest.TestCase):
         self.assertIn(f"{epic}: not completed", run.out)
         self.assertEqual(self.state(child), "completed")
 
+    def test_land_also_covers_the_items_the_merged_bodys_progress_boxes_name(self) -> None:
+        """Prevents merged work staying claimed (14 items seen live after a batch merge): the record froze at open, the body gained
+        boxes for more items, and land walked only the record. An item with evidence on the merged head is completed; one without
+        is reported with what to do, never completed on a guess."""
+        proved = self.w.item("Proved")
+        unproved = self.w.item("Unproved")
+        self.assertEqual(self.w.qew("evidence", self.item, "--change", self.sha).code, 0)
+        self.assertEqual(self.w.qew("evidence", proved, "--change", self.sha).code, 0)
+        body = self.w.forge.pulls[1].body
+        boxes = f"\n- [ ] Proved <!-- pr-progress:{proved} -->\n- [ ] Unproved <!-- pr-progress:{unproved} -->\n"
+        self.w.forge.edit_pull(1, state="merged", body=body + boxes)
+        run = self.w.qew("land", "1")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.state(self.item), "completed")
+        self.assertEqual(self.state(proved), "completed")
+        self.assertEqual(self.state(unproved), "claimed")
+        self.assertIn(f"{unproved}: has a Progress box in pr #1 but no evidence on its merged head", run.out)
+
 
 if __name__ == "__main__":
     unittest.main()
