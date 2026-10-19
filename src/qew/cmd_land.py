@@ -4,7 +4,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import cast
 
-from qew import cmd_finish, code_vcs, ledger_config, outcome, pr_gate
+from qew import cmd_finish, code_vcs, ledger_config, outcome, pr_checklist, pr_gate
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -51,15 +51,23 @@ class Landing:
     open: list[str] = field(default_factory=list)
 
 
-def _order(loaded: Loaded) -> list[str]:
+def _order(loaded: Loaded, ids: list[str]) -> list[str]:
     """Children before their epics, so an epic completes after what it covers."""
     kinds = loaded.snapshot.items
-    return sorted(loaded.record.items, key=lambda item_id: kinds[item_id].kind == Kind.EPIC)
+    return sorted(ids, key=lambda item_id: kinds[item_id].kind == Kind.EPIC)
+
+
+def _boxed(loaded: Loaded, body: str) -> list[str]:
+    """The items the merged body's Progress boxes name that the record does not cover: the record froze at open, and a merged
+    pull request can no longer have its covered items synced."""
+    named = [box.address for box in pr_checklist.boxes(body) if box.address in loaded.snapshot.items]
+    return [item_id for item_id in dict.fromkeys(named) if item_id not in loaded.record.items]
 
 
 def land(config: Config, number: int, target: str | None, build: Build | None = None, integrator: bool = False,
          reason: str | None = None) -> Landing:
-    """Evidence and completion for every claimed item the merged pull request covered.
+    """Evidence and completion for every claimed item the merged pull request covered: the recorded ones, and the ones its
+    Progress boxes name (completed only when their evidence is on the merged head, since the head is not proof for them).
 
     `integrator`: the caller merged it and lands the items another actor holds too, on the take-over path with `reason`."""
     positive_number(number)
@@ -75,8 +83,18 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
     result = Landing()
     if not code_vcs.valid_change(code_vcs.detect(config.root), pull.head_sha):
         raise QewError(f"indeterminate: pr #{number} merged at `{pull.head_sha}`, which is not a commit id; nothing was written", 4)
-    for item_id in _order(loaded):
-        state = loaded.states[item_id]
+    boxed = []
+    states = dict(loaded.states)
+    for item_id in _boxed(loaded, pull.body):
+        folded = loaded.snapshot.folds[item_id]
+        if folded.errors or folded.state is None or any(e.type == "claimed" for e in folded.divergences):
+            result.lines.append(f"{item_id}: named by a Progress box in pr #{number}, but its history cannot be read or its owner is contested; not landed (run `qew check`)")
+            result.open.append(item_id)
+            continue
+        states[item_id] = folded.state
+        boxed.append(item_id)
+    for item_id in _order(loaded, [*loaded.record.items, *boxed]):
+        state = states[item_id]
         owner = loaded.snapshot.folds[item_id].owner
         if state in (State.COMPLETED, State.CLOSED):
             result.lines.append(f"{item_id}: already {state.value}")
@@ -90,11 +108,16 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
         elif pull.base_branch != config.target:
             result.lines.append(f"{item_id}: still open: merged into {pull.base_branch}, not the target {config.target}")
             result.open.append(item_id)
+        elif item_id in boxed and loaded.snapshot.items[item_id].kind != Kind.EPIC and not pr_gate.evidence_covers(
+                config, loaded.snapshot.folds[item_id].evidence, pull.head_sha):
+            result.lines.append(f"{item_id}: has a Progress box in pr #{number} but no evidence on its merged head; not landed "
+                                f"(record it with `qew evidence {item_id} --change CHANGE`, then `qew land {number}` again)")
+            result.open.append(item_id)
         else:
             takeover = f"integrator landed pr #{number} (held by {owner}): {reason}" if owner != actor() and integrator else None
             result.failures += _land_one(config, loaded, item_id, pull.head_sha, result, takeover)
     if not result.landed and not result.failures:
-        everything_done = bool(result.clean) and len(result.clean) == len(loaded.record.items)
+        everything_done = bool(result.clean) and len(result.clean) == len(loaded.record.items) + len(boxed)
         result.lines.append("nothing to land: all covered items complete" if everything_done else "nothing to land")
     return result
 
