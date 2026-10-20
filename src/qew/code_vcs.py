@@ -33,6 +33,24 @@ def _run(root: Path, argv: list[str]) -> subprocess.CompletedProcess[str]:
         raise QewError(f"cannot run `{' '.join(argv)}`: {error}", 3) from None
 
 
+def _jj_target(root: Path, target: str) -> str:
+    """The revset naming the target branch. A bookmark that two sides moved is conflicted and `present(main)` refuses it, so the
+    revset then names every side (a change on either side is on the branch); a name nothing carries is exit 3."""
+    probe = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
+    if probe.returncode == 0 and probe.stdout.strip():
+        return f"({target})"
+    if "conflicted" in probe.stderr and "@" not in target:
+        sides = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f'bookmarks(exact:"{target}")', "-T", 'commit_id ++ "\\n"'])
+        if sides.returncode == 0 and sides.stdout.strip():
+            return f'bookmarks(exact:"{target}")'
+    raise QewError(f"target `{target}` does not exist in this repo", 3)
+
+
+def _jj_change(change: str) -> str:
+    """The revset for a cited change: every commit of the change id (a divergent one is refused as a bare symbol)."""
+    return f"change_id({change})" + (f" | commit_id({change})" if _HEX.fullmatch(change) else "")
+
+
 def valid_change(vcs: str, change: str) -> bool:
     return bool((_JJ_ID if vcs == "jj" else _GIT_ID).fullmatch(change))
 
@@ -69,10 +87,8 @@ def is_ancestor(root: Path, vcs: str, change: str, target: str) -> bool:
         if _run(root, ["git", "rev-parse", "--verify", "--quiet", f"{change}^{{commit}}"]).returncode != 0:
             return False
         return _run(root, ["git", "merge-base", "--is-ancestor", change, target]).returncode == 0
-    probe = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
-    if probe.returncode != 0 or not probe.stdout.strip():
-        raise QewError(f"target `{target}` does not exist in this repo", 3)
-    result = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({target}) & ({change})", "-T", 'commit_id ++ "\\n"'])
+    revset = _jj_target(root, target)
+    result = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({revset}) & ({_jj_change(change)})", "-T", 'commit_id ++ "\\n"'])
     return result.returncode == 0 and bool(result.stdout.strip())
 
 
@@ -106,16 +122,14 @@ def landing(root: Path, vcs: str, change: str, target: str) -> tuple[Landing, st
             return Landing.UNKNOWN, ""
         merged = _run(root, ["git", "merge-base", "--is-ancestor", full, target]).returncode == 0
         return (Landing.LANDED if merged else Landing.NOT_ANCESTOR), full
-    probe = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
-    if probe.returncode != 0 or not probe.stdout.strip():
-        raise QewError(f"target `{target}` does not exist in this repo", 3)
-    found = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({change})", "-T", 'commit_id ++ "\\n"'])
+    revset = _jj_target(root, target)
+    found = _run(root, _JJ_READ + ["log", "--no-graph", "-r", _jj_change(change), "-T", 'commit_id ++ "\\n"'])
     ids = found.stdout.split() if found.returncode == 0 else []
     if not ids:
         return Landing.UNKNOWN, ""
-    inside = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({target}) & ({change})", "-T", 'commit_id ++ "\\n"'])
-    merged = inside.returncode == 0 and bool(inside.stdout.strip())
-    return (Landing.LANDED if merged else Landing.NOT_ANCESTOR), ids[0]
+    inside = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({revset}) & ({_jj_change(change)})", "-T", 'commit_id ++ "\\n"'])
+    landed = inside.stdout.split() if inside.returncode == 0 else []
+    return (Landing.LANDED, landed[0]) if landed else (Landing.NOT_ANCESTOR, ids[0])
 
 
 _HEX = re.compile(r"[0-9a-f]+")
@@ -155,10 +169,8 @@ def _landing_many_git(root: Path, wanted: list[str], target: str) -> dict[str, t
 
 
 def _landing_many_jj(root: Path, wanted: list[str], target: str) -> dict[str, tuple[Landing, str]]:
-    probe = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
-    if probe.returncode != 0 or not probe.stdout.strip():
-        raise QewError(f"target `{target}` does not exist in this repo", 3)
-    history = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({target})", "-T", 'change_id ++ " " ++ commit_id ++ "\\n"'])
+    revset = _jj_target(root, target)
+    history = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({revset})", "-T", 'change_id ++ " " ++ commit_id ++ "\\n"'])
     on_target = [tuple(line.split()) for line in history.stdout.splitlines() if len(line.split()) == 2] if history.returncode == 0 else []
     found: dict[str, tuple[Landing, str]] = {}
     for change in wanted:
