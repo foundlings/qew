@@ -65,7 +65,9 @@ shape prime: additional_context context_bytes schema_version
   A `tracks:` or `pr:` link prints `KEY: ID URL...`, the linked item's forge URLs read from its `mirrors/` files (header values
   are ledger ids only; `check` flags a URL, a forge number or an unknown id there).
 - `qew list [--kind K] [--state S] [--work-state W] [--label L]... [--field NAME[=VALUE]]... [--owner NAME] [--author NAME] [--parent ID]
-  [--limit N] [--json]`: actionable work first. Every `--label` must match, and every `--field` (an item holding the field `NAME`, or `NAME=VALUE` among its values); labels and names fold ASCII case
+  [--since START] [--recent [N]] [--limit N] [--json]`: actionable work first; `--since` keeps items created at or after a UTC instant, a date
+  (`YYYY-MM-DD`, midnight UTC) or an age back from now (`90m`, `2h`, `3d`, `1w`; anything else is exit 2), and `--recent [N]` (default 100, `0` = all)
+  puts the newest N by creation time first (ties by id) instead of priority order, after every other filter, and announces no cut. Every `--label` must match, and every `--field` (an item holding the field `NAME`, or `NAME=VALUE` among its values); labels and names fold ASCII case
   only (a Kelvin-sign lookalike never matches `k`). `--owner` is the current claimant, `--author` the actor
   of the creating event. `work_state` (JSON rows) is the derived class, in list order: `ready`, `blocked`
   (open work with an unmet need, claimed or not: a stuck claim is the more urgent fact), `claimed`, `plan`

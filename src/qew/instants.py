@@ -32,6 +32,21 @@ def require_window_start(text: str) -> datetime:
     return start
 
 
+_AGE = re.compile(r"(\d+)([smhdw])", re.ASCII)
+_AGE_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+
+def require_since(text: str, moment: datetime | None = None) -> datetime:
+    """The start `text` names: a UTC instant, a date (midnight UTC) or an age back from now (`90m`, `2h`, `3d`, `1w`)."""
+    age = _AGE.fullmatch(text)
+    if age is not None:
+        return (moment or now()) - timedelta(seconds=int(age.group(1)) * _AGE_UNITS[age.group(2)])
+    start = parse_date_or_instant(text)
+    if start is None:
+        raise QewError(f"`{text}` is not a start: use YYYY-MM-DDTHH:MM:SSZ, a date YYYY-MM-DD (midnight UTC) or an age such as 90m, 2h, 3d, 1w", 2)
+    return start
+
+
 def format_instant(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 

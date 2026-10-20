@@ -4,7 +4,7 @@ import argparse
 import sys
 from typing import cast
 
-from qew import ledger_fields, show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import instants, ledger_fields, show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
@@ -23,6 +23,9 @@ def _absence_view(text: str) -> dict[str, str] | None:
     """The header's `KIND: reason` as {kind, reason}; None when the item has no absence."""
     kind, _, reason = text.partition(": ")
     return {"kind": kind, "reason": reason} if text else None
+
+
+RECENT_DEFAULT = 100
 
 
 def limit_type(value: str) -> int:
@@ -50,6 +53,9 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     list_.add_argument("--author", help="only items this person created")
     list_.add_argument("--parent", help="only children of this item")
     list_.add_argument("--limit", type=limit_type, default=0, help="at most N items (0 = all)")
+    list_.add_argument("--recent", nargs="?", const=RECENT_DEFAULT, type=limit_type, metavar="N",
+                       help=f"the newest N items first by creation time (default {RECENT_DEFAULT}; 0 = all of them, still newest first)")
+    list_.add_argument("--since", help="only items created at or after this UTC instant, date (YYYY-MM-DD) or age (90m, 2h, 3d, 1w)")
     list_.add_argument("--bodies", action="store_true", help="also print the body of each approved item (explicit inspection)")
     list_.add_argument("--json", action="store_true", help="machine-readable output")
 
@@ -137,6 +143,13 @@ def list_items(snapshot: Snapshot, arguments: argparse.Namespace, as_json: bool)
         ids = [i for i in ids if snapshot.items[i].parent == parent]
     if arguments.kind == "epic" and not arguments.state and not arguments.work_state:
         ids = [i for i in ids if snapshot.folds[i].state != State.CLOSED]  # a named epic still shows
+    if arguments.since:
+        start = instants.format_instant(instants.require_since(arguments.since))
+        ids = [i for i in ids if snapshot.items[i].created >= start]
+    if arguments.recent is not None:
+        ids = sorted(ids, key=lambda i: (snapshot.items[i].created, sort_key(i)), reverse=True)
+        if arguments.recent:
+            ids = ids[:arguments.recent]
     print_rows(snapshot, _bounded(ids, arguments.limit, "list"), as_json, work_state=True, progress=True, bodies=arguments.bodies)
 
 
