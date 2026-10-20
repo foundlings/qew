@@ -314,7 +314,7 @@ shape prime: additional_context context_bytes schema_version
   target branch (`--landed-on` overrides the configured one for stacked branches) must exist. The `completed` event
   records the `reason`, the full `commits`, the `branch` and the numbers of the item's pull requests recorded as
   merged (`state: merged` in the `pr` mirror), shown by `qew show`. A change this checkout cannot resolve is
-  `unknown to this checkout` (exit 2), a missing target branch is exit 3, unreadable pull request records are exit 4
+  `unknown to this checkout` (exit 2; on jj a divergent change id counts as landed when any of its commits is on the target), a missing target branch is exit 3 (a jj bookmark that two sides moved is conflicted: every side counts as the target), unreadable pull request records are exit 4
   (`indeterminate`, nothing written). Hostile values (a branch with `..` or a leading `-`, a blank reason, an
   evidence id that is not a change id) are exit 2 before any VCS call. `--take-over --reason TEXT` finishes another
   actor's claim after the same proof and records `taken_over_from` (nothing to take over is exit 2).
