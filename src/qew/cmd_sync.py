@@ -172,7 +172,7 @@ def sync_command(config: Config, wanted: str | None, item: None | str | Sequence
                       else pull_target(ledger, target, full=full, clock=clock))
         if config.replication.divergences == "ledger":
             with trace.phase("settle divergences"):
-                if cmd_divergence.settle_automatically(config, target.slug):
+                if cmd_divergence.settle_automatically(config, target.slug, _touched(ledger, items) if items and not full else None):
                     ledger = ledger_for(config)  # the settling wrote events and mirror state: read them fresh
         if pulled.retry_after:  # rate limited while reading: pushing would only hit the same wall
             syncworker.set_backoff(pulled.retry_after)
