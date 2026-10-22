@@ -13,7 +13,7 @@ from qew.ledger_aliases import item_of_path
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_conflicts import LEDGER_REFERENCE, Side, clipped_discard, collect
-from qew.ledger_repo import LedgerRepo
+from qew.ledger_repo import ROUTINE_CONFLICT, LedgerRepo
 
 MERGE_SIDES = (Side.OURS, Side.THEIRS)
 FORGE_SIDES = (Side.FORGE, Side.LEDGER)
@@ -36,7 +36,7 @@ def run(arguments: argparse.Namespace) -> bool:
         if arguments.json:
             print(readfmt.document({"conflicts": [c.to_dict() for c in found]}))
         else:
-            print("\n".join(c.render() for c in found) if found else "no conflicts")
+            print("\n".join([*(c.render() for c in found), ROUTINE_CONFLICT]) if found else "no conflicts")
         return True
     if arguments.command == "resolve":
         print(resolve(ledger_config.load(), arguments.conflict, Side(arguments.take), arguments.reason))

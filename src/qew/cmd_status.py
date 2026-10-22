@@ -12,7 +12,7 @@ from qew.cmd_sync import mirrors_with_boards, pending_by_target
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config, Mirror
 from qew.ledger_event import Event
-from qew.ledger_repo import LedgerRepo
+from qew.ledger_repo import ROUTINE_CONFLICT, LedgerRepo
 from qew.ledger_store import Ledger
 
 SHOWN_DIVERGENCES = 10
@@ -143,7 +143,7 @@ def render(data: JsonObject) -> str:
         lines.append(f"claim {claim['item']} lost winner={claim['winner']} (offline claim dropped; talk to the holder)")
     lines.append(f"divergences={len(data['divergences'])}")
     if data["conflicts"]:
-        lines.append(f"conflicts={data['conflicts']}: run `qew conflicts`, then `qew resolve REF --take SIDE --reason TEXT`")
+        lines.append(f"conflicts={data['conflicts']}: {ROUTINE_CONFLICT}")
     shown = data["divergences"][:SHOWN_DIVERGENCES]
     for d in shown:
         lines.append(f"divergence {d['id']} {d['item']} {d['field']} forge={d['forge']} ledger={d['ledger']}")

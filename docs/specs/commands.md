@@ -454,7 +454,9 @@ shape prime: additional_context context_bytes schema_version
   that fetches keeps failing with exit 1 until it is settled), `divergence` (the forge changed something the ledger did not)
   and `claim_contest` (two effective claims). Each entry gives `kind`, `id` (the reference `qew resolve` takes), `item`,
   `files` and per-key `differences` (`ours`/`theirs`) for a merge, `forge` and `ledger` values for the others, `resolvable`
-  and the exact `resolve` commands. `--json` is `{schema_version, conflicts: [...]}`; no conflicts prints `no conflicts`
+  and the exact `resolve` commands. The human output, the merge-conflict error, `qew status` and the session context end with the same
+  note: conflicts between writers are routine, the agent resolves them itself (`qew resolve`, then `qew push`, confirm
+  `unpushed=0`), keeping its own evidence and comments and everyone's items; baseline snapshot files are qew's bookkeeping. `--json` is `{schema_version, conflicts: [...]}`; no conflicts prints `no conflicts`
   (exit 0). Read-only and offline: it never fetches. `qew status` prints `conflicts=N` and `qew prime` / the session-start
   hook a `Conflicts:` line pointing here when N > 0.
 - `qew resolve REF --take SIDE --reason TEXT`: settle one conflict; `--reason` is required and recorded. `REF` is `ledger`

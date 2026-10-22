@@ -12,6 +12,7 @@ from qew import ledger_graph, untrusted_text
 from qew.errors import QewError
 from qew.ledger_event import State
 from qew.ledger_item import Kind
+from qew.ledger_repo import ROUTINE_CONFLICT
 from qew.ledger_store import Snapshot
 
 ELLIPSIS = "…"
@@ -66,7 +67,7 @@ def build(snapshot: Snapshot, profile: Profile, conflicts: int = 0) -> str:
 
     lines = [f"Qew ledger: {len(ready)} ready, {len(active)} active, {len(blocked)} blocked, {drafts} draft.", "Conventions:"]
     if conflicts:
-        lines.insert(1, f"Conflicts: {conflicts} open sync conflicts; run qew conflicts, then qew resolve REF --take SIDE --reason TEXT.")
+        lines.insert(1, f"Conflicts: {conflicts} open sync conflicts; {ROUTINE_CONFLICT}")
     lines += [f"- {line}" for line in CONVENTIONS]
     for name, ids, render in (("Next ready", ready, ready_line), ("Active", active, active_line),
                               ("Blocked", blocked, blocked_line), ("Contradictions", contradictions, str)):

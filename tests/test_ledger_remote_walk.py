@@ -112,7 +112,7 @@ class MirrorConflictWalk(unittest.TestCase):
         from qew.ledger_repo import conflict_message
 
         text = conflict_message("main@origin", [f"items/{n}/item.md" for n in range(60)], "/ledger")
-        self.assertLess(len(text), 600)
+        self.assertLess(len(text), 1000)  # fixed hint text plus a few files; it must not grow with the 60 files
         self.assertIn("60 files", text)
 
 
