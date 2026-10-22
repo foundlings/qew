@@ -50,7 +50,7 @@ def holder(comments: list[RemoteComment], item_id: str) -> tuple[str, str] | Non
     return current
 
 
-def _issue_record(config: Config, ledger: Ledger, mirror: Mirror | None, item_id: str, snapshot: Snapshot | None = None) -> Any:
+def issue_record(config: Config, ledger: Ledger, mirror: Mirror | None, item_id: str, snapshot: Snapshot | None = None) -> Any:
     """The primary's issue record for the item. An item its mirror does not select (a task when the mirror takes epics and
     issues) has no issue by design and is reserved on the nearest ancestor's: the claim markers name the item id, so one
     issue carries the markers of every descendant. An item the mirror does select but has not synced yet has no record."""
@@ -73,7 +73,7 @@ def _issue_record(config: Config, ledger: Ledger, mirror: Mirror | None, item_id
 
 def _primary_forge(config: Config, ledger: Ledger, item_id: str, snapshot: Snapshot | None = None) -> tuple[Forge, Any]:
     mirror = next((m for m in config.mirrors if ledger_config.mirror_slug(m) == config.authority), None)
-    record = _issue_record(config, ledger, mirror, item_id, snapshot)
+    record = issue_record(config, ledger, mirror, item_id, snapshot)
     if mirror is None or record is None:
         snapshot = snapshot or ledger.snapshot()
         if mirror is not None and not sync_plan.selects(snapshot, item_id, mirror.select):
@@ -146,6 +146,11 @@ def _confirmed(ledger: Ledger, item_id: str, owner: str, lane: dict[str, str]) -
     ledger.append_event(item_id, "claim_confirmed", ref=event.id)
 
 
+def _held_message(item_id: str, who: str) -> str:
+    return (f"cannot claim {item_id}: already claimed by {who} on the primary; if that claim is stale (the ledger holds none), "
+            f"`qew release {item_id} --force --reason TEXT` clears it")
+
+
 def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, lane: dict[str, str],
                       snapshot: Snapshot | None = None) -> Claimed:
     allowed = config.offline_claims is OfflineClaims.ALLOW
@@ -160,8 +165,8 @@ def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, 
             held = holder(forge.list_comments(number), item_id)
         except ForgeError as error:
             raise QewError(f"cannot check {item_id} on the primary forge ({error.detail})", 3) from None
-        if held is not None:
-            raise QewError(f"cannot claim {item_id}: already claimed by {held[0]} on the primary", 2)
+        if held is not None and held[0] != owner:
+            raise QewError(_held_message(item_id, held[0]), 2)
         _confirmed(ledger, item_id, owner, lane)
         return Claimed.CONFIRMED
     nonce = secrets.token_hex(4)
@@ -173,9 +178,8 @@ def _claim_on_primary(config: Config, ledger: Ledger, item_id: str, owner: str, 
             return _provisional(ledger, item_id, owner, lane)
         raise QewError(f"cannot claim {item_id}: claims need the primary forge online ({error.detail}); "
                        f"`qew start {item_id} --offline` takes a provisional claim that sync settles", 3) from None
-    if winner is None or winner[1] != nonce:
-        who = winner[0] if winner else "someone else"
-        raise QewError(f"cannot claim {item_id}: already claimed by {who} on the primary", 2)
+    if winner is None or (winner[1] != nonce and winner[0] != owner):  # the actor's own earlier comment is a claim the ledger lost track of: adopt it
+        raise QewError(_held_message(item_id, winner[0] if winner else "someone else"), 2)
     POSTED.append(item_id)
     _confirmed(ledger, item_id, owner, lane)
     return Claimed.CONFIRMED

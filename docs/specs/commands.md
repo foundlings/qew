@@ -224,6 +224,9 @@ shape prime: additional_context context_bytes schema_version
   (exit 2). `[authority] offline_claims = "allow"` makes a plain `start` fall back to the same provisional claim, but
   only when the arbiter is unreachable (or the primary has no issue for the item yet); the default `refuse` keeps
   exit 3 and the message names `--offline`. `qew sync` settles every provisional claim (see ledger.md, Offline claims).
+  A task is settled on its nearest mirrored ancestor's issue, as its claim is taken; a claim that cannot be settled yet prints why
+  (`the primary has no issue for it yet`, or the forge error). With a primary forge, a claim comment of the caller's own left on the issue while
+  the ledger holds no claim is adopted by `qew start`; another actor's refuses (exit 2) and names `qew release ID --force --reason TEXT`.
   `[claims] max_active_claims` in the config caps the caller's active claims (exit 6, take-over included); a
   malformed cap is exit 2 naming the key. `qew show` prints the current claim as `claim: {by, kind, lane, workspace}`.
 - Starting an epic claims the epic and its open descendants that can start (drafts, work with unmet needs and finished
