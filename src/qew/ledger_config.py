@@ -46,7 +46,7 @@ class Replication:
     auto_push: bool = True
     auto_forge_sync: bool = True
     background_sync: bool = True
-    timeout_s: float = 5.0
+    timeout_s: float = 30.0
     fetch_interval_s: float = 10.0
     sync_retry_s: float = 10.0
     sync_budget_s: float = 20.0

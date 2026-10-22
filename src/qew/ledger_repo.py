@@ -129,7 +129,7 @@ class CommandTimeout(QewError):
     """A git or jj command ran out of time. Fetch and push treat it like an unreachable remote."""
 
     def __init__(self, argv: Sequence[str], timeout: float | None) -> None:
-        super().__init__(f"`{' '.join(argv[:3])}` timed out after {timeout}s", 3)
+        super().__init__(f"`{' '.join(argv[:3])}` timed out after {timeout}s (the remote may only be slow: raise [replication] timeout_s)", 3)
 
 
 MERGE_MARKER = "merge-conflict.json"  # in the ledger's local-only .qew/ cache

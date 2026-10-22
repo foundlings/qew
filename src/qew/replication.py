@@ -356,7 +356,9 @@ def _note(config: Config, result: str, reason: str = "") -> None:
         if result == "offline" and reason:
             (cache / "remote-error").write_text(reason + "\n", encoding="utf-8")
             if "timed out" in reason:  # not an unreachable remote the user already knows about: say it, the work is saved
-                print(f"qew: warning: {reason}; the ledger commit is saved and the next write or `qew push` pushes it", file=sys.stderr)
+                waiting = LedgerRepo(config.ledger_path, config.replication.branch).unpushed()
+                print(f"qew: warning: {reason}; {waiting} ledger commit{'' if waiting == 1 else 's'} not on the remote, so other machines "
+                      "cannot see this work; it is saved and the next write or `qew push` pushes it", file=sys.stderr)
         else:
             (cache / "remote-error").unlink(missing_ok=True)
 
