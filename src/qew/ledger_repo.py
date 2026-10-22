@@ -136,13 +136,20 @@ MERGE_MARKER = "merge-conflict.json"  # in the ledger's local-only .qew/ cache
 MAX_DISCARDED_CHARS = 20_000
 
 
+ROUTINE_CONFLICT = (
+    "Conflicts between writers are routine: resolve them yourself, do not escalate. Run `qew conflicts`, inspect both sides, "
+    "`qew resolve REF --take SIDE --reason TEXT`, then `qew push` and confirm unpushed=0. Which side: keep your own evidence "
+    "and comments and everyone's items; baseline snapshot files are qew's own bookkeeping, either side will do. "
+    "See `qew resolve --help`.")
+
+
 def conflict_message(remote: str, files: Sequence[str], path: Path | str) -> str:
     """One short line: a few conflicting files and the count, never the whole list."""
     files = list(files)
     shown = ", ".join(files[:SHOWN_CONFLICTS]) or "unknown files"
     more = f" and {len(files) - SHOWN_CONFLICTS} more ({len(files)} files)" if len(files) > SHOWN_CONFLICTS else (f" ({len(files)} files)" if len(files) > 1 else "")
     return (f"ledger conflict while merging {remote}: {shown}{more}; see `qew conflicts`, then "
-            f"`qew resolve ledger --take ours|theirs --reason TEXT` (or resolve it by hand in {path}); qew never picks a side itself")
+            f"`qew resolve ledger --take ours|theirs --reason TEXT` (or resolve it by hand in {path}). {ROUTINE_CONFLICT}")
 
 
 class LedgerConflict(QewError):

@@ -38,6 +38,15 @@ class LedgerMergeConflictWalk(unittest.TestCase):
     def title(self, world: World) -> str:
         return json.loads(world.run("show", self.item, "--json").stdout)["title"]
 
+    def test_the_conflict_output_says_routine_conflicts_are_the_agents_to_resolve(self) -> None:
+        """Prevents an agent escalating a routine writer conflict to the user: the error, `qew conflicts`, status and the
+        session context all say to resolve it, then push and confirm unpushed=0."""
+        for text in (self.b.run("list").stderr, self.b.run("conflicts").stdout, self.b.run("status").stdout,
+                     self.b.run("hook", "session-start", "--agent", "claude", stdin="{}").stdout):
+            for words in ("routine", "yourself", "qew push", "unpushed=0", "qew resolve --help"):
+                self.assertIn(words, text)
+            self.assertIn("evidence", text)
+
     def test_the_conflict_is_listed_with_both_sides_and_the_exact_resolve_commands(self) -> None:
         """Prevents an agent facing a wedged ledger with no way to see or settle it: both titles and the commands are given."""
         found = listing(self.b)
