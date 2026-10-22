@@ -58,14 +58,14 @@ class SecondaryEditsWalk(unittest.TestCase):
         world = World(mirrors, replication=QUIET + f'\n[authority]\nprimary = "{slug_of(first)}"\n')
         self.addCleanup(world.close)
         item = world.create("--title", "Original", "--quote", QUOTE)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         second.issues[1]["title"] = "Secondary edit"
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("title: Original", world.run("show", item).stdout)
         self.assertEqual([e["type"] for e in world.events(item)], ["approved"])
         first.issues[1]["title"] = "Primary edit"
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertIn("title: Primary edit", world.run("show", item).stdout)
 
 

@@ -105,7 +105,7 @@ class LabelStyleCommandWalk(unittest.TestCase):
         """Prevents `priority:2` on the issue and a grey P2 label: golden sync of a priority-2 and a priority-0 item."""
         self.w.create("--title", "Normal", "--priority", "2", "--quote", QUOTE)
         self.w.create("--title", "Urgent", "--priority", "0", "--quote", QUOTE)
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
         carried = self.labels(1) | self.labels(2)
         self.assertTrue({"P2", "P0"} <= carried, carried)
         self.assertFalse([name for name in carried if name.startswith("priority:")], carried)
@@ -115,12 +115,12 @@ class LabelStyleCommandWalk(unittest.TestCase):
     def test_a_legacy_priority_label_migrates_without_divergence_and_prune_removes_its_definition(self) -> None:
         """Prevents a flood of label divergences after the rename and a stale `priority:2` label surviving."""
         old = self.w.create("--title", "Old", "--priority", "2", "--quote", QUOTE)
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
         forget_last_sync(self.w, old)
         issue = self.fake.issues[1]
         issue["labels"] = ["priority:2" if name == "P2" else name for name in issue["labels"]]
         self.fake.label_store["priority:2"] = {"color": "ededed", "description": "Managed by qew"}
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
         status = json.loads(self.w.run("status", "--json", env=self.env).stdout)
         self.assertEqual(status["divergences"], [])
         self.assertIn("P2", self.labels())
@@ -131,9 +131,9 @@ class LabelStyleCommandWalk(unittest.TestCase):
     def test_a_humans_p5_label_is_a_user_label_and_p2_is_never_one(self) -> None:
         """Prevents P0-P4 being imported as a user label (or a divergence) while P5 is still the human's to add."""
         item = self.w.create("--title", "Triage", "--priority", "2", "--quote", QUOTE)
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
         self.fake.issues[1]["labels"] = [*self.fake.issues[1]["labels"], "P5"]
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
         self.assertIn("P5", self.w.run("show", item).stdout)
         status = json.loads(self.w.run("status", "--json", env=self.env).stdout)
         self.assertEqual(status["divergences"], [])

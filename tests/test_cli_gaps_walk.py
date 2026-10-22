@@ -31,7 +31,7 @@ class BoardCommandWalk(unittest.TestCase):
         drifted = w.run("project", "status", "--json", env=self.env)
         self.assertEqual(drifted.returncode, 1)
         self.assertFalse(json.loads(drifted.stdout)["in_sync"])
-        self.assertEqual(w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(w.run("sync", "--all", env=self.env).returncode, 0)
         synced = w.run("project", "status", env=self.env)
         self.assertEqual(synced.returncode, 0, synced.stdout + synced.stderr)
         pruned = w.run("project", "prune", "--from", "acme/other", env=self.env)

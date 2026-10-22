@@ -129,7 +129,7 @@ def render(data: JsonObject) -> str:
     if data["sync"]["retry_after"]:
         lines.append(f"sync retry_after={data['sync']['retry_after']}")
     for claim in data["claims"]["provisional"]:
-        lines.append(f"claim {claim['item']} provisional owner={claim['owner']} (offline; `qew sync` settles it)")
+        lines.append(f"claim {claim['item']} provisional owner={claim['owner']} (offline; `qew push` settles it)")
     for claim in data["claims"]["lost"]:
         lines.append(f"claim {claim['item']} lost winner={claim['winner']} (offline claim dropped; talk to the holder)")
     lines.append(f"divergences={len(data['divergences'])}")

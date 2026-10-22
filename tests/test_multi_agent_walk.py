@@ -57,10 +57,10 @@ class MultiAgentWalk(unittest.TestCase):
         second = self.b.run("create", "--title", "From B", "--quote", QUOTE, env=OFFLINE).stdout.split()[0]
         self.assertNotEqual(first, second)
         self.settle()
-        self.assertEqual(self.a.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.a.run("sync", "--all", env=self.env).returncode, 0)
         number = next(iter(self.fake.issues))
         self.fake.issues[number]["state"] = "closed"
-        self.a.run("sync", env=self.env)
+        self.a.run("sync", "--all", env=self.env)
         self.settle()
         for world in (self.a, self.b, self.c):
             status = json.loads(world.run("status", "--json").stdout)

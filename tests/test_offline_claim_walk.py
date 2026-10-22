@@ -34,7 +34,7 @@ class OfflineClaimWalk(unittest.TestCase):
         self.a = World(mirrors, replication=self.config)
         self.addCleanup(self.a.close)
         self.item = self.a.create("--title", "Private work", "--quote", QUOTE)
-        self.assertEqual(self.a.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.a.run("sync", "--all", env=ENV).returncode, 0)
         self.b = self.second_checkout()
 
     def second_checkout(self) -> World:
@@ -75,7 +75,7 @@ class OverrideFlagWalk(OfflineClaimWalk):
         self.assertIn("provisional", status)
         self.assertIn(self.item, status)
         self.fake.down = False
-        synced = self.a.run("sync", env=ENV)
+        synced = self.a.run("sync", "--all", env=ENV)
         self.assertEqual(synced.returncode, 0, synced.stderr)
         self.assertEqual(types(self.a, self.item)[-2:], ["claimed", "claim_confirmed"])
         self.assertTrue(any(f"qew:claim {self.item} tester" in body for body in self.comments()))
@@ -88,7 +88,7 @@ class OverrideFlagWalk(OfflineClaimWalk):
         self.fake.down = False
         won = self.b.run("start", self.item, env={**ENV, "QEW_ACTOR": "second"})
         self.assertEqual(won.returncode, 0, won.stderr)
-        synced = self.a.run("sync", env=ENV)
+        synced = self.a.run("sync", "--all", env=ENV)
         self.assertEqual(synced.returncode, 3)
         self.assertIn(self.item, synced.stderr)
         self.assertIn("second", synced.stderr)
@@ -99,7 +99,7 @@ class OverrideFlagWalk(OfflineClaimWalk):
         self.assertEqual(json.loads(shown.stdout)["state"], "approved")
         status = self.a.run("status", env=ENV).stdout
         self.assertIn(f"claim {self.item} lost winner=second", status)
-        again = self.a.run("sync", env=ENV)
+        again = self.a.run("sync", "--all", env=ENV)
         self.assertEqual(again.returncode, 0, again.stderr)
 
     def test_an_item_the_primary_has_never_seen_can_be_claimed_offline_and_confirms_after_its_first_sync(self) -> None:
@@ -107,7 +107,7 @@ class OverrideFlagWalk(OfflineClaimWalk):
         fresh = self.a.create("--title", "Created offline", "--quote", QUOTE)
         self.assertEqual(self.a.run("start", fresh, env=ENV).returncode, 2)
         self.assertEqual(self.a.run("start", fresh, "--offline", env=ENV).returncode, 0)
-        self.assertEqual(self.a.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.a.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(types(self.a, fresh)[-2:], ["claimed", "claim_confirmed"])
 
     def test_completing_offline_work_is_allowed_and_the_completion_survives_a_lost_claim(self) -> None:
@@ -119,7 +119,7 @@ class OverrideFlagWalk(OfflineClaimWalk):
         self.assertIn("provisional_claim", self.a.events(self.item)[-1])
         self.fake.down = False
         self.assertEqual(self.b.run("start", self.item, env={**ENV, "QEW_ACTOR": "second"}).returncode, 0)
-        synced = self.a.run("sync", env=ENV)
+        synced = self.a.run("sync", "--all", env=ENV)
         self.assertEqual(synced.returncode, 3)
         self.assertEqual(self.a.run("check", env=ENV).returncode, 0)
         self.assertEqual(json.loads(self.a.run("show", self.item, "--json", env=ENV).stdout)["state"], "completed")
@@ -134,7 +134,7 @@ class ConfigAllowWalk(OfflineClaimWalk):
         self.assertEqual(online.returncode, 0, online.stderr)
         self.assertEqual(types(self.a, self.item)[-2:], ["claimed", "claim_confirmed"])
         other = self.a.create("--title", "Second", "--quote", QUOTE)
-        self.assertEqual(self.a.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.a.run("sync", "--all", env=ENV).returncode, 0)
         self.fake.down = True
         offline = self.a.run("start", other, env=ENV)
         self.assertEqual(offline.returncode, 0, offline.stderr)
@@ -156,7 +156,7 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
         self.assertEqual(self.a.run("start", self.item, env=offline).returncode, 3)
         self.assertEqual(self.a.run("start", self.item, "--offline", env=offline).returncode, 0)
         self.assertEqual(self.b.run("start", self.item, env={"QEW_ACTOR": "second"}).returncode, 0)
-        synced = self.a.run("sync")
+        synced = self.a.run("sync", "--all")
         self.assertEqual(synced.returncode, 3, repr(synced.stdout + synced.stderr) + str([(e["type"], e.get("owner"), e.get("provisional")) for e in self.a.events(self.item)]))
         self.assertIn(self.item, synced.stderr)
         self.assertIn("second", synced.stderr)
@@ -170,7 +170,7 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
         self.assertEqual(self.a.run("start", self.item, "--offline", env={"QEW_OFFLINE": "1"}).returncode, 0)
         rival = ledger_store.Ledger(self.a.ledger)
         rival.append_event(self.item, "claimed", owner="second", actor="second")  # pushed claim, confirmation not yet arrived
-        synced = self.a.run("sync")
+        synced = self.a.run("sync", "--all")
         self.assertEqual(synced.returncode, 3, repr(synced.stdout + synced.stderr) + str([(e["type"], e.get("owner"), e.get("provisional")) for e in self.a.events(self.item)]))
         self.assertEqual([e["type"] for e in self.a.events(self.item)].count("claim_lost"), 1)
 
@@ -183,7 +183,7 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
         approved = sorted(directory.glob("*.json"))[0].stem
         body = {"type": "claimed", "at": "2026-01-01T00:00:00Z", "actor": "second", "owner": "second"}
         (directory / f"{approved}0.json").write_text(json.dumps(body))  # sorts right after the approval, before the provisional claim
-        synced = self.a.run("sync")
+        synced = self.a.run("sync", "--all")
         self.assertEqual(synced.returncode, 3, repr(synced.stdout + synced.stderr))
         self.assertIn("second", synced.stderr)
         self.assertEqual([e["type"] for e in self.a.events(self.item)].count("claim_lost"), 1)
@@ -191,7 +191,7 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
     def test_an_uncontested_offline_claim_is_confirmed_by_the_next_sync(self) -> None:
         """Prevents a provisional claim lingering for ever when nobody else wanted the item."""
         self.assertEqual(self.a.run("start", self.item, "--offline", env={"QEW_OFFLINE": "1"}).returncode, 0)
-        self.assertEqual(self.a.run("sync").returncode, 0)
+        self.assertEqual(self.a.run("sync", "--all").returncode, 0)
         self.assertEqual(self.a.events(self.item)[-1]["type"], "claim_confirmed")
 
 

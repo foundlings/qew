@@ -55,7 +55,8 @@ Pull requests
   qew branch      prune: delete merged branches no open pull request uses
 Mirrors
   qew pull        fetch the ledger remote and merge it (no forge call)
-  qew sync        push the ledger to every mirror target
+  qew push        send pending ledger changes to the forge mirrors (the cheap pass)
+  qew sync        reconcile with every mirror target; needs an option (--full, --item, --since, ...)
   qew mirror      add | remove | list mirror targets
   qew forge       migrate the primary forge to another target
   qew project     ensure the board on each target
@@ -90,7 +91,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish", "cmd_batch", "cmd_doctor")
-_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author", "cmd_pull")
+_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author", "cmd_pull", "cmd_push")
 
 
 def top_level_commands() -> list[str]:

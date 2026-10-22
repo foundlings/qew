@@ -40,7 +40,7 @@ class RateLimitWalk(unittest.TestCase):
         fake, world = self.rig()
         world.create("--title", "Phased", "--field", "phase=12", "--quote", QUOTE)
         fake.fail_next(200, "/graphql", count=3, body=RATE, skip=2)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.value(fake), "12")
         self.assertIn("rate limited", result.stdout + result.stderr)
@@ -50,7 +50,7 @@ class RateLimitWalk(unittest.TestCase):
         fake, world = self.rig()
         world.create("--title", "Phased", "--field", "phase=12", "--quote", QUOTE)
         fake.fail_next(200, "/graphql", count=3, skip=2, body={"errors": [{"message": "API rate limit already exceeded for user ID 5199263."}]})
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.value(fake), "12")
 
@@ -58,11 +58,11 @@ class RateLimitWalk(unittest.TestCase):
         """Prevents a PATCH answered 403 'secondary rate limit' failing the item: it is not a create, so it is repeated."""
         fake, world = self.rig()
         item = world.create("--title", "Old title", "--quote", QUOTE)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         world.run("set", item, "--title", "New title")
         fake.fail_next(403, "PATCH /issues", count=2, headers={"Retry-After": "0"},
                        body={"message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."})
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(next(iter(fake.issues.values()))["title"], "New title")
 
@@ -71,7 +71,7 @@ class RateLimitWalk(unittest.TestCase):
         fake, world = self.rig()
         world.create("--title", "Only", "--quote", QUOTE)
         fake.fail_next(403, "POST /issues", count=2, body={"message": "API rate limit exceeded for user ID 1. Please wait."})
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual([i["title"] for i in fake.issues.values()], ["Only"])
 
@@ -81,11 +81,11 @@ class RateLimitWalk(unittest.TestCase):
         world.create("--title", "One", "--field", "phase=1", "--quote", QUOTE)
         world.create("--title", "Two", "--field", "phase=2", "--quote", QUOTE)
         fake.fail_next(200, "/graphql", count=1000, body=RATE, skip=2)
-        result = world.run("sync", env={**ENV, "QEW_RATE_RETRIES": "2"})
+        result = world.run("sync", "--all", env={**ENV, "QEW_RATE_RETRIES": "2"})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("retry after", result.stdout + result.stderr)
         fake.failures.clear()
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
 
 
 class SyncYieldsWalk(unittest.TestCase):

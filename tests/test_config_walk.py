@@ -35,7 +35,7 @@ class ConfigWalk(unittest.TestCase):
     def test_older_qew_than_the_minimum_is_refused_before_any_call(self) -> None:
         """Every command refuses, naming both versions and the upgrade script, before reading the ledger."""
         w = self.world(f'[qew]\nminimum_version = "{newer_than_running()}"\n' + MIRROR)
-        for command in (("ready",), ("sync",), ("check",), ("list",)):
+        for command in (("ready",), ("sync", "--all"), ("check",), ("list",)):
             result = w.run(*command)
             self.assertEqual(result.returncode, 2, command)
             self.assertIn(newer_than_running(), result.stderr)

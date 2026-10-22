@@ -34,7 +34,7 @@ class ClaimCommentWalk(unittest.TestCase):
         config = self.world.code / ".qew" / "config.toml"
         config.write_text(config.read_text() + f'\n[authority]\nprimary = "{slug}"\n', encoding="utf-8")
         self.item = self.world.create("--kind", "issue", "--title", "Work", "--quote", QUOTE)
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
 
     def comments(self) -> list[str]:
         return [c["body"] for issue in self.fake.issues.values() for c in issue["discussion"]]
@@ -61,7 +61,7 @@ class ClaimCommentWalk(unittest.TestCase):
         self.assertEqual(self.world.run("start", self.item, env=ENV).returncode, 0)
         self.assertEqual(self.world.run("release", self.item, "--reason", "pause", env=ENV).returncode, 0)
         self.fake.add_comment(1, "bob", "a human remark")
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
         texts = [e["text"] for e in self.world.events(self.item) if e["type"] == "commented"]
         self.assertEqual(texts, ["a human remark"])
 

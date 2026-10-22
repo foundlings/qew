@@ -153,11 +153,11 @@ class CompleteManifestWalk(unittest.TestCase):
         world = World(mirrors, replication="\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\n")
         self.addCleanup(world.close)
         item = world.create("--kind", "task", "--title", "Mirrored", "--quote", QUOTE)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         path = world.base / "m.jsonl"
         path.write_text(json.dumps({"item": item, "absent": "no-code", "reason": "done elsewhere"}) + "\n", encoding="utf-8")
         self.assertEqual(world.run("complete", "--manifest", str(path), "--quote", WORDS).returncode, 0)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         issue = next(iter(fake.issues.values()))
         self.assertEqual((issue["state"], issue["state_reason"]), ("closed", "completed"))
 

@@ -89,7 +89,7 @@ class NestedEpicMirrorWalk(unittest.TestCase):
         self.addCleanup(world.close)
         outer = world.create("--kind", "epic", "--title", "Closeout", "--quote", QUOTE)
         world.create("--kind", "epic", "--title", "Phase", "--parent", outer, "--quote", QUOTE)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         number = {i["title"]: n for n, i in fake.issues.items()}
         self.assertEqual(fake.issues[number["Phase"]].get("parent"), number["Closeout"])
 

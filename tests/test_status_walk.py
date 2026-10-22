@@ -30,7 +30,7 @@ class StatusWalk(unittest.TestCase):
     def test_a_clean_synced_ledger_reports_nothing_pending(self) -> None:
         """Prevents status being noisy when all is well: every counter is zero and the mode is online."""
         self.w.create("--kind", "issue", "--title", "A", "--draft")
-        self.w.run("sync", env={"FORGEJO_TOKEN": TOKEN})
+        self.w.run("sync", "--all", env={"FORGEJO_TOKEN": TOKEN})
         data = json.loads(self.status("--json"))
         self.assertEqual(data["ledger"], {"uncommitted": 0, "unpushed": 0, "mode": "online", "remote": "ok"})
         self.assertEqual(data["targets"][0]["pending"], 0)

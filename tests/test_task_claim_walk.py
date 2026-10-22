@@ -30,7 +30,7 @@ class TaskClaimWalk(unittest.TestCase):
         config.write_text(config.read_text() + f'\n[authority]\nprimary = "{slug}"\n', encoding="utf-8")
         self.epic = self.world.create("--kind", "epic", "--title", "Phase", "--quote", QUOTE)
         self.task = self.world.create("--kind", "task", "--title", "Ledger-only work", "--parent", self.epic, "--quote", QUOTE)
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
 
     def comments(self) -> list[str]:
         return [c["body"] for issue in self.fake.issues.values() for c in issue["discussion"]]

@@ -1,7 +1,7 @@
 """`qew pull`: bring the ledger remote's new commits in, and nothing else.
 
 One fetch and merge of the ledger repository. It makes no forge call, starts no sync worker and asks no claim arbiter, so it is
-safe to run often and from every workspace; `qew sync` stays the forge reconcile.
+safe to run often and from every workspace; `qew push` and `qew sync` are the forge side.
 """
 
 import argparse

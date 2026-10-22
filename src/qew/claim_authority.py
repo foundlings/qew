@@ -80,7 +80,7 @@ def _primary_forge(config: Config, ledger: Ledger, item_id: str, snapshot: Snaps
             kind = snapshot.items[item_id].kind.value
             raise QewError(f"cannot claim {item_id}: {item_id} is a {kind}, and {kind}s are not mirrored by {config.authority}; "
                            f"give it a mirrored parent (`qew set {item_id} --parent EPIC`) or make it an issue", 2)
-        raise QewError(f"cannot claim {item_id}: the primary forge has no issue for it yet; run `qew sync` first", 2)
+        raise QewError(f"cannot claim {item_id}: the primary forge has no issue for it yet; run `qew push` first", 2)
     try:
         return forge_registry.build(mirror), record["number"]
     except ForgeError as error:

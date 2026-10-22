@@ -36,7 +36,7 @@ class Retry5xxWalk(unittest.TestCase):
         epic = world.run("list").stdout.split()[0]
         world.create("--kind", "issue", "--title", "Work", "--parent", epic, "--quote", QUOTE)
         fake.fail_next(500, "/sub_issues", count=2)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(fake.issues[self.number(fake, "Work")].get("parent"), self.number(fake, "Phase"))
         self.assertIn("retried", result.stdout + result.stderr)
@@ -46,11 +46,11 @@ class Retry5xxWalk(unittest.TestCase):
         fake, world = self.rig()
         world.create("--kind", "issue", "--title", "Only", "--quote", QUOTE)
         fake.fail_next(500, "POST /issues", count=1)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         posts = [1 for method, path, _b in fake.requests if method == "POST" and path.endswith("/issues")]
         self.assertEqual(len(posts), 1)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual([i["title"] for i in fake.issues.values()], ["Only"])
 
     def test_an_item_that_keeps_failing_is_recorded_and_the_others_are_still_synced(self) -> None:
@@ -61,12 +61,12 @@ class Retry5xxWalk(unittest.TestCase):
         world.create("--kind", "issue", "--title", "Free one", "--quote", QUOTE)
         world.create("--kind", "issue", "--title", "Free two", "--quote", QUOTE)
         fake.fail_next(500, "/sub_issues", count=3)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn(child[:8], result.stdout + result.stderr)
         self.assertEqual(sorted(i["title"] for i in fake.issues.values()), ["Free one", "Free two", "Phase", "Work"])
         self.assertIsNone(fake.issues[self.number(fake, "Work")].get("parent"))
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(fake.issues[self.number(fake, "Work")].get("parent"), self.number(fake, "Phase"))
 
     def test_a_run_of_failed_items_stops_the_target_and_a_rerun_continues(self) -> None:
@@ -75,12 +75,12 @@ class Retry5xxWalk(unittest.TestCase):
         for name in ("One", "Two", "Three", "Four"):
             world.create("--kind", "issue", "--title", name, "--quote", QUOTE)
         fake.fail_next(500, "POST /issues", count=99)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertNotEqual(result.returncode, 0)
         posts = [1 for method, path, _b in fake.requests if method == "POST" and path.endswith("/issues")]
         self.assertEqual(len(posts), 2)
         fake.failures.clear()
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(sorted(i["title"] for i in fake.issues.values()), ["Four", "One", "Three", "Two"])
 
     def test_zero_retries_keeps_the_old_behaviour(self) -> None:
@@ -89,7 +89,7 @@ class Retry5xxWalk(unittest.TestCase):
         epic = world.create("--kind", "epic", "--title", "Phase", "--quote", QUOTE)
         world.create("--kind", "issue", "--title", "Work", "--parent", epic, "--quote", QUOTE)
         fake.fail_next(500, "/sub_issues", count=1)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(len([1 for _m, path, _b in fake.requests if "/sub_issues" in path]), 1)
 

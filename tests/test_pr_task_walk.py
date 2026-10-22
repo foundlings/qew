@@ -44,7 +44,7 @@ class TaskPullRequestWalk(unittest.TestCase):
         unsynced = self.w.item("New issue", kind="issue", parent=self.epic, sync=False)
         refused = self.w.open(unsynced)
         self.assertEqual(refused.code, 2, refused)
-        self.assertIn("qew sync", refused.err)
+        self.assertIn("qew push", refused.err)
 
 
 if __name__ == "__main__":

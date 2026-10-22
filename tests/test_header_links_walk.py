@@ -36,7 +36,7 @@ class HeaderLinksWalk(unittest.TestCase):
         """Prevents forge URLs being stored in items: the header holds the ledger id and show finds the URL in mirrors/."""
         result = self.world.run("set", self.work, "--tracks", self.issue, "--pr", self.issue)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
         shown = self.world.run("show", self.work).stdout
         url = f"{self.fake.repo_url}/issues/1"
         self.assertIn(f"tracks: {self.issue} {url}", shown)
@@ -67,7 +67,7 @@ class HeaderLinksWalk(unittest.TestCase):
         self.addCleanup(second.stop)
         added = self.world.run("mirror", "add", "forgejo", second.repo_url, "--api", second.api)
         self.assertEqual(added.returncode, 0, added.stderr)
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual({i: self.item_file(i) for i in before}, before)
         self.assertEqual(len(list((self.world.ledger / "mirrors" / self.work).glob("*.json"))), 2)
 

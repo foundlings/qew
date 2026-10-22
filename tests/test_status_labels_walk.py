@@ -30,7 +30,7 @@ class StatusLabelsWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def sync(self) -> None:
-        result = self.world.run("sync", env=ENV)
+        result = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def derived(self, title: str) -> set[str]:

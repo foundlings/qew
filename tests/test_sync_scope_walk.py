@@ -43,7 +43,7 @@ class SyncScopeWalk(unittest.TestCase):
     def test_a_large_unscoped_sync_is_refused_naming_the_count_and_the_way_out(self) -> None:
         """Prevents the all-at-once explosion: five writes against a limit of three stop before any forge call."""
         self.lower_limit()
-        result = self.sync()
+        result = self.sync("--full")
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         for word in ("5", "--all", "--limit", "--tree", "sync_limit"):
             self.assertIn(word, result.stderr)

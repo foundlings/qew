@@ -28,7 +28,7 @@ class CheckpointPushWalk(unittest.TestCase):
         self.addCleanup(world.close)
         for n in range(25):
             world.run("create", "--kind", "issue", "--title", f"Item {n}", "--quote", QUOTE, env={"QEW_OFFLINE": "1"})
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         status = world.run("status").stdout
         self.assertIn("unpushed=0", status)
         self.assertIn("uncommitted=0", status)

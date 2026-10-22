@@ -52,7 +52,7 @@ class ImplicitBoardWalk(unittest.TestCase):
         for index in range(existing):
             w.create("--title", f"Existing {index}", "--quote", QUOTE)
         self.assertEqual(w.run("project", "ensure", env=ENV).returncode, 0)
-        self.assertEqual(w.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(w.run("sync", "--all", env=ENV).returncode, 0)
         new = w.create("--title", "The new one", "--quote", QUOTE)
         before = len(fake.requests)
         result = w.run("sync", "--item", new, env=ENV)
@@ -86,7 +86,7 @@ class ImplicitBoardWalk(unittest.TestCase):
         self.assertEqual(len(self.fake.issues), 0)
         lock.close()  # the held lock stood in for a running worker; now one runs
         before = len(self.fake.requests)
-        worker = w.run("sync", env={**ENV, "QEW_BACKGROUND": "1"})
+        worker = w.run("sync", "--all", env={**ENV, "QEW_BACKGROUND": "1"})
         self.assertEqual(worker.returncode, 0, worker.stdout + worker.stderr)
         self.assertEqual(sorted(i["title"] for i in self.fake.issues.values()), ["First again", "Second"])
         self.assertEqual([self.column(n) for n in sorted(self.fake.issues)], ["Ready", "Ready"])
@@ -100,7 +100,7 @@ class ImplicitBoardWalk(unittest.TestCase):
         self.assertEqual(w.run("project", "ensure", env=ENV).returncode, 0)
         filed = self.fake.new_issue({"title": "Filed by a human", "body": "please look"})["number"]
         for _ in range(2):  # the second pass proves sync never fights its own placement
-            self.assertEqual(w.run("sync", env=ENV).returncode, 0)
+            self.assertEqual(w.run("sync", "--all", env=ENV).returncode, 0)
             self.assertEqual(self.column(filed), "Draft")
         row = next(line for line in w.run("list", "--json").stdout.splitlines() if "Filed by a human" in line)
         self.assertIn('"state":"draft"', row)

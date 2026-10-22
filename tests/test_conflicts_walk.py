@@ -128,9 +128,9 @@ class ForgeDivergenceWalk(unittest.TestCase):
         self.addCleanup(self.w.close)
         self.env = {"FORGEJO_TOKEN": TOKEN}
         self.item = self.w.create("--title", "Mirrored", "--quote", QUOTE)
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
         self.fake.issues[next(iter(self.fake.issues))]["state"] = "closed"
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
 
     def test_a_forge_close_is_listed_with_both_values_and_both_resolutions(self) -> None:
         """Prevents a divergence being invisible to an agent: kind, item, forge and ledger values and the two commands are given."""

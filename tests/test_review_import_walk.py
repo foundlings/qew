@@ -39,7 +39,7 @@ class ReviewImportWalk(unittest.TestCase):
         }))
 
     def sync(self) -> None:
-        result = self.world.run("sync", env=ENV)
+        result = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def review_calls(self) -> int:
@@ -82,11 +82,11 @@ class ReviewImportWalk(unittest.TestCase):
         """Prevents one vanished pull request failing every pull: a 404 on its reviews means it is gone, read once and left alone."""
         ghost = self.world.ledger / "mirrors" / self.item / f"{self.slug}-pr-999.json"
         ghost.write_text(json.dumps({"forge": "github", "url": self.fake.repo_url, "kind": "pr", "number": 999, "items": [self.item], "state": "open"}))
-        first = self.world.run("sync", env=ENV)
+        first = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         self.assertNotIn("pull failed", first.stdout + first.stderr)
         calls = self.review_calls()
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
         asked_for_ghost = [path for _m, path, _b in self.fake.requests if "/pulls/999/" in path]
         self.assertEqual(len(asked_for_ghost), 1, asked_for_ghost)  # the one reviews read that answered 404, never again
         self.assertGreaterEqual(self.review_calls(), calls)

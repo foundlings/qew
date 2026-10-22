@@ -31,18 +31,18 @@ class PendingWalk(unittest.TestCase):
         item = w.create("--kind", "issue", "--title", "A", "--draft")
         w.create("--kind", "epic", "--title", "Not selected", "--draft")
         self.assertEqual(self.pending(), ["create"])
-        w.run("sync", env=ENV)
+        w.run("sync", "--all", env=ENV)
         self.assertEqual(self.pending(), [])
         w.run("draft", "approve", item, "--quote", QUOTE)
         self.assertEqual(self.pending(), ["update"])
-        w.run("sync", env=ENV)
+        w.run("sync", "--all", env=ENV)
         self.assertEqual(self.pending(), [])
 
     def test_a_mirror_claiming_a_future_event_is_a_check_problem(self) -> None:
         """Prevents a hand-edited synced_event hiding pending work forever."""
         w = self.world
         item = w.create("--kind", "issue", "--title", "A", "--draft")
-        w.run("sync", env=ENV)
+        w.run("sync", "--all", env=ENV)
         path = baseline_path(w.ledger, item)
         data = json.loads(path.read_text())
         data["synced_event"] = "zzzzzzzzz"

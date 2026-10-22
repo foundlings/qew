@@ -30,12 +30,12 @@ class MirrorSplitWalk(unittest.TestCase):
         w = World(self.mirrors, ledger_vcs="git", replication=self.quiet)
         self.addCleanup(w.close)
         item = w.create("--title", "Work", "--quote", QUOTE)
-        w.run("sync", env=ENV)
+        w.run("sync", "--all", env=ENV)
         path = next((w.ledger / "mirrors" / item).glob("*.json"))
         committed = json.loads(path.read_text())
         self.assertEqual(set(committed), IDENTITY)
         w.run("set", item, "--title", "Renamed")
-        w.run("sync", env=ENV)
+        w.run("sync", "--all", env=ENV)
         self.assertEqual(json.loads(path.read_text()), committed)
         self.assertEqual(w.ledger_dirty(), [])
         self.assertEqual(len(baseline_files(w.ledger, item)), 1)  # a sync replaces the baseline, never piles them up
@@ -47,12 +47,12 @@ class MirrorSplitWalk(unittest.TestCase):
         self.addCleanup(a.close)
         b = a.clone("b", mirrors=self.mirrors, replication=self.quiet)
         item = a.create("--title", "Shared", "--quote", QUOTE)
-        a.run("sync", env=ENV)
+        a.run("sync", "--all", env=ENV)
         b.run("list")
         a.run("set", item, "--title", "From A")
         b.run("set", item, "--priority", "1")
-        self.assertEqual(a.run("sync", env=ENV).returncode, 0)
-        self.assertEqual(b.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(a.run("sync", "--all", env=ENV).returncode, 0)
+        self.assertEqual(b.run("sync", "--all", env=ENV).returncode, 0)
         for world in (a, b, a):
             self.assertEqual(world.run("check").returncode, 0)
             world.run("ready")
@@ -64,7 +64,7 @@ class MirrorSplitWalk(unittest.TestCase):
         w = World(self.mirrors, replication=self.quiet)
         self.addCleanup(w.close)
         item = w.create("--title", "Old", "--quote", QUOTE)
-        w.run("sync", env=ENV)
+        w.run("sync", "--all", env=ENV)
         path = next((w.ledger / "mirrors" / item).glob("*.json"))
         old = {**json.loads(path.read_text()), "synced_hash": "abc", "synced_event": "zzzzzzzzz", "linked": []}
         path.write_text(json.dumps(old))
@@ -74,7 +74,7 @@ class MirrorSplitWalk(unittest.TestCase):
         old["synced_event"] = ""
         path.write_text(json.dumps(old))
         self.assertEqual(w.run("check").returncode, 0)
-        self.assertEqual(w.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(w.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(json.loads(path.read_text()), old)
 
 

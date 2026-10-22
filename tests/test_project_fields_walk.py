@@ -31,7 +31,7 @@ class ProjectFieldsWalk(unittest.TestCase):
         return fake, world
 
     def sync(self, world: World) -> None:
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def value(self, fake: FakeGitHub, field: str):

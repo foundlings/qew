@@ -28,7 +28,7 @@ class FieldMirrorWalk(unittest.TestCase):
         return fake, world
 
     def sync(self, world: World, *arguments: str) -> str:
-        result = world.run("sync", *arguments, env=ENV)
+        result = world.run("sync", *(arguments or ("--all",)), env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result.stdout
 

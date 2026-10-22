@@ -37,7 +37,7 @@ class Rig:
             self.titles.append(f"Child {n}")
 
     def sync(self, *extra: str, env: dict[str, str] | None = None):
-        return self.world.run("sync", *extra, env=ENV if env is None else env)
+        return self.world.run("sync", *(extra or ("--all",)), env=ENV if env is None else env)
 
     def shape(self) -> list[tuple[str, str, tuple[str, ...], tuple[str, ...]]]:
         """What the forge holds, independent of the numbers it handed out."""

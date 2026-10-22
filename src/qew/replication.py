@@ -60,6 +60,8 @@ def after_settle(callback: Callable[[], None]) -> None:
 def verb_for(arguments: argparse.Namespace) -> str | None:
     """The commit verb of a ledger-writing command, or None for reads and non-ledger commands."""
     command: str = arguments.command
+    if command == "push":
+        return "sync"  # the same session, lock and commit as a sync
     if command in ("create", "set", "start", "release", "evidence", "complete", "close", "reopen", "sync",
                    "import", "restore", "accept", "reject", "resolve", "comment", "block", "unblock"):
         return command
@@ -354,7 +356,7 @@ def _note(config: Config, result: str, reason: str = "") -> None:
         if result == "offline" and reason:
             (cache / "remote-error").write_text(reason + "\n", encoding="utf-8")
             if "timed out" in reason:  # not an unreachable remote the user already knows about: say it, the work is saved
-                print(f"qew: warning: {reason}; the ledger commit is saved and the next write or `qew sync` pushes it", file=sys.stderr)
+                print(f"qew: warning: {reason}; the ledger commit is saved and the next write or `qew push` pushes it", file=sys.stderr)
         else:
             (cache / "remote-error").unlink(missing_ok=True)
 
@@ -402,7 +404,7 @@ def _arm_miss_pull(arguments: argparse.Namespace, held: bool) -> None:
     global _MISS_TRIED
     _MISS_TRIED = False
     ledger_store.MISS_HOOK = None
-    if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull", "sync") or os.environ.get("QEW_NO_FETCH"):
+    if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull", "sync", "push") or os.environ.get("QEW_NO_FETCH"):
         return
     try:
         config = ledger_config.load()

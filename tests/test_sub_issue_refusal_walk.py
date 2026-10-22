@@ -30,7 +30,7 @@ class SubIssueRefusalWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
         self.parent = self.world.create("--kind", "epic", "--title", "Parent", "--quote", QUOTE)
         self.child = self.world.create("--kind", "task", "--title", "Child", "--parent", self.parent, "--quote", QUOTE)
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
         self.numbers = {i["title"]: n for n, i in self.fake.issues.items()}
 
     def forget_parent(self) -> None:
@@ -48,11 +48,11 @@ class SubIssueRefusalWalk(unittest.TestCase):
         the parent is recorded, so the sync succeeds and the next one makes no sub-issue call."""
         self.forget_parent()
         self.fake.fail_next(422, "/sub_issues", count=1, body={"message": "Validation Failed"})
-        result = self.world.run("sync", env=ENV)
+        result = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(baseline_path(self.world.ledger, self.child).read_text())["parent_number"], self.numbers["Parent"])
         before = self.posts()
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(self.posts(), before)
 
     def test_a_refusal_for_a_relation_the_forge_does_not_hold_still_fails(self) -> None:
@@ -60,7 +60,7 @@ class SubIssueRefusalWalk(unittest.TestCase):
         self.forget_parent()
         self.fake.issues[self.numbers["Child"]]["parent"] = None
         self.fake.fail_next(422, "/sub_issues", count=1, body={"message": "Validation Failed"})
-        result = self.world.run("sync", env=ENV)
+        result = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("422", result.stdout + result.stderr)
 

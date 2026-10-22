@@ -28,7 +28,7 @@ class SubIssueWalk(unittest.TestCase):
         self.child = self.world.create("--kind", "issue", "--title", "Work", "--parent", self.epic, "--quote", QUOTE)
 
     def sync(self) -> None:
-        result = self.world.run("sync", env=ENV)
+        result = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def number(self, title: str) -> int:

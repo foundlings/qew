@@ -306,7 +306,7 @@ class PartialFailureWalk(ReleaseBase):
         self.assertIn(f"approved: {p['epic']}", result.stderr)
         self.assertIn(f"not approved: {p['issue']} {p['task']}", result.stderr)
         self.assertIn("rerun the same command", result.stderr)
-        self.assertIn("qew sync", result.stderr)
+        self.assertIn("qew push", result.stderr)
         self.assertEqual(types(w, p["epic"]), ["drafted", "approved"])
         self.thaw(p["issue"])
         rerun = w.run("draft", "approve", p["epic"], "--tree", "--quote", QUOTE)

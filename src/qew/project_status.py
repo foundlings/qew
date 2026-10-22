@@ -78,7 +78,7 @@ def _drift(ledger: Ledger, snapshot: Snapshot, mirror: Mirror, slug: str, cards:
 
 def _fix(drift: dict[str, list[str]]) -> str:
     """`qew sync` repairs the cards of mirrored items; a card no item owns is removed by `prune --orphans`."""
-    commands = (["`qew sync`"] if any(ids for name, ids in drift.items() if name != "orphan") else []) + (["`qew project prune --orphans`"] if drift["orphan"] else [])
+    commands = (["`qew sync --full`"] if any(ids for name, ids in drift.items() if name != "orphan") else []) + (["`qew project prune --orphans`"] if drift["orphan"] else [])
     return " and ".join(commands)
 
 

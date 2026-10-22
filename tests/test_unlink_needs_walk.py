@@ -32,7 +32,7 @@ class _Unlink:
         blocker = w.create("--title", "Blocker", "--quote", QUOTE)
         other = w.create("--title", "Other blocker", "--quote", QUOTE)
         work = w.create("--title", "Work", "--needs", blocker, other, "--quote", QUOTE)
-        self.assertEqual(w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(w.run("sync", "--all", env=self.env).returncode, 0)
         return blocker, other, work
 
     def test_a_removed_need_is_unlinked_the_kept_one_stays_and_a_rerun_sends_nothing(self) -> None:
@@ -40,13 +40,13 @@ class _Unlink:
         blocker, other, work = self.setup_items()
         self.assertEqual(sorted(self.blockers("Work")), sorted([self.number("Blocker"), self.number("Other blocker")]))
         self.assertEqual(self.world.run("set", work, "--needs", blocker).returncode, 0)
-        self.assertEqual(self.world.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=self.env).returncode, 0)
         self.assertEqual(self.blockers("Work"), [self.number("Blocker")])
         self.assertEqual(self.world.run("set", work, "--needs").returncode, 0)
-        self.assertEqual(self.world.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=self.env).returncode, 0)
         self.assertEqual(self.blockers("Work"), [])
         calls = len(self.fake.requests)
-        self.assertEqual(self.world.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=self.env).returncode, 0)
         deletes = [r for r in self.fake.requests[calls:] if r[0] == "DELETE"]
         self.assertEqual(deletes, [])
 
@@ -55,7 +55,7 @@ class _Unlink:
         blocker, other, work = self.setup_items()
         self.world.run("set", work, "--needs")
         self.add_link("Work", "Third")
-        self.assertEqual(self.world.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=self.env).returncode, 0)
         self.assertIn(self.number("Third"), self.blockers("Work"))
         self.assertNotIn(self.number("Blocker"), self.blockers("Work"))
 
@@ -74,7 +74,7 @@ class GitHubUnlinkWalk(_Unlink, unittest.TestCase):
 
     def add_link(self, title: str, blocker: str) -> None:
         self.world.create("--title", blocker, "--quote", QUOTE)
-        self.world.run("sync", env=self.env)
+        self.world.run("sync", "--all", env=self.env)
         self.fake.issues[self.number(title)]["blocked_by"].append(self.number(blocker))
 
 
@@ -92,7 +92,7 @@ class ForgejoUnlinkWalk(_Unlink, unittest.TestCase):
 
     def add_link(self, title: str, blocker: str) -> None:
         self.world.create("--title", blocker, "--quote", QUOTE)
-        self.world.run("sync", env=self.env)
+        self.world.run("sync", "--all", env=self.env)
         self.fake.dependencies.setdefault(self.number(title), []).append(self.number(blocker))
 
 

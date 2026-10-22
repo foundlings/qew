@@ -47,7 +47,7 @@ class RepositoryModeWalk(RepositoryLabelsWalk):
         self.w.create("--title", "Plain", "--label", "area:x", "--priority", "2", "--quote", QUOTE)
         epic = self.w.create("--kind", "epic", "--title", "Epic", "--priority", "1", "--quote", QUOTE)
         self.w.create("--kind", "task", "--title", "Child", "--parent", epic, "--priority", "3", "--quote", QUOTE)
-        self.run_ok("sync")
+        self.run_ok("sync", "--all")
         self.assertEqual(self.labels(1), {"area:x", "P2", "author:tester", "ready"})
         self.assertEqual(self.labels(2), {"P1", "author:tester", "epic"})
         self.assertEqual(self.labels(3), {"P3", "author:tester", "task", "ready"})
@@ -56,12 +56,12 @@ class RepositoryModeWalk(RepositoryLabelsWalk):
     def test_noise_labels_from_older_syncs_are_removed_without_divergence_and_prune_deletes_them(self) -> None:
         """Prevents status:/kind:/qew: noise surviving the upgrade, a divergence flood, or definitions lingering."""
         old = self.w.create("--title", "Old", "--label", "area:x", "--priority", "2", "--quote", QUOTE)
-        self.run_ok("sync")
+        self.run_ok("sync", "--all")
         forget_last_sync(self.w, old)
         self.fake.issues[1]["labels"] = sorted({*self.labels(1), *NOISE, "priority:2"})
         for name in (*NOISE, "priority:2"):
             self.fake.label_store[name] = {"color": "ededed", "description": "Managed by qew"}
-        self.run_ok("sync")
+        self.run_ok("sync", "--all")
         self.assertEqual(json.loads(self.run_ok("status", "--json"))["divergences"], [])
         self.assertEqual(self.labels(1), {"area:x", "P2", "author:tester", "ready"})
         self.run_ok("sync", "--prune-labels")
@@ -75,7 +75,7 @@ class OverlayModeWalk(RepositoryLabelsWalk):
     def test_overlay_mode_keeps_its_managed_labels_with_the_new_priority_spelling(self) -> None:
         """Prevents overlay mirrors losing the labels that tell qew's issues from humans' ones."""
         self.w.create("--title", "Plain", "--priority", "2", "--quote", QUOTE)
-        self.run_ok("sync")
+        self.run_ok("sync", "--all")
         self.assertEqual(self.labels(1), {"qew:managed", "qew:approved", "status:Ready", "P2", "author:tester", "ready"})
 
 
@@ -98,14 +98,14 @@ class BoardStatusWalk(unittest.TestCase):
         second = self.w.create("--title", "Blocked", "--needs", first, "--priority", "1", "--quote", QUOTE)
         third = self.w.create("--title", "Ready two", "--priority", "3", "--quote", QUOTE)
         self.assertEqual(self.w.run("project", "ensure", env=ENV).returncode, 0)
-        self.assertEqual(self.w.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=ENV).returncode, 0)
         numbers = {item: n for n, item in enumerate((draft, first, second, third), start=1)}
         self.assertEqual(self.card(numbers[draft]), ("Draft", "P4"))
         self.assertEqual(self.card(numbers[first]), ("Ready", "P0"))
         self.assertEqual(self.card(numbers[second]), ("Backlog", "P1"))
         self.assertEqual(self.card(numbers[third]), ("Ready", "P3"))
         self.assertEqual(self.w.run("start", first).returncode, 0)
-        self.assertEqual(self.w.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(self.card(numbers[first]), ("In progress", "P0"))
 
 

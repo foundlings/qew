@@ -48,7 +48,7 @@ class RepoPushWalk(unittest.TestCase):
         config = world.code / ".qew" / "config.toml"
         config.write_text(config.read_text().replace(QUIET, "") + mirrors + QUIET)
         world.create("--title", "Work", "--quote", QUOTE)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stderr)
         for code_url, ledger_url in zip(code_urls, ledger_urls):
             self.assertEqual(head(code_url), git(world.code, "rev-parse", "main"))
@@ -66,7 +66,7 @@ class RepoPushWalk(unittest.TestCase):
         config = world.code / ".qew" / "config.toml"
         config.write_text(config.read_text().replace(QUIET, "") + mirrors + QUIET)
         world.create("--title", "Work", "--quote", QUOTE)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(head(good_code), git(world.code, "rev-parse", "main"))
         self.assertEqual(head(good_ledger), git(world.ledger, "rev-parse", "main"))
         output = result.stdout + result.stderr
@@ -78,7 +78,7 @@ class RepoPushWalk(unittest.TestCase):
         world = World(self.target(self.fakes[0]), ledger_vcs="git", replication=QUIET)
         self.addCleanup(world.close)
         world.create("--title", "Work", "--quote", QUOTE)
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertNotIn("git_url", result.stdout + result.stderr)
         self.assertIn("repos=off", world.run("status", env=ENV).stdout)
         self.assertEqual([n for n in git(world.code, "remote").split() if n.startswith("qew-")], [])

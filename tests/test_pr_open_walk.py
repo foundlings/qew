@@ -82,7 +82,7 @@ class OpenWalk(unittest.TestCase):
         item = self.w.item(sync=False)
         run = self.w.open(item)
         self.assertEqual(run.code, 2)
-        self.assertIn("qew sync", run.err)
+        self.assertIn("qew push", run.err)
         self.assertEqual(self.w.forge.count("open_pr"), 0)
 
     def test_an_item_with_several_issue_mirrors_needs_a_target(self) -> None:

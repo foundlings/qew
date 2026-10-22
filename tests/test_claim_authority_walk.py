@@ -32,7 +32,7 @@ class PrimaryForgeWalk(unittest.TestCase):
         self.a = World(mirrors, replication=QUIET + f'\n[authority]\nprimary = "{self.slug}"\n')
         self.addCleanup(self.a.close)
         self.item = self.a.create("--title", "Contested", "--quote", QUOTE)
-        self.assertEqual(self.a.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.a.run("sync", "--all", env=ENV).returncode, 0)
         self.b = self.second_checkout()
 
     def second_checkout(self) -> World:
@@ -74,7 +74,7 @@ class PrimaryForgeWalk(unittest.TestCase):
         fresh = self.a.create("--title", "Unsynced", "--quote", QUOTE)
         result = self.a.run("start", fresh, env=ENV)
         self.assertEqual(result.returncode, 2)
-        self.assertIn("qew sync", result.stderr)
+        self.assertIn("qew push", result.stderr)
 
     def test_releasing_frees_the_item_for_the_next_claimant(self) -> None:
         """Prevents a released item staying locked on the forge forever."""

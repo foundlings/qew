@@ -28,7 +28,7 @@ class PruneRetiredWalk(unittest.TestCase):
         self.world = World(mirrors, replication=OFF)
         self.addCleanup(self.world.close)
         self.world.create("--title", "Phased", "--field", "phase=12", "--field", "wp=alpha", "--quote", QUOTE)
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
         for name in (*RETIRED, *KEPT):
             self.fake.label_store.setdefault(name, {"color": "ededed", "description": ""})
 

@@ -97,7 +97,7 @@ def _partial(past: str, done: list[str], targets: list[str], why: str) -> QewErr
     left = [i for i in targets if i not in done]
     return QewError(
         f"{why}; {past}: {' '.join(done) or 'none'}; not {past}: {' '.join(left)}; "
-        "rerun the same command to finish, and run `qew sync` to refresh the mirrors",
+        "rerun the same command to finish, and run `qew push` to refresh the mirrors",
         3,
     )
 

@@ -25,7 +25,7 @@ class DivergenceAutoWalk(unittest.TestCase):
         world = World(mirrors, replication=replication)
         self.addCleanup(world.close)
         item = world.create("--kind", "issue", "--title", "Mirrored work", "--quote", QUOTE)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         return fake, world, item
 
     def test_a_human_closing_the_issue_is_undone_in_the_same_sync_and_recorded(self) -> None:
@@ -33,7 +33,7 @@ class DivergenceAutoWalk(unittest.TestCase):
         fake, world, item = self.rig()
         issue = next(iter(fake.issues.values()))
         fake.set_state(issue, "closed", "not_planned")
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(issue["state"], "open")
         self.assertIn("divergences=0", world.run("status").stdout)
@@ -47,7 +47,7 @@ class DivergenceAutoWalk(unittest.TestCase):
         fake, world, item = self.rig(OFF + 'divergences = "report"\n')
         issue = next(iter(fake.issues.values()))
         fake.set_state(issue, "closed", "not_planned")
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(issue["state"], "closed")
         self.assertIn("divergences=1", world.run("status").stdout)
 

@@ -54,7 +54,7 @@ class SyncCliWalk(unittest.TestCase):
         b = w.create("--kind", "epic", "--title", "B", "--needs", a, "--draft")
         path = w.ledger / "items" / f"{a}" / "item.md"  # `qew set` refuses a cycle; a hand merge can still produce one
         path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
-        for arguments in (["sync"], ["sync", "--dry-run"]):
+        for arguments in (["sync", "--all"], ["sync", "--dry-run"]):
             result = w.run(*arguments)
             self.assertEqual(result.returncode, 1, result.stdout)
             self.assertIn("qew check", result.stderr)
@@ -73,7 +73,7 @@ class SyncCliWalk(unittest.TestCase):
     def test_sync_without_mirror_targets_says_so(self) -> None:
         w = self.world
         (w.code / ".qew" / "config.toml").write_text('[ledger]\npath = "../ledger"\nprefix = "TST"\n')
-        result = w.run("sync")
+        result = w.run("sync", "--all")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("no mirror targets", result.stdout)
 
@@ -83,7 +83,7 @@ class SyncCliWalk(unittest.TestCase):
             '[ledger]\npath = "../ledger"\nprefix = "TST"\n[[mirror]]\nforge = "sourcehut"\nrepo = "https://x.example/o/r"\n'
         )
         w.create("--kind", "issue", "--title", "A", "--draft")
-        result = w.run("sync")
+        result = w.run("sync", "--all")
         self.assertEqual(result.returncode, 1)
         self.assertIn("unknown forge", result.stderr)
 

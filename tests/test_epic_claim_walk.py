@@ -97,12 +97,12 @@ class EpicCascadeOnPrimaryWalk(unittest.TestCase):
         w = self.world
         epic = w.create("--kind", "epic", "--title", "Plan", "--quote", QUOTE)
         first = w.create("--title", "Synced", "--parent", epic, "--quote", QUOTE)
-        self.assertEqual(w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(w.run("sync", "--all", env=self.env).returncode, 0)
         w.create("--title", "Unsynced", "--parent", epic, "--quote", QUOTE)
         before = tree(w)
         result = w.run("start", epic, env=self.env)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("qew sync", result.stderr)
+        self.assertIn("qew push", result.stderr)
         self.assertEqual(tree(w), before)
         bodies = [c["body"] for issue in self.fake.issues.values() for c in issue["discussion"]]
         claims = [b for b in bodies if "qew:claim" in b]
