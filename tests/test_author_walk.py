@@ -93,11 +93,11 @@ class AuthorSyncWalk(unittest.TestCase):
         world = World(mirrors, replication=OFF)
         self.addCleanup(world.close)
         self.assertEqual(world.run("create", "--from-file", "-", "--import", stdin=json.dumps([imported("IA")])).returncode, 0)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         labels = lambda: next(iter(fake.issues.values()))["labels"]  # noqa: E731
         self.assertIn("author:qew-import", labels())
         self.assertEqual(world.run("correct-author", "--from", "qew-import", "--to", "887", "--quote", REVIEW).returncode, 0)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertIn("author:887", labels())
         self.assertNotIn("author:qew-import", labels())
         self.assertEqual(world.run("sync", "--prune-labels", env=ENV).returncode, 0)

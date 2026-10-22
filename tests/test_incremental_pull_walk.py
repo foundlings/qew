@@ -226,11 +226,11 @@ class SyncFullCommandWalk(unittest.TestCase):
         self.addCleanup(world.close)
         env = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
         world.create("--kind", "issue", "--title", "Original", "--quote", QUOTE)
-        world.run("sync", env=env)
+        world.run("sync", "--all", env=env)
         fake.issues[1]["title"] = "Retitled by a human"  # a human edit the forge's modification time does not show
         fake.etags = False
         fake.issues[1]["updated_at"] = "2000-01-01T00:00:00Z"  # older than any cursor, so a since listing skips it
-        quiet = world.run("sync", env=env).stdout
+        quiet = world.run("sync", "--all", env=env).stdout
         self.assertNotIn("applied=1", quiet)
         loud = world.run("sync", "--full", env=env).stdout
         self.assertIn("applied=1", loud)

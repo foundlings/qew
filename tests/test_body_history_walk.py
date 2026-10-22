@@ -32,7 +32,7 @@ class BodyHistoryWalk(unittest.TestCase):
         return fake, world
 
     def sync(self, world: World) -> None:
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_prior_bodies_are_kept_oldest_first_with_editor_time_hash_and_a_text_limit(self) -> None:

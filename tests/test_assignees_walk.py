@@ -26,7 +26,7 @@ class AssigneesWalk(unittest.TestCase):
         self.item = self.world.create("--kind", "issue", "--title", "Shared work", "--quote", QUOTE)
 
     def sync(self) -> None:
-        result = self.world.run("sync", env=ENV)
+        result = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def forge_assignees(self) -> list:

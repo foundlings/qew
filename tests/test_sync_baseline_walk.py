@@ -30,7 +30,7 @@ class SyncBaselineWalk(unittest.TestCase):
         self.slug = ledger_config.mirror_slug(ledger_config.load(self.world.code).mirrors[0])
 
     def sync(self):
-        result = self.world.run("sync", env=ENV)
+        result = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 

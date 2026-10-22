@@ -19,7 +19,7 @@ from qew.sync import Target, TargetReport, sync_target
 
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    sync = commands.add_parser("sync", help="push ledger state to every mirror target")
+    sync = commands.add_parser("sync", help="reconcile with every mirror target (needs an option; `qew push` sends pending changes, `qew pull` fetches the ledger)")
     sync.add_argument("--target", help="only this target (slug or unique part of it)")
     sync.add_argument("--item", action="append", help="only this item (repeatable): the cheap pass the background worker runs after writes")
     sync.add_argument("--full", action="store_true", help="re-read every issue from the forge, ignoring the pull cursor and cached pages")
@@ -38,6 +38,10 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "sync":
         return False
     config = ledger_config.load()
+    if _bare(arguments):
+        raise QewError("qew sync needs a direction: `qew push` sends pending ledger changes to the forge, `qew pull` fetches the ledger remote, "
+                       "or pick an option: --full (read the whole forge), --item ID, --since DATE, --tree ITEM, --author NAME, --owner NAME, "
+                       "--limit N, --all, --target T, --dry-run, --prune-labels", 2)
     if arguments.prune_labels:
         if arguments.item or arguments.full or scope_of(arguments) != sync_scope.Scope():
             raise QewError("--prune-labels works on whole targets; it takes neither --item, --full nor a scope flag", 2)
@@ -50,6 +54,14 @@ def run(arguments: argparse.Namespace) -> bool:
     print(sync_command(config, arguments.target, arguments.item, arguments.dry_run, tick=replication.checkpoint,
                         full=arguments.full, scope=scope_of(arguments)))
     return True
+
+
+def _bare(arguments: argparse.Namespace) -> bool:
+    """A sync with no option at all, outside the background worker (which runs it bare on purpose)."""
+    if os.environ.get("QEW_BACKGROUND"):
+        return False
+    return not (arguments.target or arguments.item or arguments.full or arguments.dry_run or arguments.all or arguments.since
+                or arguments.author or arguments.owner or arguments.tree or arguments.limit or arguments.prune_labels)
 
 
 def scope_of(arguments: argparse.Namespace) -> sync_scope.Scope:
@@ -180,7 +192,7 @@ def sync_command(config: Config, wanted: str | None, item: None | str | Sequence
     output = "\n".join(lines)
     if failed:
         print(output)
-        raise QewError("sync finished with failures; fix the cause above, then run `qew sync` to catch the mirrors up", 1)
+        raise QewError("sync finished with failures; fix the cause above, then run `qew push` to catch the mirrors up", 1)
     lost = claim_reconcile.lost_message(settled)
     if lost:
         print(output)

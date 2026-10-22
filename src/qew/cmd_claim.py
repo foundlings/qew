@@ -143,7 +143,7 @@ TITLE_SHOWN = 60  # the claim line names the work so the agent needs no `qew sho
 
 _PROVISIONAL_NOTE = {
     claim_authority.Claimed.CONFIRMED: "",
-    claim_authority.Claimed.PROVISIONAL: " (provisional: offline; `qew sync` settles it with the arbiter)",
+    claim_authority.Claimed.PROVISIONAL: " (provisional: offline; `qew push` settles it with the arbiter)",
 }
 
 

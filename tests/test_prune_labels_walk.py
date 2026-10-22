@@ -75,7 +75,7 @@ class PruneLabelsWalk:
     def test_unused_managed_labels_are_deleted_and_everything_else_stays(self) -> None:
         """Prevents a tidy-up eating labels in use or outside qew's prefixes; a dry run changes nothing."""
         self.w.create("--title", "Work", "--quote", QUOTE)
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
         self.seed_stale()
         before = self.side.labels()
         dry = self.w.run("sync", "--prune-labels", "--dry-run", env=self.env)
@@ -104,7 +104,7 @@ class PruneLabelsWalk:
     def test_a_label_the_ledger_still_wants_is_kept(self) -> None:
         """Prevents deleting a label sync would recreate: the live label set of every item is wanted."""
         item = self.w.create("--title", "Work", "--quote", QUOTE)
-        self.assertEqual(self.w.run("sync", env=self.env).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=self.env).returncode, 0)
         wanted = {name for name in self.side.labels() if name.startswith("author:") or name == "P2"}
         self.assertTrue(wanted, item)
         self.assertEqual(self.w.run("sync", "--prune-labels", env=self.env).returncode, 0)

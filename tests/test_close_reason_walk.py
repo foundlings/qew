@@ -27,7 +27,7 @@ class CloseReasonWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def sync(self, *extra: str):
-        result = self.world.run("sync", *extra, env=ENV)
+        result = self.world.run("sync", *(extra or ("--all",)), env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 

@@ -622,7 +622,7 @@ class LedgerRepo:
                     pushed = self.run([*JJ_READ, "git", "push", "--bookmark", self.branch, *description_args],
                                       timeout=timeout, check=False)
         except CommandTimeout as slow:
-            self.last_failure = str(slow)  # the commit is local; the next write or `qew sync` pushes it
+            self.last_failure = str(slow)  # the commit is local; the next write or `qew push` pushes it
             return "offline"
         if pushed.returncode != 0:
             self._remember_failure(pushed)

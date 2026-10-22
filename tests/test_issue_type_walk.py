@@ -26,7 +26,7 @@ class IssueTypeWalk(unittest.TestCase):
         return fake, world
 
     def sync(self, world: World) -> None:
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_the_map_sets_the_type_by_priority_then_kind_and_a_change_later_follows(self) -> None:

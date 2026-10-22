@@ -26,7 +26,7 @@ class DivergedLabelWalk(unittest.TestCase):
         self.addCleanup(world.close)
         self.assertEqual(world.run("project", "ensure", env=ENV).returncode, 0)
         item = world.create("--kind", "issue", "--title", "Mirrored work", "--quote", QUOTE)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         issue = next(iter(fake.issues.values()))
         return fake, world, item, issue
 
@@ -38,13 +38,13 @@ class DivergedLabelWalk(unittest.TestCase):
         fake, world, item, issue = self.rig()
         self.assertEqual(self.card(fake, issue), "Ready")
         fake.set_state(issue, "closed", "not_planned")
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertIn("divergences=1", world.run("status").stdout)
         self.assertIn("qew:diverged", issue["labels"])
         self.assertIsNone(self.card(fake, issue))
         self.assertEqual(issue["state"], "closed")  # report mode: the forge value is kept until a human decides
         self.assertEqual(world.run("reject", item).returncode, 0)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertNotIn("qew:diverged", issue["labels"])
         self.assertEqual(issue["state"], "open")
         self.assertEqual(self.card(fake, issue), "Ready")
@@ -54,11 +54,11 @@ class DivergedLabelWalk(unittest.TestCase):
         fake, world, item, issue = self.rig('mode = "overlay"\n')
         self.assertIn("qew:managed", issue["labels"])
         fake.set_state(issue, "closed", "not_planned")
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertIn("qew:diverged", issue["labels"])
         self.assertNotIn("qew:managed", issue["labels"])
         self.assertEqual(world.run("reject", item).returncode, 0)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertIn("qew:managed", issue["labels"])
         self.assertNotIn("qew:diverged", issue["labels"])
 
@@ -68,7 +68,7 @@ class DivergedLabelWalk(unittest.TestCase):
         config = world.code / ".qew" / "config.toml"
         config.write_text(config.read_text().replace('divergences = "report"\n', ""), encoding="utf-8")
         fake.set_state(issue, "closed", "not_planned")
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertNotIn("qew:diverged", issue["labels"])
         self.assertEqual(issue["state"], "open")
         self.assertEqual(self.card(fake, issue), "Ready")

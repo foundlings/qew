@@ -29,8 +29,8 @@ class BatchPrimaryWalk(unittest.TestCase):
         self.addCleanup(self.a.close)
         self.one = self.a.create("--title", "One", "--quote", QUOTE)
         self.two = self.a.create("--title", "Two", "--quote", QUOTE)
-        self.a.run("sync", env=ENV)  # the fake answers 409 for a label the first issue just made; the second pass files the rest
-        synced = self.a.run("sync", env=ENV)
+        self.a.run("sync", "--all", env=ENV)  # the fake answers 409 for a label the first issue just made; the second pass files the rest
+        synced = self.a.run("sync", "--all", env=ENV)
         self.assertEqual(synced.returncode, 0, synced.stdout + synced.stderr)
         self.b = self.second_checkout()
         self.manifest = self.a.base / "rows.jsonl"

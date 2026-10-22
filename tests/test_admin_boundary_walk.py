@@ -32,8 +32,8 @@ class AdminBoundaryWalk(unittest.TestCase):
     def test_hook_refuses_forge_label_milestone_and_board_edits_with_qew_advice(self) -> None:
         """Each refusal names the qew command that does the job instead."""
         cases = {
-            "gh label create triage": "qew sync",
-            "gh api repos/o/r/milestones -f title=x": "qew sync",
+            "gh label create triage": "qew push",
+            "gh api repos/o/r/milestones -f title=x": "qew push",
             "gh project item-edit --id 1": "qew project ensure",
             "gh issue edit 3 --add-label x": "qew",
         }

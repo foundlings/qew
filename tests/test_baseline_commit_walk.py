@@ -32,7 +32,7 @@ class BaselineCommitWalk(unittest.TestCase):
         self.slug = ledger_config.mirror_slug(ledger_config.load(self.a.code).mirrors[0])
 
     def sync(self, world: World):
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result
 

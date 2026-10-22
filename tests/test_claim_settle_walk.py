@@ -32,7 +32,7 @@ class ClaimSettleWalk(unittest.TestCase):
         self.epic = self.world.create("--kind", "epic", "--title", "Phase", "--quote", QUOTE)
         self.task = self.world.create("--kind", "task", "--title", "Ledger-only work", "--parent", self.epic, "--quote", QUOTE)
         self.issue = self.world.create("--kind", "issue", "--title", "Mirrored work", "--parent", self.epic, "--quote", QUOTE)
-        self.assertEqual(self.world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
 
     def number_of(self, title: str) -> int:
         return next(n for n, issue in self.fake.issues.items() if issue["title"] == title)
@@ -41,7 +41,7 @@ class ClaimSettleWalk(unittest.TestCase):
         """Prevents a claim that stays provisional forever with 'the arbiter is unreachable': a task has no issue of its own, and
         its reservation lives on the nearest mirrored ancestor, so that is where the sync must ask."""
         self.assertEqual(self.world.run("start", self.task, "--offline", env=ENV).returncode, 0)
-        synced = self.world.run("sync", env=ENV)
+        synced = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(synced.returncode, 0, synced.stdout + synced.stderr)
         self.assertNotIn("provisional", synced.stdout)
         self.assertEqual([e["type"] for e in self.world.events(self.task)][-2:], ["claimed", "claim_confirmed"])

@@ -37,7 +37,7 @@ class TimelineImportWalk(unittest.TestCase):
     def test_the_timeline_of_an_imported_issue_is_recorded_once_and_listed(self) -> None:
         """Prevents lost provenance on import: who labeled, assigned and renamed, with times, once and without state effect."""
         fake, world = self.rig()
-        r = world.run("sync", env=ENV); self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = world.run("sync", "--all", env=ENV); self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         item = self.imported(world)
         events = [e for e in world.events(item) if e["type"] == "forge_timeline"]
         self.assertEqual([(e["kind"], e["who"], e["when"]) for e in events], [
@@ -45,7 +45,7 @@ class TimelineImportWalk(unittest.TestCase):
         shown = world.run("show", item).stdout
         self.assertIn("2025-03-01T09:00:00Z dana labeled bug", shown)
         self.assertIn("2025-03-03T09:00:00Z dana renamed old title -> Filed on GitHub", shown)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(len([e for e in world.events(item) if e["type"] == "forge_timeline"]), 3)
         self.assertEqual(world.run("check").returncode, 0)
         self.assertIn("divergences=0", world.run("status").stdout)
@@ -53,7 +53,7 @@ class TimelineImportWalk(unittest.TestCase):
     def test_a_mirror_can_switch_it_off(self) -> None:
         """Prevents a surprise call per imported issue on a large repository: `timeline = false` reads none."""
         fake, world = self.rig("timeline = false\n")
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         item = self.imported(world)
         self.assertEqual([e for e in world.events(item) if e["type"] == "forge_timeline"], [])
         self.assertFalse(any("/events" in path for _m, path, _b in fake.requests))

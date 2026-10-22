@@ -297,7 +297,7 @@ def _ancestor_issues(config: Config, ledger: Ledger, snapshot: Snapshot, item_id
     for mirror in mirrors_with_boards(ledger, config):
         slug = ledger_config.mirror_slug(mirror)
         if (target and target not in slug) or sync_plan.selects(snapshot, item_id, mirror.select):
-            continue  # a selected item gets its own issue from `qew sync`
+            continue  # a selected item gets its own issue from `qew push`
         seen, cursor = {item_id}, snapshot.items[item_id].parent
         while cursor and cursor not in seen and cursor in snapshot.items:
             seen.add(cursor)
@@ -338,7 +338,7 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     if not issues:  # an item no mirror selects (a task under epics-and-issues mirrors) has no issue: its nearest mirrored ancestor's stands in
         issues = _ancestor_issues(config, ledger, snapshot, item_id, options.target)
     if len(issues) != 1:
-        raise QewError(f"{item_id} has {len(issues)} matching issue mirrors; run `qew sync` first or pass --target", 2)
+        raise QewError(f"{item_id} has {len(issues)} matching issue mirrors; run `qew push` first or pass --target", 2)
     issue = issues[0]
     head = vcs.synced_branch(options.head)
     _refuse_other_items_branch(snapshot, head, covered)

@@ -38,7 +38,7 @@ class ReleaseCostWalk(unittest.TestCase):
         config.write_text(config.read_text() + f'\n[authority]\nprimary = "{slug}"\n', encoding="utf-8")
         self.epic = self.world.create("--kind", "epic", "--title", "Phase", "--quote", QUOTE)
         self.tasks = [self.world.create("--kind", "task", "--title", f"Task {n}", "--parent", self.epic, "--quote", QUOTE) for n in range(TASKS)]
-        self.assertEqual(self.world.run("sync", env={k: v for k, v in ENV.items() if k.startswith("GITHUB") or k == "QEW_NO_GH_TOKEN"}).returncode, 0)
+        self.assertEqual(self.world.run("sync", "--all", env={k: v for k, v in ENV.items() if k.startswith("GITHUB") or k == "QEW_NO_GH_TOKEN"}).returncode, 0)
 
     def counted(self, *argv: str) -> tuple[int, int]:
         """(exit code, Ledger.snapshot calls) of one in-process qew run."""

@@ -114,7 +114,7 @@ class PacedSyncWalk(unittest.TestCase):
         world = self.rig()
         world.create("--kind", "issue", "--title", "Item", "--quote", QUOTE)
         self.fake.fail_next(403, "POST widgets/issues", count=5, body=SECONDARY)  # a create: never repeated, the pacer learns from it
-        result = world.run("sync", env=ENV)
+        result = world.run("sync", "--all", env=ENV)
         text = result.stdout + result.stderr
         self.assertIn("retry after 300s", text)
         self.assertRegex(text, r"retry after 300s \(about \d\d:\d\d")

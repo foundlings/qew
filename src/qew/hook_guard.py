@@ -35,11 +35,11 @@ _ISSUE_ADVICE: Mapping[str, str] = {
     "close": _CLOSE,
     "reopen": "`qew reopen ITEM`",
 }
-_ISSUE_DEFAULT = "`qew set ITEM`, `qew close ITEM --reason R` or `qew sync` (the forge mirror follows the ledger)"
-_LABEL_ADVICE = "`qew set ITEM --labels ...` (labels live on the item; `qew sync` mirrors them)"
-_BOARD_ADVICE = "`qew project ensure` (board) and `qew sync` (cards follow the ledger)"
-_MILESTONE_ADVICE = "`qew set ITEM --parent EPIC` (an epic is the milestone; `qew sync` mirrors it)"
-_API_ADVICE = "the matching qew command (`qew create`, `qew set`, `qew complete`, `qew project ensure`, `qew sync`)"
+_ISSUE_DEFAULT = "`qew set ITEM`, `qew close ITEM --reason R` or `qew push` (the forge mirror follows the ledger)"
+_LABEL_ADVICE = "`qew set ITEM --labels ...` (labels live on the item; `qew push` mirrors them)"
+_BOARD_ADVICE = "`qew project ensure` (board) and `qew push` (cards follow the ledger)"
+_MILESTONE_ADVICE = "`qew set ITEM --parent EPIC` (an epic is the milestone; `qew push` mirrors it)"
+_API_ADVICE = "the matching qew command (`qew create`, `qew set`, `qew complete`, `qew project ensure`, `qew push`)"
 
 
 @dataclass(frozen=True)

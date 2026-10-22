@@ -28,7 +28,7 @@ class ReactionsWalk(unittest.TestCase):
         self.item = self.world.create("--kind", "issue", "--title", "Popular", "--quote", QUOTE)
 
     def sync(self) -> None:
-        result = self.world.run("sync", env=ENV)
+        result = self.world.run("sync", "--all", env=ENV)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_counts_are_shown_follow_the_forge_and_disappear_at_zero(self) -> None:

@@ -41,7 +41,7 @@ class SyncFailureHintWalk(unittest.TestCase):
         config = ledger_config.load(w.code)
         with self.assertRaises(QewError) as raised:
             sync_command(config, None, None, False, build=lambda mirror: forge)
-        self.assertIn("qew sync", str(raised.exception))
+        self.assertIn("qew push", str(raised.exception))
         self.assertTrue((w.ledger / "items" / f"{item}" / "item.md").exists())
 
 

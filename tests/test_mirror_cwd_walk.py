@@ -29,7 +29,7 @@ class MirrorCwdWalk(unittest.TestCase):
         """Prevents QEW_LEDGER=A run from a checkout of repo B creating A's items as issues in B's forge repository."""
         self.owner.create("--title", "Belongs elsewhere", "--quote", QUOTE)
         ledger = {**ENV, "QEW_LEDGER": str(self.owner.ledger)}
-        result = self.other.run("sync", env=ledger)
+        result = self.other.run("sync", "--all", env=ledger)
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("QEW_LEDGER", result.stderr)
         self.assertEqual(self.fake.issues, {})
@@ -38,7 +38,7 @@ class MirrorCwdWalk(unittest.TestCase):
     def test_a_repo_that_names_the_same_ledger_still_syncs(self) -> None:
         """Prevents the refusal catching the ordinary case: QEW_LEDGER pointing at the ledger the repo's own config names."""
         self.other.create("--title", "Mine", "--quote", QUOTE)
-        result = self.other.run("sync", env={**ENV, "QEW_LEDGER": str(self.other.ledger)})
+        result = self.other.run("sync", "--all", env={**ENV, "QEW_LEDGER": str(self.other.ledger)})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.fake.issues), 1)
 
@@ -54,7 +54,7 @@ class MirrorRehomeWalk(unittest.TestCase):
         self.w = World(entry(self.wrong), ledger_vcs="git", replication=self.quiet)
         self.addCleanup(self.w.close)
         self.item = self.w.create("--title", "Strayed", "--quote", QUOTE)
-        self.assertEqual(self.w.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=ENV).returncode, 0)
         self.slug = self.w.run("mirror", "list").stdout.split()[0]
         config = self.w.code / ".qew" / "config.toml"
         config.write_text(config.read_text().replace(entry(self.wrong), entry(self.right)))  # the ledger's real home
@@ -69,7 +69,7 @@ class MirrorRehomeWalk(unittest.TestCase):
         self.assertIn(self.item, stray["discussion"][-1]["body"])
         self.assertFalse(self.record.exists())
         self.assertEqual(self.w.ledger_dirty(), [])
-        self.assertEqual(self.w.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(self.w.run("sync", "--all", env=ENV).returncode, 0)
         self.assertEqual(len(self.right.issues), 1)
         self.assertEqual(len(self.wrong.issues), 1)
 

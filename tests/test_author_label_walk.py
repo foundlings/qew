@@ -34,7 +34,7 @@ class AuthorLabelWalk(unittest.TestCase):
         (world.code / ".qew" / "config.toml").write_text((world.code / ".qew" / "config.toml").read_text() + '\n[forge]\nlogin = "887"\n')
         created = world.run("create", "--title", "Filed by an agent", "--quote", QUOTE, env={"QEW_ACTOR": "elf1"})
         self.assertEqual(created.returncode, 0)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertIn("author:887", self.labels(fake))
         self.assertNotIn("author:elf1", self.labels(fake))
         self.assertIn("author: elf1", world.run("show", created.stdout.split()[0]).stdout)
@@ -43,11 +43,11 @@ class AuthorLabelWalk(unittest.TestCase):
         """Prevents a guessed human: no login configured leaves author:elf1; configuring one relabels and prune deletes the retired label."""
         world, fake = self.world()
         self.assertEqual(world.run("create", "--title", "Filed by an agent", "--quote", QUOTE, env={"QEW_ACTOR": "elf1"}).returncode, 0)
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertIn("author:elf1", self.labels(fake))
         config = world.code / ".qew" / "config.toml"
         config.write_text(config.read_text() + '\n[forge]\nlogin = "887"\n')
-        self.assertEqual(world.run("sync", env=ENV).returncode, 0)
+        self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)
         self.assertIn("author:887", self.labels(fake))
         self.assertEqual(world.run("sync", "--prune-labels", env=ENV).returncode, 0)
         self.assertNotIn("author:elf1", fake.label_store)
