@@ -15,7 +15,7 @@ from typing import Any, cast
 from collections.abc import Callable, Iterable, Mapping
 
 from qew import attachments, evidence_header, ledger_aliases, snapshot_cache, snapshot_reuse, trace
-from qew.errors import QewError
+from qew.errors import NotFound, QewError
 from qew.mirror_types import MirrorRecord
 from qew.ledger_aliases import ITEM_FILE
 from qew.ledger_config import LEDGER_FILE
@@ -395,7 +395,7 @@ class Ledger:
         if len(matches) == 1:
             return matches[0]
         if not matches:
-            raise QewError(f"no item matches `{reference}`", 2)
+            raise NotFound(f"no item matches `{reference}`")
         raise QewError(f"`{reference}` is ambiguous: {', '.join(sorted(matches, key=sort_key)[:8])}", 2)
 
     # -- writing
@@ -604,6 +604,14 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
 BASELINES = "baselines"
 _MINTED: set[Path] = set()  # baseline files this process wrote
 MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items")
+MISS_HOOK: Callable[[], bool] | None = None  # set by the replication session: fetch the ledger remote once, True when it brought something in
+
+
+def pulled_on_miss() -> bool:
+    """Whether a lookup that found nothing should look again: true after a fetch that changed the ledger."""
+    return MISS_HOOK is not None and MISS_HOOK()
+
+
 JOURNAL: list[tuple[Path, str | None]] | None = None  # (path, previous text or None) while a session records
 
 
