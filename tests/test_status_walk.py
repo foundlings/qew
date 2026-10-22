@@ -32,7 +32,7 @@ class StatusWalk(unittest.TestCase):
         self.w.create("--kind", "issue", "--title", "A", "--draft")
         self.w.run("sync", "--all", env={"FORGEJO_TOKEN": TOKEN})
         data = json.loads(self.status("--json"))
-        self.assertEqual(data["ledger"], {"uncommitted": 0, "unpushed": 0, "mode": "online", "remote": "ok"})
+        self.assertEqual(data["ledger"], {"uncommitted": 0, "unpushed": 0, "mode": "online", "remote": "ok", "remote_error": None})
         self.assertEqual(data["targets"][0]["pending"], 0)
         self.assertEqual(data["divergences"], [])
         self.assertTrue(data["targets"][0]["last_sync"])

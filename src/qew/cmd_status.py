@@ -41,6 +41,12 @@ def remote_state(config: Config) -> str:
     return marker.read_text(encoding="utf-8").strip() if marker.exists() else "ok"
 
 
+def remote_error(config: Config) -> str | None:
+    """Why the last fetch or push failed (a timeout names `timeout_s`), or None when it did not."""
+    note = config.ledger_path / ".qew" / "remote-error"
+    return note.read_text(encoding="utf-8").strip() or None if note.exists() and remote_state(config) == "offline" else None
+
+
 def last_sync(ledger: Ledger, slug: str, item_ids: Sequence[str]) -> str | None:
     stamps = [m.get("synced_at", "") for item_id in item_ids for m in ledger.load_mirrors(item_id) if m["_target"] == slug]
     return max(stamps, default="") or None
@@ -86,6 +92,7 @@ def collect(config: Config) -> JsonObject:
             "unpushed": repo.unpushed(),
             "mode": "offline" if config.replication.offline else "online",
             "remote": remote_state(config),
+            "remote_error": remote_error(config),
         },
         "targets": [
             {"target": slug, "pending": sum(1 for action, _id in rows if action != "baseline"),
@@ -118,6 +125,8 @@ def render(data: JsonObject) -> str:
     ledger = data["ledger"]
     lines = [f"authority primary={data['authority']['primary']}"]
     lines += [f"ledger uncommitted={ledger['uncommitted']} unpushed={ledger['unpushed']} mode={ledger['mode']} remote={ledger['remote']}"]
+    if ledger["remote_error"]:
+        lines.append(f"ledger remote error: {ledger['remote_error']}")
     for target in data["targets"]:
         lines.append(f"target {target['target']} pending={target['pending']}{unbaselined(target)} synced={target['last_sync'] or 'never'}"
                      f" repos={'on' if target['repos'] else 'off'}"
