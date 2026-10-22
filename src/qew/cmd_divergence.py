@@ -5,6 +5,7 @@ rejecting keeps the ledger value and makes the next push restore the forge.
 """
 
 import argparse
+from collections.abc import Collection
 
 from qew import cmd_finish, ledger_config
 from qew.mirror_types import updated
@@ -115,17 +116,18 @@ def _accept_parent(ledger: Ledger, item_id: str, divergence: Event) -> None:
 AUTO_REASON = "auto: the ledger is the source of truth"
 
 
-def settle_automatically(config: Config, slug: str) -> int:
-    """Reject every open divergence of the target (contested claims keep their arbitration): the ledger value stays and the
-    push that follows restores it on the forge. Returns how many were settled."""
+def settle_automatically(config: Config, slug: str, only: Collection[str] | None = None) -> int:
+    """Reject every open divergence of the target, or of the items in `only` (contested claims keep their arbitration): the
+    ledger value stays and the push that follows restores it on the forge. Reads the ledger once, however many there are.
+    Returns how many were settled."""
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
     settled = 0
-    for item_id in sorted(snapshot.items):
+    for item_id in sorted(snapshot.items if only is None else set(only) & set(snapshot.items)):
         for divergence in snapshot.folds[item_id].divergences:
             if divergence.type == "claimed" or divergence.get("target") != slug:
                 continue
-            reject(config, divergence.id, AUTO_REASON)
+            _reject_one(ledger, item_id, divergence, AUTO_REASON)
             settled += 1
     return settled
 
@@ -141,6 +143,11 @@ def reject(config: Config, reference: str | list[str] | tuple[str, ...], note: s
     item_id, divergence = _find(ledger, reference)
     if divergence.type == "claimed":
         return _settle_contest(ledger, ledger.snapshot(), item_id, divergence, keep_contender=False, note=note)
+    return _reject_one(ledger, item_id, divergence, note)
+
+
+def _reject_one(ledger: Ledger, item_id: str, divergence: Event, note: str) -> str:
+    """Record the rejection of one open (non-claim) divergence and force the next push to rewrite the forge."""
     ledger.append_event(item_id, "divergence_rejected", ref=divergence.id, **_why(note))
     slug = divergence.get("target")
     for record in ledger.load_mirrors(item_id):
