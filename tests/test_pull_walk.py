@@ -30,7 +30,7 @@ class PullWalk(unittest.TestCase):
 
     def listed(self) -> list[str]:
         out = self.b.run("list", "--json", env=ENV).stdout
-        return [row["id"] for row in json.loads(out)] if out.strip() else []
+        return [json.loads(line)["id"] for line in out.splitlines() if line.strip()]
 
     def filed_elsewhere(self) -> str:
         item = self.a.create("--kind", "issue", "--title", "Landed on a", "--quote", QUOTE)

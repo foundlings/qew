@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from qew.mirror_types import MirrorRecord
-from qew.errors import QewError
+from qew.errors import NotFound, QewError
 from qew.ledger_event import State
 from qew.ledger_graph import children
 from qew.ledger_item import Kind
@@ -44,7 +44,7 @@ def find(ledger: Ledger, number: int, target: str | None) -> PrRecord:
                 continue
             found.append(_record(item_id, record))
     if not found:
-        raise QewError(f"pull request #{number} is not recorded in the ledger; open it with `qew pr open`, or adopt and close an unmerged legacy one with `qew pr close {number} --item ID --reason TEXT`", 2)
+        raise NotFound(f"pull request #{number} is not recorded in the ledger; open it with `qew pr open`, or adopt and close an unmerged legacy one with `qew pr close {number} --item ID --reason TEXT`")
     if len(found) > 1:
         raise QewError(f"pull request #{number} exists on several targets; pass --target", 2)
     return found[0]

@@ -7,7 +7,9 @@ forge already accepted.
 """
 
 import argparse
+import contextlib
 from contextlib import contextmanager
+from dataclasses import dataclass
 import os
 import sys
 from pathlib import Path
@@ -143,6 +145,7 @@ _ACTIVE: tuple[Config, LedgerRepo, bool, bool] | None = None  # (config, repo, v
 @contextmanager
 def session(arguments: argparse.Namespace) -> Iterator[None]:
     verb = verb_for(arguments)
+    _arm_miss_pull(arguments, held=verb is not None)
     if verb is None:
         _pull_for_read(arguments)
         yield
@@ -356,9 +359,75 @@ def _note(config: Config, result: str, reason: str = "") -> None:
             (cache / "remote-error").unlink(missing_ok=True)
 
 
+@dataclass(frozen=True)
+class Pulled:
+    before: str
+    after: str
+    commits: int
+    items: tuple[str, ...]
+
+
+def pull(config: Config, held: bool = False, wait_s: float = LOCK_WAIT_SECONDS) -> Pulled:
+    """Fetch and merge the ledger remote and nothing else: no forge call, no worker, no claim arbiter. `held` says the caller
+    already holds the ledger lock (a writer). Raises QewError when the remote is unreachable or the merge conflicts."""
+    rep = config.replication
+    repo = LedgerRepo(config.ledger_path, rep.branch)
+    if repo.vcs is None or not repo.has_remote():
+        raise QewError("the ledger has no remote to pull from", 2)
+    if rep.offline or os.environ.get("QEW_NO_FETCH"):
+        raise QewError("offline mode is on (QEW_OFFLINE or [replication] offline); nothing was pulled", 3)
+    with contextlib.nullcontext() if held else _lock(config.ledger_path, "lock", "read", wait_s=wait_s):
+        repo.exclude_cache()
+        crashed = config.ledger_path / ".qew" / WRITING
+        if not held and rep.auto_commit and crashed.exists():
+            _recover(repo)
+            crashed.unlink(missing_ok=True)
+        before = repo.tip()
+        fetched = repo.fetch_merge(rep.timeout_s)
+        _note(config, fetched, repo.last_failure)
+        if fetched == "offline":
+            raise QewError(f"the ledger remote is unreachable: {repo.last_failure or 'no answer'}; nothing was pulled", 3)
+        (config.ledger_path / ".qew" / "last-fetch").touch()
+        after = repo.tip()
+        paths = repo.changed_between(before, after)
+    return Pulled(before, after, repo.count_between(before, after), tuple(_item_ids(paths)))
+
+
+_MISS_TRIED = False
+
+
+def _arm_miss_pull(arguments: argparse.Namespace, held: bool) -> None:
+    """Let a lookup that finds no item or pull request fetch the ledger remote once, whatever the fetch interval, and look again.
+    Not for a command that has unsaved ledger writes (the fetch would merge into them), nor for an offline or read-only-replica ledger."""
+    global _MISS_TRIED
+    _MISS_TRIED = False
+    ledger_store.MISS_HOOK = None
+    if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull", "sync") or os.environ.get("QEW_NO_FETCH"):
+        return
+    try:
+        config = ledger_config.load()
+    except QewError:
+        return
+    rep = config.replication
+    if rep.offline or not rep.auto_push or not (config.ledger_path / ledger_config.LEDGER_FILE).is_file():
+        return
+
+    def on_miss() -> bool:
+        global _MISS_TRIED
+        if _MISS_TRIED or ledger_store.JOURNAL:
+            return False
+        _MISS_TRIED = True
+        try:
+            return bool(pull(config, held=held, wait_s=0).commits)
+        except (QewError, filelock.LockTimeout):
+            return False  # the lookup's own refusal is the answer; a failed pull has been noted for `qew status`
+
+    ledger_store.MISS_HOOK = on_miss
+
+
 def _pull_for_read(arguments: argparse.Namespace) -> None:
     """Reads see other agents' work: fetch and merge the ledger remote, at most every fetch_interval_s."""
-    if arguments.command in ("init", "hook", "status", "conflicts", "unlock"):
+    if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull"):
         return
     try:
         config = ledger_config.load()

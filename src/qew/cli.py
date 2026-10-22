@@ -9,9 +9,9 @@ from pathlib import Path
 from types import ModuleType
 from collections.abc import Sequence
 
-from qew import __version__, body_sections, ledger_fields, evidence_resolve, code_prose, editor, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
+from qew import __version__, ledger_store, body_sections, ledger_fields, evidence_resolve, code_prose, editor, outcome, replication, cmd_draft, cmd_items, ledger_check, ledger_config, plan_apply, plan_file
 from qew.command_modules import COMMAND_MODULE, CORE_COMMANDS
-from qew.errors import QewError
+from qew.errors import NotFound, QewError
 from qew.ledger_item import title_is_one_line
 
 
@@ -54,6 +54,7 @@ Pull requests
   qew land        complete the items of a merged pull request
   qew branch      prune: delete merged branches no open pull request uses
 Mirrors
+  qew pull        fetch the ledger remote and merge it (no forge call)
   qew sync        push the ledger to every mirror target
   qew mirror      add | remove | list mirror targets
   qew forge       migrate the primary forge to another target
@@ -89,7 +90,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish", "cmd_batch", "cmd_doctor")
-_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author")
+_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author", "cmd_pull")
 
 
 def top_level_commands() -> list[str]:
@@ -347,7 +348,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments.json = outcome.wants_json(arguments)
     try:
         with ledger_config.old_layout_allowed(arguments.command == "migrate-layout"), replication.session(arguments):
-            _run(arguments)
+            try:
+                _run(arguments)
+            except NotFound:
+                if not ledger_store.pulled_on_miss():  # another machine's work may not be here yet: fetch once, whatever the interval
+                    raise
+                _run(arguments)
     except QewError as error:
         print(f"qew: {error}", file=sys.stderr)
         return error.exit_code

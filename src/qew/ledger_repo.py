@@ -289,6 +289,30 @@ class LedgerRepo:
         return len(self._jj_ids(f'bookmarks(exact:"{self.branch}") ~ ::({remote})')) and len(
             self._jj_ids(f'::bookmarks(exact:"{self.branch}") ~ ::({remote}) ~ empty()'))
 
+    def tip(self) -> str:
+        """The commit the checked-out ledger stands on ("" before its first commit)."""
+        if self.vcs == "git":
+            return self.run(["git", "rev-parse", "-q", "--verify", "HEAD"], check=False).stdout.strip()
+        found = self._jj_ids("coalesce(@ ~ empty(), @-)")
+        return found[0] if found else ""
+
+    def count_between(self, old: str, new: str) -> int:
+        """How many commits `new` has that `old` does not."""
+        if not new or old == new:
+            return 0
+        if self.vcs == "git":
+            return int(self.run(["git", "rev-list", "--count", f"{old}..{new}" if old else new]).stdout.strip() or 0)
+        return len(self._jj_ids(f"{old}..{new}" if old else f"::{new}"))
+
+    def changed_between(self, old: str, new: str) -> list[str]:
+        """The ledger paths that differ between two tips, as the fetch brought them in."""
+        if not old or not new or old == new:
+            return []
+        if self.vcs == "git":
+            return self.run(["git", "diff", "--name-only", old, new]).stdout.splitlines()
+        shown = self.run([*JJ_READ, "diff", "--summary", "--from", old, "--to", new]).stdout
+        return [line[2:].strip() for line in shown.splitlines() if line[2:].strip()]
+
     def has_remote(self) -> bool:
         if self.vcs is None:
             return False
