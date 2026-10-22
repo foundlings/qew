@@ -33,6 +33,7 @@ class Settled:
     owner: str
     verdict: Verdict
     winner: str | None = None
+    reason: str = ""  # why a deferred claim could not be asked yet
 
     def line(self) -> str:
         if self.verdict is Verdict.LOST:
@@ -40,7 +41,7 @@ class Settled:
                     f"your offline claim was dropped (claim_lost {self.claim})")
         if self.verdict is Verdict.CONFIRMED:
             return f"claim confirmed: {self.item} (offline claim of {self.owner})"
-        return f"claim provisional: {self.item} (the arbiter is unreachable; sync again later)"
+        return f"claim provisional: {self.item} ({self.reason or 'the arbiter is unreachable'}; sync again later)"
 
 
 def settled_refs(events: list[Event]) -> set[Any]:
@@ -95,10 +96,9 @@ def provisional_claim_of(snapshot: Snapshot, item_id: str, owner: str) -> str | 
 def _on_primary(config: Config, ledger: Ledger, build: Callable[[Mirror], Forge], item_id: str, event: Event) -> Settled:
     owner = event.get("owner")
     mirror = next((m for m in config.mirrors if ledger_config.mirror_slug(m) == config.authority), None)
-    record = next((r for r in ledger.load_mirrors(item_id)
-                   if r["_target"] == config.authority and r.get("kind") == "issue"), None)
+    record = claim_authority.issue_record(config, ledger, mirror, item_id)  # a task is reserved on the nearest mirrored ancestor's issue
     if mirror is None or record is None:
-        return Settled(item_id, event.id, owner, Verdict.DEFERRED)  # the first sync has not created its issue yet
+        return Settled(item_id, event.id, owner, Verdict.DEFERRED, reason="the primary has no issue for it yet")
     number = record["number"]
     try:
         forge: Forge = build(mirror)
@@ -106,8 +106,8 @@ def _on_primary(config: Config, ledger: Ledger, build: Callable[[Mirror], Forge]
         if winner is None:
             forge.create_comment(number, claim_authority.claim_comment(item_id, owner, secrets.token_hex(4)))
             winner = claim_authority.holder(forge.list_comments(number), item_id)
-    except ForgeError:
-        return Settled(item_id, event.id, owner, Verdict.DEFERRED)
+    except ForgeError as error:
+        return Settled(item_id, event.id, owner, Verdict.DEFERRED, reason=f"the primary forge could not be asked: {error.detail}")
     if winner is not None and winner[0] == owner:
         return Settled(item_id, event.id, owner, Verdict.CONFIRMED)
     return Settled(item_id, event.id, owner, Verdict.LOST, winner[0] if winner else "someone else")
