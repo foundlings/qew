@@ -42,6 +42,7 @@ class SplitPullRequestWalk(unittest.TestCase):
         retitled = self.w.qew("pr", "sync", "1")
         self.assertEqual(retitled.code, 0, retitled)
         self.assertIn("The slice", self.w.forge.pulls[1].title)
+        self.assertEqual(self.w.qew("pr", "check", "1", "--all").code, 0)
         merge = self.w.qew("pr", "merge", "1", "--check")
         self.assertEqual(merge.code, 0, merge)
 

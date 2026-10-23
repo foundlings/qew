@@ -508,6 +508,9 @@ def _drop_item(config: Config, number: int, name: str, reason: str, force: bool,
     (box,) = pr_checklist.resolve(pr_checklist.boxes(first.body), [name])
     if box.ticked and not force:
         raise QewError(f"checklist item `{name}` is already ticked: it is finished work; pass --force to drop it anyway", 2)
+    covered = box.address in loaded.record.items
+    if covered and loaded.record.items == (box.address,):
+        raise QewError(f"pr #{number} covers only {box.address}: dropping it would leave nothing; close the pull request instead (`qew pr close {number}`)", 2)
     edited = pr_checklist.drop(first.body, box)
     _write_body(loaded, number, first, edited)
     ledger = loaded.snapshot.ledger
@@ -515,7 +518,9 @@ def _drop_item(config: Config, number: int, name: str, reason: str, force: bool,
     for item_id in loaded.record.items or (loaded.record.host,):
         ledger.append_event(item_id, "commented", text=f"dropped checklist item {box.address} ({box.text}) from pull request #{number}: {text}", author=actor())
     current = next(m for m in ledger.load_mirrors(loaded.record.host) if m["_target"] == loaded.record.mirror_file)
-    pr_record.update_mirror(ledger, loaded.record, dropped=[*current.get("dropped", []), f"{box.address}: {text}"])
+    kept = [i for i in loaded.record.items if i != box.address]
+    pr_record.update_mirror(ledger, loaded.record, dropped=[*current.get("dropped", []), f"{box.address}: {text}"],
+                            **({"items": kept} if covered else {}))
     return f"pr #{number} dropped: {box.address}"
 
 
@@ -692,7 +697,7 @@ def sync_title(
     Only the title: the body is composed once at open from --what/--why/--testing and carries the checklist's ticks, so it is
     never regenerated."""
     loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
-    wanted = loaded.snapshot.items[loaded.record.host].title
+    wanted = loaded.snapshot.items[(loaded.record.items or (loaded.record.host,))[0]].title
     forge = loaded.forge
     with forge_errors(loaded.record.target):
         before = forge.read_pull_request(number)
