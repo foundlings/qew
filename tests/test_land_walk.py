@@ -152,6 +152,17 @@ class LandWalk(unittest.TestCase):
         self.assertNotIn("nothing to take over", run.out + run.err)
         self.assertIn(f"{task} completed", run.out)
 
+    def test_an_integrator_who_took_the_item_over_earlier_lands_it_without_a_second_takeover(self) -> None:
+        """Prevents `nothing to take over: you already hold` after the integrator's own earlier `start --take-over`."""
+        self.w.forge.edit_pull(1, state="merged")
+        self.w.qew("release", self.item, "--reason", "handover")
+        self.w.qew("start", self.item, actor="elf")
+        self.assertEqual(self.w.qew("start", self.item, "--take-over", "--reason", "integrating", actor="rudolph").code, 0)
+        run = self.w.qew("land", "1", "--integrator", "--reason", "rudolph merged", actor="rudolph")
+        self.assertEqual(run.code, 0, run)
+        self.assertNotIn("nothing to take over", run.out + run.err)
+        self.assertEqual(self.state(self.item), "completed")
+
     def test_a_non_opener_without_the_flag_still_cannot_complete_a_held_item(self) -> None:
         """Prevents dropping the owner rule from letting any actor complete another's claim."""
         self.w.forge.edit_pull(1, state="merged")
