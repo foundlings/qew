@@ -615,4 +615,4 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   open, schema_version}`. `--integrator --reason TEXT` is for the one who merged: it also lands the items another actor
   holds, on the `complete --take-over` path (evidence recorded for the holder, the completion event carrying the holder
   and `integrator landed pr #N (held by HOLDER): TEXT`); `--reason` alone, or `--integrator` without it, is exit 2, and an
-  unmerged pull request is still refused. It never trusts the forge's `merged_by`: a shared token would make that match everyone.
+  unmerged pull request is still refused. An item the caller already holds, directly or through its epic, is landed plainly with no take-over, with or without `--integrator`. It never trusts the forge's `merged_by`: a shared token would make that match everyone.

@@ -4,7 +4,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import cast
 
-from qew import cmd_finish, code_vcs, ledger_config, outcome, pr_checklist, pr_gate
+from qew import cmd_claim, cmd_finish, code_vcs, ledger_config, outcome, pr_checklist, pr_gate
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -96,13 +96,14 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
     for item_id in _order(loaded, [*loaded.record.items, *boxed]):
         state = states[item_id]
         owner = loaded.snapshot.folds[item_id].owner
+        mine = owner == actor() or cmd_claim.holds_ancestor(loaded.snapshot, item_id, actor())
         if state in (State.COMPLETED, State.CLOSED):
             result.lines.append(f"{item_id}: already {state.value}")
             result.clean.append(item_id)
         elif state != State.CLAIMED:
             result.lines.append(f"{item_id}: {state.value}, unclaimed; not landed")
             result.open.append(item_id)
-        elif owner != actor() and not integrator:
+        elif not mine and not integrator:
             result.lines.append(f"{item_id}: claimed by {owner}; not landed (to finish it anyway: qew complete {item_id} --take-over --reason TEXT, or qew land {number} --integrator --reason TEXT if you merged it)")
             result.held.append({"id": item_id, "holder": owner})
         elif pull.base_branch != config.target:
@@ -114,7 +115,7 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
                                 f"(record it with `qew evidence {item_id} --change CHANGE`, then `qew land {number}` again)")
             result.open.append(item_id)
         else:
-            takeover = f"integrator landed pr #{number} (held by {owner}): {reason}" if owner != actor() and integrator else None
+            takeover = f"integrator landed pr #{number} (held by {owner}): {reason}" if not mine and integrator else None
             result.failures += _land_one(config, loaded, item_id, pull.head_sha, result, takeover)
     if not result.landed and not result.failures:
         everything_done = bool(result.clean) and len(result.clean) == len(loaded.record.items) + len(boxed)
