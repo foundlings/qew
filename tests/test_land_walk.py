@@ -127,6 +127,31 @@ class LandWalk(unittest.TestCase):
         self.assertEqual(run.code, 0, run)
         self.assertEqual(self.state(self.item), "completed")
 
+    def test_an_integrator_who_already_holds_the_claim_lands_without_a_takeover(self) -> None:
+        """Prevents `nothing to take over: you already hold` aborting a landing by the claimant who merged it."""
+        self.assertEqual(self.w.qew("evidence", self.item, "--change", self.sha).code, 0)
+        self.w.forge.edit_pull(1, state="merged")
+        run = self.w.qew("land", "1", "--integrator", "--reason", "I merged it")
+        self.assertEqual(run.code, 0, run)
+        self.assertNotIn("nothing to take over", run.out + run.err)
+        self.assertEqual(self.state(self.item), "completed")
+
+    def test_an_integrator_holding_the_epic_lands_a_child_another_actor_claimed(self) -> None:
+        """Prevents the epic holder, who already holds the child by cascade, being refused a takeover of it."""
+        world = PrWorld()
+        self.addCleanup(world.close)
+        epic = world.item("Epic", kind="epic", claim=False)
+        task = world.item("Step", kind="task", parent=epic, claim=False)
+        self.assertEqual(world.qew("start", epic).code, 0)
+        self.assertEqual(world.qew("start", task, "--take-over", "--reason", "mine now", actor="other").code, 0)
+        self.assertEqual(world.open(task, actor="other").code, 0)
+        sha = world.commit("work")
+        world.forge.edit_pull(1, head_sha=sha, state="merged")
+        run = world.qew("land", "1", "--integrator", "--reason", "I merged it")
+        self.assertEqual(run.code, 0, run)
+        self.assertNotIn("nothing to take over", run.out + run.err)
+        self.assertIn(f"{task} completed", run.out)
+
     def test_a_non_opener_without_the_flag_still_cannot_complete_a_held_item(self) -> None:
         """Prevents dropping the owner rule from letting any actor complete another's claim."""
         self.w.forge.edit_pull(1, state="merged")
