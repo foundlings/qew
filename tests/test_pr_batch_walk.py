@@ -62,6 +62,7 @@ class BatchWalk(unittest.TestCase):
         git(self.w.world.code, "checkout", "-q", "--detach", self.shas[0])
         side = self.w.commit("side branch")
         self.w.forge.edit_pull(2, head_sha=side)
+        self.assertEqual(self.w.qew("evidence", self.items[1], "--change", side).code, 0)
         run = self.w.qew("pr", "merge", "2", "3")
         self.assertEqual(run.code, 2, run)
         self.assertIn("no head contains the others", run.err)
@@ -77,6 +78,13 @@ class BatchWalk(unittest.TestCase):
         self.assertIn("pr #2", run.err)
         records = [r for r in self.w.ledger.load_mirrors(self.items[1]) if r.get("kind") == "pr"]
         self.assertNotEqual([r.get("state") for r in records], ["merged"])
+
+    def test_the_post_merge_hook_sees_every_number_of_a_batch(self) -> None:
+        """Prevents the merged-reminder missing the followers: every number after `qew pr merge` is read, a flag value is not."""
+        from qew import hook_guard
+
+        self.assertEqual(hook_guard.qew_pr_merges("qew pr merge 2 3 1 --target t --reason 9"), [2, 3, 1])
+        self.assertEqual(hook_guard.qew_pr_merges("qew pr merge 7"), [7])
 
 
 if __name__ == "__main__":

@@ -100,7 +100,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     synced.add_argument("--target", help=_TARGET_HELP)
     synced.add_argument("--json", action="store_true", help="machine-readable output")
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
-    merge.add_argument("number", type=int, help="pull request number")
+    merge.add_argument("number", type=int, nargs="+", help="pull request number; several merge as one batch when one head contains all the others")
     merge.add_argument("--target", help=_TARGET_HELP)
     merge.add_argument("--auto", action="store_true", help="merge once the checks pass, only where the base branch requires checks")
     merge.add_argument("--admin", action="store_true", help="merge past pending or failing checks only (needs --reason)")
@@ -148,6 +148,11 @@ def run(arguments: argparse.Namespace) -> bool:
             print(sync_title(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     else:
         merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason, arguments.check)
+        if len(arguments.number) > 1:
+            from qew import pr_batch  # imports this module for the single-merge pieces
+
+            return pr_batch.run(config, arguments, merge_options)
+        arguments.number = arguments.number[0]
         if arguments.check:
             return _report_check(arguments, merge_check(config, arguments.number, arguments.target, merge_options))
         print(merge_pull_request(config, arguments.number, arguments.target, merge_options).render(arguments.json))
@@ -850,7 +855,7 @@ def _enable_auto(loaded: Loaded, pull: RemotePullRequest) -> RemotePullRequest:
     return after
 
 
-def _hand_off(loaded: Loaded, number: int) -> list[str]:
+def hand_off(loaded: Loaded, number: int) -> list[str]:
     """What is left per covered item once the merge landed; the gate already proved evidence and children."""
     lines = []
     for item_id in pr_gate.open_work(loaded.states, loaded.record):
@@ -864,7 +869,7 @@ def _hand_off(loaded: Loaded, number: int) -> list[str]:
     return lines
 
 
-def _branch_line(cleanup: branch_cleanup.HeadFate, branch: str) -> list[str]:
+def branch_line(cleanup: branch_cleanup.HeadFate, branch: str) -> list[str]:
     """The merge output about the head branch; a failure to delete it is a warning on stderr, never an error."""
     if cleanup.fate == branch_cleanup.Fate.DELETED:
         return [f"branch {branch} deleted"]
@@ -950,7 +955,7 @@ def merge_pull_request(
     if waiting:
         with forge_errors(slug):
             enabled = _enable_auto(loaded, pull)
-        lines = (*lead, f"pr #{number} auto-merge enabled at {pull.head_sha[:12]}; it merges when the checks pass", *_hand_off(loaded, number))
+        lines = (*lead, f"pr #{number} auto-merge enabled at {pull.head_sha[:12]}; it merges when the checks pass", *hand_off(loaded, number))
         return Merged(number, pull.head_sha, enabled.merge_sha, False, covered, lines)
     with forge_errors(slug):
         try:
@@ -977,5 +982,5 @@ def merge_pull_request(
     where = f" (merge commit {merged.merge_sha[:12]})" if merged.merge_sha else ""
     cleanup = branch_cleanup.delete_merged_head(forge, pull.head_branch, {pull.base_branch, config.target})
     branch = untrusted_text.show(cleanup.name).text
-    lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *_branch_line(cleanup, branch), *_hand_off(loaded, number))
+    lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *branch_line(cleanup, branch), *hand_off(loaded, number))
     return Merged(number, pull.head_sha, merged.merge_sha, True, covered, lines)

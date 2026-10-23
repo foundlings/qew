@@ -536,6 +536,13 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
 - `qew pr close NUMBER [--on-behalf-of ACTOR] [--target T] [--item ID --reason TEXT] [--json]`: closes a recorded, unmerged pull request (same ownership rule as ready). `--item ID --reason TEXT` is the way for an unmerged pull request qew never recorded (a legacy draft from before qew): it adopts the pull request onto that item (which carries its remainder), closes it, read back, writes its `pr` mirror as closed and keeps the reason as a comment on the item; a merged one is refused (exit 2), `--item` on a pull request recorded for another item is refused, and a rerun is unchanged.
   re-reads, and records `closed` in its mirror; still open is exit 4, merged is exit 2, already closed writes nothing.
   An orphan is adopted with `qew pr open` first. `--json`: `{number, closed, changed, schema_version}`.
+- `qew pr merge NUMBER NUMBER... [--target T] [--admin] [--other-author --reason TEXT] [--check] [--json]`: a batch, for
+  pull requests whose heads form one union. Every member is gated first (one refusal refuses the batch, nothing is
+  merged); the lead, the one whose head contains every other head, is merged once; each other member must then read as
+  merged on the forge (exit 3 otherwise, its record untouched) before its mirror record says so, its head branch is
+  deleted and its items get the usual hand-off lines. No head containing the rest is exit 2, and the error gives the jj
+  or git command that joins the heads. `--auto` does not combine with a batch. Build the union with a multi-parent merge,
+  never a squash, so the change ids the evidence cites survive.
 - `qew pr merge NUMBER [--target T] [--auto] [--admin] [--other-author] [--reason TEXT] [--json]`: refuses, writing
   nothing: held by a covered draft, not open, draft, conflicts or unknown merge state, unticked checklist items (exit 2),
   open child tasks of a claimed covered item, no recorded evidence covering the head (exit 2), failing or pending
