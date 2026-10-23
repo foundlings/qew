@@ -4,7 +4,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import cast
 
-from qew import cmd_claim, cmd_finish, code_vcs, ledger_config, outcome, pr_checklist, pr_gate
+from qew import cmd_claim, cmd_finish, pr_block, code_vcs, ledger_config, outcome, pr_checklist, pr_gate
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -117,6 +117,7 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
         else:
             takeover = f"integrator landed pr #{number} (held by {owner}): {reason}" if not mine and integrator else None
             result.failures += _land_one(config, loaded, item_id, pull.head_sha, result, takeover)
+    result.lines += pr_block.release_dependents(config, number, build)  # a landing is also a merge seen late
     if not result.landed and not result.failures:
         everything_done = bool(result.clean) and len(result.clean) == len(loaded.record.items) + len(boxed)
         result.lines.append("nothing to land: all covered items complete" if everything_done else "nothing to land")

@@ -45,6 +45,7 @@ class MirrorState(TypedDict, total=False):
     milestone_closed: bool
     fields: dict[str, str]  # custom card fields last set from the mirror's project_fields map
     reactions: dict[str, int]  # reaction counts last seen on the forge issue; display only
+    blocked_by: list[int]  # pull request numbers a pull request waits on; shown as the `blocked` label and a title suffix
     dropped: list[str]  # checklist items dropped from a pull request, "ID: reason"; display only
     reviews_read: bool  # a finished pull request whose reviews were read to the end
     parent_number: int  # the issue number last set as this issue's parent (0: none); absent: never set by this machine

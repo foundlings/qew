@@ -26,6 +26,7 @@ class PrRecord:
     target: str  # the mirror target slug the pull request lives on
     opener: str  # the actor who opened it; "" for a record from before openers were kept
     items: tuple[str, ...]  # the covered items
+    blockers: tuple[int, ...] = ()  # pull requests this one waits on
 
 
 def positive_number(number: int) -> int:
@@ -56,7 +57,20 @@ def _record(host: str, mirror: MirrorRecord) -> PrRecord:
     opener: object = mirror.get("opener", "")
     if not isinstance(items, list) or not all(isinstance(i, str) for i in items) or not isinstance(opener, str):
         raise QewError(f"mirrors/{host}/{stem}.json: `items` must be a list of ids and `opener` a string", 1)
-    return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, tuple(items))
+    blockers: object = mirror.get("blocked_by", [])
+    if not isinstance(blockers, list) or not all(isinstance(n, int) and not isinstance(n, bool) for n in blockers):
+        raise QewError(f"mirrors/{host}/{stem}.json: `blocked_by` must be a list of pull request numbers", 1)
+    return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, tuple(items), tuple(blockers))
+
+
+def waiting_on(ledger: Ledger, number: int) -> list[PrRecord]:
+    """The recorded pull requests that list `number` among their blockers."""
+    found: list[PrRecord] = []
+    for item_id in ledger.item_ids():
+        for record in ledger.load_mirrors(item_id):
+            if record.get("kind") == "pr" and number in _record(item_id, record).blockers:
+                found.append(_record(item_id, record))
+    return found
 
 
 def covered_by(snapshot: Snapshot, root: str) -> list[str]:

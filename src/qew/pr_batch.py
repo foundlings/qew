@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from qew import branch_cleanup, code_vcs, pr_record, untrusted_text
+from qew import branch_cleanup, code_vcs, pr_block, pr_record, untrusted_text
 from qew.cmd_pr import (
     MERGE_RECHECK_SECONDS, SCHEMA_VERSION, Build, MergeOptions, branch_line, forge_errors, hand_off, load,
     merge_check, merge_pull_request,
@@ -98,5 +98,6 @@ def merge_batch(config: Config, numbers: list[int], target: str | None, options:
         pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=False, state="merged")
         cleanup = branch_cleanup.delete_merged_head(forge, pull.head_branch, {pull.base_branch, config.target})
         branch = untrusted_text.show(cleanup.name).text
-        result.lines += [f"pr #{number} merged with #{lead} at {pull.head_sha[:12]}", *branch_line(cleanup, branch), *hand_off(loaded, number)]
+        result.lines += [f"pr #{number} merged with #{lead} at {pull.head_sha[:12]}", *branch_line(cleanup, branch), *hand_off(loaded, number),
+                         *pr_block.release_dependents(config, number, build)]
     return result
