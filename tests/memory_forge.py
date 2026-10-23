@@ -67,6 +67,7 @@ class MemoryForge(Forge):
         self.draft_ignored = False  # accept mark-draft yet stay ready
         self.merge_lag_reads = 0  # reads after a merge call that still show the pull request open
         self.merge_lag: dict[int, int] = {}
+        self.merges_with: dict[int, list[int]] = {}  # merging the key also marks these merged: their commits reached the base
         self.after_read: list[Callable[[MemoryForge], None]] = []  # run once after the next read, as a concurrent edit
         self.body_write_ignored = False
         self.label_write_ignored = False  # accept the label change yet apply none
@@ -273,6 +274,8 @@ class MemoryForge(Forge):
             self.merge_lag[number] = self.merge_lag_reads
         if number not in self.merge_lag:
             self.pulls[number] = self._with(number, state="merged", merge_sha="m" * 40)
+        for other in self.merges_with.get(number, []):
+            self.pulls[other] = self._with(other, state="merged", merge_sha="m" * 40)
         return self.pulls[number]
 
     def find_open_pull_requests(self, head: str) -> list[RemotePullRequest]:
