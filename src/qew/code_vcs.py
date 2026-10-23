@@ -33,6 +33,11 @@ def _run(root: Path, argv: list[str]) -> subprocess.CompletedProcess[str]:
         raise QewError(f"cannot run `{' '.join(argv)}`: {error}", 3) from None
 
 
+def run_git(root: Path, *argv: str) -> subprocess.CompletedProcess[str]:
+    """One `git` command in the checkout, never prompting; the caller reads the return code."""
+    return _run(root, ["git", *argv])
+
+
 def _jj_target(root: Path, target: str) -> str:
     """The revset naming the target branch. A bookmark that two sides moved is conflicted and `present(main)` refuses it, so the
     revset then names every side (a change on either side is on the branch); a name nothing carries is exit 3."""
