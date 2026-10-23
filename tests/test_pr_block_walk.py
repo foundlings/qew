@@ -58,8 +58,9 @@ class PrBlockWalk(unittest.TestCase):
         self.assertEqual(self.w.qew("pr", "block", "1", "--by", "2").code, 0)
         self.assertEqual(self.w.qew("pr", "block", "3", "--by", "2").code, 0)
         self.assertEqual(self.w.qew("pr", "block", "3", "--by", "1").code, 0)
-        self.w.forge.edit_pull(2, head_sha=self.w.commit("fix"), draft=False)
-        self.assertEqual(self.w.qew("evidence", self.fixing, "--change", self.w.commit("fix2")).code, 0)
+        sha = self.w.commit("fix")
+        self.w.forge.edit_pull(2, head_sha=sha, draft=False)
+        self.assertEqual(self.w.qew("evidence", self.fixing, "--change", sha).code, 0)
         merged = self.w.qew("pr", "merge", "2")
         self.assertEqual(merged.code, 0, merged)
         self.assertIn("unblocked pr #1", merged.out)
@@ -68,6 +69,19 @@ class PrBlockWalk(unittest.TestCase):
         self.assertNotIn("blocked", self.pull(1).labels)
         self.assertEqual(self.pull(3).title, "Another blocker [blocked by: #1]")
         self.assertIn("blocked", self.pull(3).labels)
+
+    def test_a_finished_dependant_is_unblocked_in_the_record_without_an_error(self) -> None:
+        """Prevents the blocker's merge reporting a failure for a dependant that merged or closed meanwhile."""
+        self.assertEqual(self.w.qew("pr", "block", "3", "--by", "2").code, 0)
+        self.w.forge.edit_pull(3, state="closed")
+        sha = self.w.commit("fix")
+        self.w.forge.edit_pull(2, head_sha=sha, draft=False)
+        self.assertEqual(self.w.qew("evidence", self.fixing, "--change", sha).code, 0)
+        merged = self.w.qew("pr", "merge", "2")
+        self.assertEqual(merged.code, 0, merged)
+        self.assertNotIn("still lists", merged.out)
+        record = next(m for m in self.w.ledger.load_mirrors(self.third) if m.get("kind") == "pr")
+        self.assertEqual(record.get("blocked_by"), [])
 
     def test_refusals_write_nothing(self) -> None:
         """Prevents a pull request blocked by itself, by nobody, by a stranger's hand, or after it finished."""

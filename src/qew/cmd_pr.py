@@ -86,6 +86,16 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     labelled.add_argument("--on-behalf-of", metavar="ACTOR", help="label as this actor would: allowed only where ACTOR could label the pull request (its opener, or the holder of its claims)")
     labelled.add_argument("--target", help=_TARGET_HELP)
     labelled.add_argument("--json", action="store_true", help="machine-readable output")
+    blocked = sub.add_parser("block", help="mark a pull request as waiting on others: the label `blocked` and a title suffix [blocked by: #N]")
+    blocked.add_argument("number", type=int, help="pull request number")
+    blocked.add_argument("--by", type=int, action="append", default=[], metavar="NUMBER", help="the blocking pull request, repeatable")
+    blocked.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
+    blocked.add_argument("--target", help=_TARGET_HELP)
+    unblocked = sub.add_parser("unblock", help="remove blockers from a pull request (all, or the --by ones); the label and title suffix go with the last")
+    unblocked.add_argument("number", type=int, help="pull request number")
+    unblocked.add_argument("--by", type=int, action="append", default=[], metavar="NUMBER", help="the blocker to remove, repeatable; none: every blocker")
+    unblocked.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
+    unblocked.add_argument("--target", help=_TARGET_HELP)
     closed = sub.add_parser("close", help="close an unmerged pull request without merging it")
     closed.add_argument("number", type=int, help="pull request number")
     closed.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
@@ -147,6 +157,11 @@ def run(arguments: argparse.Namespace) -> bool:
         print(close_pull_request(config, arguments.number, arguments.target, item=arguments.item, reason=arguments.reason, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "label":
         print(label_pull_request(config, arguments.number, arguments.add, arguments.remove, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
+    elif command in ("block", "unblock"):
+        from qew import pr_block  # imports this module for the loading pieces
+
+        act = pr_block.block if command == "block" else pr_block.unblock
+        print(act(config, arguments.number, arguments.by, arguments.target, on_behalf_of=arguments.on_behalf_of))
     elif command == "sync":
         if arguments.items:
             print(sync_items(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of))
@@ -697,7 +712,9 @@ def sync_title(
     Only the title: the body is composed once at open from --what/--why/--testing and carries the checklist's ticks, so it is
     never regenerated."""
     loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
-    wanted = loaded.snapshot.items[(loaded.record.items or (loaded.record.host,))[0]].title
+    from qew import pr_block  # imports this module for the loading pieces
+
+    wanted = loaded.snapshot.items[(loaded.record.items or (loaded.record.host,))[0]].title + pr_block.suffix(loaded.record.blockers)
     forge = loaded.forge
     with forge_errors(loaded.record.target):
         before = forge.read_pull_request(number)
@@ -997,5 +1014,8 @@ def merge_pull_request(
     where = f" (merge commit {merged.merge_sha[:12]})" if merged.merge_sha else ""
     cleanup = branch_cleanup.delete_merged_head(forge, pull.head_branch, {pull.base_branch, config.target})
     branch = untrusted_text.show(cleanup.name).text
-    lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *branch_line(cleanup, branch), *hand_off(loaded, number))
+    from qew import pr_block  # imports this module for the loading pieces
+
+    lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *branch_line(cleanup, branch), *hand_off(loaded, number),
+             *pr_block.release_dependents(config, number, build))
     return Merged(number, pull.head_sha, merged.merge_sha, True, covered, lines)
