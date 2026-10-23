@@ -536,6 +536,14 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
 - `qew pr close NUMBER [--on-behalf-of ACTOR] [--target T] [--item ID --reason TEXT] [--json]`: closes a recorded, unmerged pull request (same ownership rule as ready). `--item ID --reason TEXT` is the way for an unmerged pull request qew never recorded (a legacy draft from before qew): it adopts the pull request onto that item (which carries its remainder), closes it, read back, writes its `pr` mirror as closed and keeps the reason as a comment on the item; a merged one is refused (exit 2), `--item` on a pull request recorded for another item is refused, and a rerun is unchanged.
   re-reads, and records `closed` in its mirror; still open is exit 4, merged is exit 2, already closed writes nothing.
   An orphan is adopted with `qew pr open` first. `--json`: `{number, closed, changed, schema_version}`.
+- `qew pr union NUMBER NUMBER... [--target T] [--other-author --reason TEXT] [--dry-run]`: joins the heads of several open
+  pull requests into one commit and pushes it forward-only as the first one's branch (the lead; moving another actor's
+  branch needs `--other-author --reason`). The build uses git plumbing (`merge-tree`, `commit-tree`), touches no working
+  copy, makes merge commits only (never a squash, so cited change ids stay ancestors) and skips heads already contained.
+  A conflict is exit 2 naming the pull request and files, with nothing pushed; heads where one already contains the
+  others print which pull request to merge and push nothing. The push is verified against the remote (exit 3 when it is
+  not there). `--dry-run` builds and reports without pushing. Run the project checks on the union, then `qew pr merge`
+  the same numbers.
 - `qew pr merge NUMBER NUMBER... [--target T] [--admin] [--other-author --reason TEXT] [--check] [--json]`: a batch, for
   pull requests whose heads form one union. Every member is gated first (one refusal refuses the batch, nothing is
   merged); the lead, the one whose head contains every other head, is merged once; each other member must then read as

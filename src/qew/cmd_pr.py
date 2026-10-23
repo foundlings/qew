@@ -99,6 +99,12 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     synced.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     synced.add_argument("--target", help=_TARGET_HELP)
     synced.add_argument("--json", action="store_true", help="machine-readable output")
+    union = sub.add_parser("union", help="join the heads of several open pull requests into one commit and push it as the first one's branch")
+    union.add_argument("number", type=int, nargs="+", help="pull request numbers; the first is the lead whose branch receives the union")
+    union.add_argument("--target", help=_TARGET_HELP)
+    union.add_argument("--other-author", action="store_true", help="move the branch of a pull request someone else opened (needs --reason)")
+    union.add_argument("--reason", help=_REASON_HELP)
+    union.add_argument("--dry-run", action="store_true", help="build the union and report conflicts, push nothing")
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
     merge.add_argument("number", type=int, nargs="+", help="pull request number; several merge as one batch when one head contains all the others")
     merge.add_argument("--target", help=_TARGET_HELP)
@@ -146,6 +152,10 @@ def run(arguments: argparse.Namespace) -> bool:
             print(sync_items(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of))
         else:
             print(sync_title(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
+    elif command == "union":
+        from qew import pr_union  # imports this module for the loading pieces
+
+        print(pr_union.union(config, arguments))
     else:
         merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason, arguments.check)
         if len(arguments.number) > 1:

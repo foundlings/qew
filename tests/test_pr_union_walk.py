@@ -56,7 +56,7 @@ class UnionWalk(unittest.TestCase):
         branches stay where they were, and the local checkout does not move."""
         for number in (1, 2, 3):
             self.pull_request(number, f"f{number}.txt", f"{number}\n")
-        here = git(self.code, "rev-parse", "HEAD")
+        here, dirty = git(self.code, "rev-parse", "HEAD"), git(self.code, "status", "--porcelain")
         run = self.w.qew("pr", "union", "3", "1", "2")
         self.assertEqual(run.code, 0, run)
         pushed = self.remote(3)
@@ -65,7 +65,7 @@ class UnionWalk(unittest.TestCase):
             git(self.bare, "merge-base", "--is-ancestor", self.shas[number], pushed)  # raises when it is not an ancestor
         self.assertEqual((self.remote(1), self.remote(2)), (self.shas[1], self.shas[2]))
         self.assertEqual(git(self.code, "rev-parse", "HEAD"), here)
-        self.assertEqual(git(self.code, "status", "--porcelain"), "")
+        self.assertEqual(git(self.code, "status", "--porcelain"), dirty)
         self.assertIn(pushed[:12], run.out)
 
     def test_a_conflict_between_heads_is_refused_and_nothing_is_pushed(self) -> None:
