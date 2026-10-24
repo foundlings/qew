@@ -24,6 +24,7 @@ Read
   qew prime       bounded session context
   qew blocked     open work with unmet needs
   qew graph       dependency edges
+  qew progress    percent done of an item's whole tree
   qew board       the offline kanban: seven status columns
   qew triage      review drafts and items missing fields
   qew plan        status: roll up an epic's children
@@ -91,7 +92,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish", "cmd_batch", "cmd_doctor")
-_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author", "cmd_pull", "cmd_push")
+_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author", "cmd_pull", "cmd_push", "cmd_progress")
 
 
 def top_level_commands() -> list[str]:

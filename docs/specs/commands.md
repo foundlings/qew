@@ -91,6 +91,12 @@ shape prime: additional_context context_bytes schema_version
 - `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
+- `qew progress ROOT... [--depth N] [--epics-only] [--json]`: the whole parent/child tree under each root from one ledger
+  read. A leaf is an item with no children, counted by `work_state`; a node's percent is its completed leaves over its leaves
+  less those closed (a blocked, gated or claimed leaf is not done; no leaves left to do prints `n/a`, JSON `null`). Text: one
+  indented line per node, `ID  title  [######----] 62%  (done/total)` for items with children, `ID  title  STATE` for leaves.
+  `--epics-only` omits leaves, `--depth N` shows N levels (totals still cover every leaf). `--json` prints one nested tree per
+  root per line: `id kind title work_state counts leaves done total percent children`. `list --json` rows carry `parent`.
 - `qew plan status [EPIC] [--json]`: roll up the direct children of one epic (every open epic when none is named)
   from files: counts `total draft ready blocked claimed closed`, `next` (the lowest priority number then id among
   ready children, never a draft or blocked child), and `completable` (non-draft epic, at least one child, every
