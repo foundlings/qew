@@ -1,3 +1,3 @@
 """Qew: an offline-first work ledger mirrored to forges."""
 
-__version__ = "6.39.1"
+__version__ = "6.40.0"
