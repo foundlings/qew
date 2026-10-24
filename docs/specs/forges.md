@@ -89,6 +89,8 @@ moved-head refusal, auth refusal, 5xx -> `ForgeUnavailable`, and `Unsupported` w
   updated (`updateProjectV2View`) and reported in `Board.notes`; views outside the model are never touched.
 - `find_issue` scans the repository issue list (all states, pull requests skipped) for the marker; a listing longer
   than `MAX_PAGES` pages, or a `Link` that leaves the API root, raises `ForgeRejected` rather than truncating or following.
+  Past the cap a lookup reads only issues changed since its item's base35-time id was minted (a day's margin), since an issue
+  cannot predate its item; an id that carries no time keeps the error.
 - `link_dependency` uses the issue dependencies REST endpoints (`blocked_by`), listing first so repeats are no-ops; `unlink_dependency` deletes the link by the blocker's issue id (absent is a no-op). Sync unlinks only links it recorded (`linked`) whose need the ledger dropped; a link a human added is left alone.
 - Pull request `checks` folds the combined commit status (ignored when it has no statuses) with all check runs:
   any failure is `failing`, else any unfinished is `pending`, else `passing`; nothing at all is `none`.

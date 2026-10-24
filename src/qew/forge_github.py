@@ -7,12 +7,14 @@ missing or mistyped field raises `ForgeRejected` rather than becoming a default.
 import re
 import threading
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, TypedDict, override
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from urllib.parse import quote
 
-from qew import forge_retry, label_style
+from qew import forge_retry, instants, label_style, ledger_ids
 from qew.forge import (
+    MARKER_PREFIX,
     BodyRevision,
     RemoteReview,
     RemoteReviewComment,
@@ -577,7 +579,7 @@ class _Wire:
             if url is not None and not url.startswith(self.rest_root + "/"):
                 raise ForgeRejected(200, "pagination link leaves the API root; refusing to follow it")
         if url is not None:
-            raise ForgeRejected(200, f"more than {MAX_PAGES} pages; refusing a truncated listing")
+            raise ListingTooLong(200, f"more than {MAX_PAGES} pages; refusing a truncated listing")
 
     def graphql(self, query: str, variables: Mapping[str, Any]) -> dict[str, Any]:
         """One GraphQL call. A RATE_LIMITED answer refused the request without applying it, so it is waited out and sent
@@ -602,6 +604,10 @@ def _is_rate_limited(errors: Any) -> bool:
     """A typed RATE_LIMITED error, or (GitHub's secondary limit sends no type) a message saying 'rate limit'."""
     return isinstance(errors, list) and any(
         isinstance(e, dict) and (e.get("type") == "RATE_LIMITED" or "rate limit" in str(e.get("message", "")).lower()) for e in errors)
+
+
+class ListingTooLong(ForgeRejected):
+    """A list endpoint ran past MAX_PAGES: reading it would truncate."""
 
 
 class NodeLimit(ForgeRejected):
@@ -656,6 +662,7 @@ class GitHub(Forge):
         self._labels_read = False  # the repository's label list was read this run
         self._lock = threading.RLock()  # sync workers share this forge: one builds the issue index, one creates a label
         self._listed: list[RemoteIssue] | None = None  # every issue the first unscoped lookup read, plus this run's creates
+        self._oversized = False  # the repository has more issues than one listing may read
 
     # issues
 
@@ -696,15 +703,20 @@ class GitHub(Forge):
         if not recent:
             # One full listing per run: a first sync of N items must not page the whole repository N times.
             with self._lock:
-                if self._listed is None:
+                if self._listed is None and not self._oversized:
                     listed: list[RemoteIssue] = []
-                    for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
-                        for entry in _array(page, "issue list"):
-                            issue = _obj(entry, "issue list entry")
-                            if "pull_request" not in issue:
-                                listed.append(self._remember(parse_issue(issue)))
-                    self._listed = listed
-                known = list(self._listed)
+                    try:
+                        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&per_page=100"):
+                            for entry in _array(page, "issue list"):
+                                issue = _obj(entry, "issue list entry")
+                                if "pull_request" not in issue:
+                                    listed.append(self._remember(parse_issue(issue)))
+                        self._listed = listed
+                    except ListingTooLong:
+                        self._oversized = True  # a repository past the cap: look each marker up in the window its item allows
+                known = None if self._listed is None else list(self._listed)
+            if known is None:
+                return self._find_since(marker)
             matches = [i for i in known if marker_alone(i.body, marker)]
             return min(matches, key=lambda found: found.number) if matches else None
         matches = []
@@ -716,6 +728,22 @@ class GitHub(Forge):
                 if marker_alone(_nullable_str(issue, "body", "issue"), marker):
                     matches.append(self._remember(parse_issue(issue)))
             break  # one page of the newest issues: the lookup after a write must not grow with the repository
+        return min(matches, key=lambda found: found.number) if matches else None
+
+    def _find_since(self, marker: str) -> RemoteIssue | None:
+        """The issue carrying `marker` among those changed since its item was minted (a day's margin for clock skew): an issue
+        cannot predate its item. An id that does not say when it was minted has no window, so the truncated listing stays an error."""
+        item_id = marker.removeprefix(f"<!-- {MARKER_PREFIX}").removesuffix(" -->")
+        minted = ledger_ids.id_instant(item_id)
+        if minted is None:
+            raise ListingTooLong(200, f"more than {MAX_PAGES} pages; refusing a truncated listing")
+        since = quote(instants.format_instant(minted - timedelta(days=1)), safe="")
+        matches: list[RemoteIssue] = []
+        for page in self._wire.pages(f"{self._repo_path}/issues?state=all&since={since}&per_page=100"):
+            for entry in _array(page, "issue list"):
+                issue = _obj(entry, "issue list entry")
+                if "pull_request" not in issue and marker_alone(_nullable_str(issue, "body", "issue"), marker):
+                    matches.append(self._remember(parse_issue(issue)))
         return min(matches, key=lambda found: found.number) if matches else None
 
     def _repo_label_looks(self) -> dict[str, tuple[str, str]]:

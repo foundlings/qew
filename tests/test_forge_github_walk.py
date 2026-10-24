@@ -3,13 +3,15 @@
 import sys
 import unittest
 from dataclasses import replace
+from datetime import timedelta
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from tests.fake_github import OWNER, REPO, TOKEN, FakeGitHub
 
-from qew import forge
+from qew import forge, instants, ledger_ids
 from qew.forge import (
     COLUMNS,
     ForgeAuth,
@@ -54,6 +56,23 @@ class IssueWalk(GitHubWalk):
         updated = self.backend.update_issue(created.number, replace(SPEC, title="New", labels=("a", "b")))
         self.assertEqual((updated.title, updated.labels), ("New", ("a", "b")))
         self.assertIsNone(self.backend.find_issue("<!-- qew:TST-404 -->"))
+
+    def test_find_in_a_repository_longer_than_the_page_cap_looks_only_at_issues_changed_since_the_item_existed(self) -> None:
+        """Prevents `qew push` from failing 'more than 50 pages' on a big repository: a new item's lookup needs no full listing."""
+        fake = FakeGitHub(page_size=2).start()
+        self.addCleanup(fake.stop)
+        backend = GitHub(mirror_for(fake), urllib_transport(), ENV)
+        fake.clock = lambda: instants.now() - timedelta(days=30)
+        for n in range(6):
+            backend.create_issue(replace(SPEC, body=f"<!-- qew:OLD-{n} -->"))
+        fake.clock = instants.now
+        item_id = ledger_ids.event_id()
+        orphan = backend.create_issue(replace(SPEC, body=f"<!-- qew:{item_id} -->"))
+        with mock.patch("qew.forge_github.MAX_PAGES", 2):
+            self.assertEqual(backend.find_issue(f"<!-- qew:{item_id} -->"), orphan)
+            self.assertIsNone(backend.find_issue(f"<!-- qew:{ledger_ids.event_id(item_id)} -->"))
+            with self.assertRaises(ForgeRejected):
+                backend.find_issue("<!-- qew:OLD-0 -->")  # an id that says nothing about its age still refuses a truncated listing
 
     def test_find_pages_through_the_list_and_skips_pull_requests(self) -> None:
         fake = FakeGitHub(page_size=2).start()

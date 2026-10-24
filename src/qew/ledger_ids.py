@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from collections.abc import Iterable
+from datetime import UTC, datetime
 
 from qew.errors import QewError
 
@@ -48,6 +49,13 @@ def _random_pair() -> int:
 
 def _decode(value: str) -> int:
     return sum(_ALPHABET.index(c) * 35 ** i for i, c in enumerate(reversed(value)))
+
+
+def id_instant(value: str) -> datetime | None:
+    """When a base35-time id was minted (a few seconds ahead of the clock at most), or None for any other id."""
+    if not is_base35_time_id(value):
+        return None
+    return datetime.fromtimestamp(_EPOCH + _decode(value[:_TIME_WIDTH]), UTC)
 
 
 def event_id(after: str = "") -> str:
