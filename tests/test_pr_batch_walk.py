@@ -98,6 +98,27 @@ class BatchWalk(unittest.TestCase):
         self.assertIn("pr #3 has conflicts", run.err)
         self.assertEqual(self.w.forge.merged, [])
 
+    def hand_item_to_another_actor(self, index: int) -> None:
+        item = self.items[index]
+        self.assertEqual(self.w.qew("release", item, "--reason", "handover").code, 0)
+        self.assertEqual(self.w.qew("start", item, actor="other").code, 0)
+
+    def test_a_follower_claimed_by_another_actor_merges_under_other_author_and_a_reason(self) -> None:
+        """Prevents the batch ignoring the flags a single merge honours: the reason reaches every load, so the follower's foreign
+        claim is taken over exactly as `qew pr merge N --other-author --reason` would."""
+        self.hand_item_to_another_actor(1)
+        run = self.w.qew("pr", "merge", "1", "2", "3", "--other-author", "--reason", "owner is away")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.merged_states(), ["merged"] * 3)
+
+    def test_a_follower_claimed_by_another_actor_still_stops_a_batch_without_the_flags(self) -> None:
+        """Prevents the foreign claim being waved through: without --other-author the batch is refused and merges nothing."""
+        self.hand_item_to_another_actor(1)
+        run = self.w.qew("pr", "merge", "1", "2", "3")
+        self.assertEqual(run.code, 3, run)
+        self.assertIn("other", run.err)
+        self.assertEqual(self.w.forge.merged, [])
+
     def test_the_post_merge_hook_sees_every_number_of_a_batch(self) -> None:
         """Prevents the merged-reminder missing the followers: every number after `qew pr merge` is read, a flag value is not."""
         from qew import hook_guard
