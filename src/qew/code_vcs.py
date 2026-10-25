@@ -52,8 +52,20 @@ def _jj_target(root: Path, target: str) -> str:
 
 
 def _jj_change(change: str) -> str:
-    """The revset for a cited change: every commit of the change id (a divergent one is refused as a bare symbol)."""
-    return f"change_id({change})" + (f" | commit_id({change})" if _HEX.fullmatch(change) else "")
+    """The revset for a cited change: every commit of a change id (a divergent one is refused as a bare symbol), or the commit
+    of a hex id. jj reads only k-z as a change id and only 0-9a-f as a commit id and refuses the other as a parse error, so
+    exactly one function fits; a string that is neither names nothing."""
+    if _CHANGE_ID.fullmatch(change):
+        return f"change_id({change})"
+    return f"commit_id({change})" if _HEX.fullmatch(change) else "none()"
+
+
+def _jj_log(root: Path, revset: str, template: str) -> str:
+    """The output of one read-only `jj log`; a failed revset is exit 3, never an empty answer."""
+    result = _run(root, _JJ_READ + ["log", "--no-graph", "-r", revset, "-T", template])
+    if result.returncode != 0:
+        raise QewError(f"jj could not resolve `{revset}`: {result.stderr.strip()}", 3)
+    return result.stdout
 
 
 def valid_change(vcs: str, change: str) -> bool:
@@ -93,8 +105,7 @@ def is_ancestor(root: Path, vcs: str, change: str, target: str) -> bool:
             return False
         return _run(root, ["git", "merge-base", "--is-ancestor", change, target]).returncode == 0
     revset = _jj_target(root, target)
-    result = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({revset}) & ({_jj_change(change)})", "-T", 'commit_id ++ "\\n"'])
-    return result.returncode == 0 and bool(result.stdout.strip())
+    return bool(_jj_log(root, f"::({revset}) & ({_jj_change(change)})", 'commit_id ++ "\\n"').strip())
 
 
 _BRANCH = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/@+-]*")
@@ -128,16 +139,15 @@ def landing(root: Path, vcs: str, change: str, target: str) -> tuple[Landing, st
         merged = _run(root, ["git", "merge-base", "--is-ancestor", full, target]).returncode == 0
         return (Landing.LANDED if merged else Landing.NOT_ANCESTOR), full
     revset = _jj_target(root, target)
-    found = _run(root, _JJ_READ + ["log", "--no-graph", "-r", _jj_change(change), "-T", 'commit_id ++ "\\n"'])
-    ids = found.stdout.split() if found.returncode == 0 else []
+    ids = _jj_log(root, _jj_change(change), 'commit_id ++ "\\n"').split()
     if not ids:
         return Landing.UNKNOWN, ""
-    inside = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"::({revset}) & ({_jj_change(change)})", "-T", 'commit_id ++ "\\n"'])
-    landed = inside.stdout.split() if inside.returncode == 0 else []
+    landed = _jj_log(root, f"::({revset}) & ({_jj_change(change)})", 'commit_id ++ "\\n"').split()
     return (Landing.LANDED, landed[0]) if landed else (Landing.NOT_ANCESTOR, ids[0])
 
 
 _HEX = re.compile(r"[0-9a-f]+")
+_CHANGE_ID = re.compile(r"[k-z]+")
 _CHUNK = 100  # ids per revset when the ones not on the target are looked up
 
 
@@ -185,9 +195,8 @@ def _landing_many_jj(root: Path, wanted: list[str], target: str) -> dict[str, tu
     rest = [c for c in wanted if c not in found]
     for start in range(0, len(rest), _CHUNK):
         chunk = rest[start:start + _CHUNK]
-        revset = " | ".join(f"change_id({c})" + (f" | commit_id({c})" if _HEX.fullmatch(c) else "") for c in chunk)
-        seen = _run(root, _JJ_READ + ["log", "--no-graph", "-r", revset, "-T", 'change_id ++ " " ++ commit_id ++ "\\n"'])
-        known = [tuple(line.split()) for line in seen.stdout.splitlines() if len(line.split()) == 2] if seen.returncode == 0 else []
+        seen = _jj_log(root, " | ".join(_jj_change(c) for c in chunk), 'change_id ++ " " ++ commit_id ++ "\\n"')
+        known = [tuple(line.split()) for line in seen.splitlines() if len(line.split()) == 2]
         for change in chunk:
             hit = next((commit for change_id, commit in known if change_id.startswith(change) or commit.startswith(change)), None)
             found[change] = (Landing.NOT_ANCESTOR, hit) if hit is not None else (Landing.UNKNOWN, "")

@@ -50,8 +50,10 @@ class JjShaLookupWalk(unittest.TestCase):
         """Prevents a hex sha reading as unknown to this checkout under jj."""
         self.assertEqual(code_vcs.landing(self.repo, "jj", self.lead, "main")[0], code_vcs.Landing.LANDED)
         self.assertEqual(code_vcs.landing(self.repo, "jj", self.later, "main")[0], code_vcs.Landing.NOT_ANCESTOR)
-        many = code_vcs.landing_many(self.repo, "jj", [self.lead, self.later, commit_id(self.repo, "main-")], "main")
-        self.assertEqual([where for where, _ in many.values()], [code_vcs.Landing.LANDED, code_vcs.Landing.NOT_ANCESTOR, code_vcs.Landing.LANDED])
+        base = commit_id(self.repo, "main-")
+        many = code_vcs.landing_many(self.repo, "jj", [self.lead, self.later, base], "main")
+        self.assertEqual({change: where for change, (where, _) in many.items()},
+                         {self.lead: code_vcs.Landing.LANDED, self.later: code_vcs.Landing.NOT_ANCESTOR, base: code_vcs.Landing.LANDED})
 
     def test_a_failed_revset_is_an_error_not_a_negative_answer(self) -> None:
         """Prevents a jj failure being reported as 'not an ancestor': the caller must see that the lookup itself failed."""
