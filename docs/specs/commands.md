@@ -553,7 +553,8 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   the same numbers.
 - `qew pr merge NUMBER NUMBER... [--target T] [--admin] [--other-author --reason TEXT] [--check] [--json]`: a batch, for
   pull requests whose heads form one union. Every member is gated first (one refusal refuses the batch, nothing is
-  merged); the lead, the one whose head contains every other head, is merged once; each other member must then read as
+  merged; a follower's own conflicts with the base do not count, since the lead holds its head and only the lead's do);
+  the lead, the one whose head contains every other head, is merged once; each other member must then read as
   merged on the forge (exit 3 otherwise, its record untouched) before its mirror record says so, its head branch is
   deleted and its items get the usual hand-off lines. No head containing the rest is exit 2, and the error gives the jj
   or git command that joins the heads. `--auto` does not combine with a batch. Build the union with a multi-parent merge,

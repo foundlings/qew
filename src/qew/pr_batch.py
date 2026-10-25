@@ -38,7 +38,8 @@ def run(config: Config, arguments: argparse.Namespace, options: MergeOptions) ->
     numbers = list(dict.fromkeys(arguments.number))
     if options.auto:
         raise QewError("--auto does not combine with several pull requests: a batch merges now or not at all", 2)
-    refusals = [error for number in numbers for error in merge_check(config, number, arguments.target, options)]
+    lead = _lead(config, _heads(config, numbers, arguments.target, None))  # a follower inside the lead's head never merges alone
+    refusals = [error for number in numbers for error in merge_check(config, number, arguments.target, options, contained=number != lead)]
     if refusals or options.check:
         if refusals:
             raise QewError("; ".join(str(r) for r in refusals), refusals[0].exit_code)
