@@ -79,6 +79,25 @@ class BatchWalk(unittest.TestCase):
         records = [r for r in self.w.ledger.load_mirrors(self.items[1]) if r.get("kind") == "pr"]
         self.assertNotEqual([r.get("state") for r in records], ["merged"])
 
+    def test_followers_that_conflict_with_main_alone_merge_inside_a_clean_lead(self) -> None:
+        """Prevents the gate refusing a batch at the last step: a follower the forge reports as conflicting with main on its own
+        is contained in the lead's head, so only the lead's own conflict state decides."""
+        self.w.forge.edit_pull(1, mergeable=False)
+        self.w.forge.edit_pull(2, mergeable=False)
+        run = self.w.qew("pr", "merge", "1", "2", "3")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.w.forge.merged, [(3, self.shas[2])])
+        self.assertEqual(self.merged_states(), ["merged"] * 3)
+
+    def test_a_lead_that_conflicts_with_main_still_stops_the_batch(self) -> None:
+        """Prevents the skipped follower check hiding a real conflict: the lead is merged, so its conflicts refuse the batch."""
+        self.w.forge.edit_pull(1, mergeable=False)
+        self.w.forge.edit_pull(3, mergeable=False)
+        run = self.w.qew("pr", "merge", "1", "2", "3")
+        self.assertEqual(run.code, 2, run)
+        self.assertIn("pr #3 has conflicts", run.err)
+        self.assertEqual(self.w.forge.merged, [])
+
     def test_the_post_merge_hook_sees_every_number_of_a_batch(self) -> None:
         """Prevents the merged-reminder missing the followers: every number after `qew pr merge` is read, a flag value is not."""
         from qew import hook_guard
