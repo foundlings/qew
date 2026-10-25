@@ -911,8 +911,11 @@ def branch_line(cleanup: branch_cleanup.HeadFate, branch: str) -> list[str]:
     return []
 
 
-def _merge_gates(config: Config, loaded: Loaded, pull: RemotePullRequest, options: MergeOptions) -> list[Callable[[], None]]:
-    """Every refusal `pr merge` applies before it touches anything, in the order it applies them; each raises `QewError`."""
+def _merge_gates(
+    config: Config, loaded: Loaded, pull: RemotePullRequest, options: MergeOptions, contained: bool = False,
+) -> list[Callable[[], None]]:
+    """Every refusal `pr merge` applies before it touches anything, in the order it applies them; each raises `QewError`.
+    `contained` is a batch follower whose head the lead holds: it is never merged itself, so its own conflicts do not count."""
     number = loaded.record.number
 
     def draft() -> None:
@@ -941,7 +944,7 @@ def _merge_gates(config: Config, loaded: Loaded, pull: RemotePullRequest, option
     return [
         lambda: refuse_held(loaded, "merge"),
         lambda: refuse_finished(number, pull, "merge"),
-        draft, mergeable, boxes,
+        draft, *([] if contained else [mergeable]), boxes,
         lambda: pr_gate.refuse_open_children(loaded.snapshot, loaded.record, loaded.states),
         lambda: pr_gate.refuse_missing_evidence(config, loaded.snapshot, loaded.record, loaded.states, pull.head_sha),
         checks,
@@ -950,6 +953,7 @@ def _merge_gates(config: Config, loaded: Loaded, pull: RemotePullRequest, option
 
 def merge_check(
     config: Config, number: int, target: str | None, options: MergeOptions = MergeOptions(), build: Build | None = None,
+    contained: bool = False,
 ) -> list[QewError]:
     """Every refusal `pr merge` would raise for these options, without merging or writing anything; empty when it would go ahead."""
     pr_record.positive_number(number)
@@ -961,7 +965,7 @@ def merge_check(
     except QewError as error:
         return [error]
     found: list[QewError] = []
-    for gate in _merge_gates(config, loaded, pull, options):
+    for gate in _merge_gates(config, loaded, pull, options, contained):
         try:
             gate()
         except QewError as error:
