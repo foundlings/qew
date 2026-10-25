@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from qew import branch_cleanup, code_vcs, pr_block, pr_record, untrusted_text
 from qew.cmd_pr import (
-    MERGE_RECHECK_SECONDS, SCHEMA_VERSION, Build, MergeOptions, branch_line, forge_errors, hand_off, load,
+    MERGE_RECHECK_SECONDS, SCHEMA_VERSION, Build, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
     merge_check, merge_pull_request,
 )
 from qew.errors import QewError
@@ -38,7 +38,7 @@ def run(config: Config, arguments: argparse.Namespace, options: MergeOptions) ->
     numbers = list(dict.fromkeys(arguments.number))
     if options.auto:
         raise QewError("--auto does not combine with several pull requests: a batch merges now or not at all", 2)
-    lead = _lead(config, _heads(config, numbers, arguments.target, None))  # a follower inside the lead's head never merges alone
+    lead = _lead(config, _heads(config, numbers, arguments.target, None, _takeover(options)))  # a follower inside the lead's head never merges alone
     refusals = [error for number in numbers for error in merge_check(config, number, arguments.target, options, contained=number != lead)]
     if refusals or options.check:
         if refusals:
@@ -53,10 +53,16 @@ def run(config: Config, arguments: argparse.Namespace, options: MergeOptions) ->
     return True
 
 
-def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None) -> dict[int, RemotePullRequest]:
+def _takeover(options: MergeOptions) -> str:
+    """The reason that takes over another actor's claim: only with --other-author, as in a single merge."""
+    reason = _merge_options(options)
+    return reason if options.other_author else ""
+
+
+def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str) -> dict[int, RemotePullRequest]:
     pulls: dict[int, RemotePullRequest] = {}
     for number in numbers:
-        loaded = load(config, number, target, build, "", merging=True)
+        loaded = load(config, number, target, build, reason, merging=True)
         with forge_errors(loaded.record.target):
             pulls[number] = loaded.forge.read_pull_request(number)
     return pulls
@@ -78,14 +84,15 @@ def _lead(config: Config, pulls: dict[int, RemotePullRequest]) -> int:
 
 def merge_batch(config: Config, numbers: list[int], target: str | None, options: MergeOptions, build: Build | None = None,
                 sleep: Callable[[float], None] | None = None) -> BatchMerged:
-    pulls = _heads(config, numbers, target, build)
+    reason = _takeover(options)
+    pulls = _heads(config, numbers, target, build, reason)
     lead = _lead(config, pulls)
     merged = merge_pull_request(config, lead, target, options, build, sleep)
     result = BatchMerged(lead, numbers, [*merged.lines])
     for number in numbers:
         if number == lead:
             continue
-        loaded = load(config, number, target, build, "", merging=True)
+        loaded = load(config, number, target, build, reason, merging=True)
         forge, slug = loaded.forge, loaded.record.target
         with forge_errors(slug):
             pull = forge.read_pull_request(number)
