@@ -74,6 +74,23 @@ class IssueWalk(GitHubWalk):
             with self.assertRaises(ForgeRejected):
                 backend.find_issue("<!-- qew:OLD-0 -->")  # an id that says nothing about its age still refuses a truncated listing
 
+    def test_a_refused_listing_names_the_repository_the_listing_and_the_cause(self) -> None:
+        """Prevents an agent facing 'more than 50 pages' with nothing to act on: the refusal says which repository and listing
+        overflowed, the cap, and that an id with no mint time cannot be narrowed to a since-window."""
+        fake = FakeGitHub(page_size=2).start()
+        self.addCleanup(fake.stop)
+        backend = GitHub(mirror_for(fake), urllib_transport(), ENV)
+        for n in range(6):
+            backend.create_issue(replace(SPEC, body=f"<!-- qew:OLD-{n} -->"))
+        with mock.patch("qew.forge_github.MAX_PAGES", 2):
+            with self.assertRaises(ForgeRejected) as caught:
+                backend.find_issue("<!-- qew:OLD-0 -->")
+        message = str(caught.exception)
+        self.assertIn(f"{OWNER}/{REPO}", message)
+        self.assertIn("issues", message)
+        self.assertIn("2 pages", message)
+        self.assertIn("mint time", message)
+
     def test_find_pages_through_the_list_and_skips_pull_requests(self) -> None:
         fake = FakeGitHub(page_size=2).start()
         self.addCleanup(fake.stop)
