@@ -579,7 +579,7 @@ class _Wire:
             if url is not None and not url.startswith(self.rest_root + "/"):
                 raise ForgeRejected(200, "pagination link leaves the API root; refusing to follow it")
         if url is not None:
-            raise ListingTooLong(200, f"more than {MAX_PAGES} pages; refusing a truncated listing")
+            raise ListingTooLong(200, f"{path.split('?')[0]} has more than {MAX_PAGES} pages; refusing a truncated listing")
 
     def graphql(self, query: str, variables: Mapping[str, Any]) -> dict[str, Any]:
         """One GraphQL call. A RATE_LIMITED answer refused the request without applying it, so it is waited out and sent
@@ -736,7 +736,8 @@ class GitHub(Forge):
         item_id = marker.removeprefix(f"<!-- {MARKER_PREFIX}").removesuffix(" -->")
         minted = ledger_ids.id_instant(item_id)
         if minted is None:
-            raise ListingTooLong(200, f"more than {MAX_PAGES} pages; refusing a truncated listing")
+            raise ListingTooLong(200, f"{self._repo_path}/issues has more than {MAX_PAGES} pages and {item_id!r} carries no mint time to "
+                                      "narrow the lookup to a since-window; refusing a truncated listing")
         since = quote(instants.format_instant(minted - timedelta(days=1)), safe="")
         matches: list[RemoteIssue] = []
         for page in self._wire.pages(f"{self._repo_path}/issues?state=all&since={since}&per_page=100"):
