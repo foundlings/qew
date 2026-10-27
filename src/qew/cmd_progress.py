@@ -58,7 +58,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     progress.add_argument("root", nargs="+", help="item ids or aliases whose trees to total")
     progress.add_argument("--depth", type=positive, metavar="N", help="show the tree only N levels below each root (totals still cover every leaf)")
     progress.add_argument("--epics-only", action="store_true", help="omit leaves: only items that have children get a row")
-    progress.add_argument("--tree", action="store_true", help="a terminal view: box-drawing guides, numbers in a fixed left column, titles cut to the terminal width, color on a tty")
+    progress.add_argument("--tree", action="store_true", help="a terminal view: box-drawing guides, numbers in a fixed left column, titles cut to the terminal width")
+    progress.add_argument("--color", nargs="?", const="always", default="never", choices=("always", "never"), help="with --tree: paint rows (green done, yellow under way, dim blocked); off unless asked, whatever the terminal")
     progress.add_argument("--open-only", action="store_true", help="omit finished (100%%) and empty (n/a) rows, keeping the parents of open work")
     progress.add_argument("--json", action="store_true", help="machine-readable output: one nested tree per root")
 
@@ -74,7 +75,7 @@ def run(arguments: argparse.Namespace) -> bool:
         if arguments.json:
             print(readfmt.dumps(document(tree, arguments.depth, arguments.epics_only, 0)))
         elif arguments.tree:
-            print("\n".join(tree_lines(tree, arguments.depth, arguments.epics_only, arguments.open_only, board.terminal_width(), board.use_color())))
+            print("\n".join(tree_lines(tree, arguments.depth, arguments.epics_only, arguments.open_only, board.terminal_width(), arguments.color == "always")))
         else:
             print("\n".join(lines(tree, arguments.depth, arguments.epics_only, 0, arguments.open_only)))
     return True
@@ -121,15 +122,20 @@ def lines(node: Node, depth: int | None, epics_only: bool, level: int, open_only
     return rows
 
 
-NUMBERS_WIDTH = 26  # "[##########] 100%  " plus done/total: the bars line up whatever the title
+COUNT_WIDTH = 7  # done/total is at least this wide; it grows to the widest in the tree, so the guides line up
 PAINT = {"done": "\x1b[32m", "going": "\x1b[33m", "stuck": "\x1b[2m"}
 
 
-def numbers(node: Node) -> str:
+def count_width(node: Node) -> int:
+    own = len(f"{node.done}/{node.total}") if node.children else 0
+    return max([COUNT_WIDTH, own, *(count_width(child) for child in node.children)])
+
+
+def numbers(node: Node, slot: int) -> str:
     if not node.children:
-        return node.work_state.ljust(NUMBERS_WIDTH)
+        return node.work_state.ljust(19 + slot)  # "[##########] 100%  " is 19 wide
     percent = "n/a" if node.percent is None else f"{node.percent}%"
-    return f"{bar(node.percent)} {percent:>4}  {f'{node.done}/{node.total}':>7}"
+    return f"{bar(node.percent)} {percent:>4}  {f'{node.done}/{node.total}':>{slot}}"
 
 
 def paint(node: Node) -> str | None:
@@ -141,8 +147,9 @@ def paint(node: Node) -> str | None:
 
 
 def tree_lines(node: Node, depth: int | None, epics_only: bool, open_only: bool, width: int, color: bool,
-               prefix: str = "", connector: str = "", level: int = 0) -> list[str]:
-    head = f"{numbers(node)}  {prefix}{connector}{node.id}"
+               prefix: str = "", connector: str = "", level: int = 0, slot: int = 0) -> list[str]:
+    slot = slot or count_width(node)
+    head = f"{numbers(node, slot)}  {prefix}{connector}{node.id}"
     room = width - len(head) - 2
     title = "" if room < 2 else "  " + (node.title if len(node.title) <= room else node.title[: room - 1] + "…")
     line = head + title
@@ -152,5 +159,5 @@ def tree_lines(node: Node, depth: int | None, epics_only: bool, open_only: bool,
     for index, child in enumerate(below):
         last = index == len(below) - 1
         spine = prefix + ("" if not connector else "   " if connector.startswith("└") else "│  ")
-        rows += tree_lines(child, depth, epics_only, open_only, width, color, spine, "└─ " if last else "├─ ", level + 1)
+        rows += tree_lines(child, depth, epics_only, open_only, width, color, spine, "└─ " if last else "├─ ", level + 1, slot)
     return rows
