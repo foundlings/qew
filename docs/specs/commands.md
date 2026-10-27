@@ -97,7 +97,7 @@ shape prime: additional_context context_bytes schema_version
   indented line per node, `ID  title  [######----] 62%  (done/total)` for items with children, `ID  title  STATE` for leaves.
   `--epics-only` omits leaves, `--depth N` shows N levels (totals still cover every leaf), `--open-only` omits rows with nothing
   left to do (100% or `n/a`) but keeps the parents of open work (text only). `--tree` is the opt-in view for a person: the numbers
-  (bar, percent, done/total, or a leaf's state) in a fixed left column, then `├─ └─ │` guides, id and the title cut with `…` to
+  (bar, percent, done/total, or a leaf's state) in one left column, as wide as the longest done/total in the tree, then `├─ └─ │` guides, id and the title cut with `…` to
   `COLUMNS` (else the tty width) so no line wraps; color (green done, yellow under way, dim blocked or `n/a`) only on a tty without
   `NO_COLOR`. The default text and `--json` never change with the terminal. `--json` prints one nested tree per
   root per line: `id kind title work_state counts leaves done total percent children`. `list --json` rows carry `parent`.
