@@ -104,6 +104,22 @@ class ProgressTreeWalk(unittest.TestCase):
         self.assertIn("\x1b[2m", cmd_progress.tree_lines(blocked, None, False, False, 100, True)[0])
         self.assertNotIn("\x1b", cmd_progress.tree_lines(done, None, False, False, 100, False)[0])
 
+    def test_a_wide_done_over_total_still_lines_every_guide_up(self) -> None:
+        """2192/2418 beside 2/24 and a leaf's state: the guide column is the same on every row, not pushed right by the big count."""
+        zero = dict.fromkeys(cmd_progress.COUNTED, 0)
+        def leaf(name: str) -> Node:
+            return Node(name, name, name, "task", "ready", zero | {"ready": 1}, [])
+        small = Node("S", "Small", "Small", "epic", "plan", zero | {"completed": 2, "ready": 22}, [leaf("L")])
+        big = Node("B", "Big", "Big", "epic", "plan", zero | {"completed": 2192, "ready": 226}, [leaf("M")])
+        root = Node("R", "Root", "Root", "epic", "plan", zero | {"completed": 2194, "ready": 248}, [big, small])
+        rows = cmd_progress.tree_lines(root, None, False, False, 100, False)
+        self.assertEqual(len(rows), 5, rows)
+        self.assertIn("2192/2418", rows[1])
+        self.assertEqual(len({row.index("─") for row in (rows[1], rows[3])}), 1, rows)
+        self.assertEqual(len({row.index("─") for row in (rows[2], rows[4])}), 1, rows)
+        self.assertEqual({row.index("[") for row in rows if "[" in row}, {0})
+        self.assertEqual(rows[2].index("M") - rows[1].index("B"), 3, rows)
+
     def test_open_only_without_tree_filters_the_plain_text_too(self) -> None:
         """The flag means the same in both layouts, and the plain layout keeps its own line shape."""
         rows = self.world.run("progress", self.root, "--open-only").stdout
