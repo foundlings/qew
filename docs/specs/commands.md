@@ -91,11 +91,15 @@ shape prime: additional_context context_bytes schema_version
 - `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
-- `qew progress ROOT... [--depth N] [--epics-only] [--json]`: the whole parent/child tree under each root from one ledger
+- `qew progress ROOT... [--depth N] [--epics-only] [--open-only] [--tree] [--json]`: the whole parent/child tree under each root from one ledger
   read. A leaf is an item with no children, counted by `work_state`; a node's percent is its completed leaves over its leaves
   less those closed (a blocked, gated or claimed leaf is not done; no leaves left to do prints `n/a`, JSON `null`). Text: one
   indented line per node, `ID  title  [######----] 62%  (done/total)` for items with children, `ID  title  STATE` for leaves.
-  `--epics-only` omits leaves, `--depth N` shows N levels (totals still cover every leaf). `--json` prints one nested tree per
+  `--epics-only` omits leaves, `--depth N` shows N levels (totals still cover every leaf), `--open-only` omits rows with nothing
+  left to do (100% or `n/a`) but keeps the parents of open work (text only). `--tree` is the opt-in view for a person: the numbers
+  (bar, percent, done/total, or a leaf's state) in a fixed left column, then `├─ └─ │` guides, id and the title cut with `…` to
+  `COLUMNS` (else the tty width) so no line wraps; color (green done, yellow under way, dim blocked or `n/a`) only on a tty without
+  `NO_COLOR`. The default text and `--json` never change with the terminal. `--json` prints one nested tree per
   root per line: `id kind title work_state counts leaves done total percent children`. `list --json` rows carry `parent`.
 - `qew plan status [EPIC] [--json]`: roll up the direct children of one epic (every open epic when none is named)
   from files: counts `total draft ready blocked claimed closed`, `next` (the lowest priority number then id among

@@ -7,7 +7,7 @@ planned; a blocked, gated or claimed leaf is not done.
 import argparse
 from dataclasses import dataclass
 
-from qew import ledger_config, ledger_graph, readfmt, untrusted_text
+from qew import board, ledger_config, ledger_graph, readfmt, untrusted_text
 from qew.cmd_read import snapshot_for
 from qew.jsontypes import JsonObject
 from qew.ledger_store import Snapshot
@@ -58,6 +58,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     progress.add_argument("root", nargs="+", help="item ids or aliases whose trees to total")
     progress.add_argument("--depth", type=positive, metavar="N", help="show the tree only N levels below each root (totals still cover every leaf)")
     progress.add_argument("--epics-only", action="store_true", help="omit leaves: only items that have children get a row")
+    progress.add_argument("--tree", action="store_true", help="a terminal view: box-drawing guides, numbers in a fixed left column, titles cut to the terminal width, color on a tty")
+    progress.add_argument("--open-only", action="store_true", help="omit finished (100%%) and empty (n/a) rows, keeping the parents of open work")
     progress.add_argument("--json", action="store_true", help="machine-readable output: one nested tree per root")
 
 
@@ -71,8 +73,10 @@ def run(arguments: argparse.Namespace) -> bool:
         tree = build(snapshot, kids, root, frozenset())
         if arguments.json:
             print(readfmt.dumps(document(tree, arguments.depth, arguments.epics_only, 0)))
+        elif arguments.tree:
+            print("\n".join(tree_lines(tree, arguments.depth, arguments.epics_only, arguments.open_only, board.terminal_width(), board.use_color())))
         else:
-            print("\n".join(lines(tree, arguments.depth, arguments.epics_only, 0)))
+            print("\n".join(lines(tree, arguments.depth, arguments.epics_only, 0, arguments.open_only)))
     return True
 
 
@@ -87,10 +91,10 @@ def build(snapshot: Snapshot, kids: dict[str, list[str]], item_id: str, path: fr
     return Node(item_id, untrusted_text.show(item.title).text, item.title, item.kind.value, state, counts, children)
 
 
-def shown(node: Node, depth: int | None, epics_only: bool, level: int) -> list[Node]:
+def shown(node: Node, depth: int | None, epics_only: bool, level: int, open_only: bool = False) -> list[Node]:
     if depth is not None and level >= depth:
         return []
-    return [child for child in node.children if not (epics_only and not child.children)]
+    return [child for child in node.children if not (epics_only and not child.children) and not (open_only and child.done >= child.total)]
 
 
 def document(node: Node, depth: int | None, epics_only: bool, level: int) -> JsonObject:
@@ -106,12 +110,47 @@ def bar(percent: int | None) -> str:
     return "[" + "#" * filled + "-" * (BAR_WIDTH - filled) + "]"
 
 
-def lines(node: Node, depth: int | None, epics_only: bool, level: int) -> list[str]:
+def lines(node: Node, depth: int | None, epics_only: bool, level: int, open_only: bool = False) -> list[str]:
     pad = "  " * level
     if not node.children:
         return [f"{pad}{node.id}  {node.title}  {node.work_state}"]
     percent = "n/a" if node.percent is None else f"{node.percent}%"
     rows = [f"{pad}{node.id}  {node.title}  {bar(node.percent)} {percent}  ({node.done}/{node.total})"]
-    for child in shown(node, depth, epics_only, level):
-        rows += lines(child, depth, epics_only, level + 1)
+    for child in shown(node, depth, epics_only, level, open_only):
+        rows += lines(child, depth, epics_only, level + 1, open_only)
+    return rows
+
+
+NUMBERS_WIDTH = 26  # "[##########] 100%  " plus done/total: the bars line up whatever the title
+PAINT = {"done": "\x1b[32m", "going": "\x1b[33m", "stuck": "\x1b[2m"}
+
+
+def numbers(node: Node) -> str:
+    if not node.children:
+        return node.work_state.ljust(NUMBERS_WIDTH)
+    percent = "n/a" if node.percent is None else f"{node.percent}%"
+    return f"{bar(node.percent)} {percent:>4}  {f'{node.done}/{node.total}':>7}"
+
+
+def paint(node: Node) -> str | None:
+    if node.work_state in ("blocked", "needs_decision") and not node.children or node.percent is None:
+        return PAINT["stuck"]
+    if node.percent == 100:
+        return PAINT["done"]
+    return PAINT["going"] if node.percent or node.counts["claimed"] else None
+
+
+def tree_lines(node: Node, depth: int | None, epics_only: bool, open_only: bool, width: int, color: bool,
+               prefix: str = "", connector: str = "", level: int = 0) -> list[str]:
+    head = f"{numbers(node)}  {prefix}{connector}{node.id}"
+    room = width - len(head) - 2
+    title = "" if room < 2 else "  " + (node.title if len(node.title) <= room else node.title[: room - 1] + "…")
+    line = head + title
+    shade = paint(node) if color else None
+    rows = [f"{shade}{line}\x1b[0m" if shade else line]
+    below = shown(node, depth, epics_only, level, open_only)
+    for index, child in enumerate(below):
+        last = index == len(below) - 1
+        spine = prefix + ("" if not connector else "   " if connector.startswith("└") else "│  ")
+        rows += tree_lines(child, depth, epics_only, open_only, width, color, spine, "└─ " if last else "├─ ", level + 1)
     return rows
