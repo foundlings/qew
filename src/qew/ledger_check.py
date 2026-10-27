@@ -2,10 +2,11 @@
 
 from dataclasses import dataclass, replace
 import json
+import os
 import time
 import tomllib
 
-from qew import attachments, comments, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
+from qew import attachments, comments, filelock, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
@@ -22,6 +23,7 @@ from qew.snapshot_cache import Unreadable
 SCHEMA_VERSION = 1
 _MIRROR_KEYS = ("forge", "url", "kind")
 MAX_PRIORITY = 9
+SETTLE_S = 10.0  # the longest a check waits for another process's write to finish before it reports what it sees
 DRAFT_MARKERS = ("draft", "qew:draft")
 
 
@@ -127,7 +129,28 @@ def check_report(ledger: Ledger, deep: bool = True, resolve: Resolver | None = N
     return report.problems, [*report.notes, *report.advisories]
 
 
+def _foreign_writer(ledger: Ledger) -> bool:
+    """Another process holds the ledger's write lock. Only looked at, never taken, so the wait below cannot deadlock."""
+    path = ledger.path / ".qew" / "lock"
+    if not filelock.is_held(path):
+        return False
+    holder = filelock.read_holder(path)
+    return holder is None or holder.get("pid") != os.getpid()
+
+
 def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> Report:
+    """The report. A check reads without the lock, so a write in flight can show as a problem (an event whose item is not
+    there yet): while another process holds the write lock, a report with problems is taken again, for at most SETTLE_S."""
+    deadline = time.monotonic() + SETTLE_S
+    while True:
+        busy = _foreign_writer(ledger)
+        report = _analyse_once(ledger, deep, resolve)
+        if not report.problems or not (busy or _foreign_writer(ledger)) or time.monotonic() >= deadline:
+            return report
+        time.sleep(0.25)
+
+
+def _analyse_once(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> Report:
     snapshot, problems = load(ledger, verify=deep)  # a deep check reads every file itself and repairs the snapshot cache
     items = snapshot.items
     _check_attachments(snapshot, problems, deep)

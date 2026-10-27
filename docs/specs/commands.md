@@ -107,7 +107,7 @@ shape prime: additional_context context_bytes schema_version
   evidence, malformed mirrors, reserved labels. Graph invariants, each named with its file and counted on a final
   `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history or mirrors
   of no item (orphans); a child whose `area:` labels share none with its parent's (cross_epic); open work that needs a closed item (closed_needs). A needs chain longer than 30 edges is only
-  a warning, reported at its deepest item and counted as depth (exit stays 0). Writes nothing;
+  a warning, reported at its deepest item and counted as depth (exit stays 0). Writes nothing and takes no lock; while another process holds the write lock a report with problems is taken again for up to 10 seconds, so a write in flight is not reported;
   exit 1 on any problem. Advisory findings never fail it
   (text: `advisory: ...` lines): `contradictions` (a claimed epic, a completed item with open needs, an open child
   of a completed epic, a draft marker label `draft` or `qew:draft` on live work, a priority above 9) and
