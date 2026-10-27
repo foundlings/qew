@@ -41,9 +41,10 @@ _BINARY = getattr(os, "O_BINARY", 0)
 class LockTimeout(QewError):
     """The lock stayed taken for the whole wait; the message names who holds it."""
 
-    def __init__(self, path: Path, what: str, holder: JsonObject | None, waited: float) -> None:
+    def __init__(self, path: Path, what: str, holder: JsonObject | None, waited: float, ahead: int = 0) -> None:
         by = _describe(holder)
-        super().__init__(f"{what} is locked by {by}; waited {waited:.0f}s (lock file {path.name}, "
+        queue = f", {ahead} waiting ahead" if ahead else ""
+        super().__init__(f"{what} is locked by {by}; waited {waited:.0f}s{queue} (lock file {path.name}, "
                          "released automatically when that process ends)", 3)
 
 
@@ -110,10 +111,19 @@ def is_held(path: Path) -> bool:
 
 POLITE_MAX_S = 120.0  # the longest a polite taker yields to waiters before it asks for the lock anyway
 WAITER_STALE_S = 600.0  # a waiter marker older than this belongs to a process that is gone
+QUEUE_FRESH_S = 5.0  # a waiting taker touches its marker every quarter second; one untouched this long is stopped, not queued
+DEFER_MAX_S = 20.0  # the longest a taker yields to earlier waiters before it asks for the lock anyway
 
 
-def _marker(path: Path) -> Path:
-    return path.with_name(f"{path.name}.waiting.{os.getpid()}.{threading.get_ident()}")
+def _marker(path: Path, arrival_ns: int) -> Path:
+    """`LOCK.waiting.PID.THREAD.ARRIVAL`: who waits and when it first found the lock taken."""
+    return path.with_name(f"{path.name}.waiting.{os.getpid()}.{threading.get_ident()}.{arrival_ns}")
+
+
+def _parse(marker: Path) -> tuple[int, str, int] | None:
+    pid, _, rest = marker.name.rsplit(".waiting.", 1)[-1].partition(".")
+    thread, _, arrival = rest.partition(".")
+    return (int(pid), thread, int(arrival)) if pid.isdigit() and arrival.isdigit() else None
 
 
 def _alive(pid: int) -> bool:
@@ -130,12 +140,29 @@ def waiters(path: Path) -> int:
     """How many other live processes are waiting for the lock at `path` (they leave a marker beside it while they wait)."""
     found = 0
     for marker in path.parent.glob(f"{path.name}.waiting.*"):
-        pid, _, thread = marker.name.rsplit(".waiting.", 1)[-1].partition(".")
+        parsed = _parse(marker)
         try:
             fresh = time.time() - marker.stat().st_mtime < WAITER_STALE_S
         except OSError:
             continue
-        if pid.isdigit() and thread != str(threading.get_ident()) and fresh and _alive(int(pid)):
+        if parsed and parsed[1] != str(threading.get_ident()) and fresh and _alive(parsed[0]):
+            found += 1
+    return found
+
+
+def ahead(path: Path, arrival_ns: int, mine: Path | None = None) -> int:
+    """How many live, recently touching waiters arrived before `arrival_ns`. A marker of a dead process, of a stopped one that
+    no longer touches it, or one that cannot be read does not count, so a crashed or frozen waiter never holds the queue."""
+    found = 0
+    for marker in path.parent.glob(f"{path.name}.waiting.*"):
+        parsed = _parse(marker)
+        if parsed is None or marker == mine:
+            continue
+        try:
+            fresh = time.time() - marker.stat().st_mtime < QUEUE_FRESH_S
+        except OSError:
+            continue
+        if fresh and (parsed[2], parsed[0]) < (arrival_ns, os.getpid()) and _alive(parsed[0]):
             found += 1
     return found
 
@@ -145,21 +172,32 @@ def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT
          polite: bool = False) -> Iterator[None]:
     """Hold the lock at `path` for the block; wait up to `wait_s` seconds with backoff and jitter, then raise LockTimeout.
 
-    A waiter leaves a marker beside the lock. A `polite` taker (the background sync, which asks again and again) lets
-    waiters go first, for at most POLITE_MAX_S, so a long sync never keeps an interactive verb out."""
+    A waiter leaves a marker beside the lock and goes after the waiters that arrived before it (at most DEFER_MAX_S; dead
+    and stopped ones do not count). A `polite` taker (the background sync, which asks again and again) lets all waiters go
+    first, for at most POLITE_MAX_S, so a long sync never keeps an interactive verb out."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT | _BINARY, 0o600)
     started = time.monotonic()
     attempt = 0
-    marker = _marker(path)
+    arrival = time.time_ns()
+    marker = _marker(path, arrival)
+    deferring: float | None = None  # when this taker first stood behind an earlier waiter
     try:
         if polite:
             while waiters(path) and time.monotonic() - started < POLITE_MAX_S:
                 time.sleep(0.05)
             started = time.monotonic()
-        while not _try_lock(fd):
+        while True:
+            queue = 0 if polite else ahead(path, arrival, marker)
+            if queue and deferring is None:
+                deferring = time.monotonic()
+            # Earlier waiters go first, but only as a courtesy: past DEFER_MAX_S the kernel lock is tried regardless, so a
+            # waiter that is alive yet never takes its turn can delay this one and never lock it out.
+            if not queue or time.monotonic() - (deferring or 0.0) >= DEFER_MAX_S:
+                if _try_lock(fd):
+                    break
             if time.monotonic() - started >= wait_s:
-                raise LockTimeout(path, what, read_holder(path), time.monotonic() - started)
+                raise LockTimeout(path, what, read_holder(path), time.monotonic() - started, queue)
             if not polite:
                 try:
                     marker.touch()

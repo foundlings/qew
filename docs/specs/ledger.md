@@ -306,8 +306,12 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
 - **The holder text is courtesy only.** The holder writes `{pid, host, verb, who, since}` into the file after it locks;
   a waiter reads it only to word the timeout (`the ledger X is locked by agent3's `complete` (pid 123, 12s)`, exit 3).
   It is never consulted to decide whether the lock is free.
-- **Waiting.** Bounded by `LOCK_WAIT_SECONDS` (60) with exponential backoff (10 ms to 250 ms) plus jitter, so ten
-  waiters do not stampede. There is no queue: ordering is fair only on average. Locks are not re-entrant: a nested hold
+- **Waiting.** Bounded by `[replication] lock_wait_s` (60; `QEW_LOCK_WAIT_S` overrides it for one command) with
+  exponential backoff (10 ms to 250 ms) plus jitter, so ten waiters do not stampede. Waiters are served in arrival order:
+  one that finds the lock taken leaves `LOCK.waiting.PID.THREAD.ARRIVAL` beside it, touches it while it waits, and tries
+  the lock only when no earlier waiter is live. The queue is a courtesy over the kernel lock, never a second lock: a marker
+  of a dead process or one untouched for 5 s is ignored, and a waiter yields to earlier ones for at most 20 s, then tries
+  regardless, so no waiter can hold up another for good. The timeout names how many waited ahead. Locks are not re-entrant: a nested hold
   on one path times out loudly. Push runs outside the write lock; the worker's own commit waits on the push lock.
 - **Idempotent verbs.** A repeated command after a crash, timeout or agent retry never duplicates:
   `create --key KEY` (same key and content returns the first item with the same line, a key under other content is exit 2;
@@ -378,7 +382,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
 ### Replication keys and files (decisions)
 
 `[replication]` keys: `auto_commit`, `auto_push` (ledger fetch/merge/push), `auto_forge_sync`, `background_sync`
-(booleans, default true), `timeout_s` (30; a fetch or push that takes longer is a timeout, not an outage: the warning says `timed out after Ns`, names the setting and counts the commits other machines cannot see, and `qew status` keeps the reason as `ledger remote error:`), `fetch_interval_s` (10: reads fetch at most this often; writes always; `qew pull` and a lookup that misses an id always),
+(booleans, default true), `lock_wait_s` (60; how long a command waits for the ledger lock), `timeout_s` (30; a fetch or push that takes longer is a timeout, not an outage: the warning says `timed out after Ns`, names the setting and counts the commits other machines cannot see, and `qew status` keeps the reason as `ledger remote error:`), `fetch_interval_s` (10: reads fetch at most this often; writes always; `qew pull` and a lookup that misses an id always),
 `sync_retry_s` (10: a read restarts a worker that left work), `sync_budget_s` (20: inline sync time budget), `forge_concurrency` (4: forge writes in flight at once; 1 to 32), `divergences` (`"ledger"`: sync undoes forge-side changes itself, because the ledger is the source of truth; `"report"`: they wait for `qew accept` or `qew reject`), `sync_limit` (300: pending writes an unscoped `qew sync` makes before it asks for `--all` or a scope; 0 lifts it), `forge_failure_limit` (5: consecutive items failing on a 5xx or a lost connection before the target stops; 1 to 1000),
 `branch` (`main`). A jj command gets at least 60 seconds whatever `timeout_s` says (it snapshots the whole working copy first; `QEW_JJ_TIMEOUT_S` changes the floor). A fetch or push that still times out counts as an unreachable remote: a warning on stderr, the commit stays local, `qew status` shows `remote=offline`, and the next command catches it up; the command itself keeps its exit code. Unknown keys fail. Cache files in the ledger checkout's `.qew/` (excluded from the VCS):
 `lock` (write lock), `sync.lock` (worker), `sync.log`, `sync.pending`, `sync.spawned`, `last-fetch`.
