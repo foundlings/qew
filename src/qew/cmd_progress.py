@@ -58,7 +58,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     progress.add_argument("root", nargs="+", help="item ids or aliases whose trees to total")
     progress.add_argument("--depth", type=positive, metavar="N", help="show the tree only N levels below each root (totals still cover every leaf)")
     progress.add_argument("--epics-only", action="store_true", help="omit leaves: only items that have children get a row")
-    progress.add_argument("--tree", action="store_true", help="a terminal view: box-drawing guides, numbers in a fixed left column, titles cut to the terminal width, color on a tty")
+    progress.add_argument("--tree", action="store_true", help="a terminal view: box-drawing guides, numbers in a fixed left column, titles cut to the terminal width")
+    progress.add_argument("--color", nargs="?", const="always", default="never", choices=("always", "never"), help="with --tree: paint rows (green done, yellow under way, dim blocked); off unless asked, whatever the terminal")
     progress.add_argument("--open-only", action="store_true", help="omit finished (100%%) and empty (n/a) rows, keeping the parents of open work")
     progress.add_argument("--json", action="store_true", help="machine-readable output: one nested tree per root")
 
@@ -74,7 +75,7 @@ def run(arguments: argparse.Namespace) -> bool:
         if arguments.json:
             print(readfmt.dumps(document(tree, arguments.depth, arguments.epics_only, 0)))
         elif arguments.tree:
-            print("\n".join(tree_lines(tree, arguments.depth, arguments.epics_only, arguments.open_only, board.terminal_width(), board.use_color())))
+            print("\n".join(tree_lines(tree, arguments.depth, arguments.epics_only, arguments.open_only, board.terminal_width(), arguments.color == "always")))
         else:
             print("\n".join(lines(tree, arguments.depth, arguments.epics_only, 0, arguments.open_only)))
     return True
