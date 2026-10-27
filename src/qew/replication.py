@@ -24,7 +24,6 @@ from qew.ledger_repo import LedgerRepo, RepoLocked
 
 type Entries = list[tuple[Path, str | None]]
 
-LOCK_WAIT_SECONDS = 60.0
 CHECKPOINT_EVERY = 25
 # Commands that keep partial work when they fail midway (see module docstring).
 KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land", "migrate-ids"}
@@ -123,13 +122,28 @@ def _who() -> str:
 WRITING = "writing"  # `.qew/writing`: present while a command holds the write lock and writes; a killed one leaves it behind
 
 
+def lock_wait(config: Config) -> float:
+    """How long a taker waits for the ledger lock: QEW_LOCK_WAIT_S for one command, else `[replication] lock_wait_s`."""
+    raw = os.environ.get("QEW_LOCK_WAIT_S", "")
+    if not raw:
+        return config.replication.lock_wait_s
+    try:
+        wait = float(raw)
+    except ValueError:
+        wait = -1.0
+    if wait < 0 or wait != wait:
+        raise QewError(f"QEW_LOCK_WAIT_S must be a number of seconds, 0 or more; got {raw!r}", 2)
+    return wait
+
+
 @contextmanager
-def _lock(ledger_path: Path, name: str = "lock", verb: str = "", wait_s: float = LOCK_WAIT_SECONDS) -> Iterator[None]:
+def _lock(config: Config, name: str = "lock", verb: str = "", wait_s: float | None = None) -> Iterator[None]:
     """The write lock (`lock`), or the push lock (`push.lock`): held by a write while its worker starts and its push runs,
     so the worker commits its mirror files only after that push is done. A kernel lock (see filelock): a dead holder
     frees it, and the file left behind is inert."""
+    ledger_path = config.ledger_path
     marker = ledger_path / ".qew" / WRITING
-    with filelock.hold(ledger_path / ".qew" / name, verb=verb, who=_who(), wait_s=wait_s,
+    with filelock.hold(ledger_path / ".qew" / name, verb=verb, who=_who(), wait_s=lock_wait(config) if wait_s is None else wait_s,
                        what=f"the ledger {ledger_path}", polite=verb == "sync"):  # a sync lets waiting verbs go first
         writing = name == "lock" and verb != "read"
         if writing:
@@ -168,7 +182,7 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
     if verb == "sync":
         yield from _sync_session(config, repo, committing, replicating, not getattr(arguments, "dry_run", False))
         return
-    with _lock(config.ledger_path, "lock", verb):
+    with _lock(config, "lock", verb):
         repo.exclude_cache()
         if committing:
             _recover(repo, deferred=True)
@@ -212,7 +226,7 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
     if touched and push_after and _worker_starts(config):
         # The board work is what the owner waits for: start its worker first, then push. The worker's own ledger commit
         # waits on the push lock, so the two never touch the checkout at once.
-        with _lock(config.ledger_path, "push.lock", verb):
+        with _lock(config, "push.lock", verb):
             _after_write(config, touched)
             _note(config, repo.push(rep.timeout_s), repo.last_failure)
         return
@@ -274,7 +288,7 @@ def _sync_session(config: Config, repo: LedgerRepo, committing: bool, replicatin
     """Sync takes the lock only to commit: forge calls can be slow and must never block other writers."""
     global _ACTIVE
     rep = config.replication
-    with _lock(config.ledger_path, "lock", "sync"):
+    with _lock(config, "lock", "sync"):
         repo.exclude_cache()
         if committing:
             _recover(repo, deferred=True)
@@ -288,13 +302,13 @@ def _sync_session(config: Config, repo: LedgerRepo, committing: bool, replicatin
         _ACTIVE = None
         entries = ledger_store.journal_take()
         if committing and entries:
-            with _lock(config.ledger_path, "push.lock", "sync"), _lock(config.ledger_path, "lock", "sync"):
+            with _lock(config, "push.lock", "sync"), _lock(config, "lock", "sync"):
                 _commit(repo, config, "sync", entries, rollback_on_failure=False)
                 if replicating:
                     repo.push(rep.timeout_s)
         elif replicating and repo.unpushed():
             # every write was checkpointed (committed on the way, never pushed): nothing is left to commit, but commits are
-            with _lock(config.ledger_path, "push.lock", "sync"):
+            with _lock(config, "push.lock", "sync"):
                 repo.push(rep.timeout_s)
         if push_repos:
             from qew import repo_push
@@ -312,7 +326,7 @@ def checkpoint() -> None:
     entries = ledger_store.journal_take()
     ledger_store.journal_start()
     if committing and len(entries) >= CHECKPOINT_EVERY:
-        with _lock(config.ledger_path, "push.lock", "sync"), _lock(config.ledger_path, "lock", "sync"):
+        with _lock(config, "push.lock", "sync"), _lock(config, "lock", "sync"):
             _commit(repo, config, "sync", entries, rollback_on_failure=False)
     else:
         journal = ledger_store.JOURNAL
@@ -371,7 +385,7 @@ class Pulled:
     items: tuple[str, ...]
 
 
-def pull(config: Config, held: bool = False, wait_s: float = LOCK_WAIT_SECONDS) -> Pulled:
+def pull(config: Config, held: bool = False, wait_s: float | None = None) -> Pulled:
     """Fetch and merge the ledger remote and nothing else: no forge call, no worker, no claim arbiter. `held` says the caller
     already holds the ledger lock (a writer). Raises QewError when the remote is unreachable or the merge conflicts."""
     rep = config.replication
@@ -380,7 +394,7 @@ def pull(config: Config, held: bool = False, wait_s: float = LOCK_WAIT_SECONDS) 
         raise QewError("the ledger has no remote to pull from", 2)
     if rep.offline or os.environ.get("QEW_NO_FETCH"):
         raise QewError("offline mode is on (QEW_OFFLINE or [replication] offline); nothing was pulled", 3)
-    with contextlib.nullcontext() if held else _lock(config.ledger_path, "lock", "read", wait_s=wait_s):
+    with contextlib.nullcontext() if held else _lock(config, "lock", "read", wait_s=wait_s):
         repo.exclude_cache()
         crashed = config.ledger_path / ".qew" / WRITING
         if not held and rep.auto_commit and crashed.exists():
@@ -445,7 +459,7 @@ def _pull_for_read(arguments: argparse.Namespace) -> None:
     if stamp.exists() and time.time() - stamp.stat().st_mtime < rep.fetch_interval_s:
         return
     try:
-        with _lock(config.ledger_path, "lock", "read", wait_s=0):  # a writer holds it: it fetched at its own start, so a read goes on with what is local
+        with _lock(config, "lock", "read", wait_s=0):  # a writer holds it: it fetched at its own start, so a read goes on with what is local
             repo.exclude_cache()
             crashed = config.ledger_path / ".qew" / WRITING
             if rep.auto_commit and crashed.exists():  # a killed writer left files behind; looking for them otherwise scans every file
