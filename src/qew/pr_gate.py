@@ -44,8 +44,12 @@ def refuse_open_children(snapshot: Snapshot, record: PrRecord, states: dict[str,
 
 
 def evidence_covers(config: Config, events: Sequence[Event], head_sha: str) -> bool:
-    """True when some recorded change is the pull request head or one of its ancestors."""
+    """True when some recorded change is the pull request head or one of its ancestors.
+
+    A change the checkout cannot resolve (an ambiguous short id, an unfetched head) does not end the search: a later event may
+    cover the head. Only when none does, the first such failure is the refusal, naming the change and the VCS's own reason."""
     kind = code_vcs.detect(config.root)
+    failure: str | None = None
     for event in events:
         if event.get("vcs") != kind:
             continue
@@ -53,10 +57,10 @@ def evidence_covers(config: Config, events: Sequence[Event], head_sha: str) -> b
             try:
                 if code_vcs.is_ancestor(config.root, kind, change, head_sha):
                     return True
-            except QewError:
-                raise QewError(
-                    f"cannot check evidence: head {head_sha[:12]} is not in this checkout; fetch it first", 4
-                ) from None
+            except QewError as error:
+                failure = failure or f"cannot check evidence `{change}` against head {head_sha[:12]}: {error}"
+    if failure:
+        raise QewError(failure, 4)
     return False
 
 
