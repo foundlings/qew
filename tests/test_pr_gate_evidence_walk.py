@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from qew import code_vcs, pr_gate
+from qew import cmd_finish, code_vcs, pr_gate
 from qew.errors import QewError
 
 AMBIGUOUS = "pvntuxyp"
@@ -56,6 +56,39 @@ class EvidenceCoversWalk(unittest.TestCase):
     def test_resolvable_but_uncovering_evidence_is_simply_not_covering(self) -> None:
         """Prevents a clean 'no' turning into an error."""
         self.assertFalse(self.covers("tlnlunox"))
+
+
+class LandedCommitsWalk(unittest.TestCase):
+    """`cmd_finish._landed_commits`: completing reads the same evidence, and must survive an unresolvable event the same way."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        (Path(temporary.name) / ".jj").mkdir()
+        self.config = SimpleNamespace(root=Path(temporary.name))
+
+    def landed(self, *changes: str) -> tuple[list[str], list[str]]:
+        events = [{"vcs": "jj", "change_ids": [change]} for change in changes]
+        snapshot = SimpleNamespace(folds={"I": SimpleNamespace(evidence=events)})
+
+        def landing(_root: Path, _kind: str, change: str, _target: str) -> tuple[code_vcs.Landing, str]:
+            if change == AMBIGUOUS:
+                raise QewError(f"jj could not resolve `change_id({change})`: Change ID prefix `{change}` is ambiguous", 3)
+            return code_vcs.Landing.LANDED, "f" * 40
+
+        with mock.patch.object(code_vcs, "landing", side_effect=landing):
+            return cmd_finish._landed_commits(self.config, snapshot, "I", "main")  # type: ignore[arg-type]
+
+    def test_a_landed_event_after_an_ambiguous_one_completes(self) -> None:
+        """Prevents one ambiguous short change id blocking completion although another recorded event landed."""
+        self.assertEqual(self.landed(AMBIGUOUS, GOOD)[0], [GOOD])
+
+    def test_only_an_ambiguous_event_is_named_with_the_vcs_reason(self) -> None:
+        """Prevents a bare failure: the refusal names the change and says it is ambiguous."""
+        with self.assertRaises(QewError) as caught:
+            self.landed(AMBIGUOUS)
+        self.assertIn(AMBIGUOUS, str(caught.exception))
+        self.assertIn("ambiguous", str(caught.exception))
 
 
 if __name__ == "__main__":

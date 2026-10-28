@@ -348,6 +348,7 @@ def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: st
     checkout = code_vcs.detect(config.root)
     unknown: list[str] = []
     unlanded: list[str] = []
+    unresolved: list[str] = []
     for event in events:
         kind = event.get("vcs")
         if kind != checkout:
@@ -356,7 +357,13 @@ def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: st
         for change in event.get("change_ids"):
             if not code_vcs.valid_change(kind, change):
                 raise QewError(f"cannot complete {item_id}: evidence `{change}` is not a valid {kind} change id", 2)
-            where, commit = code_vcs.landing(config.root, kind, change, target)
+            try:
+                where, commit = code_vcs.landing(config.root, kind, change, target)
+            except QewError as error:
+                if error.exit_code != 3:
+                    raise
+                unresolved.append(f"evidence {change} could not be resolved: {error}")  # a later event may still have landed
+                continue
             if where == Landing.LANDED:
                 full.append(commit)
             elif where == Landing.UNKNOWN:
@@ -365,12 +372,12 @@ def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: st
                 unlanded.append(change)
         if len(full) == len(event.get("change_ids")):
             return list(event.get("change_ids")), full
-    problems = []
+    problems = list(dict.fromkeys(unresolved))
     if unknown:
         problems.append(f"evidence {' '.join(dict.fromkeys(unknown))} is unknown to this checkout (typo, or not fetched here yet)")
     if unlanded:
         problems.append(f"evidence {' '.join(dict.fromkeys(unlanded))} is not an ancestor of {target}")
-    raise QewError(f"cannot complete {item_id}: {'; '.join(problems)}", 2)
+    raise QewError(f"cannot complete {item_id}: {'; '.join(problems)}", 3 if not (unknown or unlanded) else 2)
 
 
 def _merged_pull_requests(ledger: Ledger, item_id: str) -> list[int]:
