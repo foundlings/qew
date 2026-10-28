@@ -70,6 +70,8 @@ def extras(snapshot: Snapshot, item_id: str) -> tuple[JsonObject, list[str]]:
         parts = [f"lane {folded.claim['lane']}", f"kind {folded.claim['kind']}"]
         parts += [f"workspace {folded.claim['workspace']}"] if folded.claim.get("workspace") else []
         lines.append(f"claim: {', '.join(parts)}")
+    if folded.claim and folded.claim.get("needs_on"):
+        lines.append(f"staged: started on {folded.claim['needs_on']} before {folded.claim['staged_needs']} completed")
     if folded.completion is not None:
         data["completion"] = folded.completion.data
         lines.append(f"completed: {_completion_line(folded.completion)}")

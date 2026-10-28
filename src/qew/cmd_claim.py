@@ -8,7 +8,7 @@ import argparse
 from collections import deque
 from typing import Any
 
-from qew import claim_authority, claim_fields, ledger_graph, outcome, replication
+from qew import claim_authority, claim_fields, ledger_graph, outcome, replication, staged_start
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
@@ -31,6 +31,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     start.add_argument("--lane", help="agent lane holding the claim, to tell lanes of one actor apart")
     start.add_argument("--workspace", help="with --lane: absolute path of the lane's workspace")
     start.add_argument("--kind", help="with --lane: compute (default) or token")
+    start.add_argument("--needs-on", metavar="BRANCH",
+                       help="start although needs are not completed, when each unmet need has evidence on this collection branch (recorded on the claim; complete still waits for the needs)")
     start.add_argument("--offline", action="store_true",
                        help="take a provisional claim without asking the arbiter (primary forge or ledger remote); sync settles it")
     start.add_argument("--json", action="store_true", help="machine-readable output")
@@ -46,7 +48,7 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command == "start":
         config = _config()
         result = start(config, arguments.item, arguments.take_over, arguments.reason,
-                       arguments.lane, arguments.workspace, arguments.kind, arguments.offline)
+                       arguments.lane, arguments.workspace, arguments.kind, arguments.offline, arguments.needs_on)
         line = outcome.render(arguments, str(result.pop("line")), **result)
         if not claim_authority.PENDING:
             print(line)
@@ -96,8 +98,10 @@ def _refuse_state(snapshot: Snapshot, item_id: str, verb: str) -> QewError:
 
 def start(config: Config, reference: str, take_over: bool = False, reason: str | None = None,
           lane: str | None = None, workspace: str | None = None, kind: str | None = None,
-          offline: bool = False) -> dict[str, object]:
+          offline: bool = False, needs_on: str | None = None) -> dict[str, object]:
     claim_fields.validate(lane, workspace, kind)
+    if needs_on is not None and take_over:
+        raise QewError("--needs-on cannot be combined with --take-over: a takeover does not check needs", 2)
     if offline and take_over:
         raise QewError("--offline cannot be combined with --take-over: a takeover is arbitrated, never provisional", 2)
     if take_over and not (reason or "").strip():
@@ -122,9 +126,15 @@ def start(config: Config, reference: str, take_over: bool = False, reason: str |
     elif folded.state != State.APPROVED:
         raise _refuse_state(snapshot, item_id, "start")
     unmet = [] if take_over else ledger_graph.blockers(snapshot, item_id)  # needs gate starting work, not a claim changing hands
+    fields: dict[str, str] = {key: value for key, value in (("lane", lane), ("workspace", workspace), ("kind", kind)) if value is not None}
+    if unmet and needs_on is not None:
+        if snapshot.items[item_id].kind == Kind.EPIC:
+            raise QewError("--needs-on starts one task; an epic's descendants start on their own", 2)
+        staged_start.verify(config, snapshot, item_id, needs_on, unmet)
+        fields |= {"needs_on": needs_on, "staged_needs": " ".join(unmet)}
+        unmet = []
     if unmet:
         raise QewError(f"cannot start {item_id}: it needs {' '.join(unmet)} completed first", 2)
-    fields = {key: value for key, value in (("lane", lane), ("workspace", workspace), ("kind", kind)) if value is not None}
     mode = claim_authority.ClaimMode.OFFLINE if offline else claim_authority.ClaimMode.ARBITRATED
     if snapshot.items[item_id].kind == Kind.EPIC and not take_over:
         return _start_epic(config, ledger, snapshot, item_id, me, fields, mode)

@@ -185,6 +185,10 @@ def _check_optional_fields(kind: str, value: dict[str, Any], where: str) -> None
         for key in ("lane", "workspace", "kind"):
             if key in value and not isinstance(value[key], str):
                 raise QewError(f"{where}: claim `{key}` must be text", 1)
+        for key in ("needs_on", "staged_needs"):
+            text(key)
+        if ("needs_on" in value) != ("staged_needs" in value):
+            raise QewError(f"{where}: a staged claim carries both `needs_on` and `staged_needs`", 1)
         try:
             claim_fields.validate(value.get("lane"), value.get("workspace"), value.get("kind"), exit_code=1)
         except QewError as error:
@@ -258,7 +262,7 @@ class Folded:
     errors: tuple[str, ...]
     imported: bool = False  # completed by an import path, without verifiable evidence
     divergences: tuple[Event, ...] = ()  # unresolved: forge-side state changes, and `claimed` events contesting a held item
-    claim: dict[str, str | None] | None = None  # {by, kind, lane, workspace} while claimed
+    claim: dict[str, str | None] | None = None  # {by, kind, lane, workspace, needs_on, staged_needs} while claimed
     lost_claims: tuple[tuple[str, str], ...] = ()  # (event id, actor) of claims that lost a merged race
     completion: Event | None = None  # the `completed` event that finished the item
     closure: Event | None = None  # the `closed` event while the item is closed
@@ -320,6 +324,7 @@ def fold(events: list[Event]) -> Folded:
                 "kind": event.get("kind") or "compute",
                 "lane": event.get("lane") or None,
                 "workspace": event.get("workspace") or None,
+                **{key: str(event.get(key)) for key in ("needs_on", "staged_needs") if event.get(key)},  # only a staged claim carries them
             }
         elif event.type in ("released", "reverted", "reopened", "closed"):
             owner = ""

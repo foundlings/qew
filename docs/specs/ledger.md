@@ -102,7 +102,7 @@ when the ledger lives inside the code repository.
 Append-only facts; current state = fold of events in ID order. One JSON object per file:
 `{"type": "...", "at": "...", "actor": "...", ...}`. Types:
 - `approved` (with quoted human words), `drafted`
-- `claimed` (`owner`; optional `lane`, `workspace`, `kind` = compute|token) / `released` (optional `reason`,
+- `claimed` (`owner`; optional `lane`, `workspace`, `kind` = compute|token; both or neither of `needs_on` BRANCH and `staged_needs` = space-separated ids, for work started on a collection branch before those needs completed) / `released` (optional `reason`,
   `previous_owner`, `forced`). Two branches may both claim an item: after the merge the oldest `claimed` event of
   the current claim period (a `released`, `reopened` or `closed` event ends a period) holds the claim, a later
   claim by another actor is a recorded lost race (`qew check` notes `lost claim: ITEM ACTOR`, not an error), and a
