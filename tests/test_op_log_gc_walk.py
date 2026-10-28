@@ -26,10 +26,15 @@ class OpLogGcWalk(unittest.TestCase):
         for number in range(3):
             self.world.create("--title", f"item {number}")
 
-    def test_sync_drops_operations_older_than_the_window_and_keeps_the_recent_ones(self) -> None:
+    def a_day_passes(self) -> None:
+        """The setup writes already ran the daily check once; forget it so the next write is the first of a new day."""
+        (self.world.ledger / ".qew" / "last-gc").unlink(missing_ok=True)
+
+    def test_a_write_drops_operations_older_than_the_window_and_keeps_the_recent_ones(self) -> None:
         """Prevents an unbounded op log: after the window passes, one sync abandons the old operations, no manual step."""
         before = operations(self.world)
         time.sleep(2.2)
+        self.a_day_passes()
         recent = self.world.create("--title", "fresh")  # a write: collecting is part of the ordinary command, no verb to remember
         after = operations(self.world)
         self.assertLess(len(after), len(before) + 6)
@@ -40,6 +45,7 @@ class OpLogGcWalk(unittest.TestCase):
     def test_the_collection_runs_at_most_once_a_day(self) -> None:
         """Prevents a scan of the whole op log on every write: the marker holds the next run off."""
         time.sleep(2.2)
+        self.a_day_passes()
         self.world.create("--title", "first")
         mid = operations(self.world)
         time.sleep(2.2)
