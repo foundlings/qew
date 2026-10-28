@@ -48,7 +48,7 @@ class DeepChainWalk(unittest.TestCase):
         rows = listing(self.world)
         first = next(row for row in rows if row["title"] == "Link 0")
         last = next(row for row in rows if row["title"] == f"Link {LENGTH - 1}")
-        path = self.world.ledger / "items" / f"{first['id']}" / "item.md"  # a hand merge closes the ring; `set` would refuse
+        path = self.world.home("items", f"{first['id']}") / "item.md"  # a hand merge closes the ring; `set` would refuse
         path.write_text(path.read_text().replace("needs: \n", f"needs: {last['id']}\n", 1))
         result = self.world.run("check")
         self.assertEqual(result.returncode, 1)

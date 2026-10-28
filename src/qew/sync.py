@@ -144,7 +144,7 @@ def _attachment_link(ledger: Ledger, target: Target, config: Config) -> attachme
     """Links into the ledger repository's web view: the mirror's `ledger_web_url`, else the ledger checkout's origin."""
     address = target.mirror.options.get("ledger_web_url")
     base = attachment_links.web_base(address if isinstance(address, str) else attachment_links.origin_of(ledger.path))
-    return attachment_links.link_for(base, config.replication.branch, target.forge.blob_url)
+    return attachment_links.link_for(base, config.replication.branch, target.forge.blob_url, ledger.sharded)
 
 
 def _merge(report: TargetReport, local: TargetReport) -> None:

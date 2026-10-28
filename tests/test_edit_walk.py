@@ -39,10 +39,10 @@ class EditWalk(unittest.TestCase):
         created = self.run_edit(self.editor("from the editor\n"), "create", "--title", "T", "--edit")
         self.assertEqual(created.returncode, 0, created.stderr)
         item = created.stdout.split()[0]
-        self.assertIn("from the editor", (self.world.ledger / "items" / f"{item}" / "item.md").read_text())
+        self.assertIn("from the editor", (self.world.home("items", f"{item}") / "item.md").read_text())
         changed = self.run_edit(self.editor("second body\n"), "set", item, "--edit", visual=False)
         self.assertEqual(changed.returncode, 0, changed.stderr)
-        self.assertIn("second body", (self.world.ledger / "items" / f"{item}" / "item.md").read_text())
+        self.assertIn("second body", (self.world.home("items", f"{item}") / "item.md").read_text())
         for path in (self.scripts / "paths").read_text().split():
             self.assertFalse(Path(path).parent.exists(), "temp dir must be removed")
 

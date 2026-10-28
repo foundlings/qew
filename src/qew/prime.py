@@ -8,7 +8,7 @@ read. The text must fit its byte bound or building it fails loudly.
 from dataclasses import dataclass
 import json
 
-from qew import ledger_graph, untrusted_text
+from qew import ledger_graph, ledger_layout, untrusted_text
 from qew.errors import QewError
 from qew.ledger_event import State
 from qew.ledger_item import Kind
@@ -68,6 +68,9 @@ def build(snapshot: Snapshot, profile: Profile, conflicts: int = 0) -> str:
     lines = [f"Qew ledger: {len(ready)} ready, {len(active)} active, {len(blocked)} blocked, {drafts} draft.", "Conventions:"]
     if conflicts:
         lines.insert(1, f"Conflicts: {conflicts} open sync conflicts; {ROUTINE_CONFLICT}")
+    layout = ledger_layout.notice(snapshot.ledger.schema)
+    if layout:
+        lines.insert(1, f"Notice: {layout}")
     lines += [f"- {line}" for line in CONVENTIONS]
     for name, ids, render in (("Next ready", ready, ready_line), ("Active", active, active_line),
                               ("Blocked", blocked, blocked_line), ("Contradictions", contradictions, str)):

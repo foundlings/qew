@@ -43,7 +43,7 @@ class TitleLineWalk(unittest.TestCase):
         """A file corrupted before the rule (or by hand) is reported by check with the cause, not a malformed header line."""
         w = self.world
         item = w.create("--title", "Fine", "--draft")
-        path = w.ledger / "items" / f"{item}" / "item.md"
+        path = w.home("items", f"{item}") / "item.md"
         path.write_bytes(path.read_bytes().replace(b"title: Fine", b"title: a\rb", 1))
         result = w.run("check")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)

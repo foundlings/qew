@@ -145,8 +145,8 @@ class FieldsSchemaWalk(unittest.TestCase):
         self.assertEqual(world.run("list").returncode, 0)  # schema 4 keeps working until it is migrated
         done = world.run("migrate-layout")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn("schema_version 4 -> 7", done.stdout)
-        self.assertIn("schema_version = 7", toml.read_text())
+        self.assertIn("schema_version 4 -> 8", done.stdout)
+        self.assertIn("schema_version = 8", toml.read_text())
         self.assertIn(item, world.run("list").stdout)
 
 

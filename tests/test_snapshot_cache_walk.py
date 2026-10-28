@@ -75,12 +75,12 @@ class SnapshotCacheWalk(unittest.TestCase):
         item = self.make("Old title")
         other = self.make("Other")
         self.out("list")
-        path = self.world.ledger / "items" / item / "item.md"
+        path = self.world.home("items", item) / "item.md"
         text = path.read_text()
         with open(path, "r+") as handle:  # in place, same length, no rename
             handle.write(text.replace("Old title", "New title"))
         self.assertIn("New title", self.out("list"))
-        event = next((self.world.ledger / "events" / other).glob("*.json"))
+        event = next((self.world.home("events", other)).glob("*.json"))
         later = event.with_name("9999999999z.json")
         later.write_text(json.dumps({"type": "commented", "at": "2026-10-11T00:00:00Z", "actor": "hand", "text": "typed by hand"}))
         self.assertIn("typed by hand", self.out("show", other))

@@ -54,7 +54,7 @@ class ReadyOrderWalk(unittest.TestCase):
         """Walking dependents of R must not loop forever or guess an order when P and Q need each other."""
         w = self.world
         load(w, item("R"), item("P", needs=["R"]), item("Q", needs=["P"]))
-        path = w.ledger / "items" / "P" / "item.md"
+        path = w.home("items", "P") / "item.md"
         path.write_text(re.sub(r"(?m)^needs: R$", "needs: R Q", path.read_text()))
         result = w.run("ready")
         self.assertEqual(result.returncode, 1, result.stdout)

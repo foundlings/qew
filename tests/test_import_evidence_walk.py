@@ -18,7 +18,7 @@ NOW = "2024-05-01T10:00:00Z"
 
 
 def header(world: World, item: str) -> dict:
-    text = (world.ledger / "items" / item / "item.md").read_text(encoding="utf-8")
+    text = (world.home("items", item) / "item.md").read_text(encoding="utf-8")
     return dict(line.split(": ", 1) for line in text.split("\n---\n")[0].splitlines() if ": " in line)
 
 
@@ -59,7 +59,7 @@ class ImportEvidenceWalk(unittest.TestCase):
         landed = w.commit("the work")
         self.assertEqual(self.load(history("IA", [landed]), history("IB", ["kk0000000001"])).returncode, 0)
         for item in ("IA", "IB"):
-            path = w.ledger / "items" / item / "item.md"
+            path = w.home("items", item) / "item.md"
             path.write_text("\n".join(l for l in path.read_text().split("\n") if not l.startswith(("evidence:", "evidence_absent:"))), encoding="utf-8")
         return landed, "kk0000000001"
 

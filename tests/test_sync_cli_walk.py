@@ -52,7 +52,7 @@ class SyncCliWalk(unittest.TestCase):
         w = self.world
         a = w.create("--kind", "epic", "--title", "A", "--draft")
         b = w.create("--kind", "epic", "--title", "B", "--needs", a, "--draft")
-        path = w.ledger / "items" / f"{a}" / "item.md"  # `qew set` refuses a cycle; a hand merge can still produce one
+        path = w.home("items", f"{a}") / "item.md"  # `qew set` refuses a cycle; a hand merge can still produce one
         path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
         for arguments in (["sync", "--all"], ["sync", "--dry-run"]):
             result = w.run(*arguments)
@@ -65,7 +65,7 @@ class SyncCliWalk(unittest.TestCase):
 
         w = self.world
         item = w.create("--kind", "issue", "--title", "Polluted", "--draft")
-        (w.ledger / "events" / item / "ZZZZZZZZA.json").write_text(
+        (w.home("events", item) / "ZZZZZZZZA.json").write_text(
             json.dumps({"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "bad login,x"}))
         self.assertEqual(w.run("check").returncode, 1)
         self.assertEqual(w.run("sync", "--dry-run").returncode, 0)

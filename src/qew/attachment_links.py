@@ -11,6 +11,8 @@ import subprocess
 from pathlib import Path
 from urllib.parse import quote
 
+from qew import ledger_layout
+
 Link = Callable[[str, str], str | None]  # (item id, blob file name) -> URL or None
 
 _SCP = re.compile(r"^(?:[\w.-]+@)?([\w.-]+):(?!//)([\w./~-]+?)(?:\.git)?/?$")
@@ -37,12 +39,13 @@ def origin_of(ledger_path: Path) -> str:
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
-def link_for(base: str | None, ref: str, blob_url: Callable[[str, str, str], str]) -> Link:
+def link_for(base: str | None, ref: str, blob_url: Callable[[str, str, str], str], sharded: bool = False) -> Link:
     """The resolver a mirror uses: `blob_url(base, ref, path)` is the backend's own web path scheme."""
 
     def link(item_id: str, blob: str) -> str | None:
         if base is None:
             return None
-        return blob_url(base, ref, f"items/{quote(item_id)}/attachments/{quote(blob)}")
+        where = f"{quote(ledger_layout.shard(item_id))}/" if sharded else ""  # a sharded ledger keeps items/<xx>/<ID>/
+        return blob_url(base, ref, f"items/{where}{quote(item_id)}/attachments/{quote(blob)}")
 
     return link

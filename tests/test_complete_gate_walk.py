@@ -37,7 +37,7 @@ class CompleteGateWalk(unittest.TestCase):
     def test_a_completed_event_written_by_hand_without_evidence_fails_check(self) -> None:
         """Prevents a hand-edited ledger passing for finished work."""
         item = self.started()
-        directory = self.w.ledger / "events" / item
+        directory = self.w.home("events", item)
         last = sorted(directory.glob("*.json"))[-1]
         (directory / f"{event_id(last.stem)}.json").write_text(json.dumps({"type": "completed", "at": "2026-01-01T00:00:00Z", "actor": "mallory"}))
         result = self.w.run("check")
@@ -47,7 +47,7 @@ class CompleteGateWalk(unittest.TestCase):
     def test_import_provenance_without_the_original_ids_fails_check(self) -> None:
         """Prevents the import marker becoming a one-field bypass written outside --import."""
         item = self.started()
-        directory = self.w.ledger / "events" / item
+        directory = self.w.home("events", item)
         last = sorted(directory.glob("*.json"))[-1]
         (directory / f"{event_id(last.stem)}.json").write_text(
             json.dumps({"type": "completed", "at": "2026-01-01T00:00:00Z", "actor": "mallory", "provenance": "import"})

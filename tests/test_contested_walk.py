@@ -17,7 +17,7 @@ FIRST, SECOND = "zzzzzzzza", "zzzzzzzzb"
 
 def claim(world: World, item: str, name: str, owner: str, at: str) -> None:
     body = {"type": "claimed", "at": at, "actor": owner, "owner": owner}
-    (world.ledger / "events" / item / f"{name}.json").write_text(json.dumps(body))
+    (world.home("events", item) / f"{name}.json").write_text(json.dumps(body))
 
 
 def snapshot_files(world: World) -> dict:

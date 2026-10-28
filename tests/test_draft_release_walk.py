@@ -275,7 +275,7 @@ class RevertGuardWalk(ReleaseBase):
         w = self.world
         item = self.draft("Work")
         w.approve(item)
-        mirrors = w.ledger / "mirrors" / item
+        mirrors = w.home("mirrors", item)
         mirrors.mkdir(parents=True)
         record = {"forge": "forgejo", "url": "https://git.example/o/r", "kind": "pr", "number": 7}
         (mirrors / "forgejo-git.example-o-r-pr-7.json").write_text(json.dumps({**record, "draft": False}))
@@ -290,12 +290,12 @@ class RevertGuardWalk(ReleaseBase):
 class PartialFailureWalk(ReleaseBase):
     def freeze(self, item: str) -> None:
         """Make the next event write for `item` fail like a disk or permission error."""
-        directory = self.world.ledger / "events" / item
+        directory = self.world.home("events", item)
         os.chmod(directory, stat.S_IRUSR | stat.S_IXUSR)
         self.addCleanup(os.chmod, directory, stat.S_IRWXU)
 
     def thaw(self, item: str) -> None:
-        os.chmod(self.world.ledger / "events" / item, stat.S_IRWXU)
+        os.chmod(self.world.home("events", item), stat.S_IRWXU)
 
     def test_a_failed_tree_approve_lists_done_and_left_and_the_rerun_finishes(self) -> None:
         """A half-released plan with no map of what is left cannot be finished safely."""
@@ -331,7 +331,7 @@ class PartialFailureWalk(ReleaseBase):
         w = self.world
         item = self.draft("Work")
         planted = {"type": "claimed", "at": "2026-01-01T00:00:00Z", "actor": "x", "owner": "x"}
-        (w.ledger / "events" / item / ("z" * 26 + ".json")).write_text(json.dumps(planted))
+        (w.home("events", item) / ("z" * 26 + ".json")).write_text(json.dumps(planted))
         result = w.run("draft", "approve", item, "--quote", QUOTE)
         self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
         self.assertNotIn("approved\n", result.stdout)

@@ -42,7 +42,7 @@ class SyncFailureHintWalk(unittest.TestCase):
         with self.assertRaises(QewError) as raised:
             sync_command(config, None, None, False, build=lambda mirror: forge)
         self.assertIn("qew push", str(raised.exception))
-        self.assertTrue((w.ledger / "items" / f"{item}" / "item.md").exists())
+        self.assertTrue((w.home("items", f"{item}") / "item.md").exists())
 
 
 if __name__ == "__main__":

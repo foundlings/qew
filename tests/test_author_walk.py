@@ -42,7 +42,7 @@ class AuthorWalk(unittest.TestCase):
     def test_the_correction_names_the_human_keeps_the_tool_and_never_rewrites_history(self) -> None:
         """Prevents 22,487 items credited to a tool: one reviewed event each moves the author, the first event stays as it was."""
         self.assertEqual(self.show("IA")["author"], "qew-import")
-        first = {p.name: p.read_bytes() for p in (self.world.ledger / "events" / "IA").glob("*.json")}
+        first = {p.name: p.read_bytes() for p in (self.world.home("events", "IA")).glob("*.json")}
         before = self.commits()
         preview = self.world.run("correct-author", "--from", "qew-import", "--to", "887", "--quote", REVIEW, "--dry-run")
         self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
@@ -57,7 +57,7 @@ class AuthorWalk(unittest.TestCase):
             self.assertEqual((data["author"], data.get("via")), ("887", "qew-import"))
         self.assertEqual(self.show("IC")["author"], "alice")
         for name, content in first.items():
-            self.assertEqual((self.world.ledger / "events" / "IA" / name).read_bytes(), content)
+            self.assertEqual((self.world.home("events", "IA") / name).read_bytes(), content)
         self.assertIn("IA", self.world.run("list", "--author", "887").stdout)
         self.assertEqual(self.world.run("list", "--author", "qew-import").stdout.strip(), "")
         again = self.world.run("correct-author", "--from", "qew-import", "--to", "887", "--quote", REVIEW)

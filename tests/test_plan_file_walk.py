@@ -80,7 +80,7 @@ class PlanFileWalk(unittest.TestCase):
         """A cycle written from a file would be found only by a later `check`."""
         self.refuse(jsonl({"ref": "a", "title": "A", "needs": ["@b"]}, {"ref": "b", "title": "B", "needs": ["@a"]}), "cycle")
         old = self.world.create("--title", "Existing", "--draft")
-        path = self.world.ledger / "items" / f"{old}" / "item.md"  # a hand-merged dangling need that the new item will satisfy
+        path = self.world.home("items", f"{old}") / "item.md"  # a hand-merged dangling need that the new item will satisfy
         path.write_text(path.read_text().replace("needs: \n", "needs: ZNEW1\n", 1))
         self.refuse(jsonl({"id": "ZNEW1", "title": "New", "needs": [old]}), "cycle")
 

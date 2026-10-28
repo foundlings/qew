@@ -36,8 +36,8 @@ class CommitVerifyWalk(unittest.TestCase):
         world = World(ledger_vcs="jj")
         self.addCleanup(world.close)
         for number in range(3):
-            (world.ledger / "items" / f"A{number}").mkdir(parents=True)
-            (world.ledger / "items" / f"A{number}" / "item.md").write_text("x\n")
+            (world.home("items", f"A{number}")).mkdir(parents=True)
+            (world.home("items", f"A{number}") / "item.md").write_text("x\n")
         toml = world.ledger / "qew-ledger.toml"
         toml.write_text(toml.read_text().replace("schema_version = 7", "schema_version = 7  # edited"))
         repo = LedgerRepo(world.ledger, "main")

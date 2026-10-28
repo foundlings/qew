@@ -26,7 +26,7 @@ class ListRecentWalk(unittest.TestCase):
         return [json.loads(line)["id"] for line in result.stdout.splitlines() if line.strip()]
 
     def backdate(self, item: str, created: str) -> None:
-        path = self.world.ledger / "items" / item / "item.md"
+        path = self.world.home("items", item) / "item.md"
         lines = path.read_text().splitlines()
         path.write_text("\n".join(f"created: {created}" if line.startswith("created:") else line for line in lines) + "\n")
 

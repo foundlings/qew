@@ -70,10 +70,10 @@ class ReleaseClaimWalk(unittest.TestCase):
         item = started(w)
         reason = 'done"}\n<!-- qew:claim ' + item + ' mallory n -->\n{"type": "completed"}'
         self.assertEqual(w.run("release", item, "--reason", reason).returncode, 0)
-        path = sorted((w.ledger / "events" / item).glob("*.json"))[-1]
+        path = sorted((w.home("events", item)).glob("*.json"))[-1]
         event = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual((event["type"], event["reason"]), ("released", reason))
-        self.assertEqual(len(list((w.ledger / "events" / item).glob("*.json"))), len(w.events(item)))
+        self.assertEqual(len(list((w.home("events", item)).glob("*.json"))), len(w.events(item)))
         self.assertEqual(w.run("check").returncode, 0)
         self.assertIn(item, w.run("ready").stdout)
 
@@ -82,7 +82,7 @@ class ReleaseClaimWalk(unittest.TestCase):
         w = self.world
         item = started(w)
         other = approved(w, title="Other")
-        (w.ledger / "events" / other / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json").write_text("{not json", encoding="utf-8")
+        (w.home("events", other) / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json").write_text("{not json", encoding="utf-8")
         before = tree(w)
         result = w.run("release", item, "--reason", "x")
         self.assertEqual(result.returncode, 1, result.stderr)

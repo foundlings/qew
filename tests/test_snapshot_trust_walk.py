@@ -51,7 +51,7 @@ class SnapshotTrustWalk(unittest.TestCase):
     def test_an_event_that_fails_validation_is_never_trusted(self) -> None:
         """Prevents a cache hiding a bad file: a malformed event is refused on every read, cached or not."""
         item = self.ledger.item_ids()[0]
-        bad = self.world.ledger / "events" / item / "9999999zz.json"
+        bad = self.world.home("events", item) / "9999999zz.json"
         bad.write_text('{"type": "no-such-event", "at": "2026-01-01T00:00:00Z", "actor": "x"}\n')
         for _ in range(3):
             with self.assertRaises(Exception) as caught:
@@ -64,7 +64,7 @@ class SnapshotTrustWalk(unittest.TestCase):
         """Prevents trust becoming blindness: `qew check` re-reads and re-parses everything and reports a bad file."""
         item = self.ledger.item_ids()[0]
         self.assertEqual(self.world.run("check").returncode, 0)
-        bad = self.world.ledger / "events" / item / "9999999zz.json"
+        bad = self.world.home("events", item) / "9999999zz.json"
         bad.write_text('{"type": "no-such-event", "at": "2026-01-01T00:00:00Z", "actor": "x"}\n')
         result = self.world.run("check")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)

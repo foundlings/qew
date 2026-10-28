@@ -60,12 +60,12 @@ class ImportWalk(unittest.TestCase):
     def test_a_completion_without_provenance_or_evidence_is_refused_at_import(self) -> None:
         result = self.load(imported("A1", {}))
         self.assertNotEqual(result.returncode, 0)
-        self.assertFalse((self.world.ledger / "items" / "A1" / "item.md").exists())
+        self.assertFalse((self.world.home("items", "A1") / "item.md").exists())
 
     def test_only_the_import_provenance_value_is_accepted(self) -> None:
         result = self.load(imported("A1", {"provenance": "trust-me"}))
         self.assertNotEqual(result.returncode, 0)
-        self.assertFalse((self.world.ledger / "items" / "A1" / "item.md").exists())
+        self.assertFalse((self.world.home("items", "A1") / "item.md").exists())
 
     def test_new_completions_keep_the_strict_gate_and_never_write_provenance(self) -> None:
         w = self.world
@@ -79,7 +79,7 @@ class ImportWalk(unittest.TestCase):
     def test_a_hand_written_completion_without_provenance_still_fails_check(self) -> None:
         w = self.world
         self.load(imported("A1", PROVENANCE))
-        path = w.ledger / "events" / "A1"
+        path = w.home("events", "A1")
         last = sorted(path.glob("*.json"))[-1]
         data = json.loads(last.read_text())
         data.pop("provenance")

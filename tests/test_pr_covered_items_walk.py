@@ -23,7 +23,7 @@ class CoveredItemsWalk(unittest.TestCase):
 
     def covered(self) -> list[str]:
         (name,) = self.w.mirror_files(self.root)
-        return json.loads((self.w.world.ledger / "mirrors" / self.root / name).read_text())["items"]
+        return json.loads((self.w.world.home("mirrors", self.root) / name).read_text())["items"]
 
     def child(self) -> str:
         made = self.w.item("Child", parent=self.root, claim=False)

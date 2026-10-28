@@ -72,7 +72,7 @@ class ScaleWalk(unittest.TestCase):
         ids = load(self.world, specs)
         a, b = ids[100], ids[101]
         for item, other in ((a, b), (b, a)):
-            path = self.world.ledger / "items" / f"{item}" / "item.md"
+            path = self.world.home("items", f"{item}") / "item.md"
             lines = path.read_text().split("\n")
             path.write_text("\n".join(f"needs: {other}" if line.startswith("needs:") else line for line in lines))
         result = self.world.run("check", "--json")
@@ -86,9 +86,9 @@ class ScaleWalk(unittest.TestCase):
         for n in range(5000):
             item_id = f"w{n:08d}"
             header = f"id: {item_id}\nkind: issue\ntitle: Work {n}\nparent: \nneeds: \nlabels: \nowner: \npriority: 2\ncreated: 2026-01-01T00:00:00Z\n---\n"
-            (self.world.ledger / "items" / f"{item_id}" / "item.md").parent.mkdir(exist_ok=True)
-            (self.world.ledger / "items" / f"{item_id}" / "item.md").write_text(header)
-            events = self.world.ledger / "events" / item_id
+            (self.world.home("items", f"{item_id}") / "item.md").parent.mkdir(exist_ok=True)
+            (self.world.home("items", f"{item_id}") / "item.md").write_text(header)
+            events = self.world.home("events", item_id)
             events.mkdir(parents=True)
             (events / "00000.json").write_text('{"type":"approved","at":"2026-01-01T00:00:00Z","actor":"x","quote":"Alexander: \'ok go\'"}')
         result, seconds = self.timed("ready", "--json")

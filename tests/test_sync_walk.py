@@ -57,10 +57,10 @@ class SyncWalk(unittest.TestCase):
         issue = w.create("--kind", "issue", "--title", "Issue", "--parent", epic, "--draft")
         reports = self.sync()
         self.assertEqual([r.created for r in reports], [2, 1], "select = kind:epic keeps the issue off the second target")
-        mirror = json.loads((w.ledger / "mirrors" / issue / "forgejo-git.example-o-r.json").read_text())
+        mirror = json.loads((w.home("mirrors", issue) / "forgejo-git.example-o-r.json").read_text())
         self.assertEqual((mirror["forge"], mirror["kind"], mirror["number"]), ("forgejo", "issue", 2))
-        self.assertTrue((w.ledger / "mirrors" / epic / "gitlab-lab.example-g-r.json").exists())
-        self.assertFalse((w.ledger / "mirrors" / issue / "gitlab-lab.example-g-r.json").exists())
+        self.assertTrue((w.home("mirrors", epic) / "gitlab-lab.example-g-r.json").exists())
+        self.assertFalse((w.home("mirrors", issue) / "gitlab-lab.example-g-r.json").exists())
         before = (self.a.count("create"), self.a.count("update"), self.b.count("create"))
         again = self.sync()
         self.assertEqual([(r.created, r.updated) for r in again], [(0, 0), (0, 0)])
@@ -156,7 +156,7 @@ class SyncWalk(unittest.TestCase):
         reports = self.sync()
         self.assertTrue(reports[0].failures)
         self.assertEqual(reports[1].created, 1)
-        self.assertFalse((w.ledger / "mirrors" / item / "forgejo-git.example-o-r.json").exists())
+        self.assertFalse((w.home("mirrors", item) / "forgejo-git.example-o-r.json").exists())
         self.a.down = False
         self.assertEqual(self.sync("forgejo-git.example-o-r")[0].created, 1)
 
@@ -185,7 +185,7 @@ class SyncWalk(unittest.TestCase):
         duplicate = self.a.issues[2]
         self.assertFalse(duplicate.open)
         self.assertNotIn(marker_for(item), duplicate.body)
-        mirror = json.loads(next((w.ledger / "mirrors" / item).glob("*.json")).read_text())
+        mirror = json.loads(next((w.home("mirrors", item)).glob("*.json")).read_text())
         self.assertEqual(mirror["number"], 1)
 
     def test_a_rejected_item_is_reported_and_the_rest_still_sync(self) -> None:

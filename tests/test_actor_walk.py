@@ -41,7 +41,7 @@ class ActorWalk(unittest.TestCase):
         w = self.world
         item = w.create("--title", "Work", "--draft")
         planted = {"type": "commented", "at": "2026-01-01T00:00:00Z", "actor": "evil, admin", "text": "x"}
-        (w.ledger / "events" / item / ("z" * 26 + ".json")).write_text(json.dumps(planted))
+        (w.home("events", item) / ("z" * 26 + ".json")).write_text(json.dumps(planted))
         result = w.run("check")
         self.assertEqual(result.returncode, 1)
         self.assertIn("actor", result.stdout)
@@ -50,7 +50,7 @@ class ActorWalk(unittest.TestCase):
         """Claiming is by event: a label that looks like an identity must change nothing."""
         w = self.world
         item = w.create("--title", "Work", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
-        path = w.ledger / "items" / f"{item}" / "item.md"
+        path = w.home("items", f"{item}") / "item.md"
         path.write_text(path.read_text().replace("labels: \n", "labels: author:mallory\n", 1))
         self.assertEqual(w.run("start", item).returncode, 0)
         self.assertEqual(w.events(item)[-1]["owner"], "tester")

@@ -58,7 +58,7 @@ class MirrorRehomeWalk(unittest.TestCase):
         self.slug = self.w.run("mirror", "list").stdout.split()[0]
         config = self.w.code / ".qew" / "config.toml"
         config.write_text(config.read_text().replace(entry(self.wrong), entry(self.right)))  # the ledger's real home
-        self.record = self.w.ledger / "mirrors" / self.item / f"{self.slug}.json"
+        self.record = self.w.home("mirrors", self.item) / f"{self.slug}.json"
 
     def test_rehome_closes_the_stray_issue_with_a_pointer_forgets_the_record_and_the_next_sync_files_it_right(self) -> None:
         """Prevents a mis-filed issue staying open in the wrong repo, or the item staying bound to it so sync never files it right."""

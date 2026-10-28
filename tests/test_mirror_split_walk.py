@@ -31,7 +31,7 @@ class MirrorSplitWalk(unittest.TestCase):
         self.addCleanup(w.close)
         item = w.create("--title", "Work", "--quote", QUOTE)
         w.run("sync", "--all", env=ENV)
-        path = next((w.ledger / "mirrors" / item).glob("*.json"))
+        path = next((w.home("mirrors", item)).glob("*.json"))
         committed = json.loads(path.read_text())
         self.assertEqual(set(committed), IDENTITY)
         w.run("set", item, "--title", "Renamed")
@@ -65,7 +65,7 @@ class MirrorSplitWalk(unittest.TestCase):
         self.addCleanup(w.close)
         item = w.create("--title", "Old", "--quote", QUOTE)
         w.run("sync", "--all", env=ENV)
-        path = next((w.ledger / "mirrors" / item).glob("*.json"))
+        path = next((w.home("mirrors", item)).glob("*.json"))
         old = {**json.loads(path.read_text()), "synced_hash": "abc", "synced_event": "zzzzzzzzz", "linked": []}
         path.write_text(json.dumps(old))
         shutil.rmtree(w.ledger / ".qew" / "state", ignore_errors=True)  # a ledger from before the split has no sync state of its own

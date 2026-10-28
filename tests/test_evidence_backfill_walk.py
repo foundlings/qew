@@ -19,7 +19,7 @@ from tests.lifecycle_support import started
 
 
 def header(world: World, item: str) -> dict:
-    text = (world.ledger / "items" / item / "item.md").read_text(encoding="utf-8")
+    text = (world.home("items", item) / "item.md").read_text(encoding="utf-8")
     return dict(line.split(": ", 1) for line in text.split("\n---\n")[0].splitlines() if ": " in line)
 
 
@@ -31,7 +31,7 @@ def strip_to_schema_3(world: World) -> None:
 
 
 def inject(world: World, item: str, event_type: str, **data) -> None:
-    directory = world.ledger / "events" / item
+    directory = world.home("events", item)
     newest = sorted(path.stem for path in directory.glob("*.json"))[-1]
     body = {"type": event_type, "at": "2026-01-01T00:00:00Z", "actor": "carol", **data}
     (directory / f"{event_id(newest)}.json").write_text(json.dumps(body), encoding="utf-8")
@@ -69,7 +69,7 @@ class EvidenceBackfillWalk(unittest.TestCase):
         preview = w.run("migrate-layout", "--dry-run")
         self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
         self.assertIn("evidence headers", preview.stdout)
-        self.assertNotIn("evidence_absent", (w.ledger / "items" / landed / "item.md").read_text())
+        self.assertNotIn("evidence_absent", (w.home("items", landed) / "item.md").read_text())
         done = w.run("migrate-layout")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(header(w, landed)["evidence"], sha)

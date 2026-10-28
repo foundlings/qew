@@ -128,7 +128,7 @@ class EpicCompletionWalk(unittest.TestCase):
         epic, child = make_epic(w, "Child")
         w.run("start", child)
         w.run("evidence", child, "--change", w.commit("work"))
-        events = w.ledger / "events" / epic
+        events = w.home("events", epic)
         events.chmod(stat.S_IRUSR | stat.S_IXUSR)
         self.addCleanup(events.chmod, stat.S_IRWXU)
         result = w.run("complete", child)

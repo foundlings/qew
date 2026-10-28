@@ -14,6 +14,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 
 from qew import filelock, trace
+from qew import ledger_config, ledger_layout
 from qew.ledger_config import Config
 
 _backoff = 0.0  # seconds a rate-limited forge asked this process to wait; the worker records it
@@ -149,7 +150,8 @@ def newest_event(config: Config) -> str:
     events = config.ledger_path / "events"
     if not events.is_dir():
         return ""
-    return max((p.stem for d in events.iterdir() if d.is_dir() for p in d.glob("*.json")), default="")
+    sharded = ledger_config.is_sharded(config.ledger_path)
+    return max((p.stem for d in ledger_layout.homes(events, sharded) for p in d.glob("*.json")), default="")
 
 
 def run_worker(config: Config, run_once: Callable[[], bool]) -> None:

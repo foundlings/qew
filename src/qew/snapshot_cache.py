@@ -164,7 +164,7 @@ class SnapshotCache:
             pass
 
     # -- items
-    def items(self, items_dir: Path, read: Callable[[str], str], verify: bool = False) -> dict[str, str]:
+    def items(self, items_dir: Path, read: Callable[[str], str], verify: bool = False, sharded: bool = False) -> dict[str, str]:
         """The text of every item file by directory name, reading only the files whose stat changed (all of them when `verify`)."""
         with self._lock:
             self._load()
@@ -172,7 +172,7 @@ class SnapshotCache:
             current: dict[str, tuple[str, int]] = {}
             stale: list[str] = []
             try:
-                entries = [entry for entry in os.scandir(items_dir) if entry.is_dir()]
+                entries = _item_entries(items_dir, sharded)
             except OSError:
                 entries = []
             for entry in entries:
@@ -204,7 +204,7 @@ class SnapshotCache:
             return {name: fresh[name] if isinstance(fresh.get(name), Unreadable) else known[name][2] for name in current}
 
     # -- baselines
-    def baseline(self, root: Path, home: str, target: str, read: Callable[[Path], tuple[str, str] | None]) -> tuple[str, str] | None:
+    def baseline(self, locate: Callable[[str], Path], home: str, target: str, read: Callable[[Path], tuple[str, str] | None]) -> tuple[str, str] | None:
         """The newest committed baseline (file stem, text) of one item directory and target. One stat of the target directory
         decides: while its signature is what was cached the cached text is used, otherwise the directory is read again. A pull
         that brings in another machine's baseline adds or removes a file there, so exactly those directories are re-read."""
@@ -212,7 +212,7 @@ class SnapshotCache:
             self._load()
             key = (home, target)
             try:
-                status = os.stat(root / home / target)
+                status = os.stat(locate(home) / target)
             except OSError:
                 self._baselines.pop(key, None)
                 return None
@@ -220,7 +220,7 @@ class SnapshotCache:
             row = self._baselines.get(key)
             if row is not None and row[0] == sig and not row[1]:
                 return (row[2], row[3])
-            found = read(root / home / target)
+            found = read(locate(home) / target)
             if found is None:
                 self._baselines.pop(key, None)
                 return None
@@ -248,7 +248,7 @@ class SnapshotCache:
                 pass
 
     # -- events
-    def events(self, events_dir: Path, homes: set[str], read: Callable[[Path], Rows],
+    def events(self, locate: Callable[[str], Path], homes: set[str], read: Callable[[Path], Rows],
                verify: bool = False) -> tuple[dict[str, Rows], frozenset[str]]:
         """The event files (name, text) of each wanted events directory, reading only the directories whose stat changed, and the
         directories whose files were all validated when they entered the cache (a reader may skip validating those again; a verifying
@@ -259,14 +259,14 @@ class SnapshotCache:
             stale: list[str] = []
             for home in homes:
                 try:
-                    status = os.stat(events_dir / home)
+                    status = os.stat(locate(home))
                 except OSError:
                     continue
                 signatures[home] = _stamp(status)
                 row = self._homes.get(home)
                 if verify or row is None or row[0] != signatures[home][0] or row[1]:
                     stale.append(home)
-            fresh = _read_all(stale, lambda home: read(events_dir / home))
+            fresh = _read_all(stale, lambda home: read(locate(home)))
             changed_homes: dict[str, tuple[str, int]] = {}
             changed_rows: dict[str, Rows] = {}
             damaged = {home for home, rows in fresh.items() if any(isinstance(text, Unreadable) for _name, text in rows)}
@@ -287,7 +287,7 @@ class SnapshotCache:
                 self._valid.discard(home)
             pending = [home for home in signatures if home not in damaged and home not in self._valid and home in self._homes]
             for home in pending:  # validate once, when the text enters the cache (or when an older cache first meets it)
-                if _validates(events_dir, home, self._events.get(home, [])):
+                if _validates(locate(home), self._events.get(home, [])):
                     self._valid.add(home)
                     changed_homes[home] = self._homes[home]
             gone = {home for home in self._homes if home not in signatures}
@@ -301,16 +301,24 @@ class SnapshotCache:
             return result, trusted
 
 
-def _validates(events_dir: Path, home: str, rows: Rows) -> bool:
+def _validates(directory: Path, rows: Rows) -> bool:
     """Whether `parse_event` accepts every file of the directory."""
     try:
         for name, text in rows:
             if isinstance(text, Unreadable):
                 return False
-            parse_event(name, text, f"{events_dir}/{home}/{name}.json")
+            parse_event(name, text, f"{directory}/{name}.json")
     except QewError:
         return False
     return True
+
+
+def _item_entries(items_dir: Path, sharded: bool) -> list[os.DirEntry[str]]:
+    """The item directories under `items`: its entries, or in a sharded layout those of each shard."""
+    top = [entry for entry in os.scandir(items_dir) if entry.is_dir()]
+    if not sharded:
+        return top
+    return [entry for shard in top for entry in os.scandir(shard.path) if entry.is_dir()]
 
 
 def _read_all[K, T](names: list[K], read: Callable[[K], T]) -> dict[K, T]:

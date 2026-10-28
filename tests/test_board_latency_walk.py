@@ -82,7 +82,7 @@ class BoardLatencyWalk(unittest.TestCase):
         marked = [i for i in self.fake.issues.values() if marker_for(new) in i["body"]]
         self.assertEqual([i["number"] for i in marked], [orphan])
         self.assertEqual(sum(1 for i in self.fake.issues.values() if i["state"] == "open" and "Crashed" in i["title"]), 1)
-        mirror = json.loads(next((w.ledger / "mirrors" / new).glob("*.json")).read_text())
+        mirror = json.loads(next((w.home("mirrors", new)).glob("*.json")).read_text())
         self.assertEqual(mirror["number"], orphan)
         self.assertEqual(self.fake.item_value("1", self.fake.issues[orphan]["node_id"], "Status"), "Ready")
         for number, issue in self.fake.issues.items():

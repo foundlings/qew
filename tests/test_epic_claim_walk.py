@@ -32,7 +32,7 @@ def plan(world: World):
 
 
 def inject(world: World, item: str, event_type: str, **data) -> str:
-    directory = world.ledger / "events" / item
+    directory = world.home("events", item)
     newest = sorted(path.stem for path in directory.glob("*.json"))[-1]
     identifier = event_id(newest)
     body = {"type": event_type, "at": "2026-01-01T00:00:00Z", "actor": data.pop("actor", "carol"), **data}

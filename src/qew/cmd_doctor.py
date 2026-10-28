@@ -2,7 +2,7 @@
 
 import argparse
 
-from qew import fsmonitor, ledger_config
+from qew import fsmonitor, ledger_config, ledger_layout
 
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -19,4 +19,7 @@ def run(arguments: argparse.Namespace) -> bool:
     found = fsmonitor.state(config.ledger_path)
     problem = fsmonitor.warning(config.ledger_path)
     print(problem or f"ok: {found.value}" if found is not fsmonitor.State.NOT_JJ else "ok: git ledger, nothing to check")
+    layout = ledger_layout.notice(ledger_config.ledger_schema(config.ledger_path))
+    if layout:
+        print(f"layout: {layout}")
     return True

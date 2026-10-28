@@ -21,7 +21,7 @@ BOB = {"QEW_ACTOR": "bob"}
 
 def inject(world: World, item: str, event_type: str, **data) -> None:
     """Write an event file the way a merge of another branch would bring it in: a later event id."""
-    directory = world.ledger / "events" / item
+    directory = world.home("events", item)
     newest = sorted(path.stem for path in directory.glob("*.json"))[-1]
     body = {"type": event_type, "at": "2026-01-01T00:00:00Z", "actor": data.pop("actor", "carol"), **data}
     (directory / f"{event_id(newest)}.json").write_text(json.dumps(body), encoding="utf-8")
@@ -190,7 +190,7 @@ class DoubleClaimWalk(unittest.TestCase):
         self.assertEqual(self.b.run("start", self.item, env=BOB).returncode, 0)
         self.merge_b_into_a()
         claims = {json.loads(p.read_text())["owner"]: p.stem
-                  for p in (self.a.ledger / "events" / self.item).glob("*.json") if '"claimed"' in p.read_text()}
+                  for p in (self.a.home("events", self.item)).glob("*.json") if '"claimed"' in p.read_text()}
         self.assertEqual(sorted(claims), ["alice", "bob"])
         winner, loser = ("alice", "bob") if claims["alice"] < claims["bob"] else ("bob", "alice")
         checked = self.a.run("check")

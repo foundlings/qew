@@ -71,8 +71,8 @@ class LedgerRemoteWalk(unittest.TestCase):
         """Prevents silent corruption: a hand edit of the same item file on both sides stops writes with the files named."""
         item = self.a.create("--title", "Contested", "--draft")
         self.b.run("list")
-        path_a = self.a.ledger / "items" / f"{item}" / "item.md"
-        path_b = self.b.ledger / "items" / f"{item}" / "item.md"
+        path_a = self.a.home("items", f"{item}") / "item.md"
+        path_b = self.b.home("items", f"{item}") / "item.md"
         for path, text in ((path_a, "from A"), (path_b, "from B")):
             path.write_text(path.read_text().replace("---\n", f"---\n{text}\n", 1))
         git(self.a.ledger, "commit", "-qam", "hand edit A")
@@ -95,7 +95,7 @@ class MirrorConflictWalk(unittest.TestCase):
         item = a.create("--title", "Mirrored", "--draft")
         b.run("list")
         for world, stamp in ((a, "A"), (b, "B")):
-            directory = world.ledger / "mirrors" / item
+            directory = world.home("mirrors", item)
             directory.mkdir(parents=True)
             (directory / "t.json").write_text('{"forge": "forgejo", "url": "u", "kind": "issue", "number": 1, "synced_at": "%s"}\n' % stamp)
             git(world.ledger, "add", "-A")
@@ -103,7 +103,7 @@ class MirrorConflictWalk(unittest.TestCase):
         git(a.ledger, "push", "-q", "origin", "main")
         result = b.run("create", "--title", "After the clash", "--draft")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('"synced_at": "A"', (b.ledger / "mirrors" / item / "t.json").read_text())
+        self.assertIn('"synced_at": "A"', (b.home("mirrors", item) / "t.json").read_text())
         self.assertEqual(b.ledger_dirty(), [])
         self.assertEqual(b.run("check").returncode, 0)
 

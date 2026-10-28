@@ -101,7 +101,7 @@ class MilestoneSyncWalk(unittest.TestCase):
         self.assertFalse(self.forge.milestones[1].open)
 
     def forge_number(self, item: str) -> int:
-        return json.loads(next((self.world.ledger / "mirrors" / item).glob("*.json")).read_text())["number"]
+        return json.loads(next((self.world.home("mirrors", item)).glob("*.json")).read_text())["number"]
 
     def test_milestone_description_carries_the_approvers_quote_and_the_due_date(self) -> None:
         """The recorded approval quote and the due header reach the forge, so a campaign is never anonymous."""

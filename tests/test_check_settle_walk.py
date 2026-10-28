@@ -25,7 +25,7 @@ class CheckSettleWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
         self.item = self.world.run("create", "--title", "Subject", "--draft").stdout.split()[0]
         self.ledger = Ledger(self.world.ledger, "TST")
-        self.item_file = self.world.ledger / "items" / self.item / "item.md"
+        self.item_file = self.world.home("items", self.item) / "item.md"
         self.aside = self.world.ledger / ".qew" / "aside.md"
         self.aside.parent.mkdir(parents=True, exist_ok=True)
         self.item_file.rename(self.aside)  # the event stays, its item is missing: what a reader sees mid-write

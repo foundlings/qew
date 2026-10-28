@@ -38,10 +38,10 @@ class CheckGraphWalk(unittest.TestCase):
     def test_files_that_belong_to_no_item_are_counted_as_orphans(self) -> None:
         """Events and mirrors left behind by a deleted item are named and counted."""
         load(self.world, spec("A"))
-        ghost = self.world.ledger / "events" / "GHOST"
+        ghost = self.world.home("events", "GHOST")
         ghost.mkdir()
         (ghost / "X.json").write_text("{}")
-        (self.world.ledger / "mirrors" / "OTHER").mkdir(parents=True)
+        (self.world.home("mirrors", "OTHER")).mkdir(parents=True)
         self.failing("events/GHOST: belongs to no item", counts(o=2))
 
     def test_a_child_filed_under_another_areas_parent_is_a_cross_epic_parent(self) -> None:

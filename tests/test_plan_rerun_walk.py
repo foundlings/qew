@@ -82,12 +82,12 @@ class PlanRerunWalk(unittest.TestCase):
         self.assertEqual(self.run_plan().returncode, 0)
         epic = next(row["id"] for row in listing(self.world) if row["title"] == "Epic")
         copy = "copyof" + epic
-        (self.world.ledger / "events" / copy).mkdir()
-        for event in (self.world.ledger / "events" / epic).glob("*.json"):
-            (self.world.ledger / "events" / copy / event.name).write_text(event.read_text())
-        text = (self.world.ledger / "items" / f"{epic}" / "item.md").read_text().replace(f"id: {epic}", f"id: {copy}", 1)
-        (self.world.ledger / "items" / f"{copy}" / "item.md").parent.mkdir(exist_ok=True)
-        (self.world.ledger / "items" / f"{copy}" / "item.md").write_text(text)
+        (self.world.home("events", copy)).mkdir()
+        for event in (self.world.home("events", epic)).glob("*.json"):
+            (self.world.home("events", copy) / event.name).write_text(event.read_text())
+        text = (self.world.home("items", f"{epic}") / "item.md").read_text().replace(f"id: {epic}", f"id: {copy}", 1)
+        (self.world.home("items", f"{copy}") / "item.md").parent.mkdir(exist_ok=True)
+        (self.world.home("items", f"{copy}") / "item.md").write_text(text)
         before = snapshot(self.world)
         result = self.run_plan()
         self.assertEqual(result.returncode, 2)
@@ -113,7 +113,7 @@ class PlanRerunWalk(unittest.TestCase):
         decoy = self.world.create("--title", "Decoy", "--draft")
         planted = {"type": "approved", "at": "2026-01-01T00:00:00Z", "actor": "x", "quote": "A: 'twelve chars or more here'",
                    "plan": digest.upper(), "key": "e", "source": "plan.jsonl"}
-        (self.world.ledger / "events" / decoy / "zzzzzzzzzzzzzzzzzzzzzzzzzz.json").write_text(json.dumps(planted))
+        (self.world.home("events", decoy) / "zzzzzzzzzzzzzzzzzzzzzzzzzz.json").write_text(json.dumps(planted))
         before = {row["id"] for row in listing(self.world)}
         self.assertEqual(self.run_plan().returncode, 0)
         after = {row["id"] for row in listing(self.world)}

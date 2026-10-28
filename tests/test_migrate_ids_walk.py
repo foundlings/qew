@@ -88,7 +88,7 @@ class MigrateIdsWalk(unittest.TestCase):
     def test_letters_become_time_ids_with_every_reference_and_event_kept(self) -> None:
         """Prevents a migration that drops a parent or needs edge, renumbers history or loses an event."""
         w = self.world
-        names = {i: sorted(path.name for path in (w.ledger / "events" / i).glob("*.json")) for i in "ABC"}
+        names = {i: sorted(path.name for path in (w.home("events", i)).glob("*.json")) for i in "ABC"}
         before = {i: [(e["type"], e["at"], e["actor"]) for e in w.events(i)] for i in "ABC"}
         result = w.run("migrate-ids", "--to", "base35-time")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -101,10 +101,10 @@ class MigrateIdsWalk(unittest.TestCase):
         self.assertEqual(second["parent"]["id"], epic["id"])
         self.assertEqual(second["needs"], [first["id"]])
         for old, now in zip("ABC", (epic["id"], first["id"], second["id"])):
-            self.assertEqual(sorted(path.name for path in (w.ledger / "events" / now).glob("*.json")), names[old], f"event ids of {old}")
+            self.assertEqual(sorted(path.name for path in (w.home("events", now)).glob("*.json")), names[old], f"event ids of {old}")
             self.assertEqual([(e["type"], e["at"], e["actor"]) for e in w.events(now)], before[old], f"events of {old}")
-            self.assertFalse((w.ledger / "events" / old).exists())
-        self.assertIn("aliases: B", (w.ledger / "items" / f"{first['id']}" / "item.md").read_text())
+            self.assertFalse((w.home("events", old)).exists())
+        self.assertIn("aliases: B", (w.home("items", f"{first['id']}") / "item.md").read_text())
 
     def test_an_old_id_still_resolves_and_the_answer_names_the_new_id(self) -> None:
         """Prevents notes, commits and branches that cite the old id from going dead."""
@@ -203,15 +203,15 @@ class MigrateIdsWalk(unittest.TestCase):
         w = self.world
         w.run("set", "C", "--needs")
         w.run("set", "C", "--needs", "B")
-        mirror_dir = w.ledger / "mirrors" / "B"
+        mirror_dir = w.home("mirrors", "B")
         mirror_dir.mkdir(parents=True)
         record = {"forge": "forgejo", "url": "https://git.example/o/r", "kind": "pr", "number": 7, "items": ["B", "C"]}
         (mirror_dir / "forgejo-git.example-o-r-pr-7.json").write_text(json.dumps(record))
         self.assertEqual(w.run("migrate-ids", "--to", "base35-time").returncode, 0)
         first, second = self.show("B")["id"], self.show("C")["id"]
-        moved = json.loads((w.ledger / "mirrors" / first / "forgejo-git.example-o-r-pr-7.json").read_text())
+        moved = json.loads((w.home("mirrors", first) / "forgejo-git.example-o-r-pr-7.json").read_text())
         self.assertEqual((moved["number"], moved["items"]), (7, [first, second]))
-        self.assertFalse((w.ledger / "mirrors" / "B").exists())
+        self.assertFalse((w.home("mirrors", "B")).exists())
         edges = [e for e in w.events(second) if e["type"] == "edge"]
         self.assertTrue(edges)
         self.assertTrue(all(e["need"] == first for e in edges if e["op"] == "add"), edges)
@@ -235,7 +235,7 @@ class MigrateMirrorWalk(unittest.TestCase):
 
     def test_the_mirror_follows_the_item_and_the_next_sync_rewrites_only_the_marker(self) -> None:
         """Prevents a second forge issue for a migrated item, or a forge number changing."""
-        records = list((self.world.ledger / "mirrors" / self.new).glob("*.json"))
+        records = list((self.world.home("mirrors", self.new)).glob("*.json"))
         self.assertEqual(len(records), 1)
         self.assertEqual(json.loads(records[0].read_text())["number"], 1)
         sync_target(open_ledger(self.world.ledger, "TST"), self.target, self.config)
@@ -249,7 +249,7 @@ class MigrateMirrorWalk(unittest.TestCase):
         shutil.rmtree(self.world.ledger / ".qew" / "state", ignore_errors=True)
         sync_target(open_ledger(self.world.ledger, "TST"), self.target, self.config)
         self.assertEqual(len(self.forge.issues), 1)
-        records = list((self.world.ledger / "mirrors" / self.new).glob("*.json"))
+        records = list((self.world.home("mirrors", self.new)).glob("*.json"))
         self.assertEqual(json.loads(records[0].read_text())["number"], 1)
         self.assertIn(marker_for(self.new), self.forge.issues[1].body)
 

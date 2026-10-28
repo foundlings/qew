@@ -34,7 +34,7 @@ class ProjectStatusWalk(unittest.TestCase):
         return items
 
     def number_of(self, item: str) -> int:
-        mirror = next((self.world.ledger / "mirrors" / item).glob("*.json"))
+        mirror = next((self.world.home("mirrors", item)).glob("*.json"))
         return json.loads(mirror.read_text())["number"]
 
     def test_status_reports_missing_and_stale_cards_without_writing(self) -> None:

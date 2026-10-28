@@ -6,9 +6,11 @@ Anything the journal does not explain (a new or removed item, a renamed id, a pa
 full rebuild; the result is always what a full build would return.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
+
+from qew import ledger_layout
 
 type Held = dict[str | tuple[Path, str], tuple[object, int]]  # ledger path -> (snapshot, journal length); (path, "remote") -> (has a remote, 0)
 
@@ -29,7 +31,7 @@ def held() -> Held | None:
     return _HELD
 
 
-def touched(root: Path, entries: list[tuple[Path, str | None]]) -> set[str] | None:
+def touched(root: Path, entries: Sequence[tuple[Path, object]], sharded: bool = False) -> set[str] | None:
     """The item ids whose item or event files these journal entries wrote; None when an entry is not one a refresh can explain."""
     ids: set[str] = set()
     for path, _ in entries:
@@ -39,7 +41,8 @@ def touched(root: Path, entries: list[tuple[Path, str | None]]) -> set[str] | No
             return None
         if parts and parts[0] in ("mirrors", "baselines", ".qew"):
             continue  # a snapshot reads neither
-        if len(parts) < 2 or parts[0] not in ("items", "events"):
+        found = ledger_layout.id_of(parts, sharded)
+        if found is None or parts[0] not in ("items", "events"):
             return None
-        ids.add(parts[1])
+        ids.add(found)
     return ids

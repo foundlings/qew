@@ -42,7 +42,7 @@ class LedgerWalk(unittest.TestCase):
     def test_item_file_is_a_fixed_header_ending_at_a_rule(self) -> None:
         w = self.world
         item = w.create("--kind", "task", "--title", "Write it", "--label", "area:erp", "--body", "Body text", "--draft")
-        text = (w.ledger / "items" / f"{item}" / "item.md").read_text(encoding="utf-8")
+        text = (w.home("items", f"{item}") / "item.md").read_text(encoding="utf-8")
         header, _, body = text.partition("\n---\n")
         keys = [line.split(":", 1)[0] for line in header.splitlines()]
         self.assertEqual(keys[:3], ["id", "kind", "title"])
@@ -84,14 +84,14 @@ class LedgerWalk(unittest.TestCase):
         result = w.run("create", "--from-file", "-", stdin=payload)
         self.assertEqual(result.returncode, 0, result.stderr)
         first, second = [line.split()[0] for line in result.stdout.splitlines()]
-        self.assertIn(f"needs: {first}", (w.ledger / "items" / f"{second}" / "item.md").read_text())
+        self.assertIn(f"needs: {first}", (w.home("items", f"{second}") / "item.md").read_text())
 
     def test_set_changes_the_header_and_records_an_audit_event(self) -> None:
         w = self.world
         item = w.create("--kind", "issue", "--title", "Old", "--draft")
         result = w.run("set", item, "--title", "New", "--priority", "0")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("title: New", (w.ledger / "items" / f"{item}" / "item.md").read_text())
+        self.assertIn("title: New", (w.home("items", f"{item}") / "item.md").read_text())
         fields = [e for e in w.events(item) if e["type"] == "field"]
         self.assertEqual({(e["key"], e["old"], e["new"]) for e in fields}, {("title", "Old", "New"), ("priority", "2", "0")})
 

@@ -5,7 +5,7 @@ import json
 import time
 from collections.abc import Sequence
 
-from qew import claim_reconcile, instants, ledger_config, ledger_conflicts, pull_cursor, syncworker
+from qew import claim_reconcile, instants, ledger_config, ledger_conflicts, ledger_layout, pull_cursor, syncworker
 from qew.pacing import PaceState
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards, pending_by_target
@@ -107,6 +107,7 @@ def collect(config: Config) -> JsonObject:
         "divergences": divergences,
         "conflicts": len(ledger_conflicts.collect(config, snapshot)),
         "sync": {"retry_after": max(0, int(syncworker.retry_at(config) - time.time()))},
+        "layout": {"schema": ledger.schema, "current": ledger_config.CURRENT_SCHEMA, "notice": ledger_layout.notice(ledger.schema) or None},
     }
 
 
@@ -137,6 +138,8 @@ def render(data: JsonObject) -> str:
                          f" (learned from a block; delete .qew/state/{target['target']}/pace.json to reset)")
     if data["sync"]["retry_after"]:
         lines.append(f"sync retry_after={data['sync']['retry_after']}")
+    if data["layout"]["notice"]:
+        lines.append(f"layout: {data['layout']['notice']}")
     for claim in data["claims"]["provisional"]:
         lines.append(f"claim {claim['item']} provisional owner={claim['owner']} (offline; `qew push` settles it)")
     for claim in data["claims"]["lost"]:

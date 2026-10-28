@@ -40,10 +40,10 @@ class ItemRenameWalk(unittest.TestCase):
         result = self.rename("PIE")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("C", result.stdout.split())  # the outlier PIE is not the sequence: the next letter after B is C
-        self.assertFalse((self.world.ledger / "items" / "PIE" / "item.md").exists())
+        self.assertFalse((self.world.home("items", "PIE") / "item.md").exists())
         shown = self.world.run("show", "C").stdout
         self.assertIn("plan.txt", shown)
-        self.assertIn("aliases: PIE", (self.world.ledger / "items" / "C" / "item.md").read_text())
+        self.assertIn("aliases: PIE", (self.world.home("items", "C") / "item.md").read_text())
         self.assertIn("parent: C", self.world.run("show", self.child).stdout)
         self.assertEqual(self.world.run("show", "PIE").returncode, 0)  # the old id still resolves
         self.assertEqual(self.world.run("check").returncode, 0, self.world.run("check").stdout)
@@ -57,7 +57,7 @@ class ItemRenameWalk(unittest.TestCase):
         """Prevents colliding with a phase document: --after C makes the new id D."""
         result = self.rename("PIE", "--after", "C")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((self.world.ledger / "items" / "D" / "item.md").exists())
+        self.assertTrue((self.world.home("items", "D") / "item.md").exists())
 
     def test_a_letters_kind_accepts_only_the_next_letter(self) -> None:
         """Prevents a rename breaking the strict order: asking for Z when C is next is refused and names C."""
@@ -65,7 +65,7 @@ class ItemRenameWalk(unittest.TestCase):
         self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
         self.assertNotIn("invalid choice", refused.stderr)
         self.assertIn("C", refused.stderr)
-        self.assertTrue((self.world.ledger / "items" / "PIE" / "item.md").exists())
+        self.assertTrue((self.world.home("items", "PIE") / "item.md").exists())
         self.assertEqual(self.rename("PIE", "C").returncode, 0)
 
     def test_dry_run_writes_nothing_and_a_claim_by_another_login_blocks_the_rename(self) -> None:
@@ -73,12 +73,12 @@ class ItemRenameWalk(unittest.TestCase):
         dry = self.rename("PIE", "--dry-run")
         self.assertEqual(dry.returncode, 0, dry.stdout + dry.stderr)
         self.assertIn("would rename", dry.stdout)
-        self.assertTrue((self.world.ledger / "items" / "PIE" / "item.md").exists())
+        self.assertTrue((self.world.home("items", "PIE") / "item.md").exists())
         self.assertEqual(self.world.run("draft", "approve", "PIE", "--quote", QUOTE).returncode, 0)
         self.assertEqual(self.world.run("start", "PIE", env={"QEW_ACTOR": "second"}).returncode, 0)
         blocked = self.rename("PIE")
         self.assertEqual(blocked.returncode, 3, blocked.stdout + blocked.stderr)
-        self.assertTrue((self.world.ledger / "items" / "PIE" / "item.md").exists())
+        self.assertTrue((self.world.home("items", "PIE") / "item.md").exists())
 
     def test_an_unknown_item_is_refused(self) -> None:
         """Prevents a silent no-op."""

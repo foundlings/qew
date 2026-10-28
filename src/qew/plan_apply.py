@@ -85,7 +85,7 @@ def _markers(ledger: Ledger) -> dict[str, tuple[str, str, str]]:
     """item id -> marker, for every item (or orphan event directory) whose first event carries one."""
     found: dict[str, tuple[str, str, str]] = {}
     if ledger.events_dir.is_dir():
-        for directory in sorted(ledger.events_dir.iterdir()):
+        for directory in ledger.homes_in(ledger.events_dir):
             first = _first_event(directory) if directory.is_dir() else None
             marker = _marker(first) if first else None
             if marker:

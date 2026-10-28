@@ -179,7 +179,7 @@ class LedgerRemoteOfflineWalk(unittest.TestCase):
         pushed claim can sort BEFORE the provisional one; the fold then already marks the provisional claim contested, and
         sync must still record it as lost (exit 3), not skip it."""
         self.assertEqual(self.a.run("start", self.item, "--offline", env={"QEW_OFFLINE": "1"}).returncode, 0)
-        directory = self.a.ledger / "events" / self.item
+        directory = self.a.home("events", self.item)
         approved = sorted(directory.glob("*.json"))[0].stem
         body = {"type": "claimed", "at": "2026-01-01T00:00:00Z", "actor": "second", "owner": "second"}
         (directory / f"{approved}0.json").write_text(json.dumps(body))  # sorts right after the approval, before the provisional claim

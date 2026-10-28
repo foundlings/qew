@@ -5,8 +5,7 @@ directories in `events/`, a write costing tens of seconds), a migration that los
 older flat ledger rewritten without being asked, and two clones whose independent creations conflict in git.
 """
 
-import json
-import subprocess
+import re
 import unittest
 from pathlib import Path
 
@@ -19,7 +18,7 @@ def shard(item_id: str) -> str:
 
 def declare(world: World, version: int) -> None:
     toml = world.ledger / "qew-ledger.toml"
-    toml.write_text(toml.read_text(encoding="utf-8").replace("schema_version = 7", f"schema_version = {version}"), encoding="utf-8")
+    toml.write_text(re.sub(r"schema_version = \d+", f"schema_version = {version}", toml.read_text(encoding="utf-8")), encoding="utf-8")
 
 
 class ShardedLayoutWalk(unittest.TestCase):
@@ -99,6 +98,30 @@ class ShardedLayoutWalk(unittest.TestCase):
         item = w.create("--title", "still flat")
         self.assertTrue((w.ledger / "items" / item / "item.md").is_file())
         self.assertTrue((w.ledger / "events" / item).is_dir())
+
+    def test_check_names_an_item_directory_left_outside_its_shard(self) -> None:
+        """Prevents a flat directory hiding in a sharded ledger: no read would find it, so check names it and the way out."""
+        w = self.world
+        w.create("--title", "fine")
+        (w.ledger / "events" / "043zzzzzz").mkdir()
+        (w.ledger / "events" / "043zzzzzz" / "043zzzzzy.json").write_text("{}\n")
+        checked = w.run("check")
+        self.assertEqual(checked.returncode, 1, checked.stdout)
+        self.assertIn("events/043zzzzzz: not a shard directory", checked.stdout + checked.stderr)
+
+    def test_pull_names_the_items_a_sharded_commit_brought_in(self) -> None:
+        """Prevents the shard standing in for the item: pull lists the item id, not the last two characters of it."""
+        w = World(ledger_vcs="git", remote=True)
+        self.addCleanup(w.close)
+        declare(w, 8)
+        git(w.ledger, "add", "-A")
+        git(w.ledger, "commit", "-q", "-m", "schema 8")
+        git(w.ledger, "push", "-q", "origin", "main")
+        other = w.clone("b")
+        item = w.create("--title", "from a")
+        pulled = other.run("pull")
+        self.assertEqual(pulled.returncode, 0, pulled.stdout + pulled.stderr)
+        self.assertIn(item, pulled.stdout)
 
     def test_two_clones_creating_items_merge_without_a_conflict(self) -> None:
         """Prevents shard directories becoming shared mutable files: independent creations in two clones merge cleanly in git."""

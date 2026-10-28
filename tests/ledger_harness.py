@@ -16,6 +16,12 @@ import tempfile
 from collections.abc import Mapping
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+if os.environ.get("QEW_TEST_SCHEMA") == "8":  # run the walks on the sharded layout: a Ledger built by hand declares it too (the product always reads the file)
+    from qew import ledger_store as _ledger_store
+    _defaults = list(_ledger_store.Ledger.__init__.__defaults__)  # type: ignore[misc]
+    _defaults[_defaults.index(5)] = 8
+    _ledger_store.Ledger.__init__.__defaults__ = tuple(_defaults)  # type: ignore[misc]
 os.environ.setdefault("QEW_UNDER_TEST", "1")  # qew then refuses any ledger outside the temp directory (see ledger_config)
 QUOTE = "Alexander: 'please track this work in the Qew ledger now'"
 
@@ -53,7 +59,7 @@ class World:
     """A git code repo on `main` with `.qew/config.toml` naming a sibling ledger."""
 
     def __init__(self, mirrors: str = "", ledger_vcs: str | None = None, remote: bool = False,
-                 replication: str = "") -> None:
+                 replication: str = "", schema: str = "") -> None:
         self._temporary = tempfile.TemporaryDirectory()
         base = Path(self._temporary.name)
         self.base = base
@@ -73,7 +79,7 @@ class World:
             '[ledger]\npath = "../ledger"\nprefix = "TST"\n' + mirrors + replication, encoding="utf-8"
         )
         (self.ledger / "qew-ledger.toml").write_text(
-            'name = "test"\nprefix = "TST"\nschema_version = 7\n', encoding="utf-8"
+            f'name = "test"\nprefix = "TST"\nschema_version = {schema or os.environ.get("QEW_TEST_SCHEMA", "7")}\n', encoding="utf-8"
         )
         if ledger_vcs:
             self._init_ledger(ledger_vcs, remote)
