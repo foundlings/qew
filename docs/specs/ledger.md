@@ -312,7 +312,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
   the lock only when no earlier waiter is live. The queue is a courtesy over the kernel lock, never a second lock: a marker
   of a dead process or one untouched for 5 s is ignored, and a waiter yields to earlier ones for at most 20 s, then tries
   regardless, so no waiter can hold up another for good. The timeout names how many waited ahead. Locks are not re-entrant: a nested hold
-  on one path times out loudly. Push runs outside the write lock; the worker's own commit waits on the push lock.
+  on one path times out loudly. Push runs outside the write lock; the worker's own commit waits on the push lock. The sync worker takes `lock` first and `push.lock` second, only around its commit, and pushes under `push.lock` alone, so it never holds `push.lock` while queued for `lock`.
 - **Idempotent verbs.** A repeated command after a crash, timeout or agent retry never duplicates:
   `create --key KEY` (same key and content returns the first item with the same line, a key under other content is exit 2;
   it reuses the plan adoption markers, so a run killed between its event and its item file is adopted),

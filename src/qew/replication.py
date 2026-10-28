@@ -303,9 +303,11 @@ def _sync_session(config: Config, repo: LedgerRepo, committing: bool, replicatin
         _ACTIVE = None
         entries = ledger_store.journal_take()
         if committing and entries:
-            with _lock(config, "push.lock", "sync"), _lock(config, "lock", "sync"):
+            # lock first: the worker is polite there and never sits on push.lock while it queues behind writers
+            with _lock(config, "lock", "sync"), _lock(config, "push.lock", "sync"):
                 _commit(repo, config, "sync", entries, rollback_on_failure=False)
-                if replicating:
+            if replicating:
+                with _lock(config, "push.lock", "sync"):  # the network push is outside the write lock, as a writer's is
                     repo.push(rep.timeout_s)
         elif replicating and repo.unpushed():
             # every write was checkpointed (committed on the way, never pushed): nothing is left to commit, but commits are
@@ -328,7 +330,7 @@ def checkpoint() -> None:
     entries = ledger_store.journal_take()
     ledger_store.journal_start()
     if committing and len(entries) >= CHECKPOINT_EVERY:
-        with _lock(config, "push.lock", "sync"), _lock(config, "lock", "sync"):
+        with _lock(config, "lock", "sync"), _lock(config, "push.lock", "sync"):
             _commit(repo, config, "sync", entries, rollback_on_failure=False)
     else:
         journal = ledger_store.JOURNAL
