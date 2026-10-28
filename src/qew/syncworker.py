@@ -10,7 +10,8 @@ from pathlib import Path
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 
 from qew import filelock, trace
 from qew.ledger_config import Config
@@ -26,8 +27,31 @@ def cache_dir(config: Config) -> Path:
     return path
 
 
+SPAWN_GRACE_S = 5.0  # a worker just started has not taken sync.lock yet: a burst of writes must not start one each
+HELD = False  # this process is the sync worker: its session already holds sync.lock
+
+
 def worker_running(config: Config) -> bool:
-    return filelock.is_held(cache_dir(config) / "sync.lock")
+    if filelock.is_held(cache_dir(config) / "sync.lock"):
+        return True
+    try:  # `sync.starting` exists from the spawn until the new worker holds sync.lock
+        return time.time() - float((cache_dir(config) / "sync.starting").read_text(encoding="utf-8")) < SPAWN_GRACE_S
+    except (OSError, ValueError):
+        return False
+
+
+@contextmanager
+def take(config: Config) -> Iterator[None]:
+    """Become the worker: hold sync.lock for the whole session, before any other lock is touched. Raises LockTimeout at once
+    when another worker holds it, so a loser never queues for the ledger write lock."""
+    global HELD
+    with filelock.hold(cache_dir(config) / "sync.lock", verb="sync worker", wait_s=0, what="the sync worker"):
+        HELD = True
+        (cache_dir(config) / "sync.starting").unlink(missing_ok=True)
+        try:
+            yield
+        finally:
+            HELD = False
 
 
 def _trim_log(log: Path) -> None:
@@ -98,6 +122,7 @@ def queue(config: Config, item_ids: Iterable[str] = ()) -> None:
                 env={**os.environ, "QEW_BACKGROUND": "1", "QEW_NO_FETCH": "1"},
             )
         (cache / "sync.spawned").write_text(str(time.time()), encoding="utf-8")
+        (cache / "sync.starting").write_text(str(time.time()), encoding="utf-8")
 
 
 def retry_if_pending(config: Config) -> None:
@@ -129,6 +154,9 @@ def newest_event(config: Config) -> str:
 
 def run_worker(config: Config, run_once: Callable[[], bool]) -> None:
     """Hold the worker lock, sync until nothing new arrived meanwhile (at most 3 rounds), keep the marker honest."""
+    if HELD:  # the session took sync.lock before it did anything else
+        _run_locked(config, run_once)
+        return
     lock = filelock.hold(cache_dir(config) / "sync.lock", verb="sync worker", wait_s=0, what="the sync worker")
     try:
         lock.__enter__()

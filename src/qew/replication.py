@@ -180,6 +180,19 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
     committing = repo.vcs is not None and rep.auto_commit
     replicating = committing and not rep.offline and rep.auto_push and not os.environ.get("QEW_NO_FETCH")
     if verb == "sync":
+        if os.environ.get("QEW_BACKGROUND") and not getattr(arguments, "dry_run", False):
+            from qew import syncworker
+
+            worker = syncworker.take(config)
+            try:
+                worker.__enter__()
+            except filelock.LockTimeout:
+                raise SystemExit(0) from None  # a worker runs and picks the pending work up: a loser must not queue for the write lock
+            try:
+                yield from _sync_session(config, repo, committing, replicating, True)
+            finally:
+                worker.__exit__(None, None, None)
+            return
         yield from _sync_session(config, repo, committing, replicating, not getattr(arguments, "dry_run", False))
         return
     with _lock(config, "lock", verb):
