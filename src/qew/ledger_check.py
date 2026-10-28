@@ -6,7 +6,7 @@ import os
 import time
 import tomllib
 
-from qew import attachments, comments, filelock, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
+from qew import ledger_layout, attachments, comments, filelock, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
@@ -257,10 +257,9 @@ def _check_layout(ledger: Ledger, problems: list[str]) -> None:
     if not ledger.sharded:
         return
     for directory in (ledger.events_dir, ledger.mirrors_dir, ledger.items_dir, ledger.baselines_dir):
-        if directory.is_dir():
-            problems.extend(f"{directory.name}/{child.name}: not a shard directory; this ledger keeps item directories at "
-                            f"{directory.name}/<last two characters of the id>/<id>/ (run qew migrate-layout)"
-                            for child in sorted(directory.iterdir()) if child.is_dir() and len(child.name) > 2)
+        problems.extend(f"{directory.name}/{child.name}: not a shard directory; this ledger keeps item directories at "
+                        f"{directory.name}/_<last two characters of the id>/<id>/ (run qew migrate-layout)"
+                        for child in ledger_layout.flat_children(directory))
 
 
 def _check_orphans(ledger: Ledger, items: dict[str, Item], aliases: ledger_aliases.Aliases, problems: list[str]) -> None:

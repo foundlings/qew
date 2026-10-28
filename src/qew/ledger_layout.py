@@ -1,10 +1,12 @@
-"""Where an item's directories live: flat (`events/<ID>/`) up to schema 7, sharded (`events/<xx>/<ID>/`) from schema 8.
+"""Where an item's directories live: flat (`events/<ID>/`) up to schema 7, sharded (`events/_<xx>/<ID>/`) from schema 8.
 
 A commit rewrites every directory on the path of what it changes, so one directory of 25,000 item directories made each
 write rewrite a 25,000-entry tree. The shard is the last two characters of the id, lower-cased: ids are time-ordered, so a
 leading prefix would put everything in one shard, and the trailing characters spread evenly (about 1,200 shards). Lower case
-keeps two spellings from naming one directory on a case-insensitive file system. The shard is not stored anywhere: it is
-computed from the id, so a rename moves the directory and nothing else records it.
+keeps two spellings from naming one directory on a case-insensitive file system. The shard directory starts with an underscore,
+which an id never does: `items/AA` (an item) and `items/_aa` (a shard) can never be one directory, in a half-moved ledger or on a
+case-insensitive disk, and a directory directly under `items` that does not start with one is an item directory in the wrong place.
+The shard is not stored anywhere: it is computed from the id, so a rename moves the directory and nothing else records it.
 """
 
 from pathlib import Path
@@ -13,8 +15,11 @@ SHARDED_SCHEMA = 8
 SHARDED_SINCE = "6.46.0"  # the first qew that reads a schema 8 ledger: every agent on the ledger must run it before the migration
 
 
+PREFIX = "_"
+
+
 def shard(name: str) -> str:
-    return name[-2:].lower()
+    return PREFIX + name[-2:].lower()
 
 
 def is_sharded(schema: int) -> bool:
@@ -32,7 +37,7 @@ def homes(root: Path, sharded: bool) -> list[Path]:
         return []
     if not sharded:
         return sorted(path for path in root.iterdir() if path.is_dir())
-    found = [item for group in root.iterdir() if group.is_dir() for item in group.iterdir() if item.is_dir()]
+    found = [item for group in root.iterdir() if group.is_dir() and group.name.startswith(PREFIX) for item in group.iterdir() if item.is_dir()]
     return sorted(found, key=lambda path: path.name)
 
 
@@ -60,3 +65,10 @@ def notice(schema: int) -> str:
     return (f"this ledger is on schema {schema}: item directories are not sharded, so every write rewrites one huge directory and slows with the "
             f"ledger. Tell your user to run `qew migrate-layout --dry-run`, then `qew migrate-layout` once, after every agent on the ledger "
             f"runs qew {SHARDED_SINCE} or newer (older ones refuse a schema {SHARDED_SCHEMA} ledger).")
+
+
+def flat_children(root: Path) -> list[Path]:
+    """The item directories sitting directly under `root` (not in a shard): everything to move on the way to the sharded layout."""
+    if not root.is_dir():
+        return []
+    return sorted(path for path in root.iterdir() if path.is_dir() and not path.name.startswith(PREFIX))

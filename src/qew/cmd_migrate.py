@@ -18,6 +18,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     migrate.add_argument("--dry-run", action="store_true", help="list the items that would be migrated and write nothing")
     layout = commands.add_parser("migrate-layout", help="move an older ledger straight to the latest layout: each item file into its own directory (items/ID/item.md)")
     layout.add_argument("--dry-run", action="store_true", help="report what would change and write nothing")
+    layout.add_argument("--no-check", action="store_true", help="skip the structural `qew check` of the migrated ledger (minutes on a large one; the move only renames)")
 
 
 _VERSION_LINE = re.compile(r"^(schema_version\s*=\s*)\d+", re.M)
@@ -33,76 +34,46 @@ def _old_item_files(ledger: Ledger) -> list[Path]:
 SHARDED_ROOTS = ("items", "events", "mirrors", "baselines")
 
 
-def _flat_items(ledger: Ledger) -> int:
-    """How many item directories sit directly in `items/` (the flat layout)."""
-    root = ledger.path / "items"
-    return sum(1 for path in root.iterdir() if path.is_dir()) if root.is_dir() else 0
+def _flat_dirs(ledger: Ledger) -> int:
+    """How many item directories still sit directly under items, events, mirrors and baselines (not in a shard)."""
+    return sum(len(ledger_layout.flat_children(ledger.path / kind)) for kind in SHARDED_ROOTS)
 
 
 def _shard(ledger: Ledger) -> int:
     """Move every item directory of `items`, `events`, `mirrors` and `baselines` under its shard (`ledger_layout`).
 
-    Two steps per root, through a staging directory beside it: an id of one or two characters names a directory that is also
-    the shard of other ids (and, on a case-insensitive file system, `AA` and `aa` are one directory), so the root is emptied
-    first. Each moved file is journaled, so the commit holds both paths and a failure moves them back."""
+    A shard directory starts with an underscore and an id never does, so a shard can never be an item directory (even on a
+    case-insensitive disk), and a half-moved ledger is unambiguous: the flat directories are what is left, and a second run moves
+    them. Each moved file is journaled as it goes, so a failure, here or in the commit, moves every one back and removes the
+    shards it emptied."""
     count = 0
     for kind in SHARDED_ROOTS:
         root = ledger.path / kind
-        names = sorted(path.name for path in root.iterdir() if path.is_dir()) if root.is_dir() else []
-        if not names:
-            continue
-        staging = ledger.path / f".{kind}.sharding"
-        if staging.exists():
-            raise QewError(f"{staging} is left over from an interrupted migration; remove it (its directories belong in {kind}/) and run again", 1)
-        staging.mkdir()
-        placed: list[str] = []
-        try:
-            for name in names:
-                os.replace(root / name, staging / name)
-            for name in names:
-                target = ledger_layout.home(root, name, True)
-                target.parent.mkdir(exist_ok=True)
-                os.replace(staging / name, target)
-                placed.append(name)
-        except BaseException:
-            _unshard(root, staging, names, placed)
-            raise
-        staging.rmdir()
-        for name in names:
-            home = ledger_layout.home(root, name, True)
-            for path in sorted(home.rglob("*")):
+        for directory in ledger_layout.flat_children(root):
+            target = ledger_layout.home(root, directory.name, True)
+            target.parent.mkdir(exist_ok=True)
+            if target.exists():
+                raise QewError(f"{kind}/{directory.name} and {kind}/{target.parent.name}/{directory.name} both exist; settle it by hand, then migrate", 1)
+            os.replace(directory, target)
+            for path in sorted(target.rglob("*")):
                 if path.is_file():
-                    ledger_store.moved(root / name / path.relative_to(home), path)
-        count += len(names)
+                    ledger_store.moved(directory / path.relative_to(target), path)
+            count += 1
     return count
 
 
-def _unshard(root: Path, staging: Path, names: list[str], placed: list[str]) -> None:
-    """Undo a half-done `_shard` of one root: back through the staging directory, shards removed, then into place."""
-    for name in placed:
-        os.replace(ledger_layout.home(root, name, True), staging / name)
-    for shard in sorted(path for path in root.iterdir() if path.is_dir()):
-        try:
-            shard.rmdir()
-        except OSError:
-            pass  # a directory not ours
-    for name in names:
-        if (staging / name).exists():
-            os.replace(staging / name, root / name)
-    staging.rmdir()
-
-
-def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
+def migrate_layout(config: ledger_config.Config, dry_run: bool, no_check: bool = False) -> str:
     """Move the ledger straight to the latest layout: each items/<ID>.md becomes items/<ID>/item.md (same bytes), every
     completed item gets its evidence header from what its events recorded (re-resolved against the target), the item
     directories of items, events, mirrors and baselines move under two-character shards, and schema_version becomes the
-    latest, in one commit. The result must pass `qew check` and no other login may hold a claim; any failure rolls the whole
-    step back."""
+    latest, in one commit. The result must pass a structural `qew check` (not with `no_check`) and no other login may hold a claim;
+    any failure rolls the whole step back to the exact tree it started from, and a run that stopped half way is finished by running
+    it again."""
     ledger = ledger_for(config)
     current = ledger_config.ledger_schema(ledger.path)
     latest = ledger_config.CURRENT_SCHEMA
     old = _old_item_files(ledger)
-    if current >= latest and not old:
+    if current >= latest and not old and not _flat_dirs(ledger):
         return f"already schema_version {current}: nothing to migrate"
     for path in old:
         target = ledger.item_path(path.stem)
@@ -117,8 +88,8 @@ def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
             text += f": evidence headers for completed items: {evidence_backfill.summary(evidence_backfill.plan(ledger.snapshot(), resolve))}"
         else:
             text += ": no item file changes"
-        if current < ledger_layout.SHARDED_SCHEMA:
-            text += f"; move {_flat_items(ledger)} item directories of items, events, mirrors and baselines under two-character shards of the id"
+        if _flat_dirs(ledger) or current < ledger_layout.SHARDED_SCHEMA:
+            text += f"; move {_flat_dirs(ledger)} item directories of items, events, mirrors and baselines under `_xx` shards of the id (the last two characters)"
         if (ledger.path / ".git").exists():
             text += "; sets core.untrackedCache in the ledger's git config (git status of a large ledger gets about 4 times faster)"
         return text + f"{'' if resolve or current >= 4 else ' (no code repository here: cited ids are kept unverified)'}; `qew check` and the claim check run on the result and roll everything back on a problem"
@@ -131,16 +102,18 @@ def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
     declared = f"schema_version = {latest}"
     fixed = _VERSION_LINE.sub(lambda m: m.group(1) + str(latest), text, count=1) if _VERSION_LINE.search(text) else f"{declared}\n{text}"
     ledger_store.write_replacing(path, fixed)
-    snapshot = ledger.snapshot()
+    filled: list[evidence_backfill.Filled] = []
     if current < 4:  # a step that moves files or fills headers waits for other logins' claims; 4 to 5 changes one line and keeps them all
+        snapshot = ledger.snapshot()
         id_migration.refuse_foreign_claims(snapshot, actor(), "the layout is")
-    filled = evidence_backfill.plan(snapshot, resolve) if current < 4 else []
-    evidence_backfill.apply(ledger, filled)
-    sharded = _shard(ledger) if current < ledger_layout.SHARDED_SCHEMA else 0
+        filled = evidence_backfill.plan(snapshot, resolve)
+        evidence_backfill.apply(ledger, filled)
+    sharded = _shard(ledger)
     ledger = ledger_for(config)  # the declared schema is the latest now: check reads the layout it wrote
-    problems = ledger_check.check(ledger)
-    if problems:
-        raise QewError("qew check fails on the migrated ledger; nothing was changed:\n" + "\n".join(problems), 1)
+    if not no_check:
+        problems = ledger_check.check(ledger, deep=False)  # structure only: the moved files are not committed yet, so no committed-file check
+        if problems:
+            raise QewError("qew check fails on the migrated ledger; nothing was changed:\n" + "\n".join(problems), 1)
     moved = f"moved {len(old)} item files to items/ID/{ITEM_FILE}; " if old else ""
     moved += f"moved {sharded} item directories under shards; " if sharded else ""
     cached = "core.untrackedCache set; " if ledger_repo.enable_untracked_cache(ledger.path) else ""
@@ -149,7 +122,7 @@ def migrate_layout(config: ledger_config.Config, dry_run: bool) -> str:
 
 def run(arguments: argparse.Namespace) -> bool:
     if arguments.command == "migrate-layout":
-        print(migrate_layout(ledger_config.load(), arguments.dry_run))
+        print(migrate_layout(ledger_config.load(), arguments.dry_run, arguments.no_check))
         return True
     if arguments.command != "migrate-ids":
         return False
