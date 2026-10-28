@@ -94,7 +94,7 @@ Contracts: `docs/specs/ledger.md` and `docs/specs/forges.md`.
 path = "../myproject-ledger"
 
 [code]
-target = "main"                 # branch evidence must be an ancestor of
+target = "main"                 # branch (or its @origin) evidence must be an ancestor of
 
 [[mirror]]
 forge = "github"                # github | forgejo (or gitea) | gitlab
