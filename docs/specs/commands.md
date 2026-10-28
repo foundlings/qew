@@ -220,7 +220,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew block ITEM --on ITEM [--closed] [--json]`, `qew unblock ITEM --from ITEM [--closed] [--json]`: add or remove one
   needs edge as an `edge` event; repeating is `unchanged`; a self edge, unknown item or cycle is exit 2, completed or
   closed items need `--closed`.
-- `qew start ITEM [--take-over --reason TEXT | --offline] [--lane ID [--workspace PATH] [--kind compute|token]] [--json]`:
+- `qew start ITEM [--take-over --reason TEXT | --offline] [--needs-on BRANCH] [--lane ID [--workspace PATH] [--kind compute|token]] [--json]`:
   claim approved work whose needs are completed; prints `ID claimed by OWNER: TITLE` (title cut at 60 characters), so
   no `qew show` is needed to begin. Another actor's claim is exit 3 naming the holder and
   `--take-over`; your own claim is exit 5 (no event) when the lane matches, exit 3 naming the lane when it does
@@ -239,6 +239,10 @@ shape prime: additional_context context_bytes schema_version
   the ledger holds no claim is adopted by `qew start`; another actor's refuses (exit 2) and names `qew release ID --force --reason TEXT`.
   `[claims] max_active_claims` in the config caps the caller's active claims (exit 6, take-over included); a
   malformed cap is exit 2 naming the key. `qew show` prints the current claim as `claim: {by, kind, lane, workspace}`.
+  `--needs-on BRANCH` starts a task whose unmet needs complete only when a collection branch merges: each unmet need must have an
+  evidence event whose changes are all ancestors of BRANCH (jj also counts `BRANCH@origin`), else exit 2 naming the needs (exit 3 when the
+  branch does not exist). The `claimed` event records `needs_on` and `staged_needs`; `qew show` prints a `staged:` line and the item reads
+  `claimed`, not `blocked`. Not with `--take-over` or an epic. `qew complete` and `qew land` still require the needs completed.
 - Starting an epic claims the epic and its open descendants that can start (drafts, work with unmet needs and finished
   work are left), each through the claim authority, all or nothing: a descendant held by another actor is exit 3 naming
   it and nothing is written; a failure midway leaves no event and releases the reservations already posted on the

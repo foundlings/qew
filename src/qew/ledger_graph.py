@@ -31,6 +31,12 @@ def blockers(snapshot: Snapshot, item_id: str) -> list[str]:
     ]
 
 
+def staged(snapshot: Snapshot, item_id: str) -> set[str]:
+    """The unmet needs a claim was started on with `--needs-on BRANCH`: deliberate, so the claim is not stuck on them."""
+    claim = snapshot.folds[item_id].claim or {}
+    return set((claim.get("staged_needs") or "").split())
+
+
 def children(snapshot: Snapshot) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
     for item in snapshot.items.values():
@@ -123,7 +129,7 @@ def blocked(snapshot: Snapshot) -> list[str]:
         [
             item_id
             for item_id in snapshot.items
-            if state_of(snapshot, item_id) in (State.APPROVED, State.CLAIMED) and blockers(snapshot, item_id)
+            if state_of(snapshot, item_id) in (State.APPROVED, State.CLAIMED) and set(blockers(snapshot, item_id)) - staged(snapshot, item_id)
         ],
     )
 
@@ -144,7 +150,7 @@ def work_state(snapshot: Snapshot, item_id: str) -> str:
         return str(state.value)
     if snapshot.items[item_id].kind == Kind.EPIC:
         return "plan"
-    if blockers(snapshot, item_id):
+    if set(blockers(snapshot, item_id)) - staged(snapshot, item_id):
         return "blocked"
     return "claimed" if state == State.CLAIMED else "ready"
 

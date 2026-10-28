@@ -39,7 +39,7 @@ class StartNeedsOnWalk(unittest.TestCase):
         started = self.start("--needs-on", "adu-fat")
         self.assertEqual(started.returncode, 0, started.stderr)  # type: ignore[attr-defined]
         claim = next(event for event in self.world.events(self.work) if event["type"] == "claimed")
-        self.assertEqual((claim["needs_on"], claim["staged_needs"]), ("adu-fat", [self.need]))
+        self.assertEqual((claim["needs_on"], claim["staged_needs"]), ("adu-fat", self.need))
         shown = self.world.run("show", self.work).stdout
         self.assertIn("adu-fat", shown)
         self.assertIn(self.need, shown)
@@ -58,8 +58,9 @@ class StartNeedsOnWalk(unittest.TestCase):
         """Prevents `qew blocked` and the work state calling deliberate staged work stuck."""
         self.world.run("evidence", self.need, "--change", self.on_branch)
         self.start("--needs-on", "adu-fat")
-        row = json.loads(self.world.run("show", self.work, "--json").stdout)
-        self.assertEqual(row["work_state"], "claimed")
+        listed = self.world.run("list", "--work-state", "claimed").stdout
+        self.assertIn(self.work, listed)
+        self.assertNotIn(self.work, self.world.run("blocked").stdout)
 
     def test_a_need_without_evidence_or_evidenced_elsewhere_refuses(self) -> None:
         """Prevents waving through a need that is not on the branch: no evidence, and evidence only on main, both name the need."""
