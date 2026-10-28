@@ -62,7 +62,7 @@ def init(ledger: str | None) -> str:
     if not marker.exists():
         _write_atomic(
             marker,
-            f'name = "{config.ledger_path.name}"\nschema_version = 7\n\n[id_mode]\nepic = "letters"  # phases: A, B .. Z, AA ..; or "base35-time" / "counter"\nissue = "base35-time"\ntask = "base35-time"\n',
+            f'name = "{config.ledger_path.name}"\nschema_version = {ledger_config.CURRENT_SCHEMA}\n\n[id_mode]\nepic = "letters"  # phases: A, B .. Z, AA ..; or "base35-time" / "counter"\nissue = "base35-time"\ntask = "base35-time"\n',
         )
         created.append(str(marker))
     from qew import ledger_repo  # late: the repository module reads the store, which loads this one

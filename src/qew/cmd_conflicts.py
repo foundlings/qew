@@ -64,8 +64,9 @@ def _resolve_merge(config: Config, take: Side, reason: str) -> str:
     ledger = ledger_for(config)
     items = ledger.item_ids()
     recorded: dict[str, dict[str, str | None]] = {}
+    sharded = ledger_config.is_sharded(config.ledger_path)
     for relative, text in resolution.discarded.items():
-        owner = item_of_path(relative)
+        owner = item_of_path(relative, sharded)
         if owner is not None and owner in items:
             recorded.setdefault(owner, {})[relative] = clipped_discard(text)
     for item_id, discarded in sorted(recorded.items()):

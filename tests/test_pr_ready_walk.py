@@ -151,7 +151,7 @@ class OwnershipWalk(unittest.TestCase):
         self.assertEqual(self.w.qew("pr", "ready", pr).code, 0)
 
     def test_a_pull_request_that_covers_no_item_is_refused(self) -> None:
-        path = next((self.w.world.ledger / "mirrors" / self.item).glob("*-pr-1.json"))
+        path = next((self.w.world.home("mirrors", self.item)).glob("*-pr-1.json"))
         record = json.loads(path.read_text())
         path.write_text(json.dumps({**record, "items": []}))
         self.assertEqual(self.w.qew("pr", "ready", "1").code, 3)

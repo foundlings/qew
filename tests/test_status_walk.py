@@ -18,7 +18,7 @@ class StatusWalk(unittest.TestCase):
         self.fake = FakeForgejo().start()
         self.addCleanup(self.fake.stop)
         mirrors = f'\n[[mirror]]\nforge = "forgejo"\nrepo = "{self.fake.repo_url}"\napi = "{self.fake.api}"\n'
-        self.w = World(mirrors, ledger_vcs="git", remote=True,
+        self.w = World(mirrors, ledger_vcs="git", remote=True, schema="8",
                        replication="\n[replication]\nbackground_sync = false\nauto_forge_sync = false\n")
         self.addCleanup(self.w.close)
 
@@ -40,7 +40,7 @@ class StatusWalk(unittest.TestCase):
     def test_every_problem_class_appears_with_its_count(self) -> None:
         """Prevents hidden backlog: offline commits, stray files and unsynced items each show up."""
         item = self.w.run("create", "--kind", "issue", "--title", "Offline", "--draft", env=OFFLINE).stdout.split()[0]
-        (self.w.ledger / "events" / item / "ZZZZZZZZZ.json").write_text(
+        (self.w.home("events", item) / "ZZZZZZZZZ.json").write_text(
             '{"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "x"}\n')
         text = self.status()
         self.assertIn("unpushed=1", text)
@@ -64,7 +64,7 @@ class StatusWalk(unittest.TestCase):
         """Prevents 171 divergence lines costing an agent its context (seen live): text is capped, --json is complete."""
         item = self.w.create("--kind", "issue", "--title", "Noisy", "--draft")
         for n in range(25):
-            (self.w.ledger / "events" / item / f"ZZZZZZ{n:03d}.json").write_text(json.dumps(
+            (self.w.home("events", item) / f"ZZZZZZ{n:03d}.json").write_text(json.dumps(
                 {"type": "forge_divergence", "at": "2026-01-01T00:00:00Z", "actor": "x", "target": "t", "field": "labels",
                  "forge": f"v{n}", "ledger": "v"}))
         text = self.status()

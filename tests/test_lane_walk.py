@@ -107,7 +107,7 @@ class LaneWalk(unittest.TestCase):
         """Prevents silently ignored bad data in a merged ledger."""
         w = self.world
         item = started(w)
-        event = sorted((w.ledger / "events" / item).glob("*.json"))[-1]
+        event = sorted((w.home("events", item)).glob("*.json"))[-1]
         data = json.loads(event.read_text())
         data["lane"] = "a--b"
         event.write_text(json.dumps(data))

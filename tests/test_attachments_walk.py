@@ -53,7 +53,7 @@ class AttachmentsWalk(unittest.TestCase):
         data = b"\x89PNG\r\n\x1a\n" + bytes(range(256)) * 40  # binary, not valid text
         result = self.attach(str(self.file("diagram.png", data)), "--as", "design/diagram.png")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        blob = self.world.ledger / "items" / self.item / "attachments" / f"{sha(data)}.png"
+        blob = self.world.home("items", self.item) / "attachments" / f"{sha(data)}.png"
         self.assertEqual(blob.read_bytes(), data)
         listing = self.show()
         self.assertIn("design/diagram.png", listing)
@@ -88,7 +88,7 @@ class AttachmentsWalk(unittest.TestCase):
         listing = self.show()
         self.assertIn(sha(second)[:12], listing)
         self.assertNotIn(sha(first)[:12], listing)
-        self.assertTrue((self.world.ledger / "items" / self.item / "attachments" / f"{sha(first)}.txt").exists())
+        self.assertTrue((self.world.home("items", self.item) / "attachments" / f"{sha(first)}.txt").exists())
 
     def test_detach_removes_a_name_or_a_whole_directory_but_keeps_the_bytes(self) -> None:
         """Prevents orphaned names: detaching a directory name detaches everything under it; bytes stay for history."""
@@ -100,7 +100,7 @@ class AttachmentsWalk(unittest.TestCase):
         self.assertIn("all/d/y.txt", self.show())
         self.assertEqual(self.world.run("item", "detach", self.item, "all").returncode, 0)
         self.assertNotIn("all/d", self.show())
-        self.assertTrue((self.world.ledger / "items" / self.item / "attachments" / f"{sha(b'x')}.txt").exists())
+        self.assertTrue((self.world.home("items", self.item) / "attachments" / f"{sha(b'x')}.txt").exists())
         self.assertEqual(self.world.run("check").returncode, 0)
 
     def test_unsafe_names_a_missing_source_and_an_oversize_file_are_refused_with_nothing_written(self) -> None:
@@ -113,7 +113,7 @@ class AttachmentsWalk(unittest.TestCase):
         limited = self.world.run("item", "attach", self.item, str(big), env={"QEW_ATTACH_MAX_BYTES": "1024"})
         self.assertRefused(limited)
         self.assertEqual([e for e in self.world.events(self.item) if e["type"] == "attached"], [])
-        self.assertFalse((self.world.ledger / "items" / self.item / "attachments").exists())
+        self.assertFalse((self.world.home("items", self.item) / "attachments").exists())
 
     def test_a_file_and_a_directory_cannot_share_a_name(self) -> None:
         """Prevents an unexportable tree: `a` as a file and `a/b` as a file cannot both exist."""
@@ -124,7 +124,7 @@ class AttachmentsWalk(unittest.TestCase):
         """Prevents silent damage: a deleted blob, flipped bytes or a body link to nothing fail qew check, naming it."""
         data = b"payload"
         self.attach(str(self.file("p.txt", data)), "--as", "p.txt")
-        blob = self.world.ledger / "items" / self.item / "attachments" / f"{sha(data)}.txt"
+        blob = self.world.home("items", self.item) / "attachments" / f"{sha(data)}.txt"
         blob.write_bytes(b"tampere")  # same length: only the hash can tell
         corrupt = self.world.run("check")
         self.assertEqual(corrupt.returncode, 1, corrupt.stdout)

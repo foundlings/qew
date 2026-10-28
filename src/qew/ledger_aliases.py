@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from qew import ledger_layout
 from qew.ledger_item import MAX_HEADER_BYTES, RULE, Item
 
 
@@ -30,10 +31,11 @@ class Aliases:
 ITEM_FILE = "item.md"  # the item file inside items/<ID>/; only the directory carries the id
 
 
-def item_of_path(relative: str) -> str | None:
-    """The item id of a ledger-relative path `items/<ID>/item.md`; None for any other path."""
+def item_of_path(relative: str, sharded: bool = False) -> str | None:
+    """The item id of a ledger-relative path `items/<ID>/item.md` (`items/<xx>/<ID>/item.md` when sharded); None for any other path."""
     parts = relative.split("/")
-    return parts[1] if len(parts) == 3 and parts[0] == "items" and parts[2] == ITEM_FILE else None
+    length = 4 if sharded else 3
+    return parts[length - 2] if len(parts) == length and parts[0] == "items" and parts[length - 1] == ITEM_FILE else None
 
 
 def _header_values(path: Path) -> dict[str, str]:
@@ -67,9 +69,9 @@ class _Index:
         self.aliased = {stem: found for stem, found in headers.items() if found}
         self.aliases = _build(self.aliased, headers)
 
-    def refresh(self, stamp: int, changed: set[str], items_dir: Path) -> None:
+    def refresh(self, stamp: int, changed: set[str], items_dir: Path, sharded: bool = False) -> None:
         for stem in changed:
-            found = _read(items_dir / stem / ITEM_FILE)
+            found = _read(ledger_layout.home(items_dir, stem, sharded) / ITEM_FILE)
             if found is None:
                 self.headers.pop(stem, None)
             else:
@@ -88,8 +90,12 @@ _changed: dict[str, set[str]] = {}  # item stems this process wrote or removed s
 
 def note_change(path: Path) -> None:
     """This process wrote or removed `path`: an item file is re-read on the next scan, not the whole directory."""
-    if path.name == ITEM_FILE and path.parent.parent.name == "items":
+    if path.name != ITEM_FILE:
+        return
+    if path.parent.parent.name == "items":
         _changed.setdefault(str(path.parent.parent), set()).add(path.parent.name)
+    elif path.parent.parent.parent.name == "items":  # sharded: items/<xx>/<ID>/item.md
+        _changed.setdefault(str(path.parent.parent.parent), set()).add(path.parent.name)
 
 
 def _read(path: Path) -> tuple[str, ...] | None:
@@ -115,12 +121,12 @@ def _aliases_in(stem: str, text: str) -> tuple[str, ...] | None:
     return tuple(header.get("aliases", "").split()) if header.get("id") == stem else None
 
 
-def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None) -> Aliases:
+def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, sharded: bool = False) -> Aliases:
     """The alias map. Headers are read once; later this process re-reads only the files it wrote, and a directory
     that changed behind its back (another process) is read again in full. `texts` gives every item file's text by
     directory name (the snapshot cache): the full build then reads no file."""
     try:
-        stamp = items_dir.stat().st_mtime_ns
+        stamp = ledger_layout.stamp(items_dir, sharded)
     except OSError:
         return Aliases({}, frozenset())
     key = str(items_dir)
@@ -134,13 +140,13 @@ def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None) 
                 if found is not None:
                     headers[stem] = found
         else:
-            for directory in sorted(p for p in items_dir.iterdir() if p.is_dir()):
+            for directory in ledger_layout.homes(items_dir, sharded):
                 found = _read(directory / ITEM_FILE)
                 if found is not None:
                     headers[directory.name] = found
         index = _indexes[key] = _Index(stamp, headers)
     elif changed:
-        index.refresh(stamp, changed, items_dir)
+        index.refresh(stamp, changed, items_dir, sharded)
     return index.aliases
 
 

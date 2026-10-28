@@ -59,7 +59,7 @@ class ReadCostWalk(unittest.TestCase):
 
     def test_a_crashed_writer_is_still_recovered_by_the_next_read(self) -> None:
         """Prevents lost work: a killed command leaves its marker, and the next read commits the files it left behind."""
-        event = next((self.world.ledger / "events" / self.item).glob("*.json"))
+        event = next((self.world.home("events", self.item)).glob("*.json"))
         stray = event.with_name("9999999zz.json")
         stray.write_text('{"type": "commented", "at": "2026-10-11T00:00:00Z", "actor": "tester", "text": "left behind"}\n')
         (self.world.ledger / ".qew").mkdir(exist_ok=True)
@@ -70,7 +70,7 @@ class ReadCostWalk(unittest.TestCase):
 
     def test_a_write_snapshots_the_working_copy_once_and_still_sweeps_strays(self) -> None:
         """Prevents ~3 s of repeated scans per write: only the commit snapshots; a stray file is swept from that same snapshot."""
-        stray = next((self.world.ledger / "events" / self.item).glob("*.json")).with_name("9999999zz.json")
+        stray = next((self.world.home("events", self.item)).glob("*.json")).with_name("9999999zz.json")
         stray.write_text('{"type": "commented", "at": "2026-10-11T00:00:00Z", "actor": "tester", "text": "left behind"}\n')
         self.read("create", "--title", "Another", "--quote", QUOTE)
         snapshotting = [c for c in self.calls() if "--ignore-working-copy" not in c]

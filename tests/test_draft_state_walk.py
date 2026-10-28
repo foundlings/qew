@@ -50,9 +50,9 @@ class DraftStateWalk(unittest.TestCase):
         """State comes from events only: a label, owner or forge-side record claiming approval changes nothing."""
         w = self.world
         draft = w.create("--title", "Draft", "--draft")
-        path = w.ledger / "items" / f"{draft}" / "item.md"
+        path = w.home("items", f"{draft}") / "item.md"
         path.write_text(path.read_text().replace("labels: \n", "labels: approved state-approved\n", 1))
-        mirrors = w.ledger / "mirrors" / draft
+        mirrors = w.home("mirrors", draft)
         mirrors.mkdir(parents=True)
         (mirrors / "forgejo-x.json").write_text(json.dumps({"forge": "forgejo", "url": "https://x/o/r", "kind": "issue", "number": 1, "state": "approved"}))
         row = listing(w)

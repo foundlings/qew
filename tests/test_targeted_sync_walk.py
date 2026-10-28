@@ -29,7 +29,7 @@ class TargetedSyncWalk(unittest.TestCase):
 
     def column_of(self, item: str) -> str:
         from json import loads
-        number = loads(next((self.world.ledger / "mirrors" / item).glob("*.json")).read_text())["number"]
+        number = loads(next((self.world.home("mirrors", item)).glob("*.json")).read_text())["number"]
         return self.forge.columns[number]
 
     def start_synced(self, *items: str) -> None:

@@ -13,7 +13,7 @@ from typing import cast
 from collections.abc import Iterable
 from urllib.parse import urlsplit
 
-from qew import __version__
+from qew import __version__, ledger_layout
 from qew.errors import QewError
 
 LEDGER_FILE = "qew-ledger.toml"
@@ -349,9 +349,9 @@ def _ledger_from_environment(start: Path | None) -> Path | None:
     return None
 
 
-SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7)  # this qew works on the latest layout only; `qew migrate-layout` moves any older one straight to 7
+SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)  # schema 4 to 8 work as declared; `qew migrate-layout` moves any older one (or a flat 4 to 7) to 8
 WORKABLE_SCHEMA = 4  # a schema 4 ledger works unchanged: 5 only adds the optional `fields` header key, which waits for the migration
-CURRENT_SCHEMA = 7  # items live at items/<ID>/item.md (3), completed items carry their proof in the header (4), items carry named fields (5), a git ledger has core.untrackedCache set (6), the forge-synced baselines are committed under baselines/ (7); 1 and 2 kept items/<ID>.md
+CURRENT_SCHEMA = 8  # events, items, mirrors and baselines live under a shard of the item id (8); items live at items/<ID>/item.md (3), completed items carry their proof in the header (4), items carry named fields (5), a git ledger has core.untrackedCache set (6), the forge-synced baselines are committed under baselines/ (7); 1 and 2 kept items/<ID>.md
 _old_layout_allowed = False
 
 
@@ -376,6 +376,11 @@ def ledger_schema(ledger: Path) -> int:
         raise QewError(f"{ledger / LEDGER_FILE}: {error}", 1) from None
     version = data.get("schema_version", 1)
     return version if type(version) is int else 1
+
+
+def is_sharded(ledger: Path) -> bool:
+    """Whether the ledger declares schema 8: item directories under a shard of the id (see ledger_layout)."""
+    return ledger_layout.is_sharded(ledger_schema(ledger))
 
 
 def _ledger_prefix(ledger: Path) -> str:

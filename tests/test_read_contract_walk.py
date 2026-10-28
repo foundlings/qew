@@ -62,7 +62,7 @@ class ContractWalk(unittest.TestCase):
     def test_every_read_refuses_a_corrupt_item_among_good_ones(self) -> None:
         """One bad file makes each read exit 1 with nothing on stdout and the file named; a repair restores it."""
         ids = [self.ready_item(f"Item {n}") for n in range(10)]
-        bad = self.world.ledger / "items" / f"{ids[4]}" / "item.md"
+        bad = self.world.home("items", f"{ids[4]}") / "item.md"
         good = bad.read_text()
         bad.write_text(good.replace("\n---\n", "\nstatus: done\n---\n", 1))
         for command in (*READS, ("show", ids[0])):
@@ -76,7 +76,7 @@ class ContractWalk(unittest.TestCase):
     def test_every_read_refuses_history_that_belongs_to_no_item(self) -> None:
         """An event directory for a missing item is never ignored."""
         self.ready_item("A")
-        orphan = self.world.ledger / "events" / "ghost"
+        orphan = self.world.home("events", "ghost")
         orphan.mkdir()
         (orphan / "0000000000.json").write_text('{"type":"drafted","at":"2026-01-01T00:00:00Z","actor":"x"}')
         for command in READS:
@@ -93,7 +93,7 @@ class ContractWalk(unittest.TestCase):
         self.world.run("start", need)
         self.ready_item("Free")
         talk = self.ready_item("Talk")
-        (self.world.ledger / "events" / talk / "Z000001.json").write_text(json.dumps(
+        (self.world.home("events", talk) / "Z000001.json").write_text(json.dumps(
             {"type": "commented", "at": "2026-10-03T12:00:00Z", "actor": "bob", "author": "bob", "text": "hi"}))
         self.world.create("--title", "Idea", "--body", "text", "--draft")
         ready = json.loads(self.world.run("ready", "--json").stdout)
@@ -148,7 +148,7 @@ class ReadyMatrixWalk(unittest.TestCase):
         closed_need = self.make("closed need")
         self.assertEqual(w.run("close", closed_need, "--reason", "not_planned").returncode, 0)
         dangling_source = self.make("dangling")
-        path = w.ledger / "items" / f"{dangling_source}" / "item.md"
+        path = w.home("items", f"{dangling_source}") / "item.md"
         path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
         held = [self.make(f"held by {n}", "--needs", need)
                 for n, need in enumerate((open_need, claimed_need, draft_need, closed_need))]

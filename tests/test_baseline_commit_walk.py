@@ -142,7 +142,7 @@ class BaselineCommitWalk(unittest.TestCase):
 
     def replace_baseline(self, world: World, item: str, stem: str, stamp: str) -> None:
         """What a machine's sync does to a baseline: delete the old file and add a new one that differs in one line."""
-        directory = world.ledger / "baselines" / item / self.slug
+        directory = world.home("baselines", item) / self.slug
         old = next(directory.glob("*.json"))
         data = json.loads(old.read_text())
         data["synced_at"] = stamp

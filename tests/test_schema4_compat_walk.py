@@ -50,7 +50,7 @@ class Schema4CompatWalk(unittest.TestCase):
         events = {item: self.world.events(item) for item in (self.item, other)}
         out = self.world.run("migrate-layout")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertIn("schema_version 4 -> 7", out.stdout)
+        self.assertIn("schema_version 4 -> 8", out.stdout)
         self.assertEqual({item: self.world.events(item) for item in (self.item, other)}, events)
         owners = {row["id"]: row.get("owner") for row in map(json.loads, self.world.run("list", "--json").stdout.splitlines())}
         self.assertEqual((owners[self.item], owners[other]), ("elf3", "elf5"))

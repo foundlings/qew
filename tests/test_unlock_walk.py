@@ -93,7 +93,7 @@ class UnlockWalk(unittest.TestCase):
         keep = self.git / "config.lockfile"
         keep.write_text("x", encoding="utf-8")
         age(keep, 3600)
-        outside = self.w.ledger / "items" / "foo.lock"
+        outside = self.w.home("items", "foo.lock")
         outside.parent.mkdir(exist_ok=True)
         outside.write_text("x", encoding="utf-8")
         age(outside, 3600)

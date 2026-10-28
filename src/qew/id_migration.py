@@ -153,8 +153,8 @@ def _directories(root: Path) -> list[Path]:
 
 def _move_event_files(ledger: Ledger, mapping: dict[str, str], apply: bool) -> int:
     count = 0
-    for directory in _directories(ledger.events_dir):
-        home = ledger.events_dir / mapping.get(directory.name, directory.name)
+    for directory in ledger.homes_in(ledger.events_dir):
+        home = ledger.home(ledger.events_dir, mapping.get(directory.name, directory.name))
         for path in sorted(directory.glob("*.json")):
             text = path.read_text(encoding="utf-8")
             fixed = _rewrite_event(text, mapping)
@@ -177,8 +177,8 @@ def _move_event_files(ledger: Ledger, mapping: dict[str, str], apply: bool) -> i
 def _move_mirror_files(ledger: Ledger, mapping: dict[str, str], apply: bool) -> int:
     """Mirror files follow their item; a pull request mirror's `items` list names current ids. Forge numbers never change."""
     count = 0
-    for directory in _directories(ledger.mirrors_dir):
-        home = ledger.mirrors_dir / mapping.get(directory.name, directory.name)
+    for directory in ledger.homes_in(ledger.mirrors_dir):
+        home = ledger.home(ledger.mirrors_dir, mapping.get(directory.name, directory.name))
         for path in sorted(directory.glob("*.json")):
             text = path.read_text(encoding="utf-8")
             fixed = _rewrite_mirror(text, mapping)

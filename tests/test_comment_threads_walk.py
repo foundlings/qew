@@ -108,7 +108,7 @@ class CommentThreadsWalk(unittest.TestCase):
         (source / "plan.md").write_bytes(b"plan")
         self.assertEqual(self.world.run("item", "attach", self.item, str(source / "plan.md"), "--as", "docs/plan.md").returncode, 0)
         self.assertEqual(self.world.run("check").returncode, 0, self.world.run("check").stdout)
-        directory = self.world.ledger / "events" / self.item
+        directory = self.world.home("events", self.item)
         from qew.ledger_ids import event_id
         newest = sorted(directory.glob("*.json"))[-1].stem
         stray = event_id(newest)

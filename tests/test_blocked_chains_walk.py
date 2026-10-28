@@ -63,7 +63,7 @@ class BlockedChainsWalk(unittest.TestCase):
             item("P"),
         )
         self.assertEqual(w.run("close", "X", "--reason", "not_planned").returncode, 0)
-        path = w.ledger / "items" / "P" / "item.md"
+        path = w.home("items", "P") / "item.md"
         path.write_text(re.sub(r"(?m)^needs:.*$", "needs: GONE", path.read_text()))
         result = w.run("blocked", "--chains")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -78,7 +78,7 @@ class BlockedChainsWalk(unittest.TestCase):
         """Two items needing each other have no root blocker; say so rather than loop or guess one."""
         w = self.world
         load(w, item("P"), item("Q", ["P"]))
-        path = w.ledger / "items" / "P" / "item.md"
+        path = w.home("items", "P") / "item.md"
         path.write_text(re.sub(r"(?m)^needs:.*$", "needs: Q", path.read_text()))
         result = w.run("blocked", "--chains")
         self.assertEqual(result.returncode, 1, result.stdout)

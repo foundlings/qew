@@ -23,7 +23,7 @@ class StrictEvidenceWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def header(self, item: str) -> dict:
-        text = (self.world.ledger / "items" / item / "item.md").read_text(encoding="utf-8")
+        text = (self.world.home("items", item) / "item.md").read_text(encoding="utf-8")
         return dict(line.split(": ", 1) for line in text.split("\n---\n")[0].splitlines() if ": " in line)
 
     def test_a_completed_item_lists_every_cited_change_in_its_header(self) -> None:
@@ -85,7 +85,7 @@ class StrictEvidenceWalk(unittest.TestCase):
         w = self.world
         item = started(w)
         self.assertEqual(w.run("complete", item, "--no-commit", "docs only").returncode, 0)
-        path = w.ledger / "items" / item / "item.md"
+        path = w.home("items", item) / "item.md"
         path.write_text("\n".join(l for l in path.read_text().split("\n") if not l.startswith("evidence_absent")), encoding="utf-8")
         broken = w.run("check")
         self.assertEqual(broken.returncode, 1, broken.stdout + broken.stderr)

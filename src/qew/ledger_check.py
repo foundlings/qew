@@ -251,10 +251,23 @@ def _check_attachments(snapshot: Snapshot, problems: list[str], deep: bool) -> N
                 problems.append(f"items/{item_id}/item.md: the body links attachment:{name}, which is not attached")
 
 
+def _check_layout(ledger: Ledger, problems: list[str]) -> None:
+    """In a sharded ledger only shards sit directly under items, events, mirrors and baselines; an item directory there is in the
+    wrong place (written by an older qew, or by hand) and no read would find it."""
+    if not ledger.sharded:
+        return
+    for directory in (ledger.events_dir, ledger.mirrors_dir, ledger.items_dir, ledger.baselines_dir):
+        if directory.is_dir():
+            problems.extend(f"{directory.name}/{child.name}: not a shard directory; this ledger keeps item directories at "
+                            f"{directory.name}/<last two characters of the id>/<id>/ (run qew migrate-layout)"
+                            for child in sorted(directory.iterdir()) if child.is_dir() and len(child.name) > 2)
+
+
 def _check_orphans(ledger: Ledger, items: dict[str, Item], aliases: ledger_aliases.Aliases, problems: list[str]) -> None:
+    _check_layout(ledger, problems)
     for directory in (ledger.events_dir, ledger.mirrors_dir, ledger.items_dir):
         if directory.is_dir():
-            for child in sorted(directory.iterdir()):
+            for child in ledger.homes_in(directory):
                 if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items and (directory != ledger.items_dir or any(child.iterdir())):  # an empty item directory is a harmless leftover
                     problems.append(f"{directory.name}/{child.name}: belongs to no item")
 
@@ -391,7 +404,7 @@ def _check_mirror_progress(snapshot: Snapshot, problems: list[str]) -> None:
 def _check_mirrors(ledger: Ledger, items: dict[str, Item], problems: list[str]) -> None:
     if not ledger.mirrors_dir.is_dir():
         return
-    for path in sorted(ledger.mirrors_dir.glob("*/*.json")):
+    for path in sorted(ledger.mirrors_dir.glob("*/*/*.json" if ledger.sharded else "*/*.json")):
         where = f"mirrors/{path.parent.name}/{path.name}"
         try:
             value = json.loads(path.read_text(encoding="utf-8"))

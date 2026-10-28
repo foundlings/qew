@@ -46,7 +46,7 @@ class BigAttachmentJjWalk(unittest.TestCase):
 
     def test_a_file_jj_already_refused_is_committed_by_the_next_write(self) -> None:
         """Prevents a stranded file staying stranded: the recovery of the next write snapshots it with the raised limit."""
-        stray = self.world.ledger / "items" / self.item / "attachments" / "stray.bin"
+        stray = self.world.home("items", self.item) / "attachments" / "stray.bin"
         stray.parent.mkdir(parents=True, exist_ok=True)
         stray.write_bytes(os.urandom(THREE_MIB))
         self.assertIn("Refused to snapshot", subprocess.run(["jj", "st"], cwd=self.world.ledger, capture_output=True, text=True).stderr)
@@ -64,7 +64,7 @@ class UncommittedAttachmentWalk(unittest.TestCase):
         source.write_text("hello\n")
         self.assertEqual(world.run("item", "attach", item, str(source)).returncode, 0)
         self.assertEqual(world.run("check").returncode, 0)
-        blob = next(p for p in (world.ledger / "items" / item / "attachments").iterdir())
+        blob = next(p for p in (world.home("items", item) / "attachments").iterdir())
         git(world.ledger, "rm", "-q", "--cached", str(blob.relative_to(world.ledger)))
         git(world.ledger, "commit", "-q", "-m", "lose the blob")
         result = world.run("check")

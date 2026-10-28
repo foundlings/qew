@@ -17,7 +17,7 @@ class StaleClaimWalk(unittest.TestCase):
         self.addCleanup(self.world.close)
 
     def record(self, item: str, number: int, **fields) -> None:
-        directory = self.world.ledger / "mirrors" / item
+        directory = self.world.home("mirrors", item)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / f"forgejo-x-o-r-pr-{number}.json").write_text(json.dumps(
             {"forge": "forgejo", "url": "https://x/o/r", "kind": "pr", "number": number, **fields}))

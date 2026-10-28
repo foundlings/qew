@@ -101,7 +101,7 @@ class PlanStatusWalk(unittest.TestCase):
         """A ready state guessed from partial data is worse than an error."""
         w, epic = self.world, self.plan()
         child = self.child(epic, "Child")
-        path = w.ledger / "items" / f"{child}" / "item.md"
+        path = w.home("items", f"{child}") / "item.md"
         path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
         result = w.run("plan", "status", epic)
         self.assertNotEqual(result.returncode, 0)

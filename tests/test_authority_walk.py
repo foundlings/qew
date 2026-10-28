@@ -19,7 +19,7 @@ QUIET = "\n[replication]\nauto_forge_sync = false\n"
 
 def write_event(world: World, item: str, name: str, **data) -> None:
     body = {"at": "2026-01-01T00:00:00Z", "actor": "x", **data}
-    (world.ledger / "events" / item / f"{name}.json").write_text(json.dumps(body))
+    (world.home("events", item) / f"{name}.json").write_text(json.dumps(body))
 
 
 class AuthorityConfigWalk(unittest.TestCase):
@@ -66,7 +66,7 @@ class ClaimEventsWalk(unittest.TestCase):
         w = self.world
         w.run("start", self.item)
         claimed = w.events(self.item)[-1]
-        claim_id = sorted((w.ledger / "events" / self.item).glob("*.json"))[-1].stem
+        claim_id = sorted((w.home("events", self.item)).glob("*.json"))[-1].stem
         w.run("release", self.item, "--reason", "handover")
         write_event(w, self.item, "ZZZZZZZZA", type="claimed", owner="loser")
         write_event(w, self.item, "ZZZZZZZZB", type="claim_lost", ref="ZZZZZZZZA", winner="tester")
@@ -79,7 +79,7 @@ class ClaimEventsWalk(unittest.TestCase):
         """Prevents confirmation events hiding the owner."""
         w = self.world
         w.run("start", self.item)
-        claim = sorted((w.ledger / "events" / self.item).glob("*.json"))[-1].stem
+        claim = sorted((w.home("events", self.item)).glob("*.json"))[-1].stem
         write_event(w, self.item, "ZZZZZZZZC", type="claim_confirmed", ref=claim)
         self.assertIn("state: claimed", w.run("show", self.item).stdout)
         self.assertEqual(w.run("check").returncode, 0)

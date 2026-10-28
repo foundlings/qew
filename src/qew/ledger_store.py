@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 from collections.abc import Callable, Iterable, Mapping
 
-from qew import attachments, evidence_header, ledger_aliases, snapshot_cache, snapshot_reuse, trace
+from qew import attachments, evidence_header, ledger_aliases, ledger_layout, snapshot_cache, snapshot_reuse, trace
 from qew.errors import NotFound, QewError
 from qew.mirror_types import MirrorRecord
 from qew.ledger_aliases import ITEM_FILE
@@ -104,19 +104,31 @@ class Ledger:
     def mirrors_dir(self) -> Path:
         return self.path / "mirrors"
 
+    @property
+    def sharded(self) -> bool:
+        """Schema 8 keeps each item's directories under a shard of its id (see ledger_layout)."""
+        return ledger_layout.is_sharded(self.schema)
+
+    def home(self, root: Path, name: str) -> Path:
+        """The directory of one item (or of an id it had) under `items`, `events`, `mirrors` or `baselines`."""
+        return ledger_layout.home(root, name, self.sharded)
+
+    def homes_in(self, root: Path) -> list[Path]:
+        return ledger_layout.homes(root, self.sharded)
+
     # -- reading
     def item_ids(self) -> list[str]:
         if not self.items_dir.is_dir():
             return []
         stale = self.aliases().superseded
-        return sorted(path.name for path in self.items_dir.iterdir() if (path / ITEM_FILE).is_file() and path.name not in stale)
+        return sorted(path.name for path in self.homes_in(self.items_dir) if (path / ITEM_FILE).is_file() and path.name not in stale)
 
     def item_path(self, item_id: str) -> Path:
         """The item file: `items/<ID>/item.md`; the id is only in the directory name."""
-        return self.items_dir / item_id / ITEM_FILE
+        return self.home(self.items_dir, item_id) / ITEM_FILE
 
     def attachments_dir(self, item_id: str) -> Path:
-        return self.items_dir / item_id / attachments.DIRECTORY
+        return self.home(self.items_dir, item_id) / attachments.DIRECTORY
 
     def find_blob(self, item_id: str, blob: str) -> Path | None:
         """The stored file of an attachment, under the item's id or any id it had before a migration."""
@@ -148,14 +160,14 @@ class Ledger:
 
     def aliases(self) -> ledger_aliases.Aliases:
         cache = snapshot_cache.for_ledger(self.path)
-        return ledger_aliases.scan(self.items_dir, (lambda: cache.items(self.items_dir, self._raw_item)) if cache is not None else None)
+        return ledger_aliases.scan(self.items_dir, (lambda: cache.items(self.items_dir, self._raw_item, sharded=self.sharded)) if cache is not None else None, self.sharded)
 
     def events_homes(self, item_id: str) -> list[Path]:
         return self._homes(self.events_dir, item_id)
 
     def _homes(self, root: Path, item_id: str) -> list[Path]:
         """The directories that may hold this item's files: under its id, and under any id it had before a migration."""
-        return [root / name for name in (item_id, *self.aliases().of(item_id))]
+        return [self.home(root, name) for name in (item_id, *self.aliases().of(item_id))]
 
     def load_item(self, item_id: str) -> Item:
         path = self.item_path(item_id)
@@ -169,7 +181,7 @@ class Ledger:
         return item
 
     def _raw_item(self, name: str) -> str:
-        path = self.items_dir / name / ITEM_FILE
+        path = self.item_path(name)
         try:
             return raw_item_text(path)
         except (OSError, UnicodeError) as error:
@@ -191,18 +203,19 @@ class Ledger:
         seen = set()
         prefix = str(self.events_dir)  # strings, not pathlib: this runs once per event (142,000 on foundlings)
         for home in homes:
+            where = f"{prefix}/{ledger_layout.shard(home)}/{home}" if self.sharded else f"{prefix}/{home}"
             for name, text in rows.get(home, []):
                 if name in seen:
                     continue  # a migration copied it under the new id before removing the old file
                 seen.add(name)
                 if isinstance(text, snapshot_cache.Unreadable):
                     raise QewError(str(text), 1)
-                events.append(parse_event_trusted(name, text) if home in trusted else parse_event(name, text, f"{prefix}/{home}/{name}.json"))
+                events.append(parse_event_trusted(name, text) if home in trusted else parse_event(name, text, f"{where}/{name}.json"))
         return sorted(events, key=lambda event: event.id)
 
     def load_events(self, item_id: str) -> list[Event]:
         homes = [item_id, *self.aliases().of(item_id)]
-        return self._events_of(item_id, homes, {home: self._event_rows(self.events_dir / home) for home in homes})
+        return self._events_of(item_id, homes, {home: self._event_rows(self.home(self.events_dir, home)) for home in homes})
 
     def load_mirrors(self, item_id: str) -> list[MirrorRecord]:
         """Mirror records: the committed identity merged with the item's committed baseline."""
@@ -245,13 +258,13 @@ class Ledger:
         if cache is None:
             files = self.baseline_files(item_id, target)
             return None if not files else (files[-1].stem, _baseline_text(files[-1]))
-        found = [one for one in (cache.baseline(self.baselines_dir, home, target, _newest_baseline_file) for home in homes) if one is not None]
+        found = [one for one in (cache.baseline(lambda name: self.home(self.baselines_dir, name), home, target, _newest_baseline_file) for home in homes) if one is not None]
         return max(found, key=lambda one: one[0]) if found else None
 
     def read_state(self, item_id: str, target: str) -> JsonObject:
         newest = self._newest_baseline(item_id, target)
         if newest is not None:
-            return _baseline_object(newest[1], f"{self.baselines_dir / item_id / target / newest[0]}.json")
+            return _baseline_object(newest[1], f"{self.home(self.baselines_dir, item_id) / target / newest[0]}.json")
         path = next((p for p in (self.state_path(name, target) for name in (item_id, *self.aliases().of(item_id))) if p.is_file()), None)
         if path is None:
             return {}
@@ -266,7 +279,7 @@ class Ledger:
         Returns how many were written; an item with a baseline is left alone."""
         count = 0
         for item_id in self.item_ids():
-            if self._newest_baseline(item_id, target) is not None or not (self.mirrors_dir / item_id / f"{target}.json").is_file():
+            if self._newest_baseline(item_id, target) is not None or not (self.home(self.mirrors_dir, item_id) / f"{target}.json").is_file():
                 continue
             state = self.read_state(item_id, target)
             if state:
@@ -282,7 +295,7 @@ class Ledger:
             if {k: v for k, v in current.items() if k != "synced_at"} == {k: v for k, v in state.items() if k != "synced_at"}:
                 return
         text = json.dumps(state, sort_keys=True, indent=2) + "\n"
-        directory = self.baselines_dir / item_id / target
+        directory = self.home(self.baselines_dir, item_id) / target
         if newest is not None and directory / f"{newest[0]}.json" in _MINTED:
             _write(directory / f"{newest[0]}.json", text, exclusive=False)  # this session's own file: rewrite it rather than mint another
             return
@@ -299,20 +312,20 @@ class Ledger:
         changed are read. `verify` reads them all, counts what the cache had wrong and repairs it (`qew check`)."""
         cache = snapshot_cache.for_ledger(self.path)
         if cache is not None:
-            texts = cache.items(self.items_dir, self._raw_item, verify)
+            texts = cache.items(self.items_dir, self._raw_item, verify, self.sharded)
         else:
-            names = sorted(entry.name for entry in os.scandir(self.items_dir) if (Path(entry.path) / ITEM_FILE).is_file()) if self.items_dir.is_dir() else []
+            names = sorted(path.name for path in self.homes_in(self.items_dir) if (path / ITEM_FILE).is_file())
             texts = dict(zip(names, _parallel(self._raw_item, names), strict=True))
-        aliases = ledger_aliases.scan(self.items_dir, lambda: texts)
+        aliases = ledger_aliases.scan(self.items_dir, lambda: texts, self.sharded)
         ids = sorted(name for name in texts if name not in aliases.superseded)
         homes = {item_id: [item_id, *aliases.of(item_id)] for item_id in ids}
         wanted = {home for each in homes.values() for home in each}
         if cache is not None:
-            rows, trusted = cache.events(self.events_dir, wanted, self._event_rows, verify)
+            rows, trusted = cache.events(lambda name: self.home(self.events_dir, name), wanted, self._event_rows, verify)
         else:
             trusted = frozenset()
             listed = sorted(wanted)
-            rows = dict(zip(listed, _parallel(lambda home: self._event_rows(self.events_dir / home), listed), strict=True))
+            rows = dict(zip(listed, _parallel(lambda home: self._event_rows(self.home(self.events_dir, home)), listed), strict=True))
         return Files(ids, texts, aliases, homes, rows, trusted)
 
     def snapshot(self, verify: bool = False) -> Snapshot:
@@ -326,9 +339,9 @@ class Ledger:
         held[key] = (built, len(JOURNAL))
         return built
 
-    def _refreshed(self, earlier: Snapshot, entries: list[tuple[Path, str | None]]) -> Snapshot | None:
+    def _refreshed(self, earlier: Snapshot, entries: Entries) -> Snapshot | None:
         """`earlier` with the items the journal `entries` wrote read again; None when only a full build can be trusted."""
-        ids = snapshot_reuse.touched(self.path, entries)
+        ids = snapshot_reuse.touched(self.path, entries, self.sharded)
         if ids is None:
             return None
         if not ids:
@@ -345,7 +358,7 @@ class Ledger:
             raw = parse_item(clean_item_text(text, where), where)
             if raw.id != item_id:
                 return None
-            events[item_id] = self._events_of(item_id, [item_id], {item_id: self._event_rows(self.events_dir / item_id)})
+            events[item_id] = self._events_of(item_id, [item_id], {item_id: self._event_rows(self.home(self.events_dir, item_id))})
             items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events[item_id])), aliases)
             folds[item_id] = fold(events[item_id])
         return Snapshot(self, items, folds, events)
@@ -407,7 +420,7 @@ class Ledger:
         _write(path, render_item(item), exclusive=not overwrite)
 
     def append_event(self, item_id: str, event_type: str, at: str = "", by: str = "", **data: Any) -> Event:
-        directory = self.events_dir / item_id
+        directory = self.home(self.events_dir, item_id)
         directory.mkdir(parents=True, exist_ok=True)
         existing = sorted(path.stem for path in directory.glob("*.json"))
         event = Event(event_id(existing[-1] if existing else ""), event_type, at or now(), by or actor(), dict(data))
@@ -423,7 +436,7 @@ class Ledger:
         """Identity keys go to the committed mirror file (written once); everything else is the item's committed baseline."""
         identity = {k: v for k, v in value.items() if k in MIRROR_IDENTITY}
         volatile = {k: v for k, v in value.items() if k not in MIRROR_IDENTITY and k != "_target"}
-        directory = self.mirrors_dir / item_id
+        directory = self.home(self.mirrors_dir, item_id)
         path = directory / f"{target}.json"
         current = {}
         if path.is_file():
@@ -534,7 +547,7 @@ class Ledger:
 
     def remove_mirror(self, item_id: str, target: str) -> None:
         """Forget one mirror file (journaled like every write, so the session commits the deletion)."""
-        discard(self.mirrors_dir / item_id / f"{target}.json")
+        discard(self.home(self.mirrors_dir, item_id) / f"{target}.json")
         for older in self.baseline_files(item_id, target):
             discard(older)
         self.state_path(item_id, target).unlink(missing_ok=True)
@@ -612,7 +625,17 @@ def pulled_on_miss() -> bool:
     return MISS_HOOK is not None and MISS_HOOK()
 
 
-JOURNAL: list[tuple[Path, str | None]] | None = None  # (path, previous text or None) while a session records
+@dataclass(frozen=True)
+class Moved:
+    """The `previous` of a journal entry for a file a write moved here: rolling back moves it to where it was."""
+
+    original: Path
+
+
+type Previous = str | Moved | None
+type Entries = list[tuple[Path, Previous]]
+
+JOURNAL: Entries | None = None  # (path, previous text, or where it was moved from, or None for a new file) while a session records
 
 
 def journal_start() -> None:
@@ -620,16 +643,19 @@ def journal_start() -> None:
     JOURNAL = []
 
 
-def journal_take() -> list[tuple[Path, str | None]]:
+def journal_take() -> Entries:
     global JOURNAL
     taken, JOURNAL = JOURNAL or [], None
     return taken
 
 
-def journal_rollback(entries: list[tuple[Path, str | None]]) -> None:
-    """Undo recorded writes, newest first: restore previous text or delete a new file."""
+def journal_rollback(entries: Entries) -> None:
+    """Undo recorded writes, newest first: restore previous text, move a moved file back, or delete a new file."""
     for path, previous in reversed(entries):
-        if previous is None:
+        if isinstance(previous, Moved):
+            previous.original.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(path, previous.original)
+        elif previous is None:
             path.unlink(missing_ok=True)
             if path.parent.parent.name in ("events", "mirrors", "items"):  # the per-item directory the write created
                 try:
@@ -646,6 +672,15 @@ def journal_rollback(entries: list[tuple[Path, str | None]]) -> None:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(previous, encoding="utf-8")
         ledger_aliases.note_change(path)
+
+
+def moved(source: Path, target: Path) -> None:
+    """Record that the ledger file `source` was moved to `target` (the caller moved it): the session commits both paths and a
+    failed command moves it back."""
+    if JOURNAL is not None:
+        JOURNAL.append((target, Moved(source)))
+    ledger_aliases.note_change(source)
+    ledger_aliases.note_change(target)
 
 
 def discard(path: Path) -> None:

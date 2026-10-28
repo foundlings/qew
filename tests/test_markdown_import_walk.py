@@ -46,7 +46,7 @@ class MarkdownImportWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["A draft Child A", "B draft Task B", "Z draft Epic Z"])
         for item_id in ("A", "B", "Z"):
-            self.assertEqual(read(w.ledger / "items" / f"{item_id}" / "item.md"), read(self.source.ledger / "items" / f"{item_id}" / "item.md"))
+            self.assertEqual(read(w.home("items", f"{item_id}") / "item.md"), read(self.source.home("items", f"{item_id}") / "item.md"))
             self.assertEqual([e["type"] for e in w.events(item_id)], ["drafted"])
         self.assertEqual(w.run("ready").stdout, "")
         self.assertEqual(w.run("check").returncode, 0)
@@ -64,12 +64,12 @@ class MarkdownImportWalk(unittest.TestCase):
         """B already exists here: A and Z must not be written either, and B must stay untouched."""
         w = self.target
         load(w, spec("B", "Mine"))
-        before = read(w.ledger / "items" / "B" / "item.md")
+        before = read(w.home("items", "B") / "item.md")
         result = w.run("import", str(self.tree))
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("B already exists", result.stderr)
         self.assertEqual(written(w), ["B"])
-        self.assertEqual(read(w.ledger / "items" / "B" / "item.md"), before)
+        self.assertEqual(read(w.home("items", "B") / "item.md"), before)
 
     def test_a_malformed_tree_is_refused_whole_and_names_the_file(self) -> None:
         """Each broken shape stops the import before any item is written, and the message cites the culprit."""

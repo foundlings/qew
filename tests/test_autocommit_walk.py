@@ -79,7 +79,7 @@ class AutoCommitWalk(unittest.TestCase):
         """Prevents a crash between write and commit leaving files that no command ever commits."""
         w = self.world
         item = w.create("--title", "Crash victim", "--draft")
-        orphan = w.ledger / "events" / item / "ZZZZZZZZZ.json"
+        orphan = w.home("events", item) / "ZZZZZZZZZ.json"
         orphan.write_text('{"type": "field", "key": "title", "old": "a", "new": "b", "at": "2026-01-01T00:00:00Z", "actor": "x"}\n')
         w.create("--title", "Next", "--draft")
         self.assertTrue(any("qew: recover 1 files" in subject for subject in self.subjects()[:2]), self.subjects())  # before the write's commit on git, swept after it on jj

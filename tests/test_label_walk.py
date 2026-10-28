@@ -65,7 +65,7 @@ class LabelWalk(unittest.TestCase):
     def test_check_flags_a_reserved_label_found_in_a_file(self) -> None:
         """A merge or hand edit can put a reserved label in a file; check must flag it."""
         item = self.world.create("--title", "T", "--label", "ok", "--draft")
-        path = self.world.ledger / "items" / f"{item}" / "item.md"
+        path = self.world.home("items", f"{item}") / "item.md"
         path.write_text(path.read_text().replace("labels: ok", "labels: ok qew:approved"))
         result = self.world.run("check")
         self.assertEqual(result.returncode, 1, result.stdout)

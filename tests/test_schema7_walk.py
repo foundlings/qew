@@ -28,15 +28,15 @@ class SchemaSevenWalk(unittest.TestCase):
         world = self.ledger(6)
         self.assertEqual(world.run("list").returncode, 0)
         preview = world.run("migrate-layout", "--dry-run")
-        self.assertIn("schema_version 6 -> 7", preview.stdout)
+        self.assertIn("schema_version 6 -> 8", preview.stdout)
         done = world.run("migrate-layout")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        self.assertIn("schema_version = 7", (world.ledger / "qew-ledger.toml").read_text())
-        self.assertIn("already schema_version 7", world.run("migrate-layout").stdout)
+        self.assertIn("schema_version = 8", (world.ledger / "qew-ledger.toml").read_text())
+        self.assertIn("already schema_version 8", world.run("migrate-layout").stdout)
 
     def test_a_ledger_newer_than_this_qew_is_refused_naming_the_upgrade(self) -> None:
-        """Prevents an older qew working on a layout it does not know: schema 8 is refused, and the message says to upgrade."""
-        world = self.ledger(8)
+        """Prevents an older qew working on a layout it does not know: schema 9 is refused, and the message says to upgrade."""
+        world = self.ledger(9)
         result = world.run("list")
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("upgrade qew", result.stderr)

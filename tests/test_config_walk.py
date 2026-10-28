@@ -60,7 +60,7 @@ class ConfigWalk(unittest.TestCase):
         """A newer ledger must not be misread; an absent schema_version is version 1, whose layout needs migrating."""
         w = self.world("")
         meta = w.ledger / "qew-ledger.toml"
-        meta.write_text('name = "test"\nschema_version = 8\n')
+        meta.write_text('name = "test"\nschema_version = 9\n')
         result = w.run("ready")
         self.assertEqual(result.returncode, 2, result.stdout)
         self.assertIn("schema_version", result.stderr)

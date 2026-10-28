@@ -60,7 +60,7 @@ class CommentWalk(unittest.TestCase):
 
     def test_check_refuses_a_comment_event_without_text(self) -> None:
         """A hand-merged commented event with no text is a ledger error, not an empty comment."""
-        event = self.world.ledger / "events" / self.item / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json"
+        event = self.world.home("events", self.item) / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json"
         event.write_text(json.dumps({"type": "commented", "at": "2026-01-01T00:00:00Z", "actor": "x", "author": "x"}))
         result = self.world.run("check")
         self.assertEqual(result.returncode, 1)

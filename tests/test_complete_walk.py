@@ -19,7 +19,7 @@ BOB = {"QEW_ACTOR": "bob"}
 
 def mirror(world: World, item: str, name: str, **fields) -> None:
     """A recorded mirror file, the way `qew pr open` leaves one."""
-    directory = world.ledger / "mirrors" / item
+    directory = world.home("mirrors", item)
     directory.mkdir(parents=True, exist_ok=True)
     body = {"forge": "github", "url": "https://github.com/o/r", "kind": "pr", **fields}
     (directory / f"{name}.json").write_text(json.dumps(body), encoding="utf-8")
@@ -78,7 +78,7 @@ class CompletionRecordWalk(unittest.TestCase):
             self.assertEqual(result.returncode, 2, (arguments, result.stderr))
         self.assertEqual(tree(w), before)
         hostile = started(w, title="Hostile")
-        directory = w.ledger / "events" / hostile
+        directory = w.home("events", hostile)
         newest = sorted(path.stem for path in directory.glob("*.json"))[-1]
         (directory / f"{newest}z.json").write_text(json.dumps(
             {"type": "evidence", "at": "2026-01-01T00:00:00Z", "actor": "x", "vcs": "git", "repo": "r",
@@ -139,7 +139,7 @@ class UnresolvableProofWalk(unittest.TestCase):
         w = self.world
         item = started(w)
         proven(w, item)
-        directory = w.ledger / "mirrors" / item
+        directory = w.home("mirrors", item)
         directory.mkdir(parents=True)
         (directory / "github-github.com-o-r-pr-3.json").write_text("{not json")
         before = tree(w)

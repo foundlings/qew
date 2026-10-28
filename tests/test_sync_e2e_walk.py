@@ -35,7 +35,7 @@ class SyncE2eWalk(unittest.TestCase):
         first = self.sync()
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         self.assertEqual(len(self.fake.issues), 1)
-        self.assertEqual(len(list((w.ledger / "mirrors" / item).glob("*.json"))), 1)
+        self.assertEqual(len(list((w.home("mirrors", item)).glob("*.json"))), 1)
         self.assertEqual(self.sync().returncode, 0)
         self.assertEqual(len(self.fake.issues), 1)
         w.run("set", item, "--title", "Ship it now")

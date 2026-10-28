@@ -85,7 +85,7 @@ class RefusalWalk(MergeBase):
         self.nothing_merged()
 
     def test_an_unconfigured_target_is_one_line_not_a_traceback(self) -> None:
-        path = next((self.w.world.ledger / "mirrors" / self.item).glob("*-pr-1.json"))
+        path = next((self.w.world.home("mirrors", self.item)).glob("*-pr-1.json"))
         path.rename(path.with_name("forgejo-gone.example-o-r-pr-1.json"))
         run = self.merge()
         self.assertEqual(run.code, 2)

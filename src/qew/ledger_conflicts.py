@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from qew.ledger_aliases import item_of_path
-from qew import ledger_item
+from qew import ledger_config, ledger_item
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
@@ -105,12 +105,12 @@ def _clip(text: str | None) -> str:
     return "(absent)" if text is None else text[:SHOWN_CHARS]
 
 
-def _differences(repo: LedgerRepo, pending: MergeConflict) -> tuple[Difference, ...]:
+def _differences(repo: LedgerRepo, pending: MergeConflict, sharded: bool = False) -> tuple[Difference, ...]:
     found: list[Difference] = []
     for relative in pending.files:
         ours, theirs = repo.file_at(pending.ours, relative), repo.file_at(pending.theirs, relative)
         try:
-            if ours is None or theirs is None or item_of_path(relative) is None:
+            if ours is None or theirs is None or item_of_path(relative, sharded) is None:
                 raise QewError("not an item file", 1)
             left, right = ledger_item.parse_item(ours, relative), ledger_item.parse_item(theirs, relative)
         except QewError:
@@ -129,9 +129,10 @@ def merge_conflict(config: Config) -> Conflict | None:
     if pending is None:
         return None
     owned = all(relative.split("/")[0] in OWNED for relative in pending.files)
-    item = next((owner for owner in map(item_of_path, pending.files) if owner), "")
+    sharded = ledger_config.is_sharded(config.ledger_path)
+    item = next((owner for owner in (item_of_path(relative, sharded) for relative in pending.files) if owner), "")
     return Conflict(ConflictKind.LEDGER_MERGE, LEDGER_REFERENCE, item, "ledger", "files", "", "", tuple(pending.files),
-                    _differences(repo, pending), owned)
+                    _differences(repo, pending, sharded), owned)
 
 
 def collect(config: Config, snapshot: Snapshot) -> list[Conflict]:

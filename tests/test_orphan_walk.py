@@ -126,7 +126,7 @@ class OrphanOnOtherForgesWalk(unittest.TestCase):
         env = {"FORGEJO_TOKEN": FORGEJO_TOKEN}
         item = w.create("--title", "Orphaned", "--quote", QUOTE)
         self.assertEqual(w.run("sync", "--item", item, env=env).returncode, 0)
-        mirror = next((w.ledger / "mirrors" / item).glob("*.json"))
+        mirror = next((w.home("mirrors", item)).glob("*.json"))
         mirror.unlink()
         for path in baseline_files(w.ledger, item):
             path.unlink()

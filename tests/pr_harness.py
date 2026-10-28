@@ -4,6 +4,7 @@ import contextlib
 import io
 import os
 import sys
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
@@ -65,8 +66,11 @@ class PrWorld:
     def events(self, item_id: str) -> list:
         return self.world.events(item_id)
 
+    def home(self, kind: str, item_id: str) -> "Path":
+        return self.world.home(kind, item_id)
+
     def mirror_files(self, item_id: str) -> list[str]:
-        directory = self.world.ledger / "mirrors" / item_id
+        directory = self.world.home("mirrors", item_id)
         return sorted(p.name for p in directory.glob("*-pr-*.json")) if directory.is_dir() else []
 
     # -- running -----------------------------------------------------------------

@@ -105,7 +105,7 @@ class GraphFormatWalk(unittest.TestCase):
         """A hand-merged ledger with a missing need still renders, so the break is visible in the picture."""
         w = self.world
         load(w, spec("A"))
-        path = w.ledger / "items" / "A" / "item.md"
+        path = w.home("items", "A") / "item.md"
         path.write_text(re.sub(r"(?m)^needs:.*$", "needs: GONE", path.read_text()))
         self.assertEqual(self.graph().splitlines(), ["A -> GONE"])
         self.assertIn('"GONE" [label="GONE"', self.graph("--format", "dot"))

@@ -35,7 +35,7 @@ class InboxBase(unittest.TestCase):
 
     def comment(self, item: str, author: str, at: str, text: str = "hello", actor: str = "") -> None:
         self.serial += 1
-        path = self.world.ledger / "events" / item / f"Z{self.serial:06d}.json"
+        path = self.world.home("events", item) / f"Z{self.serial:06d}.json"
         path.write_text(json.dumps({"type": "commented", "at": at, "actor": actor or author, "author": author, "text": text}))
 
     def inbox(self, *arguments: str, login: str = "alice"):
@@ -127,8 +127,8 @@ class InboxArgumentWalk(InboxBase):
     def test_malformed_since_values_are_usage_errors_before_any_read(self) -> None:
         """Five wrong windows exit 2 with nothing printed, even over an unreadable ledger."""
         self.make("Fine")
-        (self.world.ledger / "items" / "BROKEN" / "item.md").parent.mkdir(exist_ok=True)
-        (self.world.ledger / "items" / "BROKEN" / "item.md").write_text("not a header")
+        (self.world.home("items", "BROKEN") / "item.md").parent.mkdir(exist_ok=True)
+        (self.world.home("items", "BROKEN") / "item.md").write_text("not a header")
         for value in ("yesterday", "2026-13-40", "2026-10-07T10:00:00+02:00", "2026-10-07 10:00:00", ""):
             result = self.world.run("inbox", "--since", value)
             self.assertEqual((result.returncode, result.stdout), (2, ""), value)
@@ -159,7 +159,7 @@ class InboxIntegrityWalk(InboxBase):
     def test_corrupt_data_fails_with_empty_stdout(self) -> None:
         """A bad comment time, a comment without text, an item without a title and a truncated event file are refused."""
         mine = self.make("My issue")
-        events = self.world.ledger / "events" / mine
+        events = self.world.home("events", mine)
         broken = {
             "time": json.dumps({"type": "commented", "at": "soon", "actor": "bob", "author": "bob", "text": "x"}),
             "text": json.dumps({"type": "commented", "at": IN, "actor": "bob", "author": "bob"}),
@@ -170,7 +170,7 @@ class InboxIntegrityWalk(InboxBase):
             result = self.inbox()
             self.assertEqual((result.returncode, result.stdout), (1, ""), name)
         (events / "Z999999.json").unlink()
-        path = self.world.ledger / "items" / f"{mine}" / "item.md"
+        path = self.world.home("items", f"{mine}") / "item.md"
         original = path.read_text()
         path.write_text("\n".join(line for line in original.split("\n") if not line.startswith("title:")))
         result = self.inbox()

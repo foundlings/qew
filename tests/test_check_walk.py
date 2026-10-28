@@ -34,7 +34,7 @@ class CheckWalk(unittest.TestCase):
     def test_unknown_header_key_fails(self) -> None:
         w = self.world
         item = w.create("--kind", "issue", "--title", "A", "--draft")
-        path = w.ledger / "items" / f"{item}" / "item.md"
+        path = w.home("items", f"{item}") / "item.md"
         path.write_text(path.read_text().replace("\n---\n", "\nstatus: done\n---\n", 1))
         self._fails("unknown header key")
 
@@ -42,21 +42,21 @@ class CheckWalk(unittest.TestCase):
         w = self.world
         a = w.create("--kind", "issue", "--title", "A", "--draft")
         b = w.create("--kind", "issue", "--title", "B", "--needs", a, "--draft")
-        path = w.ledger / "items" / f"{a}" / "item.md"  # `set` refuses to write a cycle; a hand merge can still produce one
+        path = w.home("items", f"{a}") / "item.md"  # `set` refuses to write a cycle; a hand merge can still produce one
         path.write_text(path.read_text().replace("needs: \n", f"needs: {b}\n", 1))
         self._fails("cycle")
 
     def test_a_dangling_need_fails(self) -> None:
         w = self.world
         a = w.create("--kind", "issue", "--title", "A", "--draft")
-        path = w.ledger / "items" / f"{a}" / "item.md"
+        path = w.home("items", f"{a}") / "item.md"
         path.write_text(path.read_text().replace("needs: \n", "needs: zzzzzzzzz\n", 1))
         self._fails("dangling")
 
     def test_an_illegal_transition_fails(self) -> None:
         w = self.world
         a = w.create("--kind", "issue", "--title", "A", "--draft")
-        event = w.ledger / "events" / a / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json"
+        event = w.home("events", a) / "ZZZZZZZZZZZZZZZZZZZZZZZZZZ.json"
         event.write_text(json.dumps({"type": "completed", "at": "2026-01-01T00:00:00Z", "actor": "x"}))
         self._fails("illegal")
 
@@ -65,7 +65,7 @@ class CheckWalk(unittest.TestCase):
         a = w.create("--kind", "issue", "--title", "A", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
         for kind, extra in (("claimed", {"owner": "x"}), ("completed", {})):
             name = {"claimed": "Y", "completed": "Z"}[kind] * 26
-            (w.ledger / "events" / a / f"{name}.json").write_text(
+            (w.home("events", a) / f"{name}.json").write_text(
                 json.dumps({"type": kind, "at": "2026-01-01T00:00:00Z", "actor": "x", **extra})
             )
         self._fails("evidence")
@@ -73,7 +73,7 @@ class CheckWalk(unittest.TestCase):
     def test_a_wrong_prefix_and_a_malformed_event_fail(self) -> None:
         w = self.world
         a = w.create("--kind", "issue", "--title", "A", "--draft")
-        (w.ledger / "events" / a / "BAD.json").write_text("not json")
+        (w.home("events", a) / "BAD.json").write_text("not json")
         self._fails("not valid JSON")
 
 
@@ -94,7 +94,7 @@ class CheckReportWalk(unittest.TestCase):
         return json.loads(result.stdout)
 
     def set_needs(self, item: str, needs: str) -> None:
-        path = self.world.ledger / "items" / f"{item}" / "item.md"
+        path = self.world.home("items", f"{item}") / "item.md"
         lines = [f"needs: {needs}" if line.startswith("needs:") else line for line in path.read_text().split("\n")]
         path.write_text("\n".join(lines))
 

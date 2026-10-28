@@ -84,7 +84,7 @@ class AttachBatchWalk(unittest.TestCase):
         self.assertRefused(result)
         self.assertIn("line 3", result.stderr)
         self.assertEqual(sum(len(self.attached(i)) for i in self.items), 0)
-        self.assertFalse((self.world.ledger / "items" / self.items[0] / "attachments").exists())
+        self.assertFalse((self.world.home("items", self.items[0]) / "attachments").exists())
 
     def test_two_rows_giving_one_name_two_different_files_are_refused(self) -> None:
         """Prevents silent last-row-wins inside a manifest: the same name with different bytes is an error."""
@@ -122,7 +122,7 @@ class AttachBatchWalk(unittest.TestCase):
         self.assertEqual(len(self.world.ledger_log()) - before, 1)
         created = result.stdout.split()[0]
         self.assertIn("src/frozen.rs", self.world.run("show", created).stdout)
-        blob = self.world.ledger / "items" / created / "attachments" / f"{sha(data)}.rs"
+        blob = self.world.home("items", created) / "attachments" / f"{sha(data)}.rs"
         self.assertEqual(blob.read_bytes(), data)
         self.assertEqual(self.world.run("check").returncode, 0)
 

@@ -56,12 +56,12 @@ def fixture(world: World):
 
 def raw_bytes(world: World, only: list = None) -> int:
     """Bytes of the item and event files (all of them, or only those of the named items)."""
-    files = [*(world.ledger / "items").glob("*/item.md"), *(world.ledger / "events").glob("*/*.json")]
+    files = [*(world.ledger / "items").glob("*/*/item.md"), *(world.ledger / "events").glob("*/*/*.json")]  # the sharded layout
     return sum(path.stat().st_size for path in files if only is None or path.parent.name in only)
 
 
 def measure() -> dict:
-    world = World()
+    world = World(schema="8")  # the steady state: a flat ledger's prime carries a one-off migration notice
     try:
         shown, related = fixture(world)
         answers = {

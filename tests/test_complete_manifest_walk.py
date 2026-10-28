@@ -134,7 +134,7 @@ class CompleteManifestWalk(unittest.TestCase):
         sha = self.world.commit("the work")
         self.manifest({"item": self.one, "change_ids": [sha]})
         self.assertEqual(self.run_bulk().returncode, 0)
-        text = (self.world.ledger / "items" / self.one / "item.md").read_text()
+        text = (self.world.home("items", self.one) / "item.md").read_text()
         self.assertIn(f"evidence: {sha}", text)
         both = self.world.base / "both.jsonl"
         both.write_text(json.dumps({"item": self.two, "change_ids": [sha], "absent": "no-code", "reason": "x"}) + "\n")

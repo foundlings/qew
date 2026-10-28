@@ -45,7 +45,7 @@ class LandReportWalk(unittest.TestCase):
 
     def extend_record(self, item: str) -> None:
         """Make the pull request cover `item` too, the way an epic pull request records its covered items."""
-        stem = next((self.w.world.ledger / "mirrors" / self.item).glob("*-pr-1.json")).stem
+        stem = next((self.w.world.home("mirrors", self.item)).glob("*-pr-1.json")).stem
         record = next(m for m in self.w.ledger.load_mirrors(self.item) if m["_target"] == stem)
         covered = record.get("items", [self.item])
         self.w.ledger.write_mirror(self.item, stem, {"items": sorted({*covered, item})})

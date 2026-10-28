@@ -40,7 +40,7 @@ class OpenWalk(unittest.TestCase):
         self.assertEqual((spec.draft, spec.assignee, spec.title, spec.head, spec.base), (True, "tester", "Parse headers", "feature", "main"))
         files = self.w.mirror_files(item)
         self.assertEqual(len(files), 1)
-        record = json.loads((self.w.world.ledger / "mirrors" / item / files[0]).read_text())
+        record = json.loads((self.w.world.home("mirrors", item) / files[0]).read_text())
         self.assertEqual((record["kind"], record["number"], record["opener"], record["items"]), ("pr", 1, "tester", [item]))
 
     def test_the_assignee_is_the_forge_login_when_it_differs_from_the_actor_and_a_refusal_is_a_note_not_a_failure(self) -> None:
@@ -87,7 +87,7 @@ class OpenWalk(unittest.TestCase):
 
     def test_an_item_with_several_issue_mirrors_needs_a_target(self) -> None:
         item = self.w.item()
-        existing = json.loads(next((self.w.world.ledger / "mirrors" / item).glob("*.json")).read_text())
+        existing = json.loads(next((self.w.world.home("mirrors", item)).glob("*.json")).read_text())
         self.w.ledger.write_mirror(item, "forgejo-other.example-o-r", {**existing, "url": "https://other.example/o/r"})
         run = self.w.open(item)
         self.assertEqual(run.code, 2)
@@ -223,14 +223,14 @@ class PlanEpicWalk(unittest.TestCase):
     def test_one_pull_request_covers_the_epic_and_its_open_descendants(self) -> None:
         self.assertEqual(self.w.open(self.epic).code, 0)
         file = self.w.mirror_files(self.epic)[0]
-        record = json.loads((self.w.world.ledger / "mirrors" / self.epic / file).read_text())
+        record = json.loads((self.w.world.home("mirrors", self.epic) / file).read_text())
         self.assertEqual(sorted(record["items"]), sorted([self.epic, self.one, self.two]))
 
     def test_a_closed_child_is_not_covered(self) -> None:
         self.w.qew("close", self.two, "--reason", "not_planned")
         self.w.open(self.epic)
         file = self.w.mirror_files(self.epic)[0]
-        record = json.loads((self.w.world.ledger / "mirrors" / self.epic / file).read_text())
+        record = json.loads((self.w.world.home("mirrors", self.epic) / file).read_text())
         self.assertNotIn(self.two, record["items"])
 
     def test_the_epic_cannot_open_ready_while_a_child_is_a_draft(self) -> None:

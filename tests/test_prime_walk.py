@@ -15,7 +15,7 @@ SCOTLAND = "\U0001F3F4" + "".join(chr(0xE0000 + ord(c)) for c in "gbsct") + "\U0
 
 
 def retitle(world: World, item: str, title: str) -> None:
-    path = world.ledger / "items" / f"{item}" / "item.md"
+    path = world.home("items", f"{item}") / "item.md"
     path.write_text("\n".join(f"title: {title}" if line.startswith("title:") else line
                               for line in path.read_text(encoding="utf-8").split("\n")), encoding="utf-8")
 
@@ -93,7 +93,7 @@ class PrimeWalk(PrimeBase):
     def test_an_unreadable_ledger_fails_prime_but_keeps_the_hook_silent(self) -> None:
         """The command names the bad file; the session-start hook prints nothing and exits 0."""
         item = self.make("Fine")
-        path = self.world.ledger / "items" / f"{item}" / "item.md"
+        path = self.world.home("items", f"{item}") / "item.md"
         path.write_text(path.read_text().replace("\n---\n", "\nstatus: x\n---\n", 1))
         result = self.world.run("prime")
         self.assertEqual((result.returncode, result.stdout), (1, ""))

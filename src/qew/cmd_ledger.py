@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from qew import ledger_config, ledger_lineage
+from qew import ledger_config, ledger_layout, ledger_lineage
 from qew.errors import QewError
 from qew.ledger_aliases import ITEM_FILE
 from qew.ledger_config import LEDGER_FILE, Config
@@ -75,19 +75,23 @@ def _carried(events: list[Event]) -> list[Event]:
 
 def _write_copy(config: Config, target: Path, ledger_id: str, forked_from: str) -> None:
     source = config.ledger_path
+    sharded = ledger_config.is_sharded(source)  # the copy keeps the layout the ledger declares
     (target / "items").mkdir()
-    for path in sorted(p / ITEM_FILE for p in (source / "items").iterdir() if (p / ITEM_FILE).is_file()):
-        (target / "items" / path.parent.name).mkdir()
-        shutil.copyfile(path, target / "items" / path.parent.name / ITEM_FILE)
+    for path in sorted((p / ITEM_FILE for p in ledger_layout.homes(source / "items", sharded) if (p / ITEM_FILE).is_file()), key=lambda found: found.parent.name):
+        name = path.parent.name
+        item_home = ledger_layout.home(target / "items", name, sharded)
+        item_home.mkdir(parents=True)
+        shutil.copyfile(path, item_home / ITEM_FILE)
         events = []
-        directory = source / "events" / path.parent.name
+        directory = ledger_layout.home(source / "events", name, sharded)
         for event_path in sorted(directory.glob("*.json")) if directory.is_dir() else []:
             events.append((parse_event(event_path.stem, event_path.read_text(encoding="utf-8"), str(event_path)), event_path))
         keep = {e.id for e in _carried([e for e, _ in events])}
-        (target / "events" / path.parent.name).mkdir(parents=True)
+        event_home = ledger_layout.home(target / "events", name, sharded)
+        event_home.mkdir(parents=True)
         for event, event_path in events:
             if event.id in keep:
-                shutil.copyfile(event_path, target / "events" / path.parent.name / event_path.name)
+                shutil.copyfile(event_path, event_home / event_path.name)
     text = _IDENTITY_LINES.sub("", (source / LEDGER_FILE).read_text(encoding="utf-8"))
     header = f'ledger_id = {json.dumps(ledger_id)}\nforked_from = {json.dumps(forked_from)}\n'
     (target / LEDGER_FILE).write_text(header + text, encoding="utf-8")

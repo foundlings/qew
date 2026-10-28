@@ -12,17 +12,15 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import os
 import sys
-from pathlib import Path
 import time
 from typing import Any
 from collections.abc import Callable, Iterable, Iterator
 
-from qew import claim_authority, filelock, ledger_config, ledger_store, op_gc, trace
+from qew import claim_authority, filelock, ledger_config, ledger_layout, ledger_store, op_gc, trace
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_repo import LedgerRepo, RepoLocked
 
-type Entries = list[tuple[Path, str | None]]
 
 CHECKPOINT_EVERY = 25
 # Commands that keep partial work when they fail midway (see module docstring).
@@ -93,17 +91,21 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
     return None
 
 
-def _item_ids(relative_paths: list[str]) -> list[str]:
+def _item_ids(relative_paths: list[str], sharded: bool = False) -> list[str]:
     ids: set[str] = set()
     for path in relative_paths:
         parts = path.split("/")
-        if parts[0] in ("items", "events", "mirrors", "baselines", "proposals") and len(parts) > 1:
+        if parts[0] == "proposals" and len(parts) > 1:
             ids.add(parts[1][:-3] if parts[1].endswith(".md") else parts[1])
+        elif parts[0] in ("items", "events", "mirrors", "baselines"):
+            found = ledger_layout.id_of(parts, sharded)
+            if found is not None:
+                ids.add(found[:-3] if found.endswith(".md") else found)
     return sorted(ids)
 
 
-def message(verb: str, relative_paths: list[str]) -> str:
-    ids = [] if verb in ("migrate-ids", "migrate-layout") else _item_ids(relative_paths)  # a rename touches the old and the new id
+def message(verb: str, relative_paths: list[str], sharded: bool = False) -> str:
+    ids = [] if verb in ("migrate-ids", "migrate-layout") else _item_ids(relative_paths, sharded)  # a rename touches the old and the new id
     who = ledger_store.actor()
     if len(ids) == 1:
         return f"qew: {verb} {ids[0]} by {who}"
@@ -263,7 +265,7 @@ def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iter
             callback()
         push_after = replicating and not pending
     op_gc.maybe_collect(config, repo, lambda: _lock(config, "lock", "gc", wait_s=0))
-    touched = _item_ids(_relative(config, entries)) if entries and verb != "board" else []
+    touched = _item_ids(_relative(config, entries), ledger_config.is_sharded(config.ledger_path)) if entries and verb != "board" else []
     if touched and push_after and _worker_starts(config):
         # The board work is what the owner waits for: start its worker first, then push. The worker's own ledger commit
         # waits on the push lock, so the two never touch the checkout at once.
@@ -452,7 +454,7 @@ def pull(config: Config, held: bool = False, wait_s: float | None = None) -> Pul
         (config.ledger_path / ".qew" / "last-fetch").touch()
         after = repo.tip()
         paths = repo.changed_between(before, after)
-    return Pulled(before, after, repo.count_between(before, after), tuple(_item_ids(paths)))
+    return Pulled(before, after, repo.count_between(before, after), tuple(_item_ids(paths, ledger_config.is_sharded(config.ledger_path))))
 
 
 _MISS_TRIED = False
@@ -522,16 +524,17 @@ def _pull_for_read(arguments: argparse.Namespace) -> None:
         syncworker.retry_if_pending(config)
 
 
-def _relative(config: Config, entries: Entries) -> list[str]:
+def _relative(config: Config, entries: ledger_store.Entries) -> list[str]:
     root = config.ledger_path
-    return sorted({str(path.relative_to(root)) for path, _ in entries if path.is_relative_to(root)})
+    paths = {path for path, _ in entries} | {previous.original for _, previous in entries if isinstance(previous, ledger_store.Moved)}
+    return sorted({str(path.relative_to(root)) for path in paths if path.is_relative_to(root)})
 
 
-def _commit(repo: LedgerRepo, config: Config, verb: str, entries: Entries, rollback_on_failure: bool) -> None:
+def _commit(repo: LedgerRepo, config: Config, verb: str, entries: ledger_store.Entries, rollback_on_failure: bool) -> None:
     paths = _relative(config, entries)
     try:
         with trace.phase(f"ledger commit ({len(paths)} files)"):
-            repo.commit(paths, message(verb, paths))
+            repo.commit(paths, message(verb, paths, ledger_config.is_sharded(config.ledger_path)))
     except QewError as error:
         if rollback_on_failure:
             ledger_store.journal_rollback(entries)

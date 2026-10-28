@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from tests.ledger_harness import QUOTE, World
 
-LATEST = "schema_version = 7"
+LATEST = "schema_version = 8"
 
 
 def to_old_layout(world: World, version: int) -> dict[str, bytes]:
@@ -58,16 +58,16 @@ class MigrateLayoutWalk(unittest.TestCase):
                 world, before = self.ledger(version)
                 preview = world.run("migrate-layout", "--dry-run")
                 self.assertEqual(preview.returncode, 0, preview.stdout + preview.stderr)
-                self.assertIn(f"schema_version {version} -> 7", preview.stdout)
+                self.assertIn(f"schema_version {version} -> 8", preview.stdout)
                 self.assertIn("3 item files", preview.stdout)
                 self.assertTrue((world.ledger / "items" / f"{next(iter(before))}.md").is_file())
                 done = world.run("migrate-layout")
                 self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
                 self.assertEqual((world.ledger / "qew-ledger.toml").read_text().count(LATEST), 1)
                 self.assertIn("# keep me", (world.ledger / "qew-ledger.toml").read_text())
-                self.assertEqual(sorted(p.name for p in (world.ledger / "items").iterdir()), sorted(before))
+                self.assertEqual(sorted(p.name for shard in (world.ledger / "items").iterdir() for p in shard.iterdir()), sorted(before))
                 for item_id, content in before.items():
-                    self.assertEqual((world.ledger / "items" / item_id / "item.md").read_bytes(), content)
+                    self.assertEqual((world.home("items", item_id) / "item.md").read_bytes(), content)
                 self.assertEqual(world.run("check").returncode, 0)
                 self.assertIn("already", world.run("migrate-layout").stdout)
 
@@ -78,8 +78,8 @@ class MigrateLayoutWalk(unittest.TestCase):
         (world.ledger / "items" / item / "attachments").mkdir(parents=True)
         (world.ledger / "items" / item / "attachments" / "x.txt").write_bytes(b"data")
         self.assertEqual(world.run("migrate-layout").returncode, 0)
-        self.assertTrue((world.ledger / "items" / item / "item.md").is_file())
-        self.assertEqual((world.ledger / "items" / item / "attachments" / "x.txt").read_bytes(), b"data")
+        self.assertTrue((world.home("items", item) / "item.md").is_file())
+        self.assertEqual((world.home("items", item) / "attachments" / "x.txt").read_bytes(), b"data")
 
     def test_every_other_command_refuses_an_older_layout_naming_the_migration(self) -> None:
         """Prevents misreading: on schema 1 or 2 only migrate-layout works."""
