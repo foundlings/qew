@@ -33,6 +33,29 @@ def _jj_filesets(paths: Sequence[str]) -> list[str]:
     return [*directories, *others]
 
 
+def summary_paths(summary: str) -> list[str]:
+    """The files named by `jj diff --summary`. A rename is printed `R dir/{old => new}` (or `R old => new`), which is no path: it
+    expands to the real old and new files, so nothing downstream builds a fileset from a brace expression."""
+    paths: list[str] = []
+    for line in summary.splitlines():
+        text = line[2:].strip()
+        if text:
+            paths.extend(_expand_rename(text))
+    return paths
+
+
+def _expand_rename(text: str) -> list[str]:
+    if " => " not in text:
+        return [text]
+    if "{" in text and "}" in text:
+        head, rest = text.split("{", 1)
+        inner, tail = rest.split("}", 1)
+        old, new = inner.split(" => ", 1)
+        return [(head + old + tail).replace("//", "/"), (head + new + tail).replace("//", "/")]
+    old, new = text.split(" => ", 1)
+    return [old, new]
+
+
 # git (and jj through its git backend) report a held repository lock this way; the lock is a sentinel file, not a
 # kernel lock, so a crashed git leaves it behind. qew waits for a live one, names a dead one, and never deletes it.
 LOCK_ERROR = re.compile(r"Unable to create '([^']*\.lock)'|Another git process seems to be running|cannot lock ref|unable to lock|could not lock|Failed to lock", re.IGNORECASE)
@@ -279,8 +302,7 @@ class LedgerRepo:
             return sorted({line[3:].strip() for line in out.splitlines() if line[3:].strip()})
         if self.vcs == "jj":
             out = self.run(["jj", "--no-pager", "diff", "--summary"]).stdout
-            paths = {line[2:].strip() for line in out.splitlines() if line[2:].strip()}
-            return sorted(p for p in paths if p.split("/", 1)[0] in OWNED)
+            return sorted({p for p in summary_paths(out) if p.split("/", 1)[0] in OWNED})
         return []
 
     def unpushed(self) -> int:
@@ -318,7 +340,7 @@ class LedgerRepo:
         if self.vcs == "git":
             return self.run(["git", "diff", "--name-only", old, new]).stdout.splitlines()
         shown = self.run([*JJ_READ, "diff", "--summary", "--from", old, "--to", new]).stdout
-        return [line[2:].strip() for line in shown.splitlines() if line[2:].strip()]
+        return summary_paths(shown)
 
     def has_remote(self) -> bool:
         if self.vcs is None:
@@ -370,7 +392,7 @@ class LedgerRepo:
         """Commit the qew-owned files that the commit's own snapshot picked up beyond the paths it named (a killed writer's, or a file
         jj had refused): they now sit in the working-copy commit, so no second scan is needed to find them."""
         shown = self.run([*JJ_READ, "diff", "--summary", "-r", "@"]).stdout
-        paths = sorted({line[2:].strip() for line in shown.splitlines() if line[2:].strip()})
+        paths = sorted(set(summary_paths(shown)))
         stray = [path for path in paths if path.split("/", 1)[0] in OWNED]
         if stray:
             self.commit(stray, f"qew: recover {len(stray)} files", sweep=False)
