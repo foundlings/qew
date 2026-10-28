@@ -86,7 +86,7 @@ evidence_absent: no-code: why   # completed work without code: KIND: reason (nev
 Body…
 ```
 Strict evidence (schema 4, the default; `evidence = "lenient"` in `qew-ledger.toml` opts out): a completed item carries
-`evidence` (at least one id; each must resolve and be an ancestor of the target) or `evidence_absent` with a kind of `no-code`
+`evidence` (at least one id; each must resolve and be an ancestor of the target; in a jj checkout the remote's `TARGET@origin` counts too, so a forge merge lands even when local `TARGET` is behind it or diverged) or `evidence_absent` with a kind of `no-code`
 (delivered outside the repository), `historical` (done before the ledger or imported without a resolvable id),
 `superseded-by:ITEM` or `children` (an epic finished by its children), never silently neither. The header is set by whatever
 writes the `completed` event (`evidence` / `absent` + `absent_reason` fields; imports and forge-side closes record `historical`);

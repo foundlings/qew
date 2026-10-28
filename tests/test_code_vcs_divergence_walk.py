@@ -72,6 +72,34 @@ class CodeVcsDivergenceWalk(unittest.TestCase):
         self.assertTrue(code_vcs.is_ancestor(self.repo, "jj", self.work, "main"))
         self.assertEqual(code_vcs.landing_many(self.repo, "jj", [left, self.work, self.work + "x"], "main")[left][0], code_vcs.Landing.LANDED)
 
+    def remote(self) -> Path:
+        """A bare git remote named origin, with main pushed: main@origin then exists beside the local main."""
+        bare = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: subprocess.run(["rm", "-rf", str(bare)], check=False))
+        subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
+        jj(self.repo, "git", "remote", "add", "origin", str(bare))
+        jj(self.repo, "git", "push", "--bookmark", "main")
+        return bare
+
+    def test_a_change_on_the_forges_main_is_landed_when_local_main_is_behind_or_diverged(self) -> None:
+        """Prevents 'is not an ancestor of main' after a forge merge: local main sat on a commit without the merged change
+        (a duplicate local merge), while main@origin holds it. The forge's main is the branch the change landed on."""
+        self.remote()
+        jj(self.repo, "bookmark", "set", "main", "-r", f"{self.work}-", "--allow-backwards")
+        self.assertEqual(jj(self.repo, "--ignore-working-copy", "log", "--no-graph", "-r", f"::main & {self.work}", "-T", "change_id").strip(), "")
+        where, _commit = code_vcs.landing(self.repo, "jj", self.work, "main")
+        self.assertEqual(where, code_vcs.Landing.LANDED)
+        self.assertTrue(code_vcs.is_ancestor(self.repo, "jj", self.work, "main"))
+        self.assertEqual(code_vcs.landing_many(self.repo, "jj", [self.work, self.work + "x", self.work], "main")[self.work][0], code_vcs.Landing.LANDED)
+
+    def test_a_change_only_in_this_checkout_is_not_landed_by_the_remote_fallback(self) -> None:
+        """Prevents the fallback landing unpushed work: a change on neither main nor main@origin stays not an ancestor."""
+        self.remote()
+        jj(self.repo, "new", "-m", "unpushed")
+        local = change_id(self.repo, "@")
+        where, _commit = code_vcs.landing(self.repo, "jj", local, "main")
+        self.assertEqual(where, code_vcs.Landing.NOT_ANCESTOR)
+
     def test_a_target_that_does_not_exist_is_still_refused(self) -> None:
         """Prevents the fallback hiding a real mistake: a branch name nothing in the repo carries is exit 3 naming it."""
         with self.assertRaises(QewError) as caught:
