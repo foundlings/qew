@@ -34,8 +34,12 @@ class SyncWorkerPileWalk(unittest.TestCase):
 
     def test_the_spawn_check_holds_off_a_second_spawn_made_moments_after_the_first(self) -> None:
         """Prevents a burst of writes starting one worker each: a spawn only seconds old counts as the worker running."""
-        (self.cache / "sync.spawned").write_text(str(time.time()), encoding="utf-8")
+        (self.cache / "sync.starting").write_text(str(time.time()), encoding="utf-8")
         self.assertTrue(syncworker.worker_running(self.world_config()))
+        (self.cache / "sync.starting").write_text(str(time.time() - 60), encoding="utf-8")
+        self.assertFalse(syncworker.worker_running(self.world_config()), "a spawn that never became a worker must not block the next one")
+        with filelock.hold(self.cache / "sync.lock", verb="sync worker", wait_s=0):
+            self.assertTrue(syncworker.worker_running(self.world_config()))
 
     def world_config(self) -> object:
         from qew import ledger_config
