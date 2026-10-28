@@ -349,7 +349,7 @@ def _ledger_from_environment(start: Path | None) -> Path | None:
     return None
 
 
-SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7)  # this qew works on the latest layout only; `qew migrate-layout` moves any older one straight to 7
+SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)  # this qew works on the latest layout only; `qew migrate-layout` moves any older one straight to 7
 WORKABLE_SCHEMA = 4  # a schema 4 ledger works unchanged: 5 only adds the optional `fields` header key, which waits for the migration
 CURRENT_SCHEMA = 7  # items live at items/<ID>/item.md (3), completed items carry their proof in the header (4), items carry named fields (5), a git ledger has core.untrackedCache set (6), the forge-synced baselines are committed under baselines/ (7); 1 and 2 kept items/<ID>.md
 _old_layout_allowed = False

@@ -176,8 +176,17 @@ class World:
         result = self.run("draft", "approve", *ids, "--quote", QUOTE)
         assert result.returncode == 0, result.stderr
 
+    def sharded(self) -> bool:
+        """Whether the ledger declares the sharded layout (schema 8): events/<last two characters of the id>/<id>/."""
+        return "schema_version = 8" in (self.ledger / "qew-ledger.toml").read_text(encoding="utf-8")
+
+    def home(self, kind: str, item_id: str, ledger: Path | None = None) -> Path:
+        """The directory of one item under `items`, `events`, `mirrors` or `baselines`, in whichever layout the ledger declares."""
+        root = (ledger or self.ledger) / kind
+        return root / item_id[-2:].lower() / item_id if self.sharded() else root / item_id
+
     def events(self, item_id: str) -> list:
-        directory = self.ledger / "events" / item_id
+        directory = self.home("events", item_id)
         return [
             json.loads(path.read_text(encoding="utf-8"))
             for path in sorted(directory.glob("*.json"))
