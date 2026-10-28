@@ -212,8 +212,10 @@ class DraftAndOwnerWalk(unittest.TestCase):
     def test_an_unclaimed_item_with_unmet_needs_or_an_epic_is_refused_before_the_forge_hears_of_it(self) -> None:
         """Prevents a pull request for work that could not start: the start refusals apply, and nothing reaches the forge."""
         need = self.w.item("Need", claim=False)
-        blocked = self.w.item("Blocked", claim=False)
-        self.w.qew("set", blocked, "--add-need", need)
+        made = self.w.qew("create", "--title", "Blocked", "--needs", need)
+        self.assertEqual(made.code, 0, made)
+        blocked = made.out.split()[0]
+        self.w.sync()
         run = self.w.open(blocked)
         self.assertEqual(run.code, 2, run)
         self.assertIn(need, run.err)

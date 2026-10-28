@@ -522,7 +522,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
 - `qew pr open ITEM [--target T] [--head BRANCH] [--base BRANCH] [--ready] [--what TEXT] [--why TEXT]
   [--testing TEXT] [--body-file FILE] [--adopt-legacy NUMBER --reason TEXT] [--json]`: a draft assigned to its opener (the forge login: `QEW_FORGE_LOGIN`, else the mirror's `assignees` entry for the actor, `[forge.logins]`, `[forge] login`, else the actor itself; a login
   the forge refuses leaves it unassigned and prints a note on stderr); the mirror file is written only
-  after the forge accepted the open. Approved work needs the caller's claim; a draft item needs none, and `--ready`
+  after the forge accepted the open. Approved work needs the caller's claim: another actor's claim refuses, and an unclaimed task (no unmet needs; an unclaimed epic still needs `qew start`) is claimed by the opener in the same short write section that records the pull request, after the forge call, so a draft exists as soon as a branch is pushed even when the ledger lock is slow; if the claim then fails the pull request stays open and a rerun adopts it. A draft item needs none, and `--ready`
   on drafts is refused (also when a covered item is a draft). An epic's pull request covers the epic and its open
   descendants. The body is the marker, `Delivers ID`, then What (default: the item body), Why and Testing, then
   the `--body-file` (a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines). Without `--head` the
