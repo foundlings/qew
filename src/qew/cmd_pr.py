@@ -14,7 +14,7 @@ import re
 import sys
 from collections.abc import Callable, Iterator
 
-from qew import sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, untrusted_text, vcs
+from qew import sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -385,25 +385,26 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
         adopted = remote is not None
         if remote is None:
             remote = forge.open_pull_request(spec)
-    ledger.write_mirror(
-        item_id,
-        f"{issue['_target']}-pr-{remote.number}",
-        {
-            "forge": mirror.forge,
-            "url": mirror.repo,
-            "kind": "pr",
-            "draft": remote.draft,
-            "state": "open",
-            "number": remote.number,
-            "pr_url": remote.url,
-            "head": head,
-            "opener": actor(),
-            "items": covered,
-            "synced_at": now(),
-        },
-    )
-    if options.adopt_legacy is not None:
-        ledger.append_event(item_id, "commented", text=f"adopted legacy pull request #{remote.number}: {(options.reason or '').strip()}", author=actor())
+    with replication.section("pr-open"):
+        ledger.write_mirror(
+            item_id,
+            f"{issue['_target']}-pr-{remote.number}",
+            {
+                "forge": mirror.forge,
+                "url": mirror.repo,
+                "kind": "pr",
+                "draft": remote.draft,
+                "state": "open",
+                "number": remote.number,
+                "pr_url": remote.url,
+                "head": head,
+                "opener": actor(),
+                "items": covered,
+                "synced_at": now(),
+            },
+        )
+        if options.adopt_legacy is not None:
+            ledger.append_event(item_id, "commented", text=f"adopted legacy pull request #{remote.number}: {(options.reason or '').strip()}", author=actor())
     return Opened(item_id, remote.number, remote.url, remote.draft, "" if remote.assignee == login else login, adopted)
 
 
@@ -571,7 +572,8 @@ def mark_ready(
         )
     if outcome == Outcome.NOT_APPLIED:
         raise QewError(f"pr #{number} is still a draft after the forge accepted the change; nothing is known to have changed", 4)
-    pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=False)
+    with replication.section("pr-ready"):
+        pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=False)
     return Readied(number, outcome == Outcome.VERIFIED)
 
 
@@ -773,7 +775,8 @@ def close_pull_request(
         )
     if outcome == Outcome.NOT_APPLIED:
         raise QewError(f"pr #{number} is still open after the forge accepted the close; nothing is known to have changed", 4)
-    pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, state="closed")
+    with replication.section("pr-close"):
+        pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, state="closed")
     return Closed(number, outcome == Outcome.VERIFIED)
 
 
@@ -817,12 +820,13 @@ def _close_legacy(config: Config, number: int, target: str | None, build: Build 
             )
     if outcome == Outcome.NOT_APPLIED:
         raise QewError(f"pr #{number} is still open after the forge accepted the close; nothing is known to have changed", 4)
-    text = (reason or "").strip()
-    ledger.write_mirror(item_id, f"{slug}-pr-{number}", {
-        "forge": mirror.forge, "url": mirror.repo, "kind": "pr", "draft": before.draft, "state": "closed", "number": number,
-        "pr_url": before.url, "head": before.head_branch, "opener": "", "items": [item_id], "synced_at": now(),
-    })
-    ledger.append_event(item_id, "commented", text=f"closed legacy pull request #{number}: {text}", author=actor())
+    with replication.section("pr-close"):
+        text = (reason or "").strip()
+        ledger.write_mirror(item_id, f"{slug}-pr-{number}", {
+            "forge": mirror.forge, "url": mirror.repo, "kind": "pr", "draft": before.draft, "state": "closed", "number": number,
+            "pr_url": before.url, "head": before.head_branch, "opener": "", "items": [item_id], "synced_at": now(),
+        })
+        ledger.append_event(item_id, "commented", text=f"closed legacy pull request #{number}: {text}", author=actor())
     return Closed(number, outcome == Outcome.VERIFIED)
 
 
@@ -1008,10 +1012,12 @@ def merge_pull_request(
     if outcome == Outcome.NOT_APPLIED:
         raise QewError(f"pr #{number} merge not visible: the forge accepted the call but the pull request is still open", 3)
     ledger = loaded.snapshot.ledger
-    pr_record.update_mirror(ledger, loaded.record, draft=False, state="merged")
+    with replication.section("pr-merge"):
+        pr_record.update_mirror(ledger, loaded.record, draft=False, state="merged")
+        if options.admin:
+            for item_id in pr_gate.open_work(loaded.states, loaded.record):
+                ledger.append_event(item_id, "field", key="admin_merge", old="", new=reason)
     if options.admin:
-        for item_id in pr_gate.open_work(loaded.states, loaded.record):
-            ledger.append_event(item_id, "field", key="admin_merge", old="", new=reason)
         lead.append(f"admin merge: {reason}")
     with forge_errors(slug):
         merged = forge.read_pull_request(number)
@@ -1020,6 +1026,7 @@ def merge_pull_request(
     branch = untrusted_text.show(cleanup.name).text
     from qew import pr_block  # imports this module for the loading pieces
 
-    lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *branch_line(cleanup, branch), *hand_off(loaded, number),
-             *pr_block.release_dependents(config, number, build))
+    with replication.section("pr-merge"):
+        released = pr_block.release_dependents(config, number, build)
+    lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *branch_line(cleanup, branch), *hand_off(loaded, number), *released)
     return Merged(number, pull.head_sha, merged.merge_sha, True, covered, lines)

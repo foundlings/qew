@@ -75,7 +75,7 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
     if command == "pr" and arguments.pr_command == "merge" and arguments.check:
         return None  # a check writes nothing
     if command == "pr" and arguments.pr_command in ("open", "ready", "close", "merge"):
-        return f"pr-{arguments.pr_command}"
+        return None  # these talk to the forge first: no lock over that; each takes a short write `section` for its ledger writes
     if command == "item" and arguments.item_command in ("attach", "detach", "rename", "assign", "unassign") and not getattr(arguments, "dry_run", False):
         return str(arguments.item_command)
     if command == "pr" and arguments.pr_command == "check" and (arguments.add or arguments.drop):
@@ -158,12 +158,36 @@ def _lock(config: Config, name: str = "lock", verb: str = "", wait_s: float | No
 _ACTIVE: tuple[Config, LedgerRepo, bool, bool] | None = None  # (config, repo, verb) of the running sync session, for checkpoints
 
 
+_HOLDING = False  # this process runs inside a write session that holds the ledger lock
+
+
 @contextmanager
 def session(arguments: argparse.Namespace) -> Iterator[None]:
     verb = verb_for(arguments)
-    _arm_miss_pull(arguments, held=verb is not None)
+    with _session(arguments, verb, arm=True):
+        yield
+
+
+@contextmanager
+def section(verb: str) -> Iterator[None]:
+    """A short write session inside a command that does its slow work first (the pr verbs ask the forge, then record the result):
+    the ledger lock, the fetch, the commit and the push cover only the block. Inside a session that already holds the lock
+    (`qew land` runs a merge) it adds nothing."""
+    if _HOLDING:
+        yield
+        return
+    with _session(argparse.Namespace(command="section", dry_run=False), verb, arm=False):
+        yield
+
+
+@contextmanager
+def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iterator[None]:
+    global _HOLDING
+    if arm:
+        _arm_miss_pull(arguments, held=verb is not None)
     if verb is None:
-        _pull_for_read(arguments)
+        if arm:
+            _pull_for_read(arguments)
         yield
         return
     try:
@@ -203,9 +227,11 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
             _note(config, repo.fetch_merge(rep.timeout_s), repo.last_failure)
             (config.ledger_path / ".qew" / "last-fetch").touch()
         ledger_store.journal_start()
+        _HOLDING = True
         try:
             yield
         except BaseException:
+            _HOLDING = False
             claim_authority.take_pending()
             entries = ledger_store.journal_take()
             if verb in KEEP_PARTIAL:
@@ -217,6 +243,7 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
                 ledger_store.journal_rollback(entries)
                 _withdraw(config)
             raise
+        _HOLDING = False
         entries = ledger_store.journal_take()
         pending = claim_authority.take_pending()
         if _DISCARD:
