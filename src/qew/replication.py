@@ -17,7 +17,7 @@ import time
 from typing import Any
 from collections.abc import Callable, Iterable, Iterator
 
-from qew import claim_authority, filelock, ledger_config, ledger_store, trace
+from qew import claim_authority, filelock, ledger_config, ledger_store, op_gc, trace
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.ledger_repo import LedgerRepo, RepoLocked
@@ -222,6 +222,7 @@ def session(arguments: argparse.Namespace) -> Iterator[None]:
         for callback in confirmed:
             callback()
         push_after = replicating and not pending
+    op_gc.maybe_collect(config, repo, lambda: _lock(config, "lock", "gc", wait_s=0))
     touched = _item_ids(_relative(config, entries)) if entries and verb != "board" else []
     if touched and push_after and _worker_starts(config):
         # The board work is what the owner waits for: start its worker first, then push. The worker's own ledger commit
@@ -310,6 +311,7 @@ def _sync_session(config: Config, repo: LedgerRepo, committing: bool, replicatin
             # every write was checkpointed (committed on the way, never pushed): nothing is left to commit, but commits are
             with _lock(config, "push.lock", "sync"):
                 repo.push(rep.timeout_s)
+        op_gc.maybe_collect(config, repo, lambda: _lock(config, "lock", "gc", wait_s=0))
         if push_repos:
             from qew import repo_push
 
