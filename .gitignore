@@ -17,6 +17,9 @@ __pycache__/
 build/
 dist/
 
+# the gate's record of which files each test module ran, and how long it took
+.gate-cache/
+
 # editors
 .idea/
 .vscode/

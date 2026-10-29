@@ -60,6 +60,7 @@ Qew is a small Python CLI managing offline-first, file-based work ledgers and mi
   forge backends are tested over real HTTP against local fakes.
 - Dev machines run `watchman` (`brew install watchman`) so jj snapshots of big ledgers stay fast; `qew doctor --fix` enables it per ledger, and `qew init` and `qew doctor` warn when a jj ledger lacks it.
 - Gate: `python3 scripts/gate.py` (parallel, about 5 minutes; `python3 -m unittest discover -s tests` is the serial equivalent), run locally. Qew has no GitHub workflows or CI.
+  While iterating run `python3 scripts/gate.py --changed` (the modules and type check a change can affect, from the map the full gate records in `.gate-cache/`); the full gate is the release gate.
 
 ## Change discipline
 

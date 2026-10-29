@@ -57,10 +57,12 @@ class GateChangedWalk(unittest.TestCase):
 
     def test_a_source_file_no_module_ran_falls_back_to_the_modules_that_ran_what_imports_it_else_everything(self) -> None:
         """Prevents running nothing for a file the record has never seen: its importers stand for it, and with no clue it is all."""
-        self.record({"test_help_walk": ["src/qew/cli.py"]})
+        self.record({"test_help_walk": ["src/qew/errors.py"]})  # a leaf: nothing it ran imports the changed file
         unseen = self.plan("src/qew/ledger_layout.py")  # imported by files no recorded module ran
         self.assertIn("running every module", unseen.stdout)
         self.assertGreater(len(self.selected(unseen)), 100)
+        self.record({"test_help_walk": ["src/qew/cli.py"]})  # cli.py imports it through the commands: that module stands for it
+        self.assertEqual(self.selected(self.plan("src/qew/ledger_layout.py")), ["test_help_walk"])
 
     def test_no_recorded_map_runs_everything_and_nothing_changed_runs_nothing(self) -> None:
         """Prevents a first use selecting nothing: without a map every module is chosen; an empty change says so and stops."""
