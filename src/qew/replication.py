@@ -23,6 +23,7 @@ from qew.ledger_repo import LedgerRepo, RepoLocked
 
 
 CHECKPOINT_EVERY = 25
+DAY_S = 86400.0
 # Commands that keep partial work when they fail midway (see module docstring).
 KEEP_PARTIAL = {"sync", "board", "import", "restore", "approve", "revert", "land", "migrate-ids"}
 
@@ -534,14 +535,28 @@ def _relative(config: Config, entries: ledger_store.Entries) -> list[str]:
 def _commit(repo: LedgerRepo, config: Config, verb: str, entries: ledger_store.Entries, rollback_on_failure: bool) -> None:
     paths = _relative(config, entries)
     try:
+        began = time.monotonic()
         with trace.phase(f"ledger commit ({len(paths)} files)"):
             repo.commit(paths, message(verb, paths, ledger_config.is_sharded(config.ledger_path)))
+        _note_slow_commit(config, repo, time.monotonic() - began)
     except QewError as error:
         if rollback_on_failure:
             ledger_store.journal_rollback(entries)
             raise QewError(f"ledger commit failed, the write was rolled back: {error}",
                            error.exit_code if isinstance(error, RepoLocked) else 1) from None
         raise
+
+
+def _note_slow_commit(config: Config, repo: LedgerRepo, seconds: float) -> None:
+    """A jj ledger commit over `slow_commit_s` is almost always watchman re-crawling after dropped file events: say so, once a day."""
+    if repo.vcs != "jj" or seconds <= config.replication.slow_commit_s:
+        return
+    marker = config.ledger_path / ".qew" / "slow-commit-note"
+    if marker.exists() and time.time() - marker.stat().st_mtime < DAY_S:
+        return
+    marker.touch()
+    print(f"qew: warning: the ledger commit took {seconds:.0f} s; on a jj ledger that is usually watchman re-crawling after dropped file events. "
+          "Run `qew doctor` (and `qew doctor --fix` if it says so)", file=sys.stderr)
 
 
 def _recover(repo: LedgerRepo, deferred: bool = False) -> None:

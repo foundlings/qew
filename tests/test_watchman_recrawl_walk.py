@@ -17,7 +17,7 @@ from tests.ledger_harness import World
 SCRIPT = """#!/bin/sh
 echo "$@" >> "$WATCHMAN_LOG"
 case "$1" in
-  watch-del) touch "$WATCHMAN_FIXED"; echo '{"version": "t"}' ;;
+  watch-del) : > "$WATCHMAN_FIXED"; echo '{"version": "t"}' ;;
   watch-project)
     if [ -n "$WATCHMAN_DOWN" ]; then echo "watchman is down" >&2; exit 1; fi
     if [ -f "$WATCHMAN_FIXED" ] || [ -n "$WATCHMAN_QUIET" ]; then echo '{"version": "t", "watch": "p"}';
