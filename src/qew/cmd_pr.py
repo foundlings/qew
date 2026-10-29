@@ -14,7 +14,7 @@ import re
 import sys
 from collections.abc import Callable, Iterator
 
-from qew import sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, replication, untrusted_text, vcs
+from qew import cmd_claim, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -358,8 +358,13 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
         raise QewError(
             f"{item_id} cannot open ready: {' '.join(held)} is a draft, and a pull request over a draft is always a draft", 2
         )
-    if folded.state == State.APPROVED:
-        raise QewError(f"{item_id} is unclaimed; run `qew start {item_id}` before opening its pull request", 2)
+    claiming = folded.state == State.APPROVED  # the opener claims it in the write section, after the forge call
+    if claiming:
+        unmet = ledger_graph.blockers(snapshot, item_id)
+        if item.kind == Kind.EPIC:
+            raise QewError(f"{item_id} is an unclaimed epic; run `qew start {item_id}` before opening its pull request", 2)
+        if unmet:
+            raise QewError(f"cannot start {item_id}: it needs {' '.join(unmet)} completed first", 2)
     if folded.state == State.CLAIMED and folded.owner != actor():
         raise QewError(f"{item_id} is claimed by {folded.owner}, not {actor()}; its pull request is theirs to open", 2)
     issues = [m for m in ledger.load_mirrors(item_id) if m.get("kind") == "issue"]
@@ -386,6 +391,12 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
         if remote is None:
             remote = forge.open_pull_request(spec)
     with replication.section("pr-open"):
+        if claiming:
+            try:
+                cmd_claim.start(config, item_id)
+            except QewError as error:
+                raise QewError(f"pull request #{remote.number} is open but {item_id} could not be claimed: {error}; fix that, then rerun "
+                               f"`qew pr open {item_id}` (it adopts #{remote.number})", error.exit_code) from None
         ledger.write_mirror(
             item_id,
             f"{issue['_target']}-pr-{remote.number}",

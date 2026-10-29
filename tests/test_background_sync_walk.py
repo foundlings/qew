@@ -48,14 +48,17 @@ class BackgroundSyncWalk(unittest.TestCase):
         self.assertTrue(wait_for(lambda: len(self.fake.issues) == 1), "the background worker never created the issue")
 
     def test_concurrent_writes_never_double_sync(self) -> None:
-        """Prevents duplicate forge issues when several writes each start a worker: one lock, one issue per item."""
+        """Prevents duplicate forge issues when several writes each start a worker (one lock, one issue per item), and the opposite
+        loss: a worker that finds the lock held exits, so the worker holding it must look at the queue again after it lets go, or the
+        last write of a burst is never synced."""
         w = self.world()
-        for n in range(4):
+        for n in range(6):
             w.run("create", "--title", f"Burst {n}", "--draft", env=ENV)
-        self.assertTrue(wait_for(lambda: len(self.fake.issues) == 4))
+        self.assertTrue(wait_for(lambda: len(self.fake.issues) == 6), f"{len(self.fake.issues)} of 6 items synced")
         time.sleep(1.0)
-        self.assertEqual(len(self.fake.issues), 4)
-        self.assertEqual(len(list((w.ledger / "mirrors").glob("*/*.json"))), 4)
+        self.assertEqual(len(self.fake.issues), 6)
+        self.assertEqual(len(list((w.ledger / "mirrors").glob("*/*.json"))), 6)
+        self.assertFalse((w.ledger / ".qew" / "sync.queue").exists() and (w.ledger / ".qew" / "sync.queue").read_text().strip(), "an id was left queued")
 
     def test_a_failing_forge_leaves_pending_work_that_the_next_command_clears(self) -> None:
         """Prevents a forge outage losing updates: the backlog persists and a later command syncs it."""

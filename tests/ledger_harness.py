@@ -189,7 +189,7 @@ class World:
     def home(self, kind: str, item_id: str, ledger: Path | None = None) -> Path:
         """The directory of one item under `items`, `events`, `mirrors` or `baselines`, in whichever layout the ledger declares."""
         root = (ledger or self.ledger) / kind
-        return root / item_id[-2:].lower() / item_id if self.sharded() else root / item_id
+        return root / f"_{item_id[-2:].lower()}" / item_id if self.sharded() else root / item_id
 
     def events(self, item_id: str) -> list:
         directory = self.home("events", item_id)

@@ -655,6 +655,13 @@ def journal_rollback(entries: Entries) -> None:
         if isinstance(previous, Moved):
             previous.original.parent.mkdir(parents=True, exist_ok=True)
             os.replace(path, previous.original)
+            for parent in path.parents:  # the directories the move emptied: the shard and the item directory
+                if parent.name in ("items", "events", "mirrors", "baselines"):
+                    break
+                try:
+                    parent.rmdir()
+                except OSError:
+                    break
         elif previous is None:
             path.unlink(missing_ok=True)
             if path.parent.parent.name in ("events", "mirrors", "items"):  # the per-item directory the write created

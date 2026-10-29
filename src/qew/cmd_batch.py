@@ -110,7 +110,8 @@ def _flag(fields: JsonObject, key: str) -> bool:
 
 
 def _start(config: Config, ledger: Ledger, item_id: str, fields: JsonObject) -> None:
-    cmd_claim.start(config, item_id, False, None, _text(fields, "lane"), _text(fields, "workspace"), _text(fields, "kind"), _flag(fields, "offline"))
+    cmd_claim.start(config, item_id, False, None, _text(fields, "lane"), _text(fields, "workspace"), _text(fields, "kind"), _flag(fields, "offline"),
+                     _text(fields, "needs_on"))
 
 
 def _evidence(config: Config, ledger: Ledger, item_id: str, fields: JsonObject) -> None:
@@ -149,7 +150,7 @@ def _set(config: Config, ledger: Ledger, item_id: str, fields: JsonObject) -> No
 
 
 OPS: dict[str, tuple[dict[str, Kind], Runner]] = {
-    "start": ({"lane": TEXT, "workspace": TEXT, "kind": TEXT, "offline": FLAG}, _start),
+    "start": ({"lane": TEXT, "workspace": TEXT, "kind": TEXT, "offline": FLAG, "needs_on": TEXT}, _start),
     "evidence": ({"change_ids": LIST, "on_behalf_of": TEXT}, _evidence),
     "complete": ({"reason": TEXT, "absent": TEXT, "no_commit": TEXT, "landed_on": TEXT, "take_over": FLAG}, _complete),
     "close": ({"reason": TEXT, "of": TEXT, "by": TEXT, "note": TEXT, "delivered_by": TEXT, "landed_on": TEXT}, _close),

@@ -21,6 +21,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from qew import ledger_layout
 from qew.errors import QewError
 from qew.ledger_event import parse_event
 
@@ -318,7 +319,7 @@ def _item_entries(items_dir: Path, sharded: bool) -> list[os.DirEntry[str]]:
     top = [entry for entry in os.scandir(items_dir) if entry.is_dir()]
     if not sharded:
         return top
-    return [entry for shard in top for entry in os.scandir(shard.path) if entry.is_dir()]
+    return [entry for shard in top if shard.name.startswith(ledger_layout.PREFIX) for entry in os.scandir(shard.path) if entry.is_dir()]
 
 
 def _read_all[K, T](names: list[K], read: Callable[[K], T]) -> dict[K, T]:

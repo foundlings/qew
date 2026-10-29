@@ -126,6 +126,19 @@ def queue(config: Config, item_ids: Iterable[str] = ()) -> None:
         (cache / "sync.starting").write_text(str(time.time()), encoding="utf-8")
 
 
+def requeue_if_queued(config: Config) -> None:
+    """Called by a worker after it released sync.lock. A write that queued an id while the worker still held the lock started a
+    worker that found the lock taken and exited; this look, made after the release, is what picks that id up: a loser's enqueue
+    comes before its failed lock attempt, which comes before the release, so it is always in the file by now."""
+    queue_file = cache_dir(config) / "sync.queue"
+    try:
+        waiting = queue_file.stat().st_size > 0
+    except FileNotFoundError:
+        waiting = False
+    if waiting:
+        queue(config)
+
+
 def retry_if_pending(config: Config) -> None:
     """A read command restarts the worker when the last run left work, at most every sync_retry_s."""
     cache = cache_dir(config)

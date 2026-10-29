@@ -218,6 +218,7 @@ def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iter
                 yield from _sync_session(config, repo, committing, replicating, True)
             finally:
                 worker.__exit__(None, None, None)
+            syncworker.requeue_if_queued(config)  # after the release: a worker that lost the lock to us has exited
             return
         yield from _sync_session(config, repo, committing, replicating, not getattr(arguments, "dry_run", False))
         return

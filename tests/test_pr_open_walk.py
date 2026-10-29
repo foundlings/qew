@@ -190,12 +190,37 @@ class DraftAndOwnerWalk(unittest.TestCase):
         self.w.open(second, "--ready")
         self.assertEqual([self.w.forge.pull_specs[n].draft for n in (1, 2)], [True, False])
 
-    def test_an_unclaimed_item_is_refused_with_the_start_hint(self) -> None:
-        """Prevents pull requests for work nobody owns."""
+    def test_an_unclaimed_item_is_claimed_by_the_opener_after_the_forge_call(self) -> None:
+        """Prevents a pushed branch waiting for a ledger claim: the pull request opens first, then the claim and the pull request
+        record land together in the one write section."""
         item = self.w.item(claim=False)
+        seen: list[bool] = []
+        original = self.w.forge.open_pull_request
+
+        def recording(spec: object) -> object:
+            seen.append(any(event["type"] == "claimed" for event in self.w.events(item)))
+            return original(spec)
+
+        self.w.forge.open_pull_request = recording  # type: ignore[method-assign]
         run = self.w.open(item)
-        self.assertEqual(run.code, 2)
-        self.assertIn(f"qew start {item}", run.err)
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(seen, [False], "the item was already claimed when the forge was asked")
+        claimed = [event for event in self.w.events(item) if event["type"] == "claimed"]
+        self.assertEqual([event["owner"] for event in claimed], ["tester"])
+        self.assertEqual(len(self.w.mirror_files(item)), 1)
+
+    def test_an_unclaimed_item_with_unmet_needs_or_an_epic_is_refused_before_the_forge_hears_of_it(self) -> None:
+        """Prevents a pull request for work that could not start: the start refusals apply, and nothing reaches the forge."""
+        need = self.w.item("Need", claim=False)
+        made = self.w.qew("create", "--title", "Blocked", "--needs", need)
+        self.assertEqual(made.code, 0, made)
+        blocked = made.out.split()[0]
+        self.w.sync()
+        run = self.w.open(blocked)
+        self.assertEqual(run.code, 2, run)
+        self.assertIn(need, run.err)
+        epic = self.w.item("Epic", kind="epic", claim=False)
+        self.assertEqual(self.w.open(epic).code, 2)
         self.assertEqual(self.w.forge.count("open_pr"), 0)
 
     def test_an_item_claimed_by_someone_else_is_refused_naming_the_owner(self) -> None:
