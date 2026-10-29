@@ -1,8 +1,10 @@
 """`QEW_FILE_MAP=DIR`: record which `src/qew` files a process ran, for `scripts/gate.py --changed`.
 
-A development aid only: it changes nothing a command does and does nothing unless the variable is set. Each code object is
-reported once (the monitor then disables itself for it), so the cost is one callback per function a process ever calls. At exit
-the process writes the repository-relative paths of the `src/qew` files it ran to `DIR/<pid>.txt`.
+A development aid only: it changes nothing a command does and does nothing unless the variable is set. A file counts when one of
+its functions ran, not when it was imported: a module's own body runs in every process that imports it, so counting that would tie a
+file to every test that merely loads it. Each code object is reported once (the monitor then disables itself for it), so the cost is
+one callback per function a process ever calls. At exit the process writes the repository-relative paths of the `src/qew` files it
+ran to `DIR/<pid>.txt`.
 """
 
 import atexit
@@ -21,7 +23,7 @@ def start(directory: str) -> None:
 
     def on_start(code: object, offset: int) -> object:
         name = getattr(code, "co_filename", "")
-        if name.startswith(package):
+        if name.startswith(package) and getattr(code, "co_name", "") != "<module>":
             ran.add(name)
         return monitoring.DISABLE
 
