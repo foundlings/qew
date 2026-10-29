@@ -103,6 +103,12 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     closed.add_argument("--item", metavar="ID", help="a pull request qew never recorded (a legacy draft): adopt it onto this item, which carries its remainder, then close it")
     closed.add_argument("--reason", help="with --item: why it is closed (kept in the ledger)")
     closed.add_argument("--json", action="store_true", help="machine-readable output")
+    titled = sub.add_parser("title", help="set one pull request's own title, kept by `pr sync` (several pull requests of one item otherwise all read the item's title)")
+    titled.add_argument("number", type=int, help="pull request number")
+    titled.add_argument("text", help="the title: one line, at most 256 characters; a blocked-by suffix is added while it is blocked")
+    titled.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
+    titled.add_argument("--target", help=_TARGET_HELP)
+    titled.add_argument("--json", action="store_true", help="machine-readable output")
     synced = sub.add_parser("sync", help="set an open pull request's title from its item's current title, or with --items re-derive the items it covers")
     synced.add_argument("number", type=int, help="pull request number")
     synced.add_argument("--items", action="store_true", help="instead of the title, re-derive the covered items: recorded + the root's open descendants + items with a Progress box")
@@ -162,6 +168,8 @@ def run(arguments: argparse.Namespace) -> bool:
 
         act = pr_block.block if command == "block" else pr_block.unblock
         print(act(config, arguments.number, arguments.by, arguments.target, on_behalf_of=arguments.on_behalf_of))
+    elif command == "title":
+        print(set_title(config, arguments.number, arguments.text, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "sync":
         if arguments.items:
             print(sync_items(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of))
@@ -727,7 +735,8 @@ def sync_title(
     loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     from qew import pr_block  # imports this module for the loading pieces
 
-    wanted = loaded.snapshot.items[(loaded.record.items or (loaded.record.host,))[0]].title + pr_block.suffix(loaded.record.blockers)
+    base = loaded.record.title or loaded.snapshot.items[(loaded.record.items or (loaded.record.host,))[0]].title
+    wanted = base + pr_block.suffix(loaded.record.blockers)
     forge = loaded.forge
     with forge_errors(loaded.record.target):
         before = forge.read_pull_request(number)
@@ -746,6 +755,57 @@ def sync_title(
     loaded.snapshot.ledger.append_event(
         loaded.record.host, "commented", text=f"pull request #{number} retitled: {before.title!r} -> {wanted!r}", author=actor())
     return Retitled(number, True)
+
+
+@dataclass(frozen=True)
+class Titled:
+    number: int
+    title: str
+    changed: bool
+
+    def render(self, as_json: bool) -> str:
+        if as_json:
+            return json.dumps({"number": self.number, "title": self.title, "changed": self.changed, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+        return f"pr #{self.number} titled {self.title!r}" if self.changed else f"pr #{self.number} title unchanged"
+
+
+TITLE_LIMIT = 256  # the forge's own limit on a pull request title
+
+
+def set_title(
+    config: Config, number: int, text: str, target: str | None, build: Build | None = None, sleep: Callable[[float], None] | None = None,
+    on_behalf_of: str | None = None,
+) -> Titled:
+    """Give one pull request its own title: the forge shows it (plus the blocked-by suffix while it is blocked), the ledger keeps it
+    on the pull request's record, and `pr sync` writes it back instead of the item's title."""
+    title = text.strip()
+    if not title or "\n" in title or "\r" in title or len(title) > TITLE_LIMIT:
+        raise QewError(f"a pull request title is one line of 1 to {TITLE_LIMIT} characters", 2)
+    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
+    from qew import pr_block  # imports this module for the loading pieces
+
+    wanted = title + pr_block.suffix(loaded.record.blockers)
+    forge = loaded.forge
+    changed = False
+    with forge_errors(loaded.record.target):
+        before = forge.read_pull_request(number)
+        refuse_finished(number, before, "be retitled")
+        if before.title != wanted:
+            outcome = apply_and_verify(
+                before,
+                lambda: forge.update_pull_request_title(number, wanted),
+                lambda: forge.read_pull_request(number),
+                lambda pull: pull.title == wanted,
+                sleep=sleep,
+            )
+            if outcome == Outcome.NOT_APPLIED:
+                raise QewError(f"pr #{number} still has its old title after the forge accepted the change; nothing is known to have changed", 4)
+            changed = True
+    if loaded.record.title != title:
+        with replication.section("pr-title"):
+            pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, pr_title=title)
+            loaded.snapshot.ledger.append_event(loaded.record.host, "commented", text=f"pull request #{number} titled {title!r}", author=actor())
+    return Titled(number, title, changed)
 
 
 # -- close -------------------------------------------------------------------------

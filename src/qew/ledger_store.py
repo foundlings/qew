@@ -616,7 +616,7 @@ def open_ledger(path: Path, prefix: str) -> Ledger:
 
 BASELINES = "baselines"
 _MINTED: set[Path] = set()  # baseline files this process wrote
-MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items")
+MIRROR_IDENTITY = ("forge", "url", "kind", "number", "node_id", "issue_url", "head", "opener", "items", "pr_title")
 MISS_HOOK: Callable[[], bool] | None = None  # set by the replication session: fetch the ledger remote once, True when it brought something in
 
 

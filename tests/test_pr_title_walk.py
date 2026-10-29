@@ -62,7 +62,7 @@ class PrTitleWalk(unittest.TestCase):
         for bad in ("", "   ", "two\\nlines", "x" * 257):
             with self.subTest(text=bad[:20]):
                 self.assertEqual(self.w.qew("pr", "title", "2", bad.replace("\\n", "\n")).code, 2)
-        self.assertEqual(self.w.qew("pr", "title", "99", CUSTOM).code, 1)
+        self.assertEqual(self.w.qew("pr", "title", "99", CUSTOM).code, self.w.qew("pr", "sync", "99").code)  # an unrecorded pull request, as for every pr verb
         self.assertEqual(len(self.w.forge.title_writes), sent)
 
     def test_json_output_names_the_number_and_the_title(self) -> None:
