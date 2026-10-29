@@ -7,6 +7,7 @@ a leftover file under an old id is superseded by the renamed copy. The map is de
 headers; nothing else stores it.
 """
 
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -85,6 +86,8 @@ class _Index:
 
 
 _indexes: dict[str, _Index] = {}
+RECHECK_S = 1.0  # how long a sharded directory stamp is trusted: it stats every shard, and one lookup per item would repeat that per item (a flat stamp is one stat)
+_stamped: dict[str, float] = {}  # when each items directory was last stamped by this process
 _changed: dict[str, set[str]] = {}  # item stems this process wrote or removed since the last scan
 
 
@@ -125,13 +128,17 @@ def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, 
     """The alias map. Headers are read once; later this process re-reads only the files it wrote, and a directory
     that changed behind its back (another process) is read again in full. `texts` gives every item file's text by
     directory name (the snapshot cache): the full build then reads no file."""
+    key = str(items_dir)
+    changed = _changed.pop(key, set())
+    index = _indexes.get(key)
+    now = time.monotonic()
+    if sharded and index is not None and not changed and now - _stamped.get(key, -RECHECK_S) < RECHECK_S:
+        return index.aliases  # a lookup per item must not list the shard tree each time
     try:
         stamp = ledger_layout.stamp(items_dir, sharded)
     except OSError:
         return Aliases({}, frozenset())
-    key = str(items_dir)
-    changed = _changed.pop(key, set())
-    index = _indexes.get(key)
+    _stamped[key] = now
     if index is None or (not changed and index.stamp != stamp):
         headers = {}
         if texts is not None:
