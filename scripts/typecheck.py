@@ -57,7 +57,12 @@ def main() -> int:
     interpreter = ensure_environment()
     if arguments.setup:
         return 0
-    mypy = subprocess.run([str(interpreter), "-m", "mypy", "--config-file", arguments.config, *arguments.paths], cwd=ROOT, check=False)
+    # The scripts are linted, never held to mypy --strict (a default run does not): a named script goes to ruff alone.
+    checked = [path for path in arguments.paths if not (ROOT / path).resolve().is_relative_to(ROOT / "scripts")]
+    if arguments.paths and not checked:
+        mypy = subprocess.CompletedProcess([], 0)
+    else:
+        mypy = subprocess.run([str(interpreter), "-m", "mypy", "--config-file", arguments.config, *checked], cwd=ROOT, check=False)
     ruff_paths = arguments.paths or ["src/qew", "scripts"]
     ruff = subprocess.run([str(VENV / "bin" / "ruff"), "check", "--config", arguments.config, "--no-cache", *ruff_paths], cwd=ROOT, check=False)
     return 1 if mypy.returncode or ruff.returncode else 0
