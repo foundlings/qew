@@ -64,6 +64,25 @@ class SubIssueRefusalWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("422", result.stdout + result.stderr)
 
+    def test_a_parent_at_githubs_cap_is_recorded_once_with_a_note_and_never_retried_or_failed(self) -> None:
+        """Prevents every sync failing for a parent that already holds 100 sub-issues (seen live: the same refused call on every
+        sync, and 'sync finished with failures' for work that cannot succeed): it is recorded on the mirror, said once, not retried."""
+        self.forget_parent()
+        self.fake.issues[self.numbers["Child"]]["parent"] = None
+        cap = {"message": "Validation Failed", "errors": [{"message": "An error occurred while adding the sub-issue to the parent issue. "
+                                                                      "Parent cannot have more than 100 sub-issues"}]}
+        self.fake.fail_next(422, "/sub_issues", count=1, body=cap)
+        first = self.world.run("sync", "--all", env=ENV)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertIn("100 sub-issue", first.stdout + first.stderr)
+        record = json.loads(baseline_path(self.world.ledger, self.child).read_text())
+        self.assertEqual(record["parent_capped"], self.numbers["Parent"])
+        before = self.posts()
+        second = self.world.run("sync", "--all", env=ENV)
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertEqual(self.posts(), before, "the refused relation was posted again")
+        self.assertNotIn("100 sub-issue", second.stdout + second.stderr, "the note repeats on every sync")
+
     def test_a_long_pace_wait_says_so_on_stderr(self) -> None:
         """Prevents a sync that looks hung: a wait of more than a minute for the create window is announced with its length."""
         now = [0.0]
