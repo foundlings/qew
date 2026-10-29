@@ -109,6 +109,29 @@ def is_held(path: Path) -> bool:
         os.close(fd)
 
 
+SHORT_POLL_S = 0.001
+
+
+@contextmanager
+def short(path: Path, wait_s: float, what: str = "the file") -> Iterator[None]:
+    """A lock for a section of microseconds (an append, a rename): asked for again every millisecond, with none of `hold`'s queue of
+    waiters, markers and backoff, which are made for holds of seconds. A holder that dies frees it, as with `hold`."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | _BINARY, 0o600)
+    try:
+        deadline = time.monotonic() + wait_s
+        while not _try_lock(fd):
+            if time.monotonic() >= deadline:
+                raise LockTimeout(path, what, read_holder(path), wait_s)
+            time.sleep(SHORT_POLL_S)
+        try:
+            yield
+        finally:
+            _unlock(fd)
+    finally:
+        os.close(fd)
+
+
 POLITE_MAX_S = 120.0  # the longest a polite taker yields to waiters before it asks for the lock anyway
 WAITER_STALE_S = 600.0  # a waiter marker older than this belongs to a process that is gone
 QUEUE_FRESH_S = 5.0  # a waiting taker touches its marker every quarter second; one untouched this long is stopped, not queued

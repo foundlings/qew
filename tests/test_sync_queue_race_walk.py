@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from qew import syncworker
+from qew import filelock, syncworker
 
 
 class SyncQueueRaceWalk(unittest.TestCase):
@@ -44,6 +44,19 @@ class SyncQueueRaceWalk(unittest.TestCase):
         taken.update(syncworker.take_queue(config))  # type: ignore[arg-type]
         expected = {f"{letter}{number:04d}" for letter in "ABCDEF" for number in range(400)}
         self.assertEqual(sorted(expected - taken), [], f"{len(expected - taken)} of {len(expected)} enqueued ids were lost")
+
+
+    def test_the_short_lock_times_out_with_the_holder_named_instead_of_waiting_forever(self) -> None:
+        """Prevents an append waiting without bound on a stopped holder: a contended short lock gives up after its wait."""
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "queue.lock"
+        with filelock.short(path, 1.0, "the queue"):
+            with self.assertRaises(filelock.LockTimeout):
+                with filelock.short(path, 0.05, "the queue"):
+                    pass
+        with filelock.short(path, 1.0, "the queue"):  # and it is free again once released
+            pass
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 
 from qew import filelock, trace
 from qew import ledger_config, ledger_layout
@@ -80,25 +80,38 @@ def retry_at(config: Config) -> float:
     return 0.0
 
 
+QUEUE_LOCK_WAIT_S = 30.0
+
+
+def _queue_lock(config: Config) -> AbstractContextManager[None]:
+    """The few microseconds an append or a take of `sync.queue` needs: both go through it, so a take never races an append."""
+    return filelock.short(cache_dir(config) / "sync.queue.lock", QUEUE_LOCK_WAIT_S, "the sync queue")
+
+
 def enqueue(config: Config, item_ids: Iterable[str]) -> None:
     """Remember which items a write touched: the worker syncs exactly those (a union, so bursts cost one run)."""
     ids = sorted(set(item_ids))
     if not ids:
         return
-    with open(cache_dir(config) / "sync.queue", "a", encoding="utf-8") as handle:
-        handle.write("".join(f"{item_id}\n" for item_id in ids))
+    try:
+        with _queue_lock(config):
+            with open(cache_dir(config) / "sync.queue", "a", encoding="utf-8") as handle:
+                handle.write("".join(f"{item_id}\n" for item_id in ids))
+    except filelock.LockTimeout:
+        mark(config, True)  # the queue could not be written in time: the next pass syncs the whole target, so nothing is lost
 
 
 def take_queue(config: Config) -> list[str]:
     """Drain the queued item ids (each once); ids queued while this runs land in a fresh file for the next round."""
     path = cache_dir(config) / "sync.queue"
     taken = path.with_name("sync.queue.taking")
-    try:
-        os.replace(path, taken)
-    except FileNotFoundError:
-        return []
-    ids = sorted(set(taken.read_text(encoding="utf-8").split()))
-    taken.unlink(missing_ok=True)
+    with _queue_lock(config):  # a writer that opened the file before the rename would otherwise append to the renamed one, unread
+        try:
+            os.replace(path, taken)
+        except FileNotFoundError:
+            return []
+        ids = sorted(set(taken.read_text(encoding="utf-8").split()))
+        taken.unlink(missing_ok=True)
     return ids
 
 
