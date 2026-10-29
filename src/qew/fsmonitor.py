@@ -5,6 +5,8 @@ instead of 2 s, and qew commits snapshot once per write). A git ledger has nothi
 """
 
 from enum import Enum
+import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,6 +14,8 @@ from pathlib import Path
 from qew.errors import QewError
 
 INSTALL = "brew install watchman"
+WATCHMAN_WAIT_S = 30.0
+RECRAWLED = re.compile(r"Recrawled this watch (\d+) times?")
 
 
 class State(Enum):
@@ -58,3 +62,34 @@ def enable(ledger: Path) -> None:
         done = _jj(ledger, "config", "set", "--repo", "fsmonitor.backend", "watchman")
         if done.returncode != 0 or state(ledger) is not State.ENABLED:
             raise QewError(f"could not enable watchman in {ledger}: {done.stderr.strip()[:200]}", 4)
+
+
+def _watchman(*arguments: str) -> dict[str, object]:
+    try:
+        done = subprocess.run(["watchman", *arguments], capture_output=True, text=True, timeout=WATCHMAN_WAIT_S, check=False)
+    except subprocess.TimeoutExpired:
+        raise QewError(f"watchman did not answer within {WATCHMAN_WAIT_S:.0f} s", 3) from None
+    except OSError as error:
+        raise QewError(f"cannot run watchman: {error}", 3) from None
+    if done.returncode != 0:
+        raise QewError(f"watchman did not answer: {done.stderr.strip()[:200] or 'exit ' + str(done.returncode)}", 3)
+    try:
+        value = json.loads(done.stdout)
+    except ValueError:
+        raise QewError(f"watchman answered something that is not JSON: {done.stdout.strip()[:200]}", 3) from None
+    return value if isinstance(value, dict) else {}
+
+
+def recrawls(ledger: Path) -> int:
+    """How many times watchman re-crawled this ledger's watch since it was set up (0 when it never did). The system drops file
+    events when its queue overflows; watchman then crawls the whole tree again and every query, so every jj snapshot, waits for it."""
+    warning = _watchman("watch-project", str(ledger)).get("warning")
+    found = RECRAWLED.search(warning) if isinstance(warning, str) else None
+    return int(found.group(1)) if found else 0
+
+
+def reset(ledger: Path) -> None:
+    """Forget the watch and set it up again: the one thing that clears the recrawl count. The first jj snapshot afterwards scans the
+    tree once."""
+    _watchman("watch-del", str(ledger))
+    _watchman("watch-project", str(ledger))
