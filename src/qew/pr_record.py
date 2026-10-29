@@ -27,6 +27,7 @@ class PrRecord:
     opener: str  # the actor who opened it; "" for a record from before openers were kept
     items: tuple[str, ...]  # the covered items
     blockers: tuple[int, ...] = ()  # pull requests this one waits on
+    title: str = ""  # the title set for this pull request alone (`qew pr title`); "": the item's title
 
 
 def positive_number(number: int) -> int:
@@ -60,7 +61,10 @@ def _record(host: str, mirror: MirrorRecord) -> PrRecord:
     blockers: object = mirror.get("blocked_by", [])
     if not isinstance(blockers, list) or not all(isinstance(n, int) and not isinstance(n, bool) for n in blockers):
         raise QewError(f"mirrors/{host}/{stem}.json: `blocked_by` must be a list of pull request numbers", 1)
-    return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, tuple(items), tuple(blockers))
+    title: object = mirror.get("pr_title", "")
+    if not isinstance(title, str):
+        raise QewError(f"mirrors/{host}/{stem}.json: `pr_title` must be text", 1)
+    return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, tuple(items), tuple(blockers), title)
 
 
 def waiting_on(ledger: Ledger, number: int) -> list[PrRecord]:
