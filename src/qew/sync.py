@@ -113,6 +113,9 @@ def sync_target(ledger: Ledger, target: Target, config: Config, only: None | str
     return report
 
 
+CAP = "more than 100 sub-issues"  # GitHub's refusal text for a parent that already has the most it allows
+
+
 def _sub_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: TargetReport, item_id: str, numbers: dict[str, int],
                record: MirrorRecord, pace: Callable[[], None]) -> MirrorRecord:
     """Show the ledger parent as the forge's own parent relation, set once and again only when the ledger parent moves.
@@ -124,6 +127,8 @@ def _sub_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
     recorded = record.get("parent_number")
     if recorded == desired or (recorded is None and desired == 0):
         return record
+    if desired and record.get("parent_capped") == desired:
+        return record  # refused as full once: asking again fills the pace budget for nothing
     pace()
     try:
         target.forge.set_parent(record["number"], desired or None, recorded or None)
@@ -132,6 +137,12 @@ def _sub_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
             report.skipped.append(error.capability)
         return record
     except ForgeRejected as error:
+        if error.status == 422 and CAP in str(error):
+            # GitHub allows 100 sub-issues per parent: a known condition, not a failure. Say so once and do not ask again.
+            report.warnings.append(f"{item_id}: not mirrored as a sub-issue of #{desired}: the parent is at GitHub's 100 sub-issue cap")
+            fresh = updated(record, parent_capped=desired)
+            ledger.write_mirror(item_id, target.slug, fresh)
+            return fresh
         # A refusal for a relation the forge already holds (another machine set it) is recorded, not retried on every sync.
         if error.status != 422 or target.forge.read_issue(record["number"]).parent != desired:
             raise

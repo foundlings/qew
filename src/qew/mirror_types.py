@@ -49,6 +49,7 @@ class MirrorState(TypedDict, total=False):
     dropped: list[str]  # checklist items dropped from a pull request, "ID: reason"; display only
     reviews_read: bool  # a finished pull request whose reviews were read to the end
     parent_number: int  # the issue number last set as this issue's parent (0: none); absent: never set by this machine
+    parent_capped: int  # the parent issue number GitHub refused as full (100 sub-issues): not retried until the ledger parent changes
     cmap: dict[str, CommentLink]  # forge comment id -> link; local state, never committed
     _target: str
 
