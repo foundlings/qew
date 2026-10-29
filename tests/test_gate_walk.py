@@ -89,13 +89,14 @@ class GateChangedWalk(unittest.TestCase):
         """Prevents an empty map: with QEW_FILE_MAP set a qew command leaves the list of src/qew files it ran."""
         world = World()
         self.addCleanup(world.close)
-        world.create("--title", "x")
+        item = world.create("--title", "x")
         trace = self.cache / "trace"
-        result = world.run("list", env={"QEW_FILE_MAP": str(trace)})
+        result = world.run("start", item, env={"QEW_FILE_MAP": str(trace)})
         self.assertEqual(result.returncode, 0, result.stderr)
         ran = {line for part in trace.glob("*.txt") for line in part.read_text().splitlines()}
         self.assertIn("src/qew/cli.py", ran)
         self.assertIn("src/qew/ledger_store.py", ran)
+        self.assertNotIn("src/qew/staged_start.py", ran)  # imported by cmd_claim, so its module body runs in every `start`, but only `--needs-on` runs a function of it
 
     def test_scripts_are_linted_but_not_type_checked_strictly_when_named(self) -> None:
         """Prevents the scoped check failing on scripts the default check never held to mypy --strict."""
