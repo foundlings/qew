@@ -25,6 +25,7 @@ class Node:
     work_state: str
     counts: dict[str, int]
     children: list[Node]
+    stage: int | None = None  # a claimed leaf's progress; the totals still count it as not done
 
     @property
     def leaves(self) -> int:
@@ -37,6 +38,14 @@ class Node:
     @property
     def total(self) -> int:
         return self.leaves - self.counts["closed"]
+
+    @property
+    def active(self) -> int:
+        return self.counts["claimed"]
+
+    @property
+    def active_percent(self) -> int:
+        return self.active * 100 // self.total if self.total else 0
 
     @property
     def percent(self) -> int | None:
@@ -86,10 +95,24 @@ def build(snapshot: Snapshot, kids: dict[str, list[str]], item_id: str, path: fr
     below = [child for child in kids.get(item_id, []) if child not in path and child != item_id]  # a cycle is reported by `qew check`
     children = [build(snapshot, kids, child, path | {item_id}) for child in below]
     state = ledger_graph.work_state(snapshot, item_id)
+    stage = claimed_stage(snapshot, item_id) if state == "claimed" and not children else None
     counts = {name: sum(c.counts[name] for c in children) for name in COUNTED}
     if not children:
         counts[state] += 1
-    return Node(item_id, untrusted_text.show(item.title).text, item.title, item.kind.value, state, counts, children)
+    return Node(item_id, untrusted_text.show(item.title).text, item.title, item.kind.value, state, counts, children, stage)
+
+
+def claimed_stage(snapshot: Snapshot, item_id: str) -> int:
+    """How far a claimed leaf has come: 0 claimed, 25 draft pull request, 50 evidence recorded, 75 pull request ready, 90 merged."""
+    stage = 50 if snapshot.folds[item_id].evidence else 0
+    for record in snapshot.ledger.load_mirrors(item_id):
+        if record.get("kind") != "pr":
+            continue
+        if record.get("state") == "merged":
+            stage = max(stage, 90)
+        elif record.get("state") == "open":
+            stage = max(stage, 25 if record.get("draft") else 75)
+    return stage
 
 
 def shown(node: Node, depth: int | None, epics_only: bool, level: int, open_only: bool = False) -> list[Node]:
@@ -102,6 +125,7 @@ def document(node: Node, depth: int | None, epics_only: bool, level: int) -> Jso
     return {
         "id": node.id, "kind": node.kind, "title": None if untrusted_text.findings(node.raw_title) else node.raw_title, "work_state": node.work_state,
         "counts": node.counts, "leaves": node.leaves, "done": node.done, "total": node.total, "percent": node.percent,
+        "stage_percent": node.stage,
         "children": [document(child, depth, epics_only, level + 1) for child in shown(node, depth, epics_only, level)],
     }
 
@@ -123,19 +147,39 @@ def lines(node: Node, depth: int | None, epics_only: bool, level: int, open_only
 
 
 COUNT_WIDTH = 7  # done/total is at least this wide; it grows to the widest in the tree, so the guides line up
+LABELS_FROM = 90  # a pane this wide gets "done" and "in progress" spelled out beside the two percents
 PAINT = {"done": "\x1b[32m", "going": "\x1b[33m", "stuck": "\x1b[2m"}
 
 
+def counts_text(node: Node) -> str:
+    return f"{node.done}/{node.total}" + (f" (+{node.active})" if node.active else "") if node.children else "0/0"
+
+
 def count_width(node: Node) -> int:
-    own = len(f"{node.done}/{node.total}") if node.children else 0
-    return max([COUNT_WIDTH, own, *(count_width(child) for child in node.children)])
+    return max([COUNT_WIDTH, len(counts_text(node)), *(count_width(child) for child in node.children)])
 
 
-def numbers(node: Node, slot: int) -> str:
-    if not node.children:
-        return node.work_state.ljust(19 + slot)  # "[##########] 100%  " is 19 wide
+def race(node: Node) -> str:
+    """Done `#` and in progress `=` share one bar; a claimed leaf under way always shows at least one cell."""
+    done = (node.percent or 0) * BAR_WIDTH // 100
+    active = min(node.active_percent * BAR_WIDTH // 100 or (1 if node.active else 0), BAR_WIDTH - done)
+    return "[" + "#" * done + "=" * active + "-" * (BAR_WIDTH - done - active) + "]"
+
+
+def epic_numbers(node: Node, slot: int, labels: bool) -> str:
     percent = "n/a" if node.percent is None else f"{node.percent}%"
-    return f"{bar(node.percent)} {percent:>4}  {f'{node.done}/{node.total}':>{slot}}"
+    if labels:
+        return f"{race(node)} {percent:>4} done  {f'{node.active_percent}%':>3} in progress  {counts_text(node):>{slot}}"
+    return f"{race(node)} {percent:>4} {f'+{node.active_percent}%':>4}  {counts_text(node):>{slot}}"
+
+
+def numbers(node: Node, slot: int, labels: bool) -> str:
+    if node.children or node.kind == "epic":
+        return epic_numbers(node, slot, labels)
+    span = len(f"{'':{BAR_WIDTH + 2}} {'':>4} done  {'':>3} in progress  {'':>{slot}}" if labels else f"{'':{BAR_WIDTH + 2}} {'':>4} {'':>4}  {'':>{slot}}")
+    if node.stage is not None:
+        return f"{bar(node.stage)} {f'{node.stage}%':>4}  {node.work_state}".ljust(span)
+    return node.work_state.ljust(span)
 
 
 def paint(node: Node) -> str | None:
@@ -149,7 +193,7 @@ def paint(node: Node) -> str | None:
 def tree_lines(node: Node, depth: int | None, epics_only: bool, open_only: bool, width: int, color: bool,
                prefix: str = "", connector: str = "", level: int = 0, slot: int = 0) -> list[str]:
     slot = slot or count_width(node)
-    head = f"{numbers(node, slot)}  {prefix}{connector}{node.id}"
+    head = f"{numbers(node, slot, width >= LABELS_FROM)}  {prefix}{connector}{node.id}"
     room = width - len(head) - 2
     title = "" if room < 2 else "  " + (node.title if len(node.title) <= room else node.title[: room - 1] + "…")
     line = head + title
