@@ -101,7 +101,7 @@ shape prime: additional_context context_bytes schema_version
   left to do (100% or `n/a`) but keeps the parents of open work (text only). `--tree` is the opt-in view for a person: the numbers
   (bar, percent, done/total, or a leaf's state) in one left column, as wide as the longest done/total in the tree, then `├─ └─ │` guides, id and the title cut with `…` to
   `COLUMNS` (else the tty width) so no line wraps; plain unless `--color` (or `--color=always`) asks for color (green done, yellow under way, dim blocked or `n/a`);
-  the terminal and `NO_COLOR` never decide. A claimed leaf shows a bar of its stage (0 claimed, 25 draft pull request, 50 evidence, 75 ready pull request,
+  the terminal and `NO_COLOR` never decide. In `--tree` an item with children (and any epic) shows a two-tone bar, `#` done and `=` in progress (claimed leaves), then `40% done  20% in progress  4/10 (+2)` (`40% +20%` in a pane under 90 columns). A claimed leaf shows a bar of its stage (0 claimed, 25 draft pull request, 50 evidence, 75 ready pull request,
   90 merged; the totals still count it as not done) and a childless epic shows the epic shape `[----------]   0%  0/0`. The default text never changes with the terminal.
   `--json` prints one nested tree per root per line: `id kind title work_state counts leaves done total percent stage_percent children`. `list --json` rows carry `parent`.
 - `qew plan status [EPIC] [--json]`: roll up the direct children of one epic (every open epic when none is named)

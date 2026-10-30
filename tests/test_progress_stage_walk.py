@@ -29,7 +29,7 @@ class ProgressStageWalk(unittest.TestCase):
 
     def test_a_childless_epic_has_the_bar_percent_and_count_of_every_other_epic(self) -> None:
         """Not the bare word `plan`: the row reads `[----------]   0%    0/0`."""
-        self.assertRegex(self.rows()[self.empty], r"^\[-{10}\]\s+0%\s+0/0\s")
+        self.assertRegex(self.rows()[self.empty], r"^\[-{10}\]\s+0% done\s+0% in progress\s+0/0\s")
 
     def test_a_claimed_leaf_shows_zero_until_evidence_then_half(self) -> None:
         """A fresh claim is 0%; recorded evidence moves it to 50%; the word claimed stays and the epic totals do not move."""
@@ -58,9 +58,10 @@ class ProgressStageWalk(unittest.TestCase):
 
     def test_the_leaf_rows_keep_their_state_column_under_the_wider_epic_numbers(self) -> None:
         """Every id and guide starts in one column whichever kind of row it is on."""
-        rows = list(self.rows().values())
-        columns = {row.index(item) - (3 if "─" in row else 0) for row in rows for item in (self.root, self.empty, self.leaf) if item in row}
-        self.assertEqual(len(columns), 1, rows)
+        rows = self.rows()
+        guides = {row.index("─") - 1 for item, row in rows.items() if item != self.root}
+        self.assertEqual(len(guides), 1, rows)
+        self.assertEqual(rows[self.root].index("Root") - len(self.root) - 2, guides.pop(), rows)
 
 
 if __name__ == "__main__":
