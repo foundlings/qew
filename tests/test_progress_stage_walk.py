@@ -48,6 +48,20 @@ class ProgressStageWalk(unittest.TestCase):
             row = cmd_progress.tree_lines(node, None, False, False, 100, False)[0]
             self.assertTrue(row.startswith("[" + bars.ljust(10, "-") + f"]  {stage}%  claimed"), row)
 
+    def test_an_epic_row_races_done_against_in_progress_in_one_two_tone_bar(self) -> None:
+        """One claimed leaf beside a childless epic: no leaf done, half in progress; `=` is in progress, `#` done, both percents and (+N) are printed."""
+        root = self.rows()[self.root]
+        self.assertRegex(root, r"^\[={5}-{5}\]\s+0% done\s+50% in progress\s+0/2 \(\+1\)\s")
+        self.world.run("evidence", self.leaf, "--change", self.world.commit())
+        self.world.run("complete", self.leaf)
+        self.assertRegex(self.rows()[self.root], r"^\[#{5}-{5}\]\s+50% done\s+0% in progress\s+1/2\s")
+
+    def test_the_leaf_rows_keep_their_state_column_under_the_wider_epic_numbers(self) -> None:
+        """Every id and guide starts in one column whichever kind of row it is on."""
+        rows = list(self.rows().values())
+        columns = {row.index(item) - (3 if "─" in row else 0) for row in rows for item in (self.root, self.empty, self.leaf) if item in row}
+        self.assertEqual(len(columns), 1, rows)
+
 
 if __name__ == "__main__":
     unittest.main()
