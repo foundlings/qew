@@ -52,7 +52,7 @@ Drafts (only a human's quoted words release work)
   qew draft       list | approve | revert
 Pull requests
   qew pr          open | check | ready | sync | merge
-  qew land        complete the items of a merged pull request
+  qew land        complete the items of one or more merged pull requests
   qew branch      prune: delete merged branches no open pull request uses
 Mirrors
   qew pull        fetch the ledger remote and merge it (no forge call)

@@ -84,6 +84,41 @@ class LandBatchWalk(unittest.TestCase):
             self.assertEqual(len(completed), 1)
             self.assertIn("union sweep", str(completed[0]))
 
+    def test_overlapping_prs_complete_shared_items_only_once(self) -> None:
+        """Prevents union members that cover the same item adding duplicate completion or evidence events."""
+        first, item = self.pull("Shared")
+        self.w.head = "another-head"
+        self.assertEqual(self.w.open(item).code, 0)
+        sha = self.w.commit("Second head")
+        self.w.forge.edit_pull(2, head_sha=sha, state="merged")
+        run = self.w.qew("land", str(first), "2", "--json")
+        self.assertEqual(run.code, 0, run)
+        rows = json.loads(run.out)["results"]
+        self.assertEqual(rows[0]["landed"], [item])
+        self.assertEqual(rows[1]["clean"], [item])
+        for kind in ("completed", "evidence"):
+            self.assertEqual(len([event for event in self.w.events(item) if event["type"] == kind]), 1)
+
+    def test_an_indeterminate_head_preserves_exit_four_and_continues_in_text_mode(self) -> None:
+        """Prevents flattening an indeterminate forge response into a generic refusal or aborting later PRs."""
+        first, a = self.pull("Invalid head")
+        second, b = self.pull("Valid head")
+        self.w.forge.edit_pull(first, head_sha="not-a-commit")
+        run = self.w.qew("land", str(first), str(second))
+        self.assertEqual(run.code, 4, run)
+        self.assertIn(f"pr #{first}: not landed:", run.out)
+        self.assertIn(f"pr #{second}:", run.out)
+        self.assertEqual([self.state(item) for item in (a, b)], ["claimed", "completed"])
+
+    def test_single_pr_json_keeps_its_existing_shape(self) -> None:
+        """Prevents the batch feature breaking existing single-PR agent loops."""
+        number, item = self.pull("Single")
+        run = self.w.qew("land", str(number), "--json")
+        self.assertEqual(run.code, 0, run)
+        data = json.loads(run.out)
+        self.assertEqual(set(data), {"schema_version", "state", "landed", "held", "clean", "open"})
+        self.assertEqual(data["landed"], [item])
+
     def test_invalid_numbers_and_options_refuse_the_whole_input_before_writes(self) -> None:
         """Prevents a malformed batch being partly applied before discovering bad input."""
         first, a = self.pull("First")
