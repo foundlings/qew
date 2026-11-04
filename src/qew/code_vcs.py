@@ -7,6 +7,7 @@ import re
 import subprocess
 
 from qew.errors import QewError
+from qew import remote_options
 
 _GIT_ID = re.compile(r"[0-9a-fA-F]{7,64}")
 _JJ_ID = re.compile(r"[a-z0-9]{4,64}")
@@ -41,13 +42,14 @@ def run_git(root: Path, *argv: str) -> subprocess.CompletedProcess[str]:
 def _jj_target(root: Path, target: str) -> str:
     """The revset naming the target branch. A bookmark that two sides moved is conflicted and `present(main)` refuses it, so the
     revset then names every side (a change on either side is on the branch); a name nothing carries is exit 3. The remote's own
-    branch (`main@origin`) joins it: a forge merge lands there, and a local main that is behind it or sits on a duplicate local
+    branch (`main@REMOTE`) joins it: a forge merge lands there, and a local main that is behind it or sits on a duplicate local
     merge is not the branch the change missed."""
+    remote_name = remote_options.selected()
     probe = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target})", "-T", 'commit_id ++ "\\n"'])
     remote = ""
     if "@" not in target:
-        seen = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target}@origin)", "-T", 'commit_id ++ "\\n"'])
-        remote = f" | {target}@origin" if seen.returncode == 0 and seen.stdout.strip() else ""
+        seen = _run(root, _JJ_READ + ["log", "--no-graph", "-r", f"present({target}@{remote_name})", "-T", 'commit_id ++ "\\n"'])
+        remote = f" | {target}@{remote_name}" if seen.returncode == 0 and seen.stdout.strip() else ""
     if probe.returncode == 0 and probe.stdout.strip():
         return f"({target}{remote})"
     if "conflicted" in probe.stderr and "@" not in target:
@@ -55,7 +57,7 @@ def _jj_target(root: Path, target: str) -> str:
         if sides.returncode == 0 and sides.stdout.strip():
             return f'(bookmarks(exact:"{target}"){remote})'
     if remote:
-        return f"({target}@origin)"
+        return f"({target}@{remote_name})"
     raise QewError(f"target `{target}` does not exist in this repo", 3)
 
 
@@ -97,7 +99,7 @@ def current_change(root: Path, vcs: str) -> str:
 
 
 def repository_url(root: Path) -> str:
-    result = _run(root, ["git", "config", "--get", "remote.origin.url"])
+    result = _run(root, ["git", "config", "--get", f"remote.{remote_options.selected()}.url"])
     url = result.stdout.strip() if result.returncode == 0 else ""
     return url or f"local:{root.name}"
 

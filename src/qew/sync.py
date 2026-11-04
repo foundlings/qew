@@ -152,9 +152,9 @@ def _sub_issue(ledger: Ledger, snapshot: Snapshot, target: Target, report: Targe
 
 
 def _attachment_link(ledger: Ledger, target: Target, config: Config) -> attachment_links.Link:
-    """Links into the ledger repository's web view: the mirror's `ledger_web_url`, else the ledger checkout's origin."""
+    """Links into the ledger repository's web view: the mirror's `ledger_web_url`, else the ledger checkout's selected remote."""
     address = target.mirror.options.get("ledger_web_url")
-    base = attachment_links.web_base(address if isinstance(address, str) else attachment_links.origin_of(ledger.path))
+    base = attachment_links.web_base(address if isinstance(address, str) else attachment_links.remote_url(ledger.path))
     return attachment_links.link_for(base, config.replication.branch, target.forge.blob_url, ledger.sharded)
 
 

@@ -229,7 +229,7 @@ def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iter
             _recover(repo, deferred=True)
         if replicating and verb != "resolve":  # resolve settles a conflict the fetch would only re-raise
             _note(config, repo.fetch_merge(rep.timeout_s), repo.last_failure)
-            (config.ledger_path / ".qew" / "last-fetch").touch()
+            (config.ledger_path / ".qew" / ("last-fetch" if repo.remote == "origin" else f"last-fetch-{repo.remote}")).touch()
         ledger_store.journal_start()
         _HOLDING = True
         try:
@@ -453,7 +453,7 @@ def pull(config: Config, held: bool = False, wait_s: float | None = None) -> Pul
         _note(config, fetched, repo.last_failure)
         if fetched == "offline":
             raise QewError(f"the ledger remote is unreachable: {repo.last_failure or 'no answer'}; nothing was pulled", 3)
-        (config.ledger_path / ".qew" / "last-fetch").touch()
+        (config.ledger_path / ".qew" / ("last-fetch" if repo.remote == "origin" else f"last-fetch-{repo.remote}")).touch()
         after = repo.tip()
         paths = repo.changed_between(before, after)
     return Pulled(before, after, repo.count_between(before, after), tuple(_item_ids(paths, ledger_config.is_sharded(config.ledger_path))))
@@ -503,7 +503,7 @@ def _pull_for_read(arguments: argparse.Namespace) -> None:
     repo = LedgerRepo(config.ledger_path, rep.branch)
     if repo.vcs is None or rep.offline or not rep.auto_push or not (config.ledger_path / ledger_config.LEDGER_FILE).is_file():
         return
-    stamp = config.ledger_path / ".qew" / "last-fetch"
+    stamp = config.ledger_path / ".qew" / ("last-fetch" if repo.remote == "origin" else f"last-fetch-{repo.remote}")
     if stamp.exists() and time.time() - stamp.stat().st_mtime < rep.fetch_interval_s:
         return
     try:

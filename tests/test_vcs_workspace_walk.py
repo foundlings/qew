@@ -20,12 +20,10 @@ from qew.errors import QewError
 def inside(path: Path):
     before = os.getcwd()
     os.chdir(path)
-    vcs.checkout_repository.cache_clear()
     try:
         yield
     finally:
         os.chdir(before)
-        vcs.checkout_repository.cache_clear()
 
 
 class WorkspaceGitStoreWalk(unittest.TestCase):

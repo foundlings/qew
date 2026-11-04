@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from qew import branch_cleanup, code_vcs, pr_block, pr_record, replication, untrusted_text
+from qew import branch_cleanup, code_vcs, pr_block, pr_record, replication, untrusted_text, remote_options
 from qew.cmd_pr import (
     MERGE_RECHECK_SECONDS, SCHEMA_VERSION, Build, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
     merge_check, merge_pull_request,
@@ -75,9 +75,10 @@ def _lead(config: Config, pulls: dict[int, RemotePullRequest]) -> int:
             return number
     branches = [untrusted_text.show(p.head_branch).text for p in pulls.values()]
     first = branches[0]
-    recipe = (f"jj git fetch; jj new {' '.join(b + '@origin' for b in branches)}; jj bookmark set {first} -r @; jj git push --bookmark {first}"
+    remote = remote_options.selected()
+    recipe = (f"jj git fetch --remote {remote}; jj new {' '.join(b + '@' + remote for b in branches)}; jj bookmark set {first} -r @; jj git push --remote {remote} --bookmark {first}"
               if vcs == "jj" else
-              f"git fetch; git checkout {first}; git merge {' '.join('origin/' + b for b in branches[1:])}; git push origin {first}")
+              f"git fetch {remote}; git checkout {first}; git merge {' '.join(remote + '/' + b for b in branches[1:])}; git push {remote} {first}")
     raise QewError(f"no head contains the others, so pr {', '.join('#' + str(n) for n in pulls)} are not one union "
                    f"(or a head is not fetched here yet). Join {', '.join(branches)} into one head: `{recipe}`, then run this again", 2)
 

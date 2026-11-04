@@ -65,6 +65,16 @@ Ledger commands run in a write session: lock, fetch and merge the ledger remote,
 step; the work is pushed and mirrored the next time you are online. `QEW_NO_CACHE=1` bypasses the local snapshot cache (`.qew/snapshot.db`, a rebuildable SQLite copy of the ledger's file text, validated by stat). `QEW_TRACE=1` prints every phase and forge call with its wall time on stderr. `[replication]` in `.qew/config.toml`
 (`auto_commit`, `auto_push`, `auto_forge_sync`, `background_sync`, `fetch_interval_s`, `branch`, ...) tunes it;
 `qew status` shows the authority, ledger and per-target state and any open divergences.
+Remote selection: every command accepts optional `--remote NAME` (code repository) and
+`--ledger-remote NAME` (ledger repository), before or after the subcommand. Both default to
+`origin`; `QEW_REMOTE` and `QEW_LEDGER_REMOTE` provide process defaults, overridden by the flags.
+For example, `qew pull --ledger-remote origin2` fetches and merges the ledger through `origin2`;
+`qew pr union 12 13 --remote origin2 --ledger-remote origin2` uses alternate remotes in both checkouts.
+Add alternate remotes with Git or jj first. Selection keeps URLs and Git upstream configuration;
+jj tracks the selected ledger bookmark before pushing. It uses only the selected remote, regardless
+of protocol. Choose a remote for the same repository; ledger identity and merge-conflict checks still apply. Forge API calls
+and explicitly configured mirror clone URLs retain their own targets. Sync workers inherit selection.
+
 Empty undescribed jj checkpoints do not block ledger pushes; undescribed commits containing changes still refuse.
 
 - **Primary forge.** `[authority] primary = "<target slug>"` makes that forge arbitrate claims, so two checkouts or agents

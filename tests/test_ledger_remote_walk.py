@@ -28,8 +28,8 @@ class LedgerRemoteWalk(unittest.TestCase):
     def test_selected_remote_fetches_merges_and_pushes_without_origin(self) -> None:
         """Prevents an unavailable origin breaking a command that explicitly selects a working alternate."""
         item = self.a.create("--title", "From selected remote", "--draft")
-        git(self.b.ledger, "remote", "rename", "origin", "origin2")
-        git(self.b.ledger, "remote", "add", "origin", str(self.b.base / "missing.git"))
+        git(self.b.ledger, "remote", "add", "origin2", str(self.b.remote))
+        git(self.b.ledger, "remote", "set-url", "origin", str(self.b.base / "missing.git"))
         pulled = self.b.run("pull", "--ledger-remote", "origin2")
         self.assertEqual(pulled.returncode, 0, pulled.stderr)
         self.assertIn(item, self.b.run("list", env={"QEW_OFFLINE": "1"}).stdout)

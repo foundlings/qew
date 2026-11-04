@@ -87,7 +87,7 @@ evidence_absent: no-code: why   # completed work without code: KIND: reason (nev
 Body…
 ```
 Strict evidence (schema 4, the default; `evidence = "lenient"` in `qew-ledger.toml` opts out): a completed item carries
-`evidence` (at least one id; each must resolve and be an ancestor of the target; in a jj checkout the remote's `TARGET@origin` counts too, so a forge merge lands even when local `TARGET` is behind it or diverged) or `evidence_absent` with a kind of `no-code`
+`evidence` (at least one id; each must resolve and be an ancestor of the target; in a jj checkout the remote's `TARGET@REMOTE` (selected code remote, default `origin`) counts too, so a forge merge lands even when local `TARGET` is behind it or diverged) or `evidence_absent` with a kind of `no-code`
 (delivered outside the repository), `historical` (done before the ledger or imported without a resolvable id),
 `superseded-by:ITEM` or `children` (an epic finished by its children), never silently neither. The header is set by whatever
 writes the `completed` event (`evidence` / `absent` + `absent_reason` fields; imports and forge-side closes record `historical`);
@@ -261,7 +261,7 @@ Everything below is best-effort and offline-first: no network failure ever fails
    names, linked into place, committed, and if the commit fails the files written by this command are removed or
    restored, so there is no uncommitted-write state. A crash between write and commit leaves files that the next
    qew command notices (`qew status` shows them as `uncommitted`) and commits as `qew: recover <paths>`.
-2. **Ledger remote.** Before a write: best-effort fetch and merge of the ledger remote (timeout
+2. **Ledger remote.** `--ledger-remote NAME` selects the remote for this command (default `origin`; `QEW_LEDGER_REMOTE` supplies a process default). Reads throttle fetches separately per remote; Git and jj fetch, merge, resolve, count unpushed commits and push against the selected remote. jj tracks an existing selected ledger bookmark before pushing. Before a write: best-effort fetch and merge of the ledger remote (timeout
    `[replication] timeout_s`). After a write: best-effort push. Unreachable remote: local commits stay and the next
    command or `qew sync` retries. Merges cannot conflict by construction (one file per item and event, unique
    ids). A real text conflict is a ledger bug: reported loudly, never auto-resolved, writes refuse until fixed.
@@ -331,7 +331,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
   `qew unlock --stale --quote Q` removes the dead ones on a human's approval, logs each removal to `.qew/unlock.log`, and
   refuses young or open locks and any running qew writer. jj's working-copy
   and operation locks are kernel locks held for one command, so a dead jj frees them and jj itself waits.
-- **Remote refs.** A fetch and a push of one checkout both rewrite `refs/remotes/origin/*`; run together they fail with
+- **Remote refs.** A fetch and a push of one checkout both rewrite refs for the selected remote; run together they fail with
   `Failed to update refs` and the claim arbiter would read that as an unreachable remote. Every fetch and push takes the
   innermost `.qew/remote.lock` (held for that one network operation only, never while waiting for another lock, so it
   cannot deadlock with the write or push lock). The last failure text is kept in `.qew/remote-error` and named in the
@@ -387,7 +387,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
 (booleans, default true), `lock_wait_s` (60; how long a command waits for the ledger lock), `slow_commit_s` (20; a jj ledger commit slower than this prints one hint a day, `.qew/slow-commit-note`, naming `qew doctor`), `op_log_keep_days` (14; a jj ledger's operations older than this are abandoned and garbage collected by a write, at most once a day and only when the write lock is free; 0 keeps them all), `timeout_s` (30; a fetch or push that takes longer is a timeout, not an outage: the warning says `timed out after Ns`, names the setting and counts the commits other machines cannot see, and `qew status` keeps the reason as `ledger remote error:`), `fetch_interval_s` (10: reads fetch at most this often; writes always; `qew pull` and a lookup that misses an id always),
 `sync_retry_s` (10: a read restarts a worker that left work), `sync_budget_s` (20: inline sync time budget), `forge_concurrency` (4: forge writes in flight at once; 1 to 32), `divergences` (`"ledger"`: sync undoes forge-side changes itself, because the ledger is the source of truth; `"report"`: they wait for `qew accept` or `qew reject`), `sync_limit` (300: pending writes an unscoped `qew sync` makes before it asks for `--all` or a scope; 0 lifts it), `forge_failure_limit` (5: consecutive items failing on a 5xx or a lost connection before the target stops; 1 to 1000),
 `branch` (`main`). A jj command gets at least 60 seconds whatever `timeout_s` says (it snapshots the whole working copy first; `QEW_JJ_TIMEOUT_S` changes the floor). A fetch or push that still times out counts as an unreachable remote: a warning on stderr, the commit stays local, `qew status` shows `remote=offline`, and the next command catches it up; the command itself keeps its exit code. Unknown keys fail. Cache files in the ledger checkout's `.qew/` (excluded from the VCS):
-`lock` (write lock), `sync.lock` (worker), `sync.log`, `sync.pending`, `sync.spawned`, `last-fetch`.
+`lock` (write lock), `sync.lock` (worker), `sync.log`, `sync.pending`, `sync.spawned`, `last-fetch` (origin) or `last-fetch-NAME` (alternate remote).
 A `sync` run takes the write lock only to commit (every 25 mirror writes and at the end), never during forge calls.
 A write of any size is one commit: git receives the paths on stdin, and jj, past a size that fits a command line, the owned directories. A commit that fails rolls back every file and per-item directory the write created.
 

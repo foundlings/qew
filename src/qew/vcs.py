@@ -1,12 +1,12 @@
 """Derive the branch a pull request is made from: git, or Jujutsu."""
 
-from functools import lru_cache
 import os
 from pathlib import Path
 import re
 import subprocess
 
 from qew.errors import QewError
+from qew import remote_options
 
 _COMMIT_IDS = 'commit_id ++ "\\n"'
 
@@ -74,14 +74,13 @@ def workspace_git_dir() -> Path | None:
 _REMOTE = re.compile(r"[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
 
 
-@lru_cache(maxsize=1)
 def checkout_repository() -> str | None:
-    """OWNER/REPO named by this checkout's `origin` remote, or None when unreadable."""
+    """OWNER/REPO named by this checkout's selected remote, or None when unreadable."""
     try:
         git_dir = workspace_git_dir()
         command = ["git"] + (["--git-dir", str(git_dir)] if git_dir is not None else [])
         result = subprocess.run(
-            [*command, "config", "--get", "remote.origin.url"],
+            [*command, "config", "--get", f"remote.{remote_options.selected()}.url"],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
@@ -106,12 +105,14 @@ def _git_branch() -> str:
         )
     if _run(["git", "status", "--porcelain"]).strip():
         raise QewError("pull requests require a clean working tree", 3)
-    upstream = _run(
-        ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]
-    ).strip()
-    if not upstream.endswith(f"/{branch}"):
-        raise QewError("current branch must track its matching remote branch", 3)
-    counts = _run(["git", "rev-list", "--left-right", "--count", "@{upstream}...HEAD"]).split()
+    if "QEW_REMOTE" in os.environ:
+        upstream = f"refs/remotes/{remote_options.selected()}/{branch}"
+        _run(["git", "rev-parse", "--verify", upstream])
+    else:
+        upstream = _run(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]).strip()
+        if not upstream.endswith(f"/{branch}"):
+            raise QewError("current branch must track its matching remote branch", 3)
+    counts = _run(["git", "rev-list", "--left-right", "--count", f"{upstream}...HEAD"]).split()
     if counts != ["0", "0"]:
         raise QewError("current branch must exactly match its upstream", 3)
     return branch
@@ -135,10 +136,11 @@ def _jujutsu_branch() -> str:
     name = names[0]
     if any(c in name for c in '"\\'):
         raise QewError("invalid bookmark name; pass --head BRANCH", 3)
+    remote_name = remote_options.selected()
     local = f'bookmarks(exact:"{name}")'
-    remote = f'remote_bookmarks(exact:"{name}", exact:"origin")'
+    remote = f'remote_bookmarks(exact:"{name}", exact:"{remote_name}")'
     if not _run(["jj", "log", "--no-graph", "-r", remote, "-T", _COMMIT_IDS]).strip():
-        raise QewError(f"bookmark {name} is not pushed to origin", 3)
+        raise QewError(f"bookmark {name} is not pushed to {remote_name}", 3)
     drift = _run(
         ["jj", "log", "--no-graph", "-r", f"({remote}..{local}) | ({local}..{remote})",
          "-T", _COMMIT_IDS]

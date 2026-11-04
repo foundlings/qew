@@ -13,7 +13,7 @@ from contextlib import AbstractContextManager
 from collections.abc import Sequence
 
 from qew import filelock, snapshot_reuse, trace
-from qew import ledger_lineage
+from qew import ledger_lineage, remote_options
 from qew.errors import QewError
 
 # Directories and files whose changes are qew's own writes (never a human's notes).
@@ -229,6 +229,7 @@ class LedgerRepo:
     def __init__(self, path: Path, branch: str = "main") -> None:
         self.path = path
         self.branch = branch
+        self.remote = remote_options.selected(ledger=True)
         self.last_failure = ""  # why the last fetch or push failed: stderr's last line, for the status file and messages
         if (path / ".jj").is_dir():
             self.vcs: str | None = "jj"
@@ -310,11 +311,11 @@ class LedgerRepo:
         if not self.has_remote():
             return 0
         if self.vcs == "git":
-            ref = f"origin/{self.branch}"
+            ref = f"{self.remote}/{self.branch}"
             if self.run(["git", "rev-parse", "--verify", "-q", ref], check=False).returncode != 0:
                 return int(self.run(["git", "rev-list", "--count", "HEAD"]).stdout.strip() or 0)
             return int(self.run(["git", "rev-list", "--count", f"{ref}..HEAD"]).stdout.strip() or 0)
-        remote = f'remote_bookmarks(exact:"{self.branch}", exact:"origin")'
+        remote = f'remote_bookmarks(exact:"{self.branch}", exact:"{self.remote}")'
         return len(self._jj_ids(f'bookmarks(exact:"{self.branch}") ~ ::({remote})')) and len(
             self._jj_ids(f'::bookmarks(exact:"{self.branch}") ~ ::({remote}) ~ empty()'))
 
@@ -470,8 +471,8 @@ class LedgerRepo:
         return QewError(f"{', '.join(foreign)} is not a file qew owns; qew never settles it: resolve it by hand in {self.path}", 2)
 
     def _git_resolve(self, take: str, timeout: float) -> Resolution:
-        remote = f"origin/{self.branch}"
-        self.run(["git", "fetch", "-q", "origin"], timeout=timeout, check=False)
+        remote = f"{self.remote}/{self.branch}"
+        self.run(["git", "fetch", "-q", self.remote], timeout=timeout, check=False)
         self.run(["git", "merge", "-q", "-X", "no-renames", "--no-commit", "--no-ff", remote], check=False)
         files = self.run(["git", "diff", "--name-only", "--diff-filter=U"], check=False).stdout.split()
         if not files:
@@ -497,8 +498,8 @@ class LedgerRepo:
         return Resolution(take, discarded)
 
     def _jj_resolve(self, take: str, timeout: float) -> Resolution:
-        self.run(["jj", "--no-pager", "git", "fetch"], timeout=timeout, check=False)
-        remote = self._jj_ids(f'remote_bookmarks(exact:"{self.branch}", exact:"origin")')
+        self.run(["jj", "--no-pager", "git", "fetch", "--remote", self.remote], timeout=timeout, check=False)
+        remote = self._jj_ids(f'remote_bookmarks(exact:"{self.branch}", exact:"{self.remote}")')
         sides = self._jj_ids(f'bookmarks(exact:"{self.branch}")')
         if not remote or not sides:
             raise QewError("no ledger merge conflict to resolve", 2)
@@ -527,13 +528,13 @@ class LedgerRepo:
 
     def _git_fetch_merge(self, timeout: float) -> str:
         try:
-            fetched = self.run(["git", "fetch", "-q", "origin"], timeout=timeout, check=False)
+            fetched = self.run(["git", "fetch", "-q", self.remote], timeout=timeout, check=False)
         except QewError:
             return "offline"
         if fetched.returncode != 0:
             self._remember_failure(fetched)
             return "offline"
-        remote = f"origin/{self.branch}"
+        remote = f"{self.remote}/{self.branch}"
         if self.run(["git", "rev-parse", "--verify", "-q", remote], check=False).returncode != 0:
             return "ok"
         self._refuse_foreign(self.run(["git", "show", f"{remote}:qew-ledger.toml"], check=False), remote)
@@ -573,16 +574,16 @@ class LedgerRepo:
         return out.split()
 
     def _jj_fetch_merge(self, timeout: float) -> str:
-        fetched = self.run([*JJ_READ, "git", "fetch"], timeout=timeout, check=False)
+        fetched = self.run([*JJ_READ, "git", "fetch", "--remote", self.remote], timeout=timeout, check=False)
         if fetched.returncode != 0:
             self._remember_failure(fetched)
             return "offline"
-        remote = self._jj_ids(f'remote_bookmarks(exact:"{self.branch}", exact:"origin")')
+        remote = self._jj_ids(f'remote_bookmarks(exact:"{self.branch}", exact:"{self.remote}")')
         sides = self._jj_ids(f'bookmarks(exact:"{self.branch}")')
         if not remote or not sides:
             return "ok"
         tip = remote[0]
-        self._refuse_foreign(self.run([*JJ_READ, "file", "show", "-r", tip, "qew-ledger.toml"], check=False), f"{self.branch}@origin")
+        self._refuse_foreign(self.run([*JJ_READ, "file", "show", "-r", tip, "qew-ledger.toml"], check=False), f"{self.branch}@{self.remote}")
         local = [x for x in sides if x != tip]  # a conflicted bookmark lists the remote tip as one side
         if not local:
             if len(sides) == 1:
@@ -606,13 +607,13 @@ class LedgerRepo:
                 self.run(["jj", "--no-pager", "resolve", "--tool", ":theirs"])
             else:
                 self.run(["jj", "--no-pager", "undo"], check=False)
-                raise LedgerConflict(f"{self.branch}@origin", files, self.path, local[0], tip)
+                raise LedgerConflict(f"{self.branch}@{self.remote}", files, self.path, local[0], tip)
         self.run(["jj", "--no-pager", "bookmark", "set", self.branch, "-r", "@"])
         self.run(["jj", "--no-pager", "new"])
         return "ok"
 
     def _remote_refs(self) -> AbstractContextManager[None]:
-        """Fetch and push both rewrite refs/remotes/origin/*; two of them at once in one checkout fail with 'Failed to update
+        """Fetch and push both rewrite the selected remote refs; two of them at once in one checkout fail with 'Failed to update
         refs'. This innermost lock (held only for the one network operation, never while waiting for another lock) serializes
         them, whichever of the write lock, the push lock or neither the caller holds."""
         return filelock.hold(self.path / ".qew" / "remote.lock", verb="remote sync", wait_s=120.0, what="the ledger remote refs")
@@ -641,14 +642,17 @@ class LedgerRepo:
         try:
             with self._remote_refs():
                 if self.vcs == "git":
-                    pushed = self.run(["git", "push", "-q", "origin", f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
+                    pushed = self.run(["git", "push", "-q", self.remote, f"{self.branch}:{self.branch}"], timeout=timeout, check=False)
                 else:
+                    # An existing alternate bookmark is initially untracked; jj refuses to push over it.
+                    if self.remote != "origin" and self._jj_ids(f'remote_bookmarks(exact:"{self.branch}", exact:"{self.remote}")'):
+                        self.run([*JJ_READ, "bookmark", "track", self.branch, "--remote", self.remote])
                     # Empty checkpoints carry no ledger change to describe. Keep their history intact, but retain
                     # jj's description check if any unpublished content commit is undescribed.
                     undescribed_content = self._jj_ids(
                         f'(::bookmarks(exact:"{self.branch}") ~ ::remote_bookmarks()) & description(exact:"") ~ empty()')
                     description_args = [] if undescribed_content else ["--allow-empty-description"]
-                    pushed = self.run([*JJ_READ, "git", "push", "--bookmark", self.branch, *description_args],
+                    pushed = self.run([*JJ_READ, "git", "push", "--remote", self.remote, "--bookmark", self.branch, *description_args],
                                       timeout=timeout, check=False)
         except CommandTimeout as slow:
             self.last_failure = str(slow)  # the commit is local; the next write or `qew push` pushes it
