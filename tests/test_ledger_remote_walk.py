@@ -25,6 +25,26 @@ class LedgerRemoteWalk(unittest.TestCase):
         self.addCleanup(self.a.close)
         self.b = self.a.clone("b", replication=every_time)
 
+    def test_selected_remote_fetches_merges_and_pushes_without_origin(self) -> None:
+        """Prevents an unavailable origin breaking a command that explicitly selects a working alternate."""
+        item = self.a.create("--title", "From selected remote", "--draft")
+        git(self.b.ledger, "remote", "rename", "origin", "origin2")
+        git(self.b.ledger, "remote", "add", "origin", str(self.b.base / "missing.git"))
+        pulled = self.b.run("pull", "--ledger-remote", "origin2")
+        self.assertEqual(pulled.returncode, 0, pulled.stderr)
+        self.assertIn(item, self.b.run("list", env={"QEW_OFFLINE": "1"}).stdout)
+        written = self.b.run("--ledger-remote", "origin2", "create", "--title", "Alternate write", "--draft")
+        self.assertEqual(written.returncode, 0, written.stderr)
+        self.assertIn(written.stdout.split()[0], remote_subjects(self.a)[0])
+        self.assertEqual(git(self.b.ledger, "remote", "get-url", "origin"), str(self.b.base / "missing.git"))
+
+    def test_invalid_remote_is_refused_before_writing(self) -> None:
+        """Prevents option or revset injection through a remote selector."""
+        for name in ("--all", 'bad"name', "bad name", "../other", "https://example.invalid/repo"):
+            result = self.a.run("create", "--title", "Must not write", "--ledger-remote=" + name)
+            self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertEqual(remote_subjects(self.a), ["init ledger"])
+
     def test_a_write_is_pushed_to_the_remote(self) -> None:
         """Prevents work staying on one machine: the commit reaches the remote with the write."""
         item = self.a.create("--title", "Shared", "--draft")
