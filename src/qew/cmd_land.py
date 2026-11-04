@@ -2,7 +2,7 @@
 
 import argparse
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Literal, TypedDict, cast
 
 from qew import cmd_claim, cmd_finish, pr_block, code_vcs, ledger_config, outcome, pr_checklist, pr_gate
 from qew.cmd_pr import Build, Loaded, forge_errors, load
@@ -16,8 +16,8 @@ from qew.pr_record import positive_number
 
 
 def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    land = commands.add_parser("land", help="after a pull request merged, record its head as evidence and complete its claimed items")
-    land.add_argument("number", type=int, help="pull request number")
+    land = commands.add_parser("land", help="after pull requests merged, record their heads as evidence and complete their claimed items")
+    land.add_argument("number", type=int, nargs="+", help="one or more merged pull request numbers, processed in order (duplicates once)")
     land.add_argument("--target", help="mirror target (slug or unique part)")
     land.add_argument("--integrator", action="store_true", help="land the items another actor claimed too, as the one who merged (needs --reason)")
     land.add_argument("--reason", help="with --integrator: why the merger lands them, recorded on each item")
@@ -27,7 +27,11 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
 def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "land":
         return False
-    result = land(ledger_config.load(), arguments.number, arguments.target, integrator=arguments.integrator, reason=arguments.reason)
+    config = ledger_config.load()
+    if len(arguments.number) > 1:
+        _batch(config, arguments)
+        return True
+    result = land(config, arguments.number[0], arguments.target, integrator=arguments.integrator, reason=arguments.reason)
     if arguments.json:
         print(outcome.render(arguments, "", state=result.state, landed=result.landed, held=result.held,
                              clean=result.clean, open=result.open))
@@ -51,6 +55,63 @@ class Landing:
     open: list[str] = field(default_factory=list)
 
 
+class LandedPull(TypedDict):
+    number: int
+    state: Literal["merged"]
+    landed: list[str]
+    held: list[JsonObject]
+    clean: list[str]
+    open: list[str]
+    failures: int
+    messages: list[str]
+    exit_code: int
+
+
+class RefusedPull(TypedDict):
+    number: int
+    state: Literal["error"]
+    error: str
+    exit_code: int
+
+
+def _options(integrator: bool, reason: str | None) -> None:
+    if integrator and not (reason or "").strip():
+        raise QewError("--integrator needs --reason TEXT: say why the merger lands items another actor claimed", 2)
+    if reason is not None and not integrator:
+        raise QewError("--reason is only for --integrator", 2)
+
+
+def _batch(config: Config, arguments: argparse.Namespace) -> None:
+    """Independent landings in input order; persist progress and return every PR's typed outcome."""
+    numbers = list(dict.fromkeys(arguments.number))
+    for number in numbers:
+        positive_number(number)
+    _options(arguments.integrator, arguments.reason)
+    rows: list[LandedPull | RefusedPull] = []
+    lines: list[str] = []
+    exit_code = 0
+    incomplete = 0
+    for number in numbers:
+        try:
+            result = land(config, number, arguments.target, integrator=arguments.integrator, reason=arguments.reason)
+        except QewError as error:
+            rows.append({"number": number, "state": "error", "error": str(error), "exit_code": error.exit_code})
+            lines.append(f"pr #{number}: not landed: {error}")
+            exit_code = max(exit_code, error.exit_code)
+            incomplete += 1
+            continue
+        code = 2 if result.failures or result.held or result.open else 0
+        rows.append({"number": number, "state": "merged", "landed": result.landed, "held": result.held,
+                     "clean": result.clean, "open": result.open, "failures": result.failures,
+                     "messages": result.lines, "exit_code": code})
+        lines += [f"pr #{number}:", *result.lines]
+        exit_code = max(exit_code, code)
+        incomplete += bool(code)
+    print(outcome.render(arguments, "\n".join(lines), results=rows))
+    if exit_code:
+        raise QewError(f"{incomplete} pull request(s) were not fully landed; the results above say why", exit_code)
+
+
 def _order(loaded: Loaded, ids: list[str]) -> list[str]:
     """Children before their epics, so an epic completes after what it covers."""
     kinds = loaded.snapshot.items
@@ -71,10 +132,7 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
 
     `integrator`: the caller merged it and lands the items another actor holds too, on the take-over path with `reason`."""
     positive_number(number)
-    if integrator and not (reason or "").strip():
-        raise QewError("--integrator needs --reason TEXT: say why the merger lands items another actor claimed", 2)
-    if reason is not None and not integrator:
-        raise QewError("--reason is only for --integrator", 2)
+    _options(integrator, reason)
     loaded = load(config, number, target, build, owned=False)  # the holder is checked per item below, not per pull request
     with forge_errors(loaded.record.target):
         pull = loaded.forge.read_pull_request(number)

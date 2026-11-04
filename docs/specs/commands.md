@@ -634,7 +634,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   caller holds every claim on; otherwise exit 3 naming the opener and the ways forward (`qew start ITEM --take-over
   --reason TEXT`; for merge also `--other-author --reason TEXT`). A merge also refuses an item another actor holds,
   even for the opener. A covered item with unreadable history is exit 4.
-- `qew land NUMBER [--target T] [--integrator --reason TEXT] [--json]`: after the merge, per covered item the caller holds: record the pull request head
+- `qew land NUMBER [NUMBER ...] [--target T] [--integrator --reason TEXT] [--json]`: after the merge, per covered item the caller holds: record the pull request head
   as evidence when none covers it, then complete it (children before epics). Items named only by a Progress box of the merged body (the
   record froze at open) are covered too, but only when their own evidence is the merged head or an ancestor of it; without that the line
   says `has a Progress box in pr #N but no evidence on its merged head` and names `qew evidence`, because the head is no proof for them. Items held by others or not started
@@ -646,3 +646,17 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   holds, on the `complete --take-over` path (evidence recorded for the holder, the completion event carrying the holder
   and `integrator landed pr #N (held by HOLDER): TEXT`); `--reason` alone, or `--integrator` without it, is exit 2, and an
   unmerged pull request is still refused. An item the caller already holds, directly or through its epic, is landed plainly with no take-over, with or without `--integrator`. It never trusts the forge's `merged_by`: a shared token would make that match everyone.
+
+`qew land` with several supplied numbers lands each distinct PR in input order, independently;
+no union-membership requirement applies. Successes stay committed if another member fails. It
+continues after per-PR refusals or backend errors, so retries can name the same full batch safely.
+Numbers and shared options are validated before any landing. `--target`, `--integrator` and its
+required `--reason` apply to every member; no ownership, evidence or completion gate is relaxed.
+Text groups results under `pr #N:`. With multiple supplied numbers, `--json` emits
+`{schema_version, results: [...]}`: each processed PR has `number`, `state` and `exit_code`;
+a `merged` result also has `landed`, `held`, `clean`, `open`, `failures` and `messages` (the
+per-item reasons), while an `error` result has `error` (the rendered refusal or backend failure).
+An unfinished member (`failures`, `held` or `open`) has exit code 2. A PR error retains its own
+exit code; the batch exits with the highest member code, or 0 when all are fully landed or already
+complete. Single-number behavior and JSON shape remain unchanged, including exit 0 for skipped
+held/unclaimed items. Example: `qew land 5792 5811 5812 --integrator --reason "merged union batch" --json`.

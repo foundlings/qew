@@ -129,14 +129,19 @@ def queue(config: Config, item_ids: Iterable[str] = ()) -> None:
     if not worker_running(config):
         log = cache / "sync.log"
         _trim_log(log)
+        starting = cache / "sync.starting"
         with open(log, "ab") as handle:
-            subprocess.Popen(
-                [sys.executable, "-m", "qew", "sync"], cwd=config.root, stdin=subprocess.DEVNULL,
-                stdout=handle, stderr=handle, start_new_session=True,
-                env={**os.environ, "QEW_BACKGROUND": "1", "QEW_NO_FETCH": "1"},
-            )
+            starting.write_text(str(time.time()), encoding="utf-8")
+            try:
+                subprocess.Popen(
+                    [sys.executable, "-m", "qew", "sync"], cwd=config.root, stdin=subprocess.DEVNULL,
+                    stdout=handle, stderr=handle, start_new_session=True,
+                    env={**os.environ, "QEW_BACKGROUND": "1", "QEW_NO_FETCH": "1"},
+                )
+            except OSError:
+                starting.unlink(missing_ok=True)
+                raise
         (cache / "sync.spawned").write_text(str(time.time()), encoding="utf-8")
-        (cache / "sync.starting").write_text(str(time.time()), encoding="utf-8")
 
 
 def requeue_if_queued(config: Config) -> None:

@@ -7,9 +7,11 @@ import os
 import sys
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
+from qew import ledger_config, syncworker
 from tests.fake_forgejo import TOKEN, FakeForgejo
 from tests.ledger_harness import World
 
@@ -59,6 +61,33 @@ class BackgroundSyncWalk(unittest.TestCase):
         self.assertEqual(len(self.fake.issues), 6)
         self.assertEqual(len(list((w.ledger / "mirrors").glob("*/*.json"))), 6)
         self.assertFalse((w.ledger / ".qew" / "sync.queue").exists() and (w.ledger / ".qew" / "sync.queue").read_text().strip(), "an id was left queued")
+
+    def test_a_fast_worker_cannot_leave_a_marker_that_suppresses_the_next_spawn(self) -> None:
+        """Prevents a worker that finishes before Popen returns stranding the next queued item."""
+        w = self.world()
+        config = ledger_config.load(w.code)
+
+        def fast_worker(*args: object, **kwargs: object) -> object:
+            with syncworker.take(config):
+                syncworker.take_queue(config)
+            return object()
+
+        with mock.patch("qew.syncworker.subprocess.Popen", side_effect=fast_worker) as spawn:
+            syncworker.queue(config, ["first"])
+            syncworker.queue(config, ["second"])
+        self.assertEqual(spawn.call_count, 2)
+        self.assertFalse(syncworker.worker_running(config))
+        self.assertEqual(syncworker.take_queue(config), [])
+
+    def test_a_failed_spawn_leaves_no_startup_marker_and_keeps_the_queue(self) -> None:
+        """Prevents a spawn failure hiding queued work behind a nonexistent starting worker."""
+        w = self.world()
+        config = ledger_config.load(w.code)
+        with mock.patch("qew.syncworker.subprocess.Popen", side_effect=OSError("spawn failed")):
+            with self.assertRaises(OSError):
+                syncworker.queue(config, ["pending"])
+        self.assertFalse(syncworker.worker_running(config))
+        self.assertEqual(syncworker.take_queue(config), ["pending"])
 
     def test_a_failing_forge_leaves_pending_work_that_the_next_command_clears(self) -> None:
         """Prevents a forge outage losing updates: the backlog persists and a later command syncs it."""

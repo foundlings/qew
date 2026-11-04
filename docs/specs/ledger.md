@@ -348,7 +348,8 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
   qew itself with no board workflow and no `qew sync` or `qew project sync` to run by hand. The forge or board is
   never written first. Only a claim under a primary forge arbitrates remotely (see Authority).
 - After any write qew queues the ids the write touched in `.qew/sync.queue` (a union, each id once) and starts ONE
-  detached worker unless one runs. The worker drains the queue and syncs only those items plus the cards their
+  detached worker unless one runs. Its startup marker is published before spawning and removed if spawning fails;
+  a worker taking its lock clears the marker. The worker drains the queue and syncs only those items plus the cards their
   change moves (dependents, parent epics): it reads each item's issue and card one by one, reuses the recorded
   board, looks for an existing issue only among the newest page, and never lists every issue or every card, so a
   create, start or complete reaches the board in seconds whatever the ledger size. Ten quick writes make one run.
