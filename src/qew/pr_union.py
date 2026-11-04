@@ -7,13 +7,11 @@ copy: git plumbing makes the commit, and the push is forward-only.
 import argparse
 from pathlib import Path
 
-from qew import code_vcs, untrusted_text
+from qew import code_vcs, untrusted_text, remote_options
 from qew.cmd_pr import MergeOptions, _merge_options, forge_errors, load, refuse_finished
 from qew.errors import QewError
 from qew.forge import RemotePullRequest
 from qew.ledger_config import Config
-
-REMOTE = "origin"
 
 
 def _git(root: Path, *argv: str) -> str:
@@ -41,6 +39,7 @@ def _join(root: Path, accumulated: str, head: str, number: int) -> str:
 
 
 def union(config: Config, arguments: argparse.Namespace) -> str:
+    remote_name = remote_options.selected()
     numbers = list(dict.fromkeys(arguments.number))
     if len(numbers) < 2:
         raise QewError("a union needs at least two pull requests", 2)
@@ -59,10 +58,10 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
         raise QewError("these pull requests do not share one base branch", 2)
     if not code_vcs.valid_branch(lead.head_branch):
         raise QewError(f"pr #{numbers[0]}: head branch `{untrusted_text.show(lead.head_branch).text}` is not a safe branch name", 2)
-    _git(root, "fetch", REMOTE)
+    _git(root, "fetch", remote_name)
     for number, pull in pulls.items():
         if code_vcs.run_git(root, "rev-parse", "--verify", "--quiet", f"{pull.head_sha}^{{commit}}").returncode != 0:
-            raise QewError(f"pr #{number}: head {pull.head_sha[:12]} is not in this checkout after fetching {REMOTE}", 4)
+            raise QewError(f"pr #{number}: head {pull.head_sha[:12]} is not in this checkout after fetching {remote_name}", 4)
     for number, pull in pulls.items():
         if all(_contains(root, other.head_sha, pull.head_sha) for n, other in pulls.items() if n != number):
             return f"pr #{number} already contains the others; nothing to join (merge with `qew pr merge {' '.join(map(str, numbers))}`)"
@@ -76,9 +75,9 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
     if arguments.dry_run:
         return f"union {built[:12]} of {members} builds without conflicts; dry run, nothing pushed"
     branch = lead.head_branch
-    _git(root, "push", REMOTE, f"{built}:refs/heads/{branch}")
-    remote = _git(root, "ls-remote", REMOTE, f"refs/heads/{branch}").split()
+    _git(root, "push", remote_name, f"{built}:refs/heads/{branch}")
+    remote = _git(root, "ls-remote", remote_name, f"refs/heads/{branch}").split()
     if not remote or remote[0] != built:
-        raise QewError(f"the push of {branch} was accepted but {REMOTE} does not show {built[:12]} there", 3)
+        raise QewError(f"the push of {branch} was accepted but {remote_name} does not show {built[:12]} there", 3)
     return (f"union {built[:12]} of {members} pushed as {untrusted_text.show(branch).text} (the head of pr #{numbers[0]}); "
             f"run the project checks on it, then `qew pr merge {' '.join(map(str, numbers))}`")

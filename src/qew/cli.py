@@ -215,6 +215,9 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
     revert.add_argument("--json", action="store_true", help="machine-readable output")
     for plugin in _plugins(modules):
         plugin.register(commands)
+    from qew import remote_options
+
+    remote_options.register(parser)
     return parser
 
 
@@ -349,7 +352,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser(_wanted_modules(argv)).parse_args(argv)
     arguments.json = outcome.wants_json(arguments)
     try:
-        with ledger_config.old_layout_allowed(arguments.command == "migrate-layout"), replication.session(arguments):
+        from qew import remote_options
+
+        with remote_options.session(arguments), ledger_config.old_layout_allowed(arguments.command == "migrate-layout"), replication.session(arguments):
             try:
                 _run(arguments)
             except NotFound:

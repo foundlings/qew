@@ -50,6 +50,16 @@ class HeadWalk(unittest.TestCase):
         self.assertEqual(run.code, 0, run)
         self.assertEqual(self.w.forge.pull_specs[1].head, "main")
 
+    def test_selected_remote_checks_the_pushed_head_without_changing_upstream(self) -> None:
+        """Prevents PR head discovery requiring an origin upstream during an alternate transport selection."""
+        self.push_main()
+        git(self.w.world.code, "remote", "add", "origin2", str(self.w.world.base / "origin.git"))
+        git(self.w.world.code, "fetch", "origin2")
+        git(self.w.world.code, "remote", "set-url", "origin", str(self.w.world.base / "missing.git"))
+        run = self.derive("--remote", "origin2")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(git(self.w.world.code, "config", "--get", "branch.main.remote"), "origin")
+
     def test_a_branch_ahead_of_its_upstream_is_refused_before_any_forge_call(self) -> None:
         """Prevents a pull request for commits the forge cannot see."""
         self.push_main()

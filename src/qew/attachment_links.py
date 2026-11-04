@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from urllib.parse import quote
 
-from qew import ledger_layout
+from qew import ledger_layout, remote_options
 
 Link = Callable[[str, str], str | None]  # (item id, blob file name) -> URL or None
 
@@ -29,10 +29,10 @@ def web_base(address: str) -> str | None:
     return None
 
 
-def origin_of(ledger_path: Path) -> str:
-    """The ledger checkout's `origin` URL, or "" when it has none or git cannot say."""
+def remote_url(ledger_path: Path) -> str:
+    """The ledger checkout's selected remote URL, or "" when it has none or git cannot say."""
     try:
-        done = subprocess.run(["git", "-C", str(ledger_path), "remote", "get-url", "origin"], capture_output=True, text=True,
+        done = subprocess.run(["git", "-C", str(ledger_path), "remote", "get-url", remote_options.selected(ledger=True)], capture_output=True, text=True,
                               check=False, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return ""

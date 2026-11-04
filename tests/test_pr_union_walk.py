@@ -68,6 +68,17 @@ class UnionWalk(unittest.TestCase):
         self.assertEqual(git(self.code, "status", "--porcelain"), dirty)
         self.assertIn(pushed[:12], run.out)
 
+    def test_union_uses_selected_code_remote_for_fetch_push_and_verification(self) -> None:
+        """Prevents PR union contacting origin when a working alternate was selected."""
+        for number in (1, 2):
+            self.pull_request(number, f"f{number}.txt", f"{number}\n")
+        git(self.code, "remote", "rename", "origin", "origin2")
+        git(self.code, "remote", "add", "origin", str(self.bare.parent / "missing.git"))
+        run = self.w.qew("pr", "union", "1", "2", "--remote", "origin2")
+        self.assertEqual(run.code, 0, run)
+        for sha in self.shas.values():
+            git(self.bare, "merge-base", "--is-ancestor", sha, self.remote(1))
+
     def test_a_conflict_between_heads_is_refused_and_nothing_is_pushed(self) -> None:
         """Prevents a conflicted union reaching the forge: the refusal names the pull request and the file, exit 2."""
         self.pull_request(1, "f1.txt", "1\n")

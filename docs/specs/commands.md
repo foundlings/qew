@@ -11,6 +11,16 @@ plain stderr message and the exit code.
 The actor written into events is `QEW_ACTOR`, else `USER`; it must be one word without spaces, commas or control
 characters (exit 3 otherwise) and `qew check` flags events whose actor is not such a token.
 
+Remote selection: every command accepts optional `--remote NAME` (code repository) and
+`--ledger-remote NAME` (ledger repository), before or after the subcommand. Both default to
+`origin`; `QEW_REMOTE` and `QEW_LEDGER_REMOTE` provide process defaults, overridden by the flags.
+For example, `qew pull --ledger-remote origin2` fetches and merges the ledger through `origin2`;
+`qew pr union 12 13 --remote origin2 --ledger-remote origin2` uses alternate remotes in both checkouts.
+Add alternate remotes with Git or jj first. Selection keeps URLs and Git upstream configuration;
+jj tracks the selected ledger bookmark before pushing. It uses only the selected remote, regardless
+of protocol. Choose a remote for the same repository; ledger identity and merge-conflict checks still apply. Forge API calls
+and explicitly configured mirror clone URLs retain their own targets. Sync workers inherit selection.
+
 ## Machine output
 Bounded answers (`ready`, `blocked`) print one envelope object; open-ended lists (`list`, `graph`,
 `draft list`, `triage`) print one object per line (NDJSON) with `schema_version` on each row; `show` prints one
@@ -528,7 +538,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   on drafts is refused (also when a covered item is a draft). An epic's pull request covers the epic and its open
   descendants. The body is the marker, `Delivers ID`, then What (default: the item body), Why and Testing, then
   the `--body-file` (a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines). Without `--head` the
-  pushed branch is derived (git: named, clean, equal to its upstream; jj: the one bookmark equal to origin, git never run).
+  pushed branch is derived (git: named, clean, equal to its upstream; jj: the one bookmark equal to the selected remote, default origin, git never run).
   A branch named for another item is refused. `--json`: `{item, number, url, draft, schema_version}`.
   An open pull request already on the head whose body carries this item's marker (an orphan: the forge accepted the
   open and the ledger record was never written) is adopted instead of opened again: only the record is written and the
