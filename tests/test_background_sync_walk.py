@@ -11,7 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from qew import ledger_config, syncworker
+from qew import filelock, ledger_config, syncworker
 from tests.fake_forgejo import TOKEN, FakeForgejo
 from tests.ledger_harness import World
 
@@ -55,8 +55,11 @@ class BackgroundSyncWalk(unittest.TestCase):
         last write of a burst is never synced."""
         w = self.world()
         for n in range(6):
-            w.run("create", "--title", f"Burst {n}", "--draft", env=ENV)
-        self.assertTrue(wait_for(lambda: len(self.fake.issues) == 6), f"{len(self.fake.issues)} of 6 items synced")
+            result = w.run("create", "--title", f"Burst {n}", "--draft", env=ENV)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        synced = wait_for(lambda: len(self.fake.issues) == 6)
+        log = (w.ledger / ".qew" / "sync.log").read_text(encoding="utf-8")
+        self.assertTrue(synced, f"{len(self.fake.issues)} of 6 items synced; worker log:\n{log[-4000:]}")
         time.sleep(1.0)
         self.assertEqual(len(self.fake.issues), 6)
         self.assertEqual(len(list((w.ledger / "mirrors").glob("*/*.json"))), 6)
@@ -87,6 +90,37 @@ class BackgroundSyncWalk(unittest.TestCase):
             with self.assertRaises(OSError):
                 syncworker.queue(config, ["pending"])
         self.assertFalse(syncworker.worker_running(config))
+        self.assertEqual(syncworker.take_queue(config), ["pending"])
+
+    def test_handoff_retires_a_provisional_marker_before_starting_queued_work(self) -> None:
+        """Prevents a completed worker's startup hint stranding the last queued write."""
+        w = self.world()
+        config = ledger_config.load(w.code)
+        (syncworker.cache_dir(config) / "sync.starting").write_text(str(time.time()), encoding="utf-8")
+        syncworker.enqueue(config, ["last"])
+        with mock.patch("qew.syncworker.subprocess.Popen") as spawn:
+            syncworker.requeue_if_queued(config)
+        self.assertEqual(spawn.call_count, 1)
+
+    def test_empty_handoff_retires_the_hint_so_a_later_write_can_spawn(self) -> None:
+        """Prevents a write just after an empty-queue check being held by a ghost startup marker."""
+        w = self.world()
+        config = ledger_config.load(w.code)
+        (syncworker.cache_dir(config) / "sync.starting").write_text(str(time.time()), encoding="utf-8")
+        syncworker.requeue_if_queued(config)
+        with mock.patch("qew.syncworker.subprocess.Popen") as spawn:
+            syncworker.queue(config, ["later"])
+        self.assertEqual(spawn.call_count, 1)
+
+    def test_handoff_keeps_a_real_worker_as_the_single_sync_authority(self) -> None:
+        """Prevents retiring a heuristic marker overriding a live worker's kernel lock."""
+        w = self.world()
+        config = ledger_config.load(w.code)
+        syncworker.enqueue(config, ["pending"])
+        with filelock.hold(syncworker.cache_dir(config) / "sync.lock", verb="sync worker", wait_s=0):
+            with mock.patch("qew.syncworker.subprocess.Popen") as spawn:
+                syncworker.requeue_if_queued(config)
+        self.assertEqual(spawn.call_count, 0)
         self.assertEqual(syncworker.take_queue(config), ["pending"])
 
     def test_a_failing_forge_leaves_pending_work_that_the_next_command_clears(self) -> None:
