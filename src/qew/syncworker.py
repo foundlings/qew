@@ -145,10 +145,13 @@ def queue(config: Config, item_ids: Iterable[str] = ()) -> None:
 
 
 def requeue_if_queued(config: Config) -> None:
-    """Called by a worker after it released sync.lock. A write that queued an id while the worker still held the lock started a
-    worker that found the lock taken and exited; this look, made after the release, is what picks that id up: a loser's enqueue
-    comes before its failed lock attempt, which comes before the release, so it is always in the file by now."""
-    queue_file = cache_dir(config) / "sync.queue"
+    """After releasing sync.lock, retire the advisory startup hint and queue any tail.
+
+    A startup hint cannot stand for a live worker at handoff. Queue still honors sync.lock and forge backoff.
+    """
+    cache = cache_dir(config)
+    (cache / "sync.starting").unlink(missing_ok=True)
+    queue_file = cache / "sync.queue"
     try:
         waiting = queue_file.stat().st_size > 0
     except FileNotFoundError:
