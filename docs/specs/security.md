@@ -52,8 +52,8 @@ are in `docs/specs/read-sizes.json`; `--check` fails when an answer grows past i
 
 ```
 command   raw bytes  compact bytes  tokens  saved
-ready          7699            924     390    88%
-list           7699           3068    1242    61%
-prime          7699           1311     353    83%
-show           4601           1380     513    71%
+ready          7595           1364     555    83%
+list           7595           2998    1258    61%
+prime          7595           1384     369    82%
+show           4537           1553     597    66%
 ```

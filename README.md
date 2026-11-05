@@ -165,6 +165,44 @@ landings; completed work stays completed, and retrying is safe. Batch mode exits
 fails or has unfinished items (including other holders without `--integrator`). Single-PR output stays
 unchanged. Batch JSON is `{schema_version, results}` with a PR number and exit code on every result.
 
+Ready ranking: `qew ready [ROOT ...] --by-priority` names the default priority-first order;
+`qew ready 0436j477k --by-dependents --limit 8 --json` ranks a phase's candidates by unique downstream
+open dependents, then immediate ready unlocks, chain depth, direct dependents, priority and id.
+Both modes show priority and query rank plus `direct`, `trans`, `unlocks` and `depth` before the title.
+JSON rows expose `rank`, `direct_dependents`, `transitive_dependents`, `unblocks_now`, `chain_depth`
+and the existing `priority`; the envelope names `order` and `roots`. Counts stay global across root
+boundaries, but candidates stay within the selected ownership trees. Completed/closed history is
+excluded. A transitive waiter is not necessarily an immediate unlock: shared AND-gates, drafts and
+human gates matter. `qew graph ITEM --edges blocks needs --depth 2 --tree` shows co-blockers.
+The two sort flags are exclusive; limits apply after ranking. Prime explains the default for agents.
+
+Scoped views accept item ids, aliases or unique prefixes as roots. `qew graph ADU --tree` follows
+children and prerequisites from ADU; `qew graph ADU --edges needs --tree --unmet-only` shows its
+unsatisfied prerequisite graph. `qew progress ADU --edges needs --tree --open-only` totals the
+reachable dependency work; `qew progress ADU --edges children needs --tree --open-only` combines
+ownership and dependencies. Each reachable work unit counts once; nodes with selected ownership
+children are containers, and intermediate prerequisites still count as work. Completing a bottom
+blocker therefore does not mark unfinished dependents 100%. Default progress remains a child tree.
+
+Both commands accept `--edges EDGE [EDGE ...]` (repeatable): `children`, `parent`, `needs`, `blocks`,
+`tracks`, `tracked-by`, `pr`, `pr-for`, `discovered-from`, `discoveries`. These choose traversal
+relations and directions; drawings retain canonical stored edge directions. Shared nodes are
+explicit references (`↩` in terminal views; `reference: true` in progress JSON); parallel links stay
+in graph edges. Unmet-only removes completed prerequisite edges, not closed or missing blockers.
+It requires needs or blocks traversal. `--open-only` retains context for unfinished work; progress
+applies it to JSON too and keeps totals unchanged. Missing targets are explicit missing nodes.
+Actual parent/needs cycles refuse; valid mixed-direction cycles terminate at references in both
+commands and their work units count once.
+
+Graph accepts zero or more roots, `--depth N` (nonnegative hop radius, 0 = roots only), `--open-only`,
+`--unmet-only`, `--tree`, `--format text|dot|mermaid` or `--json`. Tree, format and JSON are exclusive.
+With roots or traversal/filter options, graph JSON is one envelope with `schema_version`, `roots`,
+`nodes` (`id`, `title`, `kind`, `state`) and `edges` (`source`, `relation`, `target`). Isolated roots
+remain visible. Bare graph retains its existing whole-ledger text/dot/Mermaid and edge NDJSON.
+Progress keeps its positive `--depth` display limit and complete totals. Explicit edge traversal
+JSON adds `traversal`, full canonical `edges`, and uses `units` in place of the legacy child-tree
+`leaves` count; child occurrences carry `via`. Unknown roots fail before any partial output.
+
 ## Hooks
 
 `qew hook install --git` adds a tracked pre-push hook and `qew hook vcs-check` refuses pushes of commits whose `Refs: ID` trailers cite items without evidence (jj pushes are checked by the agent guard). `qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
@@ -179,3 +217,7 @@ is spelled `QEW_ALLOW_FORGE_BYPASS=1` before that one command (set in the hook's
 against local fakes. This is the gate; qew has no GitHub workflows.
 
 Licensed under Apache-2.0.
+
+Progress terminal traversal is iterative, including deep dependency chains. Nested progress JSON
+beyond 200 displayed levels refuses with an actionable depth hint, before any multi-root output;
+use `--depth 200` or less, or `qew graph ROOT --json` for the flat graph. Totals remain complete.

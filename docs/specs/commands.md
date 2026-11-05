@@ -35,10 +35,13 @@ for a comment) where the source repeats; the kinds are `zero_width`, `bidi_contr
 and `control`.
 Shapes (`required | optional`; a test fails when a command emits a key listed nowhere or omits a required one):
 ```
-shape row: id kind labels priority state title | body children_done children_open completable needs owner parent pr schema_version section text_findings tracks work_state holders stale
-shape envelope: items schema_version total truncated
+shape row: id kind labels priority state title | rank direct_dependents transitive_dependents unblocks_now chain_depth body children_done children_open completable needs owner parent pr schema_version section text_findings tracks work_state holders stale
+shape envelope: items schema_version total truncated | order roots
 shape blocked_row: blocked_by id kind labels priority state title | chain needs owner parent pr root text_findings tracks holders stale
 shape edge: item schema_version | needs parent
+shape scoped_graph: edges nodes roots schema_version
+shape scoped_node: id kind state title
+shape scoped_edge: relation source target
 shape show: author draft id kind labels priority schema_version state title claim holders | approvals blocked_by blocking body children children_done children_drafts children_open comments complete_command completable evidence mirrors needs next owner parent text_findings stale completion closure closed_duplicates supersedes discovered_from discovered
 shape triage_row: body id kind labels missing priority schema_version state title | needs owner parent text_findings holders stale
 shape check: contradictions cycles problems schema_version text_findings valid
@@ -91,24 +94,24 @@ shape prime: additional_context context_bytes schema_version
   `qew list --kind epic` rows carry `children_open`, `children_done`, `completable` (not closed or completed, at
   least one child, none open) and, only when completable and the title was not rewritten, `-> qew complete ID`;
   closed epics are left out unless `--state`/`--work-state` asks for them.
-- `qew ready [--limit N] [--json]`: at most 30 items by default, `--limit 0` for all; a cut is reported as
+- `qew ready [ROOT ...] [--by-priority | --by-dependents] [--limit N] [--json]`: at most 30 items by default, `--limit 0` for all; a cut is reported as
   `truncated` with `total` in JSON and on stderr. A negative or non-integer limit is a usage error (exit 2).
-  Ordered by priority, then the longest chain it unblocks, then direct dependents, then id.
+  Default: priority, then longest open downstream chain, direct open dependents and id; explicit impact ordering and scores are described below.
 - `qew blocked [--chains] [--json]`: approved or claimed work with unmet needs; JSON `blocked_by` holds
   `{id, state, title}` per unmet need (`closed`, or `missing` for a need that does not exist).
   `--chains` adds, under each row,
   `  chain: ITEM -> NEED -> ... [root STATE]`: the longest chain of unmet needs (ties: lowest id) to a root blocker
   that has no unmet needs, is closed, or is `dangling` (no such item); `--json` rows gain `chain` and `root`.
   A needs cycle is refused (exit 1).
-- `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
+- `qew graph [ROOT ...] [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
-  characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
-- `qew progress ROOT... [--depth N] [--epics-only] [--open-only] [--tree [--color[=always|never]]] [--json]`: the whole parent/child tree under each root from one ledger
+  characters is withheld; `--json` and `--format` are exclusive. With roots, default traversal is children plus needs; scope and machine shape are described below. Readiness is derived from files; no network.
+- `qew progress ROOT... [--edges EDGE ...] [--depth N] [--epics-only] [--open-only] [--tree [--color[=always|never]]] [--json]`: by default the whole parent/child tree under each root from one ledger
   read. A leaf is an item with no children, counted by `work_state`; a node's percent is its completed leaves over its leaves
   less those closed (a blocked, gated or claimed leaf is not done; no leaves left to do prints `n/a`, JSON `null`). Text: one
   indented line per node, `ID  title  [######----] 62%  (done/total)` for items with children, `ID  title  STATE` for leaves.
   `--epics-only` omits leaves, `--depth N` shows N levels (totals still cover every leaf), `--open-only` omits rows with nothing
-  left to do (100% or `n/a`) but keeps the parents of open work (text only). `--tree` is the opt-in view for a person: the numbers
+  left to do (100% or `n/a`) but keeps the parents of open work (text and JSON). `--tree` is the opt-in view for a person: the numbers
   (bar, percent, done/total, or a leaf's state) in one left column, as wide as the longest done/total in the tree, then `├─ └─ │` guides, id and the title cut with `…` to
   `COLUMNS` (else the tty width) so no line wraps; plain unless `--color` (or `--color=always`) asks for color (green done, yellow under way, dim blocked or `n/a`);
   the terminal and `NO_COLOR` never decide. In `--tree` an item with children (and any epic) shows a two-tone bar, `#` done and `=` in progress (claimed leaves), then `40% done  20% in progress  4/10 (+2)` (`40% +20%` in a pane under 90 columns). A claimed leaf shows a bar of its stage (0 claimed, 25 draft pull request, 50 evidence, 75 ready pull request,
@@ -660,3 +663,57 @@ An unfinished member (`failures`, `held` or `open`) has exit code 2. A PR error 
 exit code; the batch exits with the highest member code, or 0 when all are fully landed or already
 complete. Single-number behavior and JSON shape remain unchanged, including exit 0 for skipped
 held/unclaimed items. Example: `qew land 5792 5811 5812 --integrator --reason "merged union batch" --json`.
+
+Scoped views accept item ids, aliases or unique prefixes as roots. `qew graph ADU --tree` follows
+children and prerequisites from ADU; `qew graph ADU --edges needs --tree --unmet-only` shows its
+unsatisfied prerequisite graph. `qew progress ADU --edges needs --tree --open-only` totals the
+reachable dependency work; `qew progress ADU --edges children needs --tree --open-only` combines
+ownership and dependencies. Each reachable work unit counts once; nodes with selected ownership
+children are containers, and intermediate prerequisites still count as work. Completing a bottom
+blocker therefore does not mark unfinished dependents 100%. Default progress remains a child tree.
+
+Both commands accept `--edges EDGE [EDGE ...]` (repeatable): `children`, `parent`, `needs`, `blocks`,
+`tracks`, `tracked-by`, `pr`, `pr-for`, `discovered-from`, `discoveries`. These choose traversal
+relations and directions; drawings retain canonical stored edge directions. Shared nodes are
+explicit references (`↩` in terminal views; `reference: true` in progress JSON); parallel links stay
+in graph edges. Unmet-only removes completed prerequisite edges, not closed or missing blockers.
+It requires needs or blocks traversal. `--open-only` retains context for unfinished work; progress
+applies it to JSON too and keeps totals unchanged. Missing targets are explicit missing nodes.
+Actual parent/needs cycles refuse; valid mixed-direction cycles terminate at references in both
+commands and their work units count once.
+
+Graph accepts zero or more roots, `--depth N` (nonnegative hop radius, 0 = roots only), `--open-only`,
+`--unmet-only`, `--tree`, `--format text|dot|mermaid` or `--json`. Tree, format and JSON are exclusive.
+With roots or traversal/filter options, graph JSON is one envelope with `schema_version`, `roots`,
+`nodes` (`id`, `title`, `kind`, `state`) and `edges` (`source`, `relation`, `target`). Isolated roots
+remain visible. Bare graph retains its existing whole-ledger text/dot/Mermaid and edge NDJSON.
+Progress keeps its positive `--depth` display limit and complete totals. Explicit edge traversal
+JSON adds `traversal`, full canonical `edges`, and uses `units` in place of the legacy child-tree
+`leaves` count; child occurrences carry `via`. Unknown roots fail before any partial output.
+
+Ready ranking is explicit: `qew ready [ROOT ...] --by-priority` is the default priority-first order
+(priority ascending, longest open downstream chain descending, direct open dependents descending,
+then id). `qew ready [ROOT ...] --by-dependents` orders unique transitive open dependents descending,
+then immediate ready unlocks, chain depth, direct open dependents (all descending), priority and id.
+Flags are mutually exclusive. Roots restrict candidates to the roots and ownership descendants;
+impact still follows global needs edges, including cross-scope dependents. Readiness itself is unchanged.
+
+Every ready row exposes `priority`, query `rank`, `direct_dependents`, `transitive_dependents`,
+`unblocks_now` and `chain_depth`. Transitive counts are unique nodes, not paths; completed and closed
+items neither count nor relay dependency impact. Open drafted or gated dependents count as potential
+work but not immediate ready unlocks. `unblocks_now` counts only approved, unclaimed non-epics for
+which this is the last unmet need and no human/external gate remains. Zero immediate unlocks does
+not mean useless work: AND-gates may need several roots completed. Text prints
+`ID STATE pN KIND [rank=N order=priority|dependents direct=N trans=N unlocks=N depth=N] TITLE` so
+truncated agent previews retain the scores. JSON retains the bounded envelope and adds `order`,
+`roots` and the row metrics. Limit and truncation apply after scope and ordering. Rank starts at 1
+in that query's order. Dependency cycles refuse rather than inventing a rank.
+
+Use `qew ready 0436j477k --by-dependents --limit 8 --json` for a phase queue; use `--by-priority`
+when urgency must dominate. `qew graph ITEM --edges blocks needs --depth 2 --tree` explains shared
+co-blockers. Prime/session-start context states the priority-first default and points to the impact
+command; scores do not infer agent lanes, effort, duration or an optimal schedule.
+
+Progress terminal traversal is iterative, including deep dependency chains. Nested progress JSON
+beyond 200 displayed levels refuses with an actionable depth hint, before any multi-root output;
+use `--depth 200` or less, or `qew graph ROOT --json` for the flat graph. Totals remain complete.

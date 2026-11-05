@@ -5,13 +5,13 @@
     "raw_bytes": 7595
   },
   "prime": {
-    "compact_bytes": 1311,
-    "compact_tokens": 353,
+    "compact_bytes": 1384,
+    "compact_tokens": 369,
     "raw_bytes": 7595
   },
   "ready": {
-    "compact_bytes": 884,
-    "compact_tokens": 390,
+    "compact_bytes": 1364,
+    "compact_tokens": 555,
     "raw_bytes": 7595
   },
   "show": {
