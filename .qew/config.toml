@@ -1,5 +1,5 @@
 [qew]
-minimum_version = "6.52.0"
+minimum_version = "6.53.0"
 
 [ledger]
 path = "../qew-ledger"

@@ -203,6 +203,10 @@ Progress keeps its positive `--depth` display limit and complete totals. Explici
 JSON adds `traversal`, full canonical `edges`, and uses `units` in place of the legacy child-tree
 `leaves` count; child occurrences carry `via`. Unknown roots fail before any partial output.
 
+Progress terminal traversal is iterative, including deep dependency chains. Nested progress JSON
+beyond 200 displayed levels refuses with an actionable depth hint, before any multi-root output;
+use `--depth 200` or less, or `qew graph ROOT --json` for the flat graph. Totals remain complete.
+
 ## Hooks
 
 `qew hook install --git` adds a tracked pre-push hook and `qew hook vcs-check` refuses pushes of commits whose `Refs: ID` trailers cite items without evidence (jj pushes are checked by the agent guard). `qew hook install|remove --json` prints a versioned result for scripts. `qew hook install` writes project-relative config for Claude (`.claude/settings.json`), Codex
@@ -217,7 +221,3 @@ is spelled `QEW_ALLOW_FORGE_BYPASS=1` before that one command (set in the hook's
 against local fakes. This is the gate; qew has no GitHub workflows.
 
 Licensed under Apache-2.0.
-
-Progress terminal traversal is iterative, including deep dependency chains. Nested progress JSON
-beyond 200 displayed levels refuses with an actionable depth hint, before any multi-root output;
-use `--depth 200` or less, or `qew graph ROOT --json` for the flat graph. Totals remain complete.
