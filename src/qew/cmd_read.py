@@ -4,7 +4,7 @@ import argparse
 import sys
 from typing import cast
 
-from qew import instants, ledger_fields, show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import graph_scope, graph_view, instants, ledger_fields, show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
@@ -65,7 +65,12 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     blocked = commands.add_parser("blocked", help="open work with unmet needs")
     blocked.add_argument("--json", action="store_true", help="machine-readable output")
     blocked.add_argument("--chains", action="store_true", help="show each item's longest unmet chain down to its root blocker")
-    graph = commands.add_parser("graph", help="print dependency and parent edges as text, dot or mermaid")
+    graph = commands.add_parser("graph", help="draw item relationships from selected roots, or the whole ledger, as text, dot or mermaid")
+    graph.add_argument("root", nargs="*", help="item ids or aliases to start from; omit for the whole ledger")
+    graph_scope.register(graph)
+    graph.add_argument("--depth", type=graph_scope.nonnegative, metavar="N", help="follow at most N hops from the roots (0 draws roots only)")
+    graph.add_argument("--open-only", action="store_true", help="omit finished branches, retaining paths to open work and unmet blockers")
+    graph.add_argument("--tree", action="store_true", help="terminal traversal with explicit shared-node references; not with --json or --format")
     graph.add_argument("--json", action="store_true", help="machine-readable output")
     graph.add_argument("--format", choices=["text", "dot", "mermaid"], help="drawing syntax (default text); not with --json")
 
@@ -85,7 +90,21 @@ def run(arguments: argparse.Namespace) -> bool:
     elif command == "blocked":
         blocked(snapshot, arguments.json, arguments.chains)
     else:
-        graph(snapshot, arguments.json, arguments.format)
+        scoped = bool(arguments.root or arguments.edges or arguments.depth is not None or arguments.open_only or arguments.unmet_only or arguments.tree)
+        if scoped:
+            if arguments.tree and (arguments.json or arguments.format) or arguments.json and arguments.format:
+                raise QewError("ask for --tree, --json and --format separately", 2)
+            roots = list(dict.fromkeys(snapshot.ledger.resolve(r, list(snapshot.items)) for r in arguments.root))
+            view = graph_scope.select(snapshot, roots, arguments.edges or [graph_scope.Walk.CHILDREN, graph_scope.Walk.NEEDS],
+                                      arguments.depth, arguments.open_only, arguments.unmet_only)
+            if arguments.json:
+                print(readfmt.dumps(graph_view.document(snapshot, view)))
+            elif arguments.tree:
+                print(graph_view.tree(snapshot, view), end="")
+            else:
+                print(graph_render.RENDERERS[arguments.format or "text"](snapshot, view), end="")
+        else:
+            graph(snapshot, arguments.json, arguments.format)
     return True
 
 
@@ -191,7 +210,7 @@ def graph(snapshot: Snapshot, as_json: bool, form: str | None = None) -> None:
         for line in readfmt.ndjson({"item": a, kind: b} for a, kind, b in graph_render.edges(snapshot)):
             print(line)
         return
-    print(graph_render.RENDERERS[form or "text"](snapshot), end="")
+    print(graph_render.RENDERERS[form or "text"](snapshot, None), end="")
 
 
 def _plain(text: str) -> str:

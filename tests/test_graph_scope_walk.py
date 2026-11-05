@@ -74,7 +74,7 @@ class GraphScopeWalk(unittest.TestCase):
         run = self.w.run("progress", "ADU", "--edges", "children", "needs", "--json")
         self.assertEqual(run.returncode, 0, run.stderr)
         body = json.loads(run.stdout)
-        self.assertEqual((body["leaves"], body["total"]), (1, 1))
+        self.assertEqual((body["units"], body["total"]), (3, 3))
         flat = json.dumps(body)
         self.assertIn('"reference": true', flat)
         tree = self.w.run("progress", "ADU", "--edges", "children", "needs", "--tree", "--open-only")
@@ -83,7 +83,7 @@ class GraphScopeWalk(unittest.TestCase):
         self.assertNotIn("Work Z", tree.stdout)
         reverse = self.w.run("progress", "A", "--edges", "blocks", "--json")
         self.assertEqual(reverse.returncode, 0, reverse.stderr)
-        self.assertEqual(json.loads(reverse.stdout)["leaves"], 2)  # D and C
+        self.assertEqual(json.loads(reverse.stdout)["units"], 4)  # A, B, C and D, each once
 
     def test_progress_depth_changes_display_not_unique_totals_and_json_open_filter_applies(self) -> None:
         """Prevents depth making percentages lie or --open-only being ignored for JSON."""
@@ -93,7 +93,55 @@ class GraphScopeWalk(unittest.TestCase):
         run = self.w.run("progress", "E", "--edges", "children", "needs", "--depth", "1", "--json", "--open-only")
         self.assertEqual(run.returncode, 0, run.stderr)
         body = json.loads(run.stdout)
-        self.assertEqual((body["leaves"], body["done"], body["children"]), (1, 1, []))
+        self.assertEqual((body["units"], body["done"], body["percent"]), (3, 1, 33))
+        self.assertEqual(len(body["children"]), 2)
+        self.assertTrue(all(not child["children"] for child in body["children"]))
+
+    def test_open_progress_json_hides_finished_rows_without_changing_totals(self) -> None:
+        """Prevents the JSON view ignoring --open-only or calling unfinished dependents complete."""
+        self.w.run("start", "A")
+        self.w.run("evidence", "A", "--change", self.w.commit())
+        self.w.run("complete", "A")
+        run = self.w.run("progress", "ADU", "--edges", "children", "needs", "--open-only", "--json")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        body = json.loads(run.stdout)
+        self.assertEqual((body["done"], body["total"], body["percent"]), (1, 3, 33))
+        self.assertEqual([child["percent"] for child in body["children"]], [50, 50])
+        self.assertTrue(all(not child["children"] for child in body["children"]))
+
+    def test_a_mixed_direction_cycle_is_a_graph_reference_but_not_a_progress_total(self) -> None:
+        """Prevents treating legitimate bidirectional graph links as corrupt parent cycles, or inventing cyclic totals."""
+        run = self.w.run("graph", "E", "--edges", "children", "parent", "--tree")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("↩", run.stdout)
+        run = self.w.run("progress", "E", "--edges", "children", "parent", "--json")
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("cycle", run.stderr)
+        self.assertEqual(run.stdout, "")
+
+    def test_multiple_roots_depth_zero_and_invalid_options_do_not_guess(self) -> None:
+        """Prevents silently ignored filters or root-only scope drawing neighbors."""
+        body = self.document("E", "Z", "--depth", "0")
+        self.assertEqual(body["roots"], ["E", "Z"])
+        self.assertEqual({n["id"] for n in body["nodes"]}, {"E", "Z"})
+        self.assertEqual(body["edges"], [])
+        for args in (("graph", "E", "--tree", "--json"), ("graph", "E", "--depth", "-1"),
+                     ("progress", "E", "--unmet-only"), ("graph", "E", "--edges", "children", "--unmet-only")):
+            run = self.w.run(*args)
+            self.assertEqual(run.returncode, 2, run.stderr)
+            self.assertEqual(run.stdout, "")
+
+    def test_scoped_drawings_escape_titles_and_json_withholds_hidden_characters(self) -> None:
+        """Prevents scoped rendering bypassing the existing untrusted-label boundary."""
+        self.w.run("set", "A", "--title", 'say "hi" <b> ]; evil --> A')
+        dot = self.w.run("graph", "E", "--format", "dot")
+        self.assertEqual(dot.returncode, 0, dot.stderr)
+        self.assertIn('say \\"hi\\"', dot.stdout)
+        mermaid = self.w.run("graph", "E", "--format", "mermaid")
+        self.assertIn("#quot;hi#quot;", mermaid.stdout)
+        self.w.run("set", "A", "--title", "hidden\u202etitle")
+        node = next(n for n in self.document("E")["nodes"] if n["id"] == "A")
+        self.assertIsNone(node["title"])
 
     def test_unknown_root_and_cycles_refuse_without_partial_output(self) -> None:
         """Prevents a truncated traversal or partial multi-root answer looking complete."""

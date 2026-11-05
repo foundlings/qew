@@ -23,8 +23,8 @@ Read
   qew ready       approved, unclaimed, unblocked work
   qew prime       bounded session context
   qew blocked     open work with unmet needs
-  qew graph       dependency edges
-  qew progress    percent done of an item's whole tree
+  qew graph       relationships from roots, or the whole ledger
+  qew progress    percent done from roots and selected relationships
   qew board       the offline kanban: seven status columns
   qew triage      review drafts and items missing fields
   qew plan        status: roll up an epic's children

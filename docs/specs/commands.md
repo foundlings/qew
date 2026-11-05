@@ -100,15 +100,15 @@ shape prime: additional_context context_bytes schema_version
   `  chain: ITEM -> NEED -> ... [root STATE]`: the longest chain of unmet needs (ties: lowest id) to a root blocker
   that has no unmet needs, is closed, or is `dangling` (no such item); `--json` rows gain `chain` and `root`.
   A needs cycle is refused (exit 1).
-- `qew graph [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
+- `qew graph [ROOT ...] [--format text|dot|mermaid] [--json]`: dependency edges (`A -> B`, A needs B) then parent edges
   (`A parent P`; dashed in dot and mermaid), sorted by id; labels are escaped for their syntax, a title hiding
   characters is withheld; `--json` and `--format` are exclusive. Readiness is derived from files; no network.
-- `qew progress ROOT... [--depth N] [--epics-only] [--open-only] [--tree [--color[=always|never]]] [--json]`: the whole parent/child tree under each root from one ledger
+- `qew progress ROOT... [--edges EDGE ...] [--depth N] [--epics-only] [--open-only] [--tree [--color[=always|never]]] [--json]`: the whole parent/child tree under each root from one ledger
   read. A leaf is an item with no children, counted by `work_state`; a node's percent is its completed leaves over its leaves
   less those closed (a blocked, gated or claimed leaf is not done; no leaves left to do prints `n/a`, JSON `null`). Text: one
   indented line per node, `ID  title  [######----] 62%  (done/total)` for items with children, `ID  title  STATE` for leaves.
   `--epics-only` omits leaves, `--depth N` shows N levels (totals still cover every leaf), `--open-only` omits rows with nothing
-  left to do (100% or `n/a`) but keeps the parents of open work (text only). `--tree` is the opt-in view for a person: the numbers
+  left to do (100% or `n/a`) but keeps the parents of open work (text and JSON). `--tree` is the opt-in view for a person: the numbers
   (bar, percent, done/total, or a leaf's state) in one left column, as wide as the longest done/total in the tree, then `├─ └─ │` guides, id and the title cut with `…` to
   `COLUMNS` (else the tty width) so no line wraps; plain unless `--color` (or `--color=always`) asks for color (green done, yellow under way, dim blocked or `n/a`);
   the terminal and `NO_COLOR` never decide. In `--tree` an item with children (and any epic) shows a two-tone bar, `#` done and `=` in progress (claimed leaves), then `40% done  20% in progress  4/10 (+2)` (`40% +20%` in a pane under 90 columns). A claimed leaf shows a bar of its stage (0 claimed, 25 draft pull request, 50 evidence, 75 ready pull request,
@@ -660,3 +660,30 @@ An unfinished member (`failures`, `held` or `open`) has exit code 2. A PR error 
 exit code; the batch exits with the highest member code, or 0 when all are fully landed or already
 complete. Single-number behavior and JSON shape remain unchanged, including exit 0 for skipped
 held/unclaimed items. Example: `qew land 5792 5811 5812 --integrator --reason "merged union batch" --json`.
+
+Scoped views accept item ids, aliases or unique prefixes as roots. `qew graph ADU --tree` follows
+children and prerequisites from ADU; `qew graph ADU --edges needs --tree --unmet-only` shows its
+unsatisfied prerequisite graph. `qew progress ADU --edges needs --tree --open-only` totals the
+reachable dependency work; `qew progress ADU --edges children needs --tree --open-only` combines
+ownership and dependencies. Each reachable work unit counts once; nodes with selected ownership
+children are containers, and intermediate prerequisites still count as work. Completing a bottom
+blocker therefore does not mark unfinished dependents 100%. Default progress remains a child tree.
+
+Both commands accept `--edges EDGE [EDGE ...]` (repeatable): `children`, `parent`, `needs`, `blocks`,
+`tracks`, `tracked-by`, `pr`, `pr-for`, `discovered-from`, `discoveries`. These choose traversal
+relations and directions; drawings retain canonical stored edge directions. Shared nodes are
+explicit references (`↩` in terminal views; `reference: true` in progress JSON); parallel links stay
+in graph edges. Unmet-only removes completed prerequisite edges, not closed or missing blockers.
+It requires needs or blocks traversal. `--open-only` retains context for unfinished work; progress
+applies it to JSON too and keeps totals unchanged. Missing targets are explicit missing nodes.
+Actual parent/needs cycles refuse; progress also refuses a cyclic selected traversal rather than
+inventing totals, while graph can draw mixed-direction cycles with references.
+
+Graph accepts zero or more roots, `--depth N` (nonnegative hop radius, 0 = roots only), `--open-only`,
+`--unmet-only`, `--tree`, `--format text|dot|mermaid` or `--json`. Tree, format and JSON are exclusive.
+With roots or traversal/filter options, graph JSON is one envelope with `schema_version`, `roots`,
+`nodes` (`id`, `title`, `kind`, `state`) and `edges` (`source`, `relation`, `target`). Isolated roots
+remain visible. Bare graph retains its existing whole-ledger text/dot/Mermaid and edge NDJSON.
+Progress keeps its positive `--depth` display limit and complete totals. Explicit edge traversal
+JSON adds `traversal`, full canonical `edges`, and uses `units` in place of the legacy child-tree
+`leaves` count; child occurrences carry `via`. Unknown roots fail before any partial output.
