@@ -4,7 +4,7 @@ import argparse
 import sys
 from typing import cast
 
-from qew import graph_scope, graph_view, instants, ledger_fields, show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
+from qew import ready_rank, graph_scope, graph_view, instants, ledger_fields, show_history, text_findings, blocked_chains, ledger_author, graph_render, show_lifecycle, untrusted_text, cmd_items, read_filter, ledger_check, ledger_config, ledger_graph, read_view, readfmt
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
@@ -60,6 +60,13 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     list_.add_argument("--json", action="store_true", help="machine-readable output")
 
     ready = commands.add_parser("ready", help="approved, unclaimed work with every need completed")
+    ready.add_argument("root", nargs="*", help="limit candidates to these roots and their ownership descendants; impact counts stay global")
+    ordering = ready.add_mutually_exclusive_group()
+    ordering.add_argument("--by-priority", dest="ready_order", action="store_const", const=ready_rank.Order.PRIORITY,
+                          help="priority first, then longest chain, direct open dependents and id (default)")
+    ordering.add_argument("--by-dependents", dest="ready_order", action="store_const", const=ready_rank.Order.DEPENDENTS,
+                          help="unique transitive open dependents first, then immediate unlocks, chain depth, direct dependents, priority and id")
+    ready.set_defaults(ready_order=ready_rank.Order.PRIORITY)
     ready.add_argument("--limit", type=limit_type, default=READY_LIMIT, help=f"at most N items, default {READY_LIMIT} (0 = all)")
     ready.add_argument("--json", action="store_true", help="machine-readable output")
     blocked = commands.add_parser("blocked", help="open work with unmet needs")
@@ -86,7 +93,7 @@ def run(arguments: argparse.Namespace) -> bool:
     elif command == "list":
         list_items(snapshot, arguments, arguments.json)
     elif command == "ready":
-        ready(snapshot, arguments.limit, arguments.json)
+        ready(snapshot, arguments.limit, arguments.json, arguments.root, arguments.ready_order)
     elif command == "blocked":
         blocked(snapshot, arguments.json, arguments.chains)
     else:
@@ -100,7 +107,7 @@ def run(arguments: argparse.Namespace) -> bool:
             if arguments.json:
                 print(readfmt.dumps(graph_view.document(snapshot, view)))
             elif arguments.tree:
-                print(graph_view.tree(snapshot, view), end="")
+                print(graph_view.tree(snapshot, view, arguments.depth), end="")
             else:
                 print(graph_render.RENDERERS[arguments.format or "text"](snapshot, view), end="")
         else:
@@ -172,13 +179,24 @@ def list_items(snapshot: Snapshot, arguments: argparse.Namespace, as_json: bool)
     print_rows(snapshot, _bounded(ids, arguments.limit, "list"), as_json, work_state=True, progress=True, bodies=arguments.bodies)
 
 
-def ready(snapshot: Snapshot, limit: int, as_json: bool) -> None:
-    ids = ledger_graph.ready(snapshot)
-    shown = _bounded(ids, limit, "ready")
+def ready(snapshot: Snapshot, limit: int, as_json: bool, references: list[str] | None = None,
+          order: ready_rank.Order = ready_rank.Order.PRIORITY) -> None:
+    roots = list(dict.fromkeys(snapshot.ledger.resolve(r, list(snapshot.items)) for r in references or []))
+    scope = graph_scope.select(snapshot, roots, [graph_scope.Walk.CHILDREN]).nodes if roots else snapshot.items
+    candidates = [item_id for item_id in scope if ledger_graph.is_ready(snapshot, item_id)]
+    ranking = ready_rank.ranked(snapshot, candidates, order, limit)
+    shown = _bounded(ranking.ids, limit, "ready")
     if as_json:
-        print(readfmt.envelope(read_view.rows(snapshot, shown), len(ids), len(shown) < len(ids)))
+        rows = []
+        for rank, item_id in enumerate(shown, 1):
+            row = read_view.row_data(snapshot, item_id)
+            row.update(ranking.impacts[item_id].document(rank))
+            rows.append(row)
+        print(readfmt.document({"items": rows, "total": len(ranking.ids), "truncated": len(shown) < len(ranking.ids),
+                                "order": order.value, "roots": roots}))
     else:
-        print_rows(snapshot, shown, False)
+        for rank, item_id in enumerate(shown, 1):
+            print(read_view.text_row(snapshot, item_id, facts=ranking.impacts[item_id].facts(rank, order)))
 
 
 def blocked(snapshot: Snapshot, as_json: bool, with_chains: bool = False) -> None:

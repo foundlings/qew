@@ -20,7 +20,7 @@ Read
   qew show        one item with derived edges and evidence
   qew list        items, filtered
   qew search      find approved work by words
-  qew ready       approved, unclaimed, unblocked work
+  qew ready       ranked ready work: priority or dependency impact
   qew prime       bounded session context
   qew blocked     open work with unmet needs
   qew graph       relationships from roots, or the whole ledger

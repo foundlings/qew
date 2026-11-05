@@ -109,15 +109,16 @@ class GraphScopeWalk(unittest.TestCase):
         self.assertEqual([child["percent"] for child in body["children"]], [50, 50])
         self.assertTrue(all(not child["children"] for child in body["children"]))
 
-    def test_a_mixed_direction_cycle_is_a_graph_reference_but_not_a_progress_total(self) -> None:
-        """Prevents treating legitimate bidirectional graph links as corrupt parent cycles, or inventing cyclic totals."""
+    def test_a_mixed_direction_cycle_is_a_reference_with_unique_progress_units(self) -> None:
+        """Prevents a display traversal discarding valid reverse links or double-counting their work units."""
         run = self.w.run("graph", "E", "--edges", "children", "parent", "--tree")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn("↩", run.stdout)
         run = self.w.run("progress", "E", "--edges", "children", "parent", "--json")
-        self.assertEqual(run.returncode, 1)
-        self.assertIn("cycle", run.stderr)
-        self.assertEqual(run.stdout, "")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        body = json.loads(run.stdout)
+        self.assertEqual(body["units"], 2)  # B and C, not their container E
+        self.assertIn('"reference": true', json.dumps(body))
 
     def test_multiple_roots_depth_zero_and_invalid_options_do_not_guess(self) -> None:
         """Prevents silently ignored filters or root-only scope drawing neighbors."""
@@ -125,6 +126,10 @@ class GraphScopeWalk(unittest.TestCase):
         self.assertEqual(body["roots"], ["E", "Z"])
         self.assertEqual({n["id"] for n in body["nodes"]}, {"E", "Z"})
         self.assertEqual(body["edges"], [])
+        bounded = self.w.run("graph", "E", "--edges", "children", "parent", "--tree", "--depth", "1")
+        self.assertEqual(bounded.returncode, 0, bounded.stderr)
+        self.assertEqual(len(bounded.stdout.splitlines()), 3)
+        self.assertNotIn("↩", bounded.stdout)
         for args in (("graph", "E", "--tree", "--json"), ("graph", "E", "--depth", "-1"),
                      ("progress", "E", "--unmet-only"), ("graph", "E", "--edges", "children", "--unmet-only")):
             run = self.w.run(*args)
@@ -142,6 +147,48 @@ class GraphScopeWalk(unittest.TestCase):
         self.w.run("set", "A", "--title", "hidden\u202etitle")
         node = next(n for n in self.document("E")["nodes"] if n["id"] == "A")
         self.assertIsNone(node["title"])
+
+    def test_layered_diamonds_render_references_without_enumerating_paths(self) -> None:
+        """Prevents graph progress expanding exponentially when many chains share the same work."""
+        specs = [spec("X0")]
+        previous = ["X0"]
+        for layer in range(1, 13):
+            current = [f"L{layer}", f"R{layer}"]
+            specs += [spec(item, needs=previous) for item in current]
+            previous = current
+        specs.append(spec("G0", needs=previous))
+        load(self.w, *specs)
+        run = self.w.run("progress", "G0", "--edges", "needs", "--tree")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertLess(len(run.stdout.splitlines()), 60)
+        self.assertIn("↩", run.stdout)
+        body = json.loads(self.w.run("progress", "G0", "--edges", "needs", "--json").stdout)
+        self.assertEqual(body["units"], 26)
+
+    def test_a_deep_chain_with_bounded_display_keeps_complete_totals(self) -> None:
+        """Prevents recursive setup/width scans overflowing before a requested shallow view is drawn."""
+        load(self.w, *(spec(f"J{n}", needs=[f"J{n-1}"] if n else []) for n in range(1100)))
+        run = self.w.run("progress", "J1099", "--edges", "needs", "--depth", "1", "--tree")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(len(run.stdout.splitlines()), 2)
+        self.assertIn("0/1100", run.stdout)
+        body = self.document("J1099", "--edges", "needs", "--depth", "1")
+        self.assertEqual(len(body["nodes"]), 2)
+        drawn = self.w.run("progress", "J1099", "--edges", "needs", "--tree")
+        self.assertEqual(drawn.returncode, 0, drawn.stderr)
+        self.assertEqual(len(drawn.stdout.splitlines()), 1100)
+        nested = self.w.run("progress", "E", "J1099", "--edges", "needs", "--json")
+        self.assertEqual(nested.returncode, 2)
+        self.assertIn("--depth 200", nested.stderr)
+        self.assertEqual(nested.stdout, "")
+
+    def test_epic_without_selected_work_is_context_not_a_fabricated_work_unit(self) -> None:
+        """Prevents an epic-only dependency selection claiming a count or percentage without any selected work."""
+        run = self.w.run("progress", "ADU", "--edges", "needs", "--json")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        body = json.loads(run.stdout)
+        self.assertEqual((body["units"], body["total"], body["percent"]), (0, 0, None))
+        self.assertEqual(body["children"], [])
 
     def test_unknown_root_and_cycles_refuse_without_partial_output(self) -> None:
         """Prevents a truncated traversal or partial multi-root answer looking complete."""

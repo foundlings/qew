@@ -1,7 +1,6 @@
-"""`qew progress ROOT...`: how far along an epic is, as a tree of percentages from one ledger read.
+"""Progress from selected roots, using ownership leaves by default or unique work units across explicit relationships.
 
-A leaf is an item with no children. A node's percent is its completed leaves over its leaves less those closed as not
-planned; a blocked, gated or claimed leaf is not done.
+Ownership containers are not extra work. Shared prerequisites count once; intermediate dependency work still counts.
 """
 
 import argparse
@@ -10,7 +9,9 @@ from dataclasses import dataclass
 from qew import graph_scope, graph_view, board, ledger_config, ledger_graph, readfmt, untrusted_text
 from qew.cmd_read import snapshot_for
 from qew.jsontypes import JsonObject
+from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot
+from qew.errors import QewError
 
 BAR_WIDTH = 10
 COUNTED = ("completed", "closed", "claimed", "ready", "blocked", "plan", "needs_decision")
@@ -78,49 +79,52 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "progress":
         return False
     snapshot = snapshot_for(ledger_config.load())
-    roots = list(dict.fromkeys(snapshot.ledger.resolve(reference, list(snapshot.items)) for reference in arguments.root))
+    roots = [snapshot.ledger.resolve(reference, list(snapshot.items)) for reference in arguments.root]
     selected = graph_scope.select(snapshot, roots, arguments.edges or [graph_scope.Walk.CHILDREN], unmet_only=arguments.unmet_only)
     view = selected if arguments.edges else None
     # Build all requested roots before printing: a bad later root/cycle must not leave a partial answer.
     kids = ledger_graph.children(snapshot)
     trees = [build_selected(snapshot, view, root) if view else build(snapshot, kids, root, frozenset()) for root in roots]
+    output: list[str] = []
     for root, tree in zip(roots, trees, strict=True):
         if arguments.json:
             data = document(tree, arguments.depth, arguments.epics_only, 0, arguments.open_only, view=view)
             if view:
-                reachable = set(graph_scope.postorder(view, root))
+                reachable = graph_scope.reachable(view, root)
                 data["edges"] = [edge for edge in graph_view.document(snapshot, view)["edges"] if edge["source"] in reachable and edge["target"] in reachable]
                 data["traversal"] = [walk.value for walk in arguments.edges]
-            print(readfmt.dumps(data))
+            output.append(readfmt.dumps(data))
         elif arguments.tree:
-            print("\n".join(tree_lines(tree, arguments.depth, arguments.epics_only, arguments.open_only, board.terminal_width(), arguments.color == "always", view=view)))
+            output.append("\n".join(tree_lines(tree, arguments.depth, arguments.epics_only, arguments.open_only, board.terminal_width(), arguments.color == "always", view=view)))
         else:
-            print("\n".join(lines(tree, arguments.depth, arguments.epics_only, 0, arguments.open_only, view=view)))
+            output.append("\n".join(lines(tree, arguments.depth, arguments.epics_only, 0, arguments.open_only, view=view)))
+    print("\n".join(output))
     return True
 
 
 def build_selected(snapshot: Snapshot, view: graph_scope.Selection, root: str) -> Node:
-    """A DAG of shared Node objects with unique reachable work-unit counts, computed without recursive expansion."""
+    """Unique reachable work units; shared objects retain the web, including valid mixed-direction cycles."""
+    ids = graph_scope.reachable(view, root)
+    containers = {target for source, relation, target in view.edges if relation == "parent" and source in ids and target in ids}
+    containers |= {item_id for item_id in ids if item_id in snapshot.items and snapshot.items[item_id].kind == Kind.EPIC}
+    states = {item_id: ledger_graph.work_state(snapshot, item_id) if item_id in snapshot.items else "missing" for item_id in ids}
     memo: dict[str, Node] = {}
-    units: dict[str, set[str]] = {}
-    containers = {target for _, relation, target in view.edges if relation == "parent"}
-    for item_id in graph_scope.postorder(view, root):
-        below = list(dict.fromkeys(child for _, child in view.steps.get(item_id, ())))
-        units[item_id] = set().union(*(units[child] for child in below))
-        if item_id not in containers:
-            units[item_id].add(item_id)
+    for item_id in view.nodes:
+        if item_id not in ids:
+            continue
         counts = dict.fromkeys((*COUNTED, "missing"), 0)
-        for leaf in units[item_id]:
-            state = ledger_graph.work_state(snapshot, leaf) if leaf in snapshot.items else "missing"
-            counts[state] += 1
+        for unit in graph_scope.reachable(view, item_id) - containers:
+            counts[states[unit]] += 1
         if item_id not in snapshot.items:
             memo[item_id] = Node(item_id, "[missing item]", "[missing item]", "missing", "missing", counts, [])
             continue
         item = snapshot.items[item_id]
-        state = ledger_graph.work_state(snapshot, item_id)
-        stage = claimed_stage(snapshot, item_id) if state == "claimed" and not below else None
-        memo[item_id] = Node(item_id, untrusted_text.show(item.title).text, item.title, item.kind.value, state,
-                             counts, [memo[child] for child in below], stage)
+        state = states[item_id]
+        stage = claimed_stage(snapshot, item_id) if state == "claimed" and not view.steps.get(item_id) else None
+        memo[item_id] = Node(item_id, untrusted_text.show(item.title).text, item.title, item.kind.value, state, counts, [], stage)
+    # Wire identity edges only after every node exists; no synthetic parent is assigned to a shared node.
+    for item_id, node in memo.items():
+        node.children = [memo[child] for child in dict.fromkeys(child for _, child in view.steps.get(item_id, ()))]
     return memo[root]
 
 
@@ -161,6 +165,8 @@ def document(node: Node, depth: int | None, epics_only: bool, level: int, open_o
     if node.id in seen:
         return {"id": node.id, "reference": True, **({"via": via} if via else {})}
     seen.add(node.id)
+    if level > 200:
+        raise QewError("nested progress JSON exceeds 200 levels; use --depth 200 or `qew graph ROOT --json` for a flat graph", 2)
     return {
         **({"via": via} if via else {}),
         "id": node.id, "kind": node.kind, "title": None if untrusted_text.findings(node.raw_title) else node.raw_title, "work_state": node.work_state,
@@ -182,17 +188,23 @@ def bar(percent: int | None) -> str:
 def lines(node: Node, depth: int | None, epics_only: bool, level: int, open_only: bool = False,
           seen: set[str] | None = None, view: graph_scope.Selection | None = None, via: str = "") -> list[str]:
     seen = set() if seen is None else seen
-    pad = "  " * level
-    identity = node.id + (f" [{via}]" if via else "")
-    if node.id in seen:
-        return [f"{pad}{identity}  ↩ reference"]
-    seen.add(node.id)
-    if not node.children:
-        return [f"{pad}{identity}  {node.title}  {node.work_state}"]
-    percent = "n/a" if node.percent is None else f"{node.percent}%"
-    rows = [f"{pad}{identity}  {node.title}  {bar(node.percent)} {percent}  ({node.done}/{node.total})"]
-    for child in shown(node, depth, epics_only, level, open_only):
-        rows += lines(child, depth, epics_only, level + 1, open_only, seen, view, via_text(view, node.id, child.id))
+    rows: list[str] = []
+    stack = [(node, level, via)]
+    while stack:
+        current, at, relation = stack.pop()
+        pad = "  " * at
+        identity = current.id + (f" [{relation}]" if relation else "")
+        if current.id in seen:
+            rows.append(f"{pad}{identity}  ↩ reference")
+            continue
+        seen.add(current.id)
+        if not current.children:
+            rows.append(f"{pad}{identity}  {current.title}  {current.work_state}")
+        else:
+            percent = "n/a" if current.percent is None else f"{current.percent}%"
+            rows.append(f"{pad}{identity}  {current.title}  {bar(current.percent)} {percent}  ({current.done}/{current.total})")
+        for child in reversed(shown(current, depth, epics_only, at, open_only)):
+            stack.append((child, at + 1, via_text(view, current.id, child.id)))
     return rows
 
 
@@ -250,22 +262,28 @@ def paint(node: Node) -> str | None:
 
 
 def tree_lines(node: Node, depth: int | None, epics_only: bool, open_only: bool, width: int, color: bool,
-               prefix: str = "", connector: str = "", level: int = 0, slot: int = 0, seen: set[str] | None = None, view: graph_scope.Selection | None = None, via: str = "") -> list[str]:
+               prefix: str = "", connector: str = "", level: int = 0, slot: int = 0, seen: set[str] | None = None,
+               view: graph_scope.Selection | None = None, via: str = "") -> list[str]:
     seen = set() if seen is None else seen
     slot = slot or count_width(node)
-    identity = node.id + (f" [{via}]" if via else "")
-    if node.id in seen:
-        return [f"{' ' * slot}  {prefix}{connector}{identity}  ↩ reference"]
-    seen.add(node.id)
-    head = f"{numbers(node, slot, width >= LABELS_FROM)}  {prefix}{connector}{identity}"
-    room = width - len(head) - 2
-    title = "" if room < 2 else "  " + (node.title if len(node.title) <= room else node.title[: room - 1] + "…")
-    line = head + title
-    shade = paint(node) if color else None
-    rows = [f"{shade}{line}\x1b[0m" if shade else line]
-    below = shown(node, depth, epics_only, level, open_only)
-    for index, child in enumerate(below):
-        last = index == len(below) - 1
-        spine = prefix + ("" if not connector else "   " if connector.startswith("└") else "│  ")
-        rows += tree_lines(child, depth, epics_only, open_only, width, color, spine, "└─ " if last else "├─ ", level + 1, slot, seen, view, via_text(view, node.id, child.id))
+    rows: list[str] = []
+    stack = [(node, prefix, connector, level, via)]
+    while stack:
+        current, pad, guide, at, relation = stack.pop()
+        identity = current.id + (f" [{relation}]" if relation else "")
+        if current.id in seen:
+            rows.append(f"{' ' * slot}  {pad}{guide}{identity}  ↩ reference")
+            continue
+        seen.add(current.id)
+        head = f"{numbers(current, slot, width >= LABELS_FROM)}  {pad}{guide}{identity}"
+        room = width - len(head) - 2
+        title = "" if room < 2 else "  " + (current.title if len(current.title) <= room else current.title[: room - 1] + "…")
+        line = head + title
+        shade = paint(current) if color else None
+        rows.append(f"{shade}{line}\x1b[0m" if shade else line)
+        below = shown(current, depth, epics_only, at, open_only)
+        spine = pad + ("" if not guide else "   " if guide.startswith("└") else "│  ")
+        for index in range(len(below) - 1, -1, -1):
+            child = below[index]
+            stack.append((child, spine, "└─ " if index == len(below) - 1 else "├─ ", at + 1, via_text(view, current.id, child.id)))
     return rows

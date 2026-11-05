@@ -8,3 +8,15 @@ Measured behavior: ready already orders priority, longest open downstream chain,
 - Optional roots limit eligible candidates to their ownership descendants. They do not cut dependency impact at the boundary: cross-cutting dependents remain real edges, and counts stay global. No artificial lane hierarchy is introduced.
 - Measure unique reachability iteratively, not paths. Default bounded priority output computes expensive impact only for displayed rows. Both flags are mutually exclusive; eligibility and cycle refusals remain unchanged.
 - Add command walks, make help/README/specs agree, and include this work with scoped graph views in the next release. Inspect the live ADU queue read-only before publishing.
+
+## Read-only check of the motivating ledger
+
+Before release, the local foundlings ledger query `qew ready 0436j477k --by-dependents --limit 12 --json`
+returned 26 ready candidates in Phase 3. At that check, 043h35dev (group 14b) ranked first with
+6 unique downstream items, 1 direct dependent and 1 immediate unlock. 043h31he9 and 043h328bo
+(groups 42c and 42d) each had 4 downstream items, 1 direct dependent and 0 immediate unlocks.
+The priority query over the same scope put those P0 roots ahead of the P1 group-32 item; the impact
+query put group 32 second because it had 4 direct waiters. These are snapshot observations, not fixed
+rankings: work and priorities can change while agents run. Counts explain potential versus immediate
+release; they do not replace lane assignment or establish that a multi-input gate can be released by
+one prerequisite alone.

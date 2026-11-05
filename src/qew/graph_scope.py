@@ -138,24 +138,13 @@ def select(snapshot: Snapshot, roots: list[str], walks: list[Walk], depth: int |
     return Selection(tuple(roots), tuple(sorted(nodes, key=sort_key)), found, steps)
 
 
-def postorder(view: Selection, root: str) -> list[str]:
-    """Reachable nodes once, children first. Progress cannot assign terminal totals to a cyclic traversal."""
-    done: set[str] = set()
-    active = {root}
-    result: list[str] = []
-    stack = [(root, iter(view.steps.get(root, ())))]
+def reachable(view: Selection, root: str) -> set[str]:
+    """Node identities, not paths: shared or mixed-direction links terminate without losing an edge."""
+    seen = {root}
+    stack = [root]
     while stack:
-        node, rest = stack[-1]
-        for _, child in rest:
-            if child in active:
-                raise QewError(f"selected progress traversal has a cycle through {child}; use `qew graph` to draw the links", 1)
-            if child not in done:
-                active.add(child)
-                stack.append((child, iter(view.steps.get(child, ()))))
-                break
-        else:
-            stack.pop()
-            active.remove(node)
-            done.add(node)
-            result.append(node)
-    return result
+        for _, child in view.steps.get(stack.pop(), ()):
+            if child not in seen:
+                seen.add(child)
+                stack.append(child)
+    return seen

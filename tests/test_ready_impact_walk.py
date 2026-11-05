@@ -43,6 +43,16 @@ class ReadyImpactWalk(unittest.TestCase):
             self.assertIn(fact, text.stdout)
         self.assertTrue(text.stdout.startswith("R "))
 
+    def test_scores_precede_long_titles_in_truncated_agent_previews(self) -> None:
+        """Prevents useful ranking facts being cut off when an agent previews the first 130 characters."""
+        self.w.run("set", "R", "--title", "X" * 400)
+        run = self.w.run("ready", "--by-dependents", "--limit", "1")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        preview = run.stdout[:130]
+        for fact in ("rank=1", "trans=5", "unlocks=2", "depth=2"):
+            self.assertIn(fact, preview)
+        self.assertLess(run.stdout.index("depth=2"), run.stdout.index("XXX"))
+
     def test_root_limits_candidates_but_preserves_global_cross_cutting_impact(self) -> None:
         """Prevents a phase queue mixing in the whole ledger or dropping real dependents outside its ownership tree."""
         body = self.ready("ADU", "--by-dependents", "--limit", "1")

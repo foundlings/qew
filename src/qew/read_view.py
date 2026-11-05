@@ -21,7 +21,7 @@ def epic_progress(snapshot: Snapshot, item_id: str) -> dict[str, object]:
     }
 
 
-def text_row(snapshot: Snapshot, item_id: str, progress: bool = False) -> str:
+def text_row(snapshot: Snapshot, item_id: str, progress: bool = False, facts: str = "") -> str:
     """`ID STATE pN kind title [@owner]`; the title is flattened, bounded and quoted or withheld (untrusted_text)."""
     item = snapshot.items[item_id]
     derived, holders = snapshot.derived[item_id]  # an epic is in progress while a direct child is claimed
@@ -31,7 +31,8 @@ def text_row(snapshot: Snapshot, item_id: str, progress: bool = False) -> str:
     if merged:
         suffix += f" [stale: pull request #{merged[0]} merged; qew land {merged[0]}]"
     shown = untrusted_text.show(item.title)
-    line = f"{item_id} {state} p{item.priority} {item.kind.value} {shown.text}{suffix}"
+    detail = facts + " " if facts else ""
+    line = f"{item_id} {state} p{item.priority} {item.kind.value} {detail}{shown.text}{suffix}"
     if progress and item.kind == Kind.EPIC:
         counts = epic_progress(snapshot, item_id)
         line += f" [open {counts['children_open']} done {counts['children_done']}]"
