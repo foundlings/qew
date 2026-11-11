@@ -8,16 +8,20 @@ import argparse
 import json
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from qew import branch_cleanup, code_vcs, pr_block, pr_record, replication, untrusted_text, remote_options
 from qew.cmd_pr import (
-    MERGE_RECHECK_SECONDS, SCHEMA_VERSION, Build, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
-    merge_check, merge_pull_request,
+    MERGE_RECHECK_SECONDS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
+    merge_pull_request, refusals_for,
 )
+from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.forge import RemotePullRequest
+
+READERS = 8  # forge reads in flight at once
 
 
 @dataclass
@@ -38,8 +42,10 @@ def run(config: Config, arguments: argparse.Namespace, options: MergeOptions) ->
     numbers = list(dict.fromkeys(arguments.number))
     if options.auto:
         raise QewError("--auto does not combine with several pull requests: a batch merges now or not at all", 2)
-    lead = _lead(config, _heads(config, numbers, arguments.target, None, _takeover(options)))  # a follower inside the lead's head never merges alone
-    refusals = [error for number in numbers for error in merge_check(config, number, arguments.target, options, contained=number != lead)]
+    members = _members(config, numbers, arguments.target, None, _takeover(options))
+    lead = _lead(config, {number: pull for number, (_, pull) in members.items()})  # a follower inside the lead's head never merges alone
+    refusals = [error for number, (loaded, pull) in members.items()
+                for error in refusals_for(config, loaded, pull, options, contained=number != lead)]
     if refusals or options.check:
         if refusals:
             raise QewError("; ".join(str(r) for r in refusals), refusals[0].exit_code)
@@ -59,13 +65,34 @@ def _takeover(options: MergeOptions) -> str:
     return reason if options.other_author else ""
 
 
-def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str) -> dict[int, RemotePullRequest]:
-    pulls: dict[int, RemotePullRequest] = {}
+def _members(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str) -> dict[int, tuple[Loaded, RemotePullRequest]]:
+    """Each pull request with its ledger facts and the forge's reading of it: one ledger snapshot for the batch, the forge read
+    side by side. The first failure in the order of the numbers is the one raised, as when they were read one after another."""
+    ledger = ledger_for(config)
+    shared = (ledger, ledger.snapshot())
+    loaded: list[Loaded | QewError] = []
     for number in numbers:
-        loaded = load(config, number, target, build, reason, merging=True)
-        with forge_errors(loaded.record.target):
-            pulls[number] = loaded.forge.read_pull_request(number)
-    return pulls
+        try:
+            loaded.append(load(config, number, target, build, reason, merging=True, shared=shared))
+        except QewError as error:
+            loaded.append(error)
+
+    def read(member: Loaded) -> RemotePullRequest:
+        with forge_errors(member.record.target):
+            return member.forge.read_pull_request(member.record.number)
+
+    with ThreadPoolExecutor(max_workers=READERS) as pool:
+        pending = [member if isinstance(member, QewError) else (member, pool.submit(read, member)) for member in loaded]
+        members: dict[int, tuple[Loaded, RemotePullRequest]] = {}
+        for number, entry in zip(numbers, pending):
+            if isinstance(entry, QewError):
+                raise entry
+            members[number] = (entry[0], entry[1].result())
+        return members
+
+
+def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str) -> dict[int, RemotePullRequest]:
+    return {number: pull for number, (_, pull) in _members(config, numbers, target, build, reason).items()}
 
 
 def _lead(config: Config, pulls: dict[int, RemotePullRequest]) -> int:

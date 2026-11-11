@@ -243,15 +243,19 @@ class Loaded:
 def load(
     config: Config, number: int, target: str | None, build: Build | None,
     reason: str = "", merging: bool = False, owned: bool = True, on_behalf_of: str | None = None,
+    shared: tuple[Ledger, Snapshot] | None = None,
 ) -> Loaded:
     """The recorded pull request, after the ownership rule (exit 3) and a readable-history check (exit 4).
 
     A read-only command passes `owned=False`: anyone may look. `on_behalf_of` judges the rule for that actor instead of the caller.
+    A batch passes `shared`, the ledger and the one snapshot it took, so its members do not each read the ledger again.
     """
     pr_record.positive_number(number)
-    ledger = ledger_for(config)
+    if shared is None:
+        ledger = ledger_for(config)
+        shared = (ledger, ledger.snapshot())
+    ledger, snapshot = shared
     record = pr_record.find(ledger, number, target)
-    snapshot = ledger.snapshot()
     states = pr_record.known_states(snapshot, record)
     note = pr_record.require_owner(snapshot, record, states, on_behalf_of or actor(), reason, merging) if owned else ""
     forge = _build(build, mirror_for(config, ledger, record.target))
@@ -1039,6 +1043,11 @@ def merge_check(
             pull = loaded.forge.read_pull_request(number)
     except QewError as error:
         return [error]
+    return refusals_for(config, loaded, pull, options, contained)
+
+
+def refusals_for(config: Config, loaded: Loaded, pull: RemotePullRequest, options: MergeOptions, contained: bool = False) -> list[QewError]:
+    """The refusals `pr merge` would raise for an already loaded pull request and the forge's reading of it."""
     found: list[QewError] = []
     for gate in _merge_gates(config, loaded, pull, options, contained):
         try:
