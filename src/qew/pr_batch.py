@@ -13,15 +13,13 @@ from dataclasses import dataclass, field
 
 from qew import branch_cleanup, code_vcs, pr_block, pr_record, replication, untrusted_text, remote_options
 from qew.cmd_pr import (
-    MERGE_RECHECK_SECONDS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
+    MERGE_RECHECK_SECONDS, READERS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
     merge_pull_request, refusals_for,
 )
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.ledger_config import Config
 from qew.forge import RemotePullRequest
-
-READERS = 8  # forge reads in flight at once
 
 
 @dataclass

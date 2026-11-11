@@ -13,6 +13,7 @@ import os
 import re
 import sys
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 from qew import cmd_claim, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
@@ -32,6 +33,7 @@ Build = Callable[[Mirror], Forge]
 SCHEMA_VERSION = 1
 LOGIN_VARIABLE = "QEW_FORGE_LOGIN"  # the forge login a pull request is assigned to, when it differs from the actor
 MERGE_RECHECK_SECONDS = 1.0
+READERS = 8  # forge calls in flight at once, in a batch
 _TARGET_HELP = "mirror target (slug or unique part)"
 _REASON_HELP = "why: required with --admin and --other-author"
 
@@ -64,7 +66,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     check.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     check.add_argument("--target", help=_TARGET_HELP)
     ready = sub.add_parser("ready", help="mark a draft pull request ready for review")
-    ready.add_argument("number", type=int, help="pull request number")
+    ready.add_argument("number", type=int, nargs="+", help="pull request number; several are marked ready in one pass (one ledger snapshot, forge writes side by side)")
     ready.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     ready.add_argument("--target", help=_TARGET_HELP)
     ready.add_argument("--json", action="store_true", help="machine-readable output")
@@ -154,7 +156,7 @@ def run(arguments: argparse.Namespace) -> bool:
         print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target,
                                  drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add, on_behalf_of=arguments.on_behalf_of))
     elif command == "ready":
-        print(mark_ready(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
+        print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of)
     elif command == "body":
         print(replace_body(config, arguments.number, arguments.body_file, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "draft":
@@ -580,24 +582,78 @@ def mark_ready(
     config: Config, number: int, target: str | None, build: Build | None = None,
     sleep: Callable[[float], None] | None = None, on_behalf_of: str | None = None,
 ) -> Readied:
-    loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
-    refuse_held(loaded, "be marked ready")
-    forge = loaded.forge
-    with forge_errors(loaded.record.target):
-        before = forge.read_pull_request(number)
-        refuse_finished(number, before, "be marked ready")
-        outcome = apply_and_verify(
-            before,
-            lambda: forge.mark_pull_request_ready(number),
-            lambda: forge.read_pull_request(number),
-            lambda pull: not pull.draft,
-            sleep=sleep,
-        )
-    if outcome == Outcome.NOT_APPLIED:
-        raise QewError(f"pr #{number} is still a draft after the forge accepted the change; nothing is known to have changed", 4)
-    with replication.section("pr-ready"):
-        pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, draft=False)
-    return Readied(number, outcome == Outcome.VERIFIED)
+    result = ready_many(config, [number], target, build, sleep, on_behalf_of)[0]
+    if isinstance(result, QewError):
+        raise result
+    return result
+
+
+def ready_many(
+    config: Config, numbers: list[int], target: str | None, build: Build | None = None,
+    sleep: Callable[[float], None] | None = None, on_behalf_of: str | None = None,
+) -> list[Readied | QewError]:
+    """Mark each pull request ready, in the order of the numbers: one ledger snapshot for all, the forge writes side by side,
+    the ledger records written one after another. A refusal on one member is that member's result; the others still go."""
+    ledger = ledger_for(config)
+    shared = (ledger, ledger.snapshot())
+    loaded: list[Loaded | QewError] = []
+    for number in numbers:
+        try:
+            member = load(config, number, target, build, on_behalf_of=on_behalf_of, shared=shared)
+            refuse_held(member, "be marked ready")
+            loaded.append(member)
+        except QewError as error:
+            loaded.append(error)
+
+    def flip(member: Loaded) -> Outcome:
+        number, forge = member.record.number, member.forge
+        with forge_errors(member.record.target):
+            before = forge.read_pull_request(number)
+            refuse_finished(number, before, "be marked ready")
+            return apply_and_verify(
+                before,
+                lambda: forge.mark_pull_request_ready(number),
+                lambda: forge.read_pull_request(number),
+                lambda pull: not pull.draft,
+                sleep=sleep,
+            )
+
+    results: list[Readied | QewError] = []
+    with ThreadPoolExecutor(max_workers=READERS) as pool:
+        pending = [member if isinstance(member, QewError) else (member, pool.submit(flip, member)) for member in loaded]
+        for number, entry in zip(numbers, pending):
+            if isinstance(entry, QewError):
+                results.append(entry)
+                continue
+            member, future = entry
+            try:
+                outcome = future.result()
+            except QewError as error:
+                results.append(error)
+                continue
+            if outcome == Outcome.NOT_APPLIED:
+                results.append(QewError(f"pr #{number} is still a draft after the forge accepted the change; nothing is known to have changed", 4))
+                continue
+            with replication.section("pr-ready"):
+                pr_record.update_mirror(member.snapshot.ledger, member.record, draft=False)
+            results.append(Readied(number, outcome == Outcome.VERIFIED))
+    return results
+
+
+def print_readied(config: Config, numbers: list[int], target: str | None, as_json: bool, on_behalf_of: str | None) -> None:
+    """One pull request prints as before; several print one line (or one JSON list) in the order given, then the refusals
+    are raised together with the first one's exit code."""
+    results = ready_many(config, list(dict.fromkeys(numbers)), target, on_behalf_of=on_behalf_of)
+    done = [result for result in results if isinstance(result, Readied)]
+    failed = [result for result in results if isinstance(result, QewError)]
+    if len(results) == 1 and done:
+        print(done[0].render(as_json))
+    elif as_json and done:
+        print(json.dumps([json.loads(readied.render(True)) for readied in done]))
+    elif done:
+        print("\n".join(readied.render(False) for readied in done))
+    if failed:
+        raise QewError("; ".join(str(error) for error in failed), failed[0].exit_code)
 
 
 @dataclass(frozen=True)
