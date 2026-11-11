@@ -6,10 +6,14 @@ follower the forge never marked merged recorded as merged, and the ledger left w
 
 import os
 import sys
+import threading
+import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
+from qew.ledger_store import Ledger
 from tests.ledger_harness import git
 from tests.pr_harness import PrWorld
 
@@ -47,6 +51,44 @@ class BatchWalk(unittest.TestCase):
             self.assertIn(item, run.out)
             records = [r for r in self.w.ledger.load_mirrors(item) if r.get("kind") == "pr"]
             self.assertEqual([r.get("state") for r in records], ["merged"])
+
+    def test_a_check_takes_one_snapshot_and_reads_the_forge_concurrently(self) -> None:
+        """Prevents the batch preflight costing one ledger snapshot and one serial forge read per pull request twice over:
+        --check loads the ledger once for the batch and the pull requests are read side by side."""
+        snapshots: list[int] = []
+        flying = [0, 0]  # in flight now, most in flight at once
+        lock = threading.Lock()
+        snapshot, read = Ledger.snapshot, self.w.forge.read_pull_request
+
+        def counted(ledger: Ledger, *args: object, **kwargs: object):
+            snapshots.append(1)
+            return snapshot(ledger, *args, **kwargs)
+
+        def slow(number: int):
+            with lock:
+                flying[0] += 1
+                flying[1] = max(flying)
+            time.sleep(0.2)
+            try:
+                return read(number)
+            finally:
+                with lock:
+                    flying[0] -= 1
+
+        with mock.patch.object(Ledger, "snapshot", counted), mock.patch.object(self.w.forge, "read_pull_request", slow):
+            run = self.w.qew("pr", "merge", "1", "2", "3", "--check")
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(len(snapshots), 1)
+        self.assertGreater(flying[1], 1)
+
+    def test_refusals_keep_the_order_of_the_numbers_given(self) -> None:
+        """Prevents concurrent reads reordering the report: the refusals are named in the order the numbers came in, and the
+        exit code is the first one's."""
+        self.w.forge.edit_pull(3, checks="pending")
+        self.w.forge.edit_pull(1, checks="failing")
+        run = self.w.qew("pr", "merge", "3", "1", "2", "--check")
+        self.assertEqual(run.code, 3, run)
+        self.assertLess(run.err.index("pr #3"), run.err.index("pr #1"))
 
     def test_one_member_that_is_not_ready_stops_the_whole_batch(self) -> None:
         """Prevents a half-gated batch: a failing check on one member refuses the batch, names it, and merges nothing."""
