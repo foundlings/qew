@@ -2,7 +2,7 @@
 
 import os
 
-__version__ = "6.54.0"
+__version__ = "6.55.0"
 
 if os.environ.get("QEW_FILE_MAP"):  # a development aid for scripts/gate.py --changed: record which of these files a process ran
     from qew import filemap
