@@ -1089,17 +1089,30 @@ def _merge_gates(
     ]
 
 
-def read_settled(forge: Forge, number: int, sleep: Callable[[float], None] | None = None) -> RemotePullRequest:
-    """Read a pull request for a merge gate. A forge answers `mergeable` with None while it computes the merge commit (seconds
-    after a push or a base move), so an open pull request is re-read with backoff until it is a bool; the gate refuses only when
-    the delays run out."""
-    pull = forge.read_pull_request(number)
+def _computing(pull: RemotePullRequest) -> bool:
+    return pull.mergeable is None and pull.state == "open" and not pull.draft
+
+
+def settle(pulls: dict[int, RemotePullRequest], reread: Callable[[int], RemotePullRequest],
+           sleep: Callable[[float], None] | None = None) -> dict[int, RemotePullRequest]:
+    """Wait out pull requests whose forge `mergeable` is still None (GitHub computes it for seconds after a push or a base move).
+    All of them share one budget (`MERGE_STATE_DELAYS`, 60 s): each round re-reads only the ones still unknown, side by side, and
+    the wait ends as soon as every one has a bool. Those still None when the budget runs out are left as they are for the gate to
+    refuse."""
+    pulls = dict(pulls)
     for delay in MERGE_STATE_DELAYS:
-        if pull.mergeable is not None or pull.state != "open" or pull.draft:
+        unknown = [number for number, pull in pulls.items() if _computing(pull)]
+        if not unknown:
             break
         (sleep or time.sleep)(delay)
-        pull = forge.read_pull_request(number)
-    return pull
+        with ThreadPoolExecutor(max_workers=READERS) as pool:
+            pulls.update(zip(unknown, pool.map(reread, unknown)))
+    return pulls
+
+
+def read_settled(forge: Forge, number: int, sleep: Callable[[float], None] | None = None) -> RemotePullRequest:
+    """One pull request read for a merge gate, waited on while the forge computes its merge state."""
+    return settle({number: forge.read_pull_request(number)}, forge.read_pull_request, sleep)[number]
 
 
 def merge_check(

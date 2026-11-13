@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from qew import branch_cleanup, code_vcs, pr_block, pr_record, replication, untrusted_text, remote_options
 from qew.cmd_pr import (
     MERGE_RECHECK_SECONDS, READERS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
-    merge_pull_request, read_settled, refusals_for,
+    merge_pull_request, refusals_for, settle,
 )
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
@@ -42,6 +42,7 @@ def run(config: Config, arguments: argparse.Namespace, options: MergeOptions) ->
         raise QewError("--auto does not combine with several pull requests: a batch merges now or not at all", 2)
     members = _members(config, numbers, arguments.target, None, _takeover(options))
     lead = _lead(config, {number: pull for number, (_, pull) in members.items()})  # a follower inside the lead's head never merges alone
+    members = _settled(members, lead)
     refusals = [error for number, (loaded, pull) in members.items()
                 for error in refusals_for(config, loaded, pull, options, contained=number != lead)]
     if refusals or options.check:
@@ -76,18 +77,27 @@ def _members(config: Config, numbers: list[int], target: str | None, build: Buil
         except QewError as error:
             loaded.append(error)
 
-    def read(member: Loaded) -> RemotePullRequest:
-        with forge_errors(member.record.target):
-            return read_settled(member.forge, member.record.number, sleep)
-
     with ThreadPoolExecutor(max_workers=READERS) as pool:
-        pending = [member if isinstance(member, QewError) else (member, pool.submit(read, member)) for member in loaded]
+        pending = [member if isinstance(member, QewError) else (member, pool.submit(_read, member)) for member in loaded]
         members: dict[int, tuple[Loaded, RemotePullRequest]] = {}
         for number, entry in zip(numbers, pending):
             if isinstance(entry, QewError):
                 raise entry
             members[number] = (entry[0], entry[1].result())
         return members
+
+
+def _settled(members: dict[int, tuple[Loaded, RemotePullRequest]], lead: int,
+             sleep: Callable[[float], None] | None = None) -> dict[int, tuple[Loaded, RemotePullRequest]]:
+    """Wait for the merge state of the lead only: a follower inside its head is never merged alone, so its own state is not gated."""
+    waiting = {lead: members[lead][1]}
+    fresh = settle(waiting, lambda number: _read(members[number][0]), sleep)
+    return {number: (loaded, fresh.get(number, pull)) for number, (loaded, pull) in members.items()}
+
+
+def _read(member: Loaded) -> RemotePullRequest:
+    with forge_errors(member.record.target):
+        return member.forge.read_pull_request(member.record.number)
 
 
 def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str,
