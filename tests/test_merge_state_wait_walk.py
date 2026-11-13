@@ -78,3 +78,58 @@ class MergeStateWaitWalk(MergeBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SharedBudgetWalk(unittest.TestCase):
+    """Many pull requests share ONE wait budget: wall time must not scale with how many are still computing."""
+
+    def pulls(self, numbers):
+        from qew.forge import RemotePullRequest
+
+        return {n: RemotePullRequest(n, f"u{n}", "open", False, f"sha{n}", f"b{n}", "main", None, "passing", "", "me", "") for n in numbers}
+
+    def reader(self, resolves_on: dict[int, int]):
+        """Pull `n` reads as unknown until its `resolves_on[n]`th re-read (None: never); records who was re-read each round."""
+        seen: dict[int, int] = {}
+        rounds: list[list[int]] = []
+
+        def reread(number: int):
+            seen[number] = seen.get(number, 0) + 1
+            wanted = resolves_on[number]
+            return replace(self.pulls([number])[number], mergeable=True if wanted and seen[number] >= wanted else None)
+
+        return reread, seen, rounds
+
+    def test_three_pulls_resolving_on_different_rounds_finish_inside_one_budget(self) -> None:
+        """Prevents N x 60 s: pulls resolving on rounds 1, 2 and 3 cost 1+2+4 seconds together, and each round re-reads only the unknown."""
+        from qew import cmd_pr
+
+        reread, seen, _ = self.reader({1: 1, 2: 2, 3: 3})
+        clock = [0.0]
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
+        settled = cmd_pr.settle(self.pulls([1, 2, 3]), reread, sleep)
+        self.assertTrue(all(p.mergeable is True for p in settled.values()))
+        self.assertEqual(clock[0], 7.0)
+        self.assertEqual(seen, {1: 1, 2: 2, 3: 3})  # a resolved pull is never read again
+
+    def test_wall_time_does_not_scale_with_the_number_of_unknown_pulls(self) -> None:
+        """Prevents a per-pull backoff: 1 and 12 pulls that never settle both spend exactly the 60 second budget."""
+        from qew import cmd_pr
+
+        for count in (1, 12):
+            with self.subTest(count=count):
+                reread, _, _ = self.reader({n: 0 for n in range(1, count + 1)})
+                clock = [0.0]
+                cmd_pr.settle(self.pulls(range(1, count + 1)), reread, lambda s: clock.__setitem__(0, clock[0] + s))
+                self.assertEqual(clock[0], 60.0)
+
+    def test_a_partial_timeout_leaves_exactly_the_unresolved_pulls_unknown(self) -> None:
+        """Prevents blaming the wrong pull: after the budget, the resolved ones are bools and only the stuck ones are None."""
+        from qew import cmd_pr
+
+        reread, _, _ = self.reader({1: 1, 2: 0, 3: 2, 4: 0})
+        settled = cmd_pr.settle(self.pulls([1, 2, 3, 4]), reread, lambda s: None)
+        self.assertEqual([n for n, p in settled.items() if p.mergeable is None], [2, 4])
