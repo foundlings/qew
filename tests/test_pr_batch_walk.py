@@ -52,6 +52,36 @@ class BatchWalk(unittest.TestCase):
             records = [r for r in self.w.ledger.load_mirrors(item) if r.get("kind") == "pr"]
             self.assertEqual([r.get("state") for r in records], ["merged"])
 
+    def test_a_lead_whose_merge_state_is_still_being_computed_is_waited_for(self) -> None:
+        """Prevents a batch merge failing right after a push: the lead reads mergeable None twice, then True, and the batch merges."""
+        from dataclasses import replace
+
+        real, reads = self.w.forge.read_pull_request, {"left": 2}
+
+        def computing(number: int):
+            pull = real(number)
+            if number == 3 and reads["left"] > 0:
+                reads["left"] -= 1
+                return replace(pull, mergeable=None)
+            return pull
+
+        waits: list[float] = []
+        with mock.patch.object(self.w.forge, "read_pull_request", computing):
+            run = self.w.qew("pr", "merge", "1", "2", "3", sleep=waits.append)
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.w.forge.merged, [(3, self.shas[2])])
+        self.assertEqual(waits[:2], [1.0, 2.0])
+
+    def test_a_follower_the_lead_contains_is_never_waited_for(self) -> None:
+        """Prevents a stuck follower costing the batch the whole budget: only the lead's merge state gates, so followers that
+        read mergeable None forever merge inside the lead with no wait."""
+        self.w.forge.edit_pull(1, mergeable=None)
+        self.w.forge.edit_pull(2, mergeable=None)
+        waits: list[float] = []
+        run = self.w.qew("pr", "merge", "1", "2", "3", sleep=waits.append)
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(waits, [])
+
     def test_a_check_takes_one_snapshot_and_reads_the_forge_concurrently(self) -> None:
         """Prevents the batch preflight costing one ledger snapshot and one serial forge read per pull request twice over:
         --check loads the ledger once for the batch and the pull requests are read side by side."""

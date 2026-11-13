@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from qew import branch_cleanup, code_vcs, pr_block, pr_record, replication, untrusted_text, remote_options
 from qew.cmd_pr import (
     MERGE_RECHECK_SECONDS, READERS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
-    merge_pull_request, refusals_for,
+    merge_pull_request, refusals_for, settle,
 )
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
@@ -42,6 +42,7 @@ def run(config: Config, arguments: argparse.Namespace, options: MergeOptions) ->
         raise QewError("--auto does not combine with several pull requests: a batch merges now or not at all", 2)
     members = _members(config, numbers, arguments.target, None, _takeover(options))
     lead = _lead(config, {number: pull for number, (_, pull) in members.items()})  # a follower inside the lead's head never merges alone
+    members = _settled(members, lead)
     refusals = [error for number, (loaded, pull) in members.items()
                 for error in refusals_for(config, loaded, pull, options, contained=number != lead)]
     if refusals or options.check:
@@ -63,7 +64,8 @@ def _takeover(options: MergeOptions) -> str:
     return reason if options.other_author else ""
 
 
-def _members(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str) -> dict[int, tuple[Loaded, RemotePullRequest]]:
+def _members(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str,
+             sleep: Callable[[float], None] | None = None) -> dict[int, tuple[Loaded, RemotePullRequest]]:
     """Each pull request with its ledger facts and the forge's reading of it: one ledger snapshot for the batch, the forge read
     side by side. The first failure in the order of the numbers is the one raised, as when they were read one after another."""
     ledger = ledger_for(config)
@@ -75,12 +77,8 @@ def _members(config: Config, numbers: list[int], target: str | None, build: Buil
         except QewError as error:
             loaded.append(error)
 
-    def read(member: Loaded) -> RemotePullRequest:
-        with forge_errors(member.record.target):
-            return member.forge.read_pull_request(member.record.number)
-
     with ThreadPoolExecutor(max_workers=READERS) as pool:
-        pending = [member if isinstance(member, QewError) else (member, pool.submit(read, member)) for member in loaded]
+        pending = [member if isinstance(member, QewError) else (member, pool.submit(_read, member)) for member in loaded]
         members: dict[int, tuple[Loaded, RemotePullRequest]] = {}
         for number, entry in zip(numbers, pending):
             if isinstance(entry, QewError):
@@ -89,8 +87,22 @@ def _members(config: Config, numbers: list[int], target: str | None, build: Buil
         return members
 
 
-def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str) -> dict[int, RemotePullRequest]:
-    return {number: pull for number, (_, pull) in _members(config, numbers, target, build, reason).items()}
+def _settled(members: dict[int, tuple[Loaded, RemotePullRequest]], lead: int,
+             sleep: Callable[[float], None] | None = None) -> dict[int, tuple[Loaded, RemotePullRequest]]:
+    """Wait for the merge state of the lead only: a follower inside its head is never merged alone, so its own state is not gated."""
+    waiting = {lead: members[lead][1]}
+    fresh = settle(waiting, lambda number: _read(members[number][0]), sleep)
+    return {number: (loaded, fresh.get(number, pull)) for number, (loaded, pull) in members.items()}
+
+
+def _read(member: Loaded) -> RemotePullRequest:
+    with forge_errors(member.record.target):
+        return member.forge.read_pull_request(member.record.number)
+
+
+def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str,
+           sleep: Callable[[float], None] | None = None) -> dict[int, RemotePullRequest]:
+    return {number: pull for number, (_, pull) in _members(config, numbers, target, build, reason, sleep).items()}
 
 
 def _lead(config: Config, pulls: dict[int, RemotePullRequest]) -> int:
@@ -111,7 +123,7 @@ def _lead(config: Config, pulls: dict[int, RemotePullRequest]) -> int:
 def merge_batch(config: Config, numbers: list[int], target: str | None, options: MergeOptions, build: Build | None = None,
                 sleep: Callable[[float], None] | None = None) -> BatchMerged:
     reason = _takeover(options)
-    pulls = _heads(config, numbers, target, build, reason)
+    pulls = _heads(config, numbers, target, build, reason, sleep)
     lead = _lead(config, pulls)
     merged = merge_pull_request(config, lead, target, options, build, sleep)
     result = BatchMerged(lead, numbers, [*merged.lines])
