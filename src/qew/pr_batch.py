@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from qew import branch_cleanup, code_vcs, pr_block, pr_record, replication, untrusted_text, remote_options
 from qew.cmd_pr import (
     MERGE_RECHECK_SECONDS, READERS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
-    merge_pull_request, refusals_for,
+    merge_pull_request, read_settled, refusals_for,
 )
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
@@ -63,7 +63,8 @@ def _takeover(options: MergeOptions) -> str:
     return reason if options.other_author else ""
 
 
-def _members(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str) -> dict[int, tuple[Loaded, RemotePullRequest]]:
+def _members(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str,
+             sleep: Callable[[float], None] | None = None) -> dict[int, tuple[Loaded, RemotePullRequest]]:
     """Each pull request with its ledger facts and the forge's reading of it: one ledger snapshot for the batch, the forge read
     side by side. The first failure in the order of the numbers is the one raised, as when they were read one after another."""
     ledger = ledger_for(config)
@@ -77,7 +78,7 @@ def _members(config: Config, numbers: list[int], target: str | None, build: Buil
 
     def read(member: Loaded) -> RemotePullRequest:
         with forge_errors(member.record.target):
-            return member.forge.read_pull_request(member.record.number)
+            return read_settled(member.forge, member.record.number, sleep)
 
     with ThreadPoolExecutor(max_workers=READERS) as pool:
         pending = [member if isinstance(member, QewError) else (member, pool.submit(read, member)) for member in loaded]
@@ -89,8 +90,9 @@ def _members(config: Config, numbers: list[int], target: str | None, build: Buil
         return members
 
 
-def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str) -> dict[int, RemotePullRequest]:
-    return {number: pull for number, (_, pull) in _members(config, numbers, target, build, reason).items()}
+def _heads(config: Config, numbers: list[int], target: str | None, build: Build | None, reason: str,
+           sleep: Callable[[float], None] | None = None) -> dict[int, RemotePullRequest]:
+    return {number: pull for number, (_, pull) in _members(config, numbers, target, build, reason, sleep).items()}
 
 
 def _lead(config: Config, pulls: dict[int, RemotePullRequest]) -> int:
@@ -111,7 +113,7 @@ def _lead(config: Config, pulls: dict[int, RemotePullRequest]) -> int:
 def merge_batch(config: Config, numbers: list[int], target: str | None, options: MergeOptions, build: Build | None = None,
                 sleep: Callable[[float], None] | None = None) -> BatchMerged:
     reason = _takeover(options)
-    pulls = _heads(config, numbers, target, build, reason)
+    pulls = _heads(config, numbers, target, build, reason, sleep)
     lead = _lead(config, pulls)
     merged = merge_pull_request(config, lead, target, options, build, sleep)
     result = BatchMerged(lead, numbers, [*merged.lines])

@@ -44,7 +44,7 @@ class RefusalWalk(MergeBase):
             ("draft", dict(draft=True), 2, "qew pr ready 1"),
             ("open checklist item", dict(body="- [ ] RED test <!-- pr-progress:red -->\n"), 2, "unticked"),
             ("conflict", dict(mergeable=False), 2, "conflicts"),
-            ("unknown merge state", dict(mergeable=None), 2, "unknown, retry"),
+            ("unknown merge state", dict(mergeable=None), 2, "still unknown after waiting"),
             ("closed", dict(state="closed"), 2, "is closed"),
             ("merged", dict(state="merged"), 2, "is merged"),
             ("failing checks", dict(checks="failing"), 3, "are failing"),
@@ -53,7 +53,7 @@ class RefusalWalk(MergeBase):
         for name, change, code, fragment in table:
             with self.subTest(name):
                 self.w.forge.edit_pull(1, **{**BASE, **change})
-                run = self.merge()
+                run = self.merge(sleep=lambda seconds: None)
                 self.assertEqual(run.code, code, run)
                 self.assertIn(fragment, run.err)
                 self.nothing_merged()

@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
@@ -33,6 +34,7 @@ Build = Callable[[Mirror], Forge]
 SCHEMA_VERSION = 1
 LOGIN_VARIABLE = "QEW_FORGE_LOGIN"  # the forge login a pull request is assigned to, when it differs from the actor
 MERGE_RECHECK_SECONDS = 1.0
+MERGE_STATE_DELAYS = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0)  # waits while the forge still computes `mergeable`: 60 s in all
 READERS = 8  # forge calls in flight at once, in a batch
 _TARGET_HELP = "mirror target (slug or unique part)"
 _REASON_HELP = "why: required with --admin and --other-author"
@@ -1059,7 +1061,8 @@ def _merge_gates(
 
     def mergeable() -> None:
         if pull.mergeable is None:
-            raise QewError(f"pr #{number} merge state unknown, retry in a moment", 2)
+            raise QewError(f"pr #{number} merge state still unknown after waiting {sum(MERGE_STATE_DELAYS):g}s; the forge is slow to compute it, "
+                           "retry in a moment", 2)
         if not pull.mergeable:
             raise QewError(f"pr #{number} has conflicts with {pull.base_branch}", 2)
 
@@ -1086,9 +1089,22 @@ def _merge_gates(
     ]
 
 
+def read_settled(forge: Forge, number: int, sleep: Callable[[float], None] | None = None) -> RemotePullRequest:
+    """Read a pull request for a merge gate. A forge answers `mergeable` with None while it computes the merge commit (seconds
+    after a push or a base move), so an open pull request is re-read with backoff until it is a bool; the gate refuses only when
+    the delays run out."""
+    pull = forge.read_pull_request(number)
+    for delay in MERGE_STATE_DELAYS:
+        if pull.mergeable is not None or pull.state != "open" or pull.draft:
+            break
+        (sleep or time.sleep)(delay)
+        pull = forge.read_pull_request(number)
+    return pull
+
+
 def merge_check(
     config: Config, number: int, target: str | None, options: MergeOptions = MergeOptions(), build: Build | None = None,
-    contained: bool = False,
+    contained: bool = False, sleep: Callable[[float], None] | None = None,
 ) -> list[QewError]:
     """Every refusal `pr merge` would raise for these options, without merging or writing anything; empty when it would go ahead."""
     pr_record.positive_number(number)
@@ -1096,7 +1112,7 @@ def merge_check(
     try:
         loaded = load(config, number, target, build, reason if options.other_author else "", merging=True)
         with forge_errors(loaded.record.target):
-            pull = loaded.forge.read_pull_request(number)
+            pull = read_settled(loaded.forge, number, sleep)
     except QewError as error:
         return [error]
     return refusals_for(config, loaded, pull, options, contained)
@@ -1122,7 +1138,7 @@ def merge_pull_request(
     loaded = load(config, number, target, build, reason if options.other_author else "", merging=True)
     forge, slug = loaded.forge, loaded.record.target
     with forge_errors(slug):
-        pull = forge.read_pull_request(number)
+        pull = read_settled(forge, number, sleep)
     for gate in _merge_gates(config, loaded, pull, options):
         gate()
     waiting = pull.checks == "pending" and not options.admin
