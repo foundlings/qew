@@ -58,7 +58,8 @@ class EdgeWalk(unittest.TestCase):
         self.assertEqual(a.run("block", item, "--on", first, env=offline).returncode, 0)
         self.assertEqual(b.run("block", item, "--on", second, env=offline).returncode, 0)
         for agent in (a, b, a):
-            self.assertEqual(agent.run("ready").returncode, 0)
+            ready = agent.run("ready")
+            self.assertEqual(ready.returncode, 0, ready.stderr)
         self.assertEqual(sorted(needs_of(a, item)), sorted([first, second]))
         self.assertEqual(a.run("check").returncode, 0)
 
