@@ -51,6 +51,34 @@ class UnionWalk(unittest.TestCase):
     def remote(self, number: int) -> str:
         return git(self.bare, "rev-parse", f"branch-{number}")
 
+    def unticked_source(self) -> str:
+        """Pull requests 1..3 where #2 carries an unticked box for a shared parent; returns that parent's item id."""
+        for number in (1, 2, 3):
+            self.pull_request(number, f"f{number}.txt", f"{number}\n")
+        shared = self.w.item("HCM consumer migration")
+        self.assertEqual(self.w.qew("pr", "check", "2", "--add", shared).code, 0)
+        return shared
+
+    def test_a_union_over_an_unticked_source_box_is_refused_naming_the_source_pull_request(self) -> None:
+        """Prevents a union lead that inherits a box nobody finished: refused with the source PR and the fixes, nothing pushed."""
+        shared = self.unticked_source()
+        run = self.w.qew("pr", "union", "3", "1", "2")
+        self.assertEqual(run.code, 2, run)
+        self.assertIn("pr #2 has unticked checklist items", run.err)
+        self.assertIn(f"{shared} HCM consumer migration", run.err)
+        self.assertIn(f"qew pr check 2 --drop {shared} --reason TEXT", run.err)
+        self.assertEqual(self.remote(3), self.shas[3])
+
+    def test_the_union_override_needs_a_reason_and_with_one_proceeds_and_is_recorded(self) -> None:
+        """Prevents a silent bypass on a union: no reason is refused; with one the union is pushed and the item is commented."""
+        shared = self.unticked_source()
+        self.assertEqual(self.w.qew("pr", "union", "3", "1", "2", "--allow-unticked").code, 2)
+        self.assertEqual(self.remote(3), self.shas[3])
+        run = self.w.qew("pr", "union", "3", "1", "2", "--allow-unticked", "--reason", "parent lands in the next union")
+        self.assertEqual(run.code, 0, run)
+        self.assertNotEqual(self.remote(3), self.shas[3])
+        self.assertTrue(any("parent lands in the next union" in str(e.get("text", "")) for e in self.w.events(shared)))
+
     def test_sibling_heads_become_one_pushed_union_without_touching_the_working_copy(self) -> None:
         """Prevents a squash or a disturbed checkout: the lead's branch gets a merge that keeps every head as an ancestor, the other
         branches stay where they were, and the local checkout does not move."""
