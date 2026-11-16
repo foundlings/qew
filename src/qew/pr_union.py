@@ -7,11 +7,12 @@ copy: git plumbing makes the commit, and the push is forward-only.
 import argparse
 from pathlib import Path
 
-from qew import code_vcs, untrusted_text, remote_options
+from qew import code_vcs, pr_unticked, untrusted_text, remote_options
 from qew.cmd_pr import MergeOptions, _merge_options, forge_errors, load, refuse_finished
 from qew.errors import QewError
 from qew.forge import RemotePullRequest
 from qew.ledger_config import Config
+from qew.ledger_store import actor
 
 
 def _git(root: Path, *argv: str) -> str:
@@ -43,7 +44,7 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
     numbers = list(dict.fromkeys(arguments.number))
     if len(numbers) < 2:
         raise QewError("a union needs at least two pull requests", 2)
-    options = MergeOptions(other_author=arguments.other_author, reason=arguments.reason)
+    options = MergeOptions(other_author=arguments.other_author, reason=arguments.reason if arguments.other_author else None)  # else it explains --allow-unticked
     reason = _merge_options(options)
     root = config.root
     loaded = load(config, numbers[0], arguments.target, None, reason if options.other_author else "", merging=True)
@@ -53,6 +54,11 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
         with forge_errors(member.record.target):
             pulls[number] = member.forge.read_pull_request(number)
         refuse_finished(number, pulls[number], "join a union")
+    open_boxes = {number: pr_unticked.unticked(pull.body) for number, pull in pulls.items()}
+    open_boxes = {number: boxes for number, boxes in open_boxes.items() if boxes}
+    override = pr_unticked.reason_for(True, arguments.reason) if arguments.allow_unticked else None
+    if open_boxes and override is None:  # the union lead inherits every source's boxes, so each source is named
+        raise QewError("\n".join(pr_unticked.explain(number, boxes, override=True) for number, boxes in open_boxes.items()), 2)
     lead = pulls[numbers[0]]
     if len({p.base_branch for p in pulls.values()}) != 1:
         raise QewError("these pull requests do not share one base branch", 2)
@@ -79,5 +85,10 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
     remote = _git(root, "ls-remote", remote_name, f"refs/heads/{branch}").split()
     if not remote or remote[0] != built:
         raise QewError(f"the push of {branch} was accepted but {remote_name} does not show {built[:12]} there", 3)
+    if override is not None:
+        for number, boxes in open_boxes.items():
+            for box in boxes:
+                if box.address in loaded.snapshot.items:
+                    loaded.snapshot.ledger.append_event(box.address, "commented", text=f"pull request #{number} was joined into union {members} with this box unticked: {override}", author=actor())
     return (f"union {built[:12]} of {members} pushed as {untrusted_text.show(branch).text} (the head of pr #{numbers[0]}); "
             f"run the project checks on it, then `qew pr merge {' '.join(map(str, numbers))}`")
