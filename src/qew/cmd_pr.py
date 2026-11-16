@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
-from qew import cmd_claim, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, replication, untrusted_text, vcs
+from qew import cmd_claim, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -69,6 +69,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     check.add_argument("--target", help=_TARGET_HELP)
     ready = sub.add_parser("ready", help="mark a draft pull request ready for review")
     ready.add_argument("number", type=int, nargs="+", help="pull request number; several are marked ready in one pass (one ledger snapshot, forge writes side by side)")
+    ready.add_argument("--allow-unticked", action="store_true", help="mark ready although Progress boxes are unticked (needs --reason; recorded on the items and in the body)")
+    ready.add_argument("--reason", help="why the boxes stay unticked: required with --allow-unticked")
     ready.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     ready.add_argument("--target", help=_TARGET_HELP)
     ready.add_argument("--json", action="store_true", help="machine-readable output")
@@ -123,7 +125,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     union.add_argument("number", type=int, nargs="+", help="pull request numbers; the first is the lead whose branch receives the union")
     union.add_argument("--target", help=_TARGET_HELP)
     union.add_argument("--other-author", action="store_true", help="move the branch of a pull request someone else opened (needs --reason)")
-    union.add_argument("--reason", help=_REASON_HELP)
+    union.add_argument("--allow-unticked", action="store_true", help="join pull requests with unticked Progress boxes (needs --reason; recorded on the items)")
+    union.add_argument("--reason", help=_REASON_HELP + "; with --allow-unticked, why the boxes stay unticked")
     union.add_argument("--dry-run", action="store_true", help="build the union and report conflicts, push nothing")
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
     merge.add_argument("number", type=int, nargs="+", help="pull request number; several merge as one batch when one head contains all the others")
@@ -158,7 +161,8 @@ def run(arguments: argparse.Namespace) -> bool:
         print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target,
                                  drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add, on_behalf_of=arguments.on_behalf_of))
     elif command == "ready":
-        print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of)
+        override = pr_unticked.reason_for(arguments.allow_unticked, arguments.reason)
+        print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of, override if arguments.allow_unticked else None)
     elif command == "body":
         print(replace_body(config, arguments.number, arguments.body_file, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "draft":
@@ -592,10 +596,11 @@ def mark_ready(
 
 def ready_many(
     config: Config, numbers: list[int], target: str | None, build: Build | None = None,
-    sleep: Callable[[float], None] | None = None, on_behalf_of: str | None = None,
+    sleep: Callable[[float], None] | None = None, on_behalf_of: str | None = None, override: str | None = None,
 ) -> list[Readied | QewError]:
     """Mark each pull request ready, in the order of the numbers: one ledger snapshot for all, the forge writes side by side,
-    the ledger records written one after another. A refusal on one member is that member's result; the others still go."""
+    the ledger records written one after another. A refusal on one member is that member's result; the others still go.
+    A draft with unticked Progress boxes is refused unless `override` (a reason) is given; the override is then recorded."""
     ledger = ledger_for(config)
     shared = (ledger, ledger.snapshot())
     loaded: list[Loaded | QewError] = []
@@ -607,18 +612,21 @@ def ready_many(
         except QewError as error:
             loaded.append(error)
 
-    def flip(member: Loaded) -> Outcome:
+    def flip(member: Loaded) -> tuple[Outcome, RemotePullRequest]:
         number, forge = member.record.number, member.forge
         with forge_errors(member.record.target):
             before = forge.read_pull_request(number)
             refuse_finished(number, before, "be marked ready")
-            return apply_and_verify(
+            if before.draft and override is None:
+                pr_unticked.refuse(number, before.body, override=True)
+            outcome = apply_and_verify(
                 before,
                 lambda: forge.mark_pull_request_ready(number),
                 lambda: forge.read_pull_request(number),
                 lambda pull: not pull.draft,
                 sleep=sleep,
             )
+            return outcome, before
 
     results: list[Readied | QewError] = []
     with ThreadPoolExecutor(max_workers=READERS) as pool:
@@ -629,7 +637,7 @@ def ready_many(
                 continue
             member, future = entry
             try:
-                outcome = future.result()
+                outcome, before = future.result()
             except QewError as error:
                 results.append(error)
                 continue
@@ -638,14 +646,32 @@ def ready_many(
                 continue
             with replication.section("pr-ready"):
                 pr_record.update_mirror(member.snapshot.ledger, member.record, draft=False)
+            boxes = pr_unticked.unticked(before.body) if before.draft else []
+            if override is not None and boxes:
+                try:
+                    record_override(member, before, boxes, override)
+                except QewError as error:
+                    results.append(error)
+                    continue
             results.append(Readied(number, outcome == Outcome.VERIFIED))
     return results
 
 
-def print_readied(config: Config, numbers: list[int], target: str | None, as_json: bool, on_behalf_of: str | None) -> None:
+def record_override(loaded: Loaded, first: RemotePullRequest, boxes: list[pr_checklist.Box], reason: str) -> None:
+    """Leave the integrator the trace of an override: a comment on each unticked item and a line in the body (who, when, why)."""
+    number = loaded.record.number
+    ledger = loaded.snapshot.ledger
+    for box in boxes:
+        if box.address in loaded.snapshot.items:
+            ledger.append_event(box.address, "commented", text=f"pull request #{number} went ahead with this box unticked: {reason}", author=actor())
+    line = pr_unticked.override_line(actor(), now(), boxes, reason)
+    _write_body(loaded, number, first, first.body.rstrip("\n") + "\n\n" + line + "\n")
+
+
+def print_readied(config: Config, numbers: list[int], target: str | None, as_json: bool, on_behalf_of: str | None, override: str | None = None) -> None:
     """One pull request prints as before; several print one line (or one JSON list) in the order given, then the refusals
     are raised together with the first one's exit code."""
-    results = ready_many(config, list(dict.fromkeys(numbers)), target, on_behalf_of=on_behalf_of)
+    results = ready_many(config, list(dict.fromkeys(numbers)), target, on_behalf_of=on_behalf_of, override=override)
     done = [result for result in results if isinstance(result, Readied)]
     failed = [result for result in results if isinstance(result, QewError)]
     if len(results) == 1 and done:
@@ -1069,7 +1095,7 @@ def _merge_gates(
     def boxes() -> None:
         unticked = [b for b in pr_checklist.boxes(pull.body) if not b.ticked]
         if unticked:
-            raise QewError(f"pr #{number} has unticked checklist items: {'; '.join(b.address + ' ' + b.text for b in unticked)}", 2)
+            raise QewError(pr_unticked.explain(number, unticked), 2)
 
     def checks() -> None:
         if pull.checks not in ("passing", "none", "failing", "pending"):
