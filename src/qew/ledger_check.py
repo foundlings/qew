@@ -138,6 +138,12 @@ def _foreign_writer(ledger: Ledger) -> bool:
     return holder is None or holder.get("pid") != os.getpid()
 
 
+def _only_in_flight(problems: list[str]) -> bool:
+    """Every problem is an item or event directory whose item file is not there yet: what a create or a merge of another checkout's
+    commits (git writes files one by one, with no qew lock held here) looks like halfway. Taken again, a real orphan still shows."""
+    return all(problem.endswith(ledger_invariants.ORPHAN) for problem in problems)
+
+
 def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> Report:
     """The report. A check reads without the lock, so a write in flight can show as a problem (an event whose item is not
     there yet): while another process holds the write lock, a report with problems is taken again, for at most SETTLE_S."""
@@ -145,7 +151,9 @@ def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) 
     while True:
         busy = _foreign_writer(ledger)
         report = _analyse_once(ledger, deep, resolve)
-        if not report.problems or not (busy or _foreign_writer(ledger)) or time.monotonic() >= deadline:
+        if not report.problems or time.monotonic() >= deadline:
+            return report
+        if not (busy or _foreign_writer(ledger)) and not _only_in_flight(report.problems):
             return report
         time.sleep(0.25)
 
