@@ -32,6 +32,10 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser], target_he
     unlink.add_argument("items", nargs="+", metavar="ITEM", help="items to remove (commas or spaces)")
     unlink.add_argument("--target", help=target_help)
     unlink.add_argument("--json", action="store_true", help="machine-readable output")
+    migrate = sub.add_parser("migrate", help="declare links for pull requests recorded before schema 9, from their checklist and recorded items (--dry-run first)")
+    migrate.add_argument("number", type=int, nargs="*", help="pull request numbers (none: every open or merged one without a declaration)")
+    migrate.add_argument("--dry-run", action="store_true", help="print each pull request's declaration and write nothing (works on a schema 8 ledger)")
+    migrate.add_argument("--json", action="store_true", help="machine-readable output")
     links = sub.add_parser("links", help="show a pull request's link declaration")
     links.add_argument("number", type=int, help="pull request number")
     links.add_argument("--target", help=target_help)
@@ -144,8 +148,30 @@ def show(config: Config, arguments: argparse.Namespace) -> str:
     return f"pr #{record.number}: {describe(declaration)}"
 
 
+def migrate(config: Config, arguments: argparse.Namespace) -> str:
+    from qew import pr_migrate  # imports this module for the registration
+
+    rows = pr_migrate.plan(config, list(dict.fromkeys(arguments.number)))
+    if not arguments.dry_run:
+        pr_links.require_schema(ledger_for(config))
+        with replication.section("pr-migrate"):
+            pr_migrate.apply(config, rows)
+    if arguments.json:
+        payload = [{"number": r.number, "state": r.state, "flags": r.flags, "no_item": r.no_item,
+                    "items": [{"item": i, "role": role, "why": why} for i, role, why in r.roles]} for r in rows]
+        return json.dumps({"pull_requests": payload, "dry_run": arguments.dry_run, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+    lines = [f"{'would declare' if arguments.dry_run else 'declared'} {len(rows)} pull request(s)"]
+    for row in rows:
+        shown = f"no item: {row.no_item}" if row.no_item else "; ".join(f"{role} {i} ({why})" for i, role, why in row.roles)
+        lines.append(f"pr #{row.number} ({row.state}): {shown}")
+        lines += [f"  FLAG {flag}" for flag in row.flags]
+    return "\n".join(lines)
+
+
 def run(config: Config, arguments: argparse.Namespace) -> str | None:
-    """The output of `pr link|unlink|links`, or None when the command is another one."""
+    """The output of `pr link|unlink|links|migrate`, or None when the command is another one."""
+    if arguments.pr_command == "migrate":
+        return migrate(config, arguments)
     return {"link": link, "unlink": unlink, "links": show}[arguments.pr_command](config, arguments) if arguments.pr_command in ("link", "unlink", "links") else None
 
 
