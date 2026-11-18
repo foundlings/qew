@@ -18,7 +18,7 @@ from qew.ledger_store import Ledger, actor, now
 Role = Literal["closes", "remains", "related"]
 ROLES: tuple[Role, ...] = ("closes", "remains", "related")
 LINKS_SCHEMA = 9
-_LANDING_EVENTS = ("merged_seen", "land_pending", "landed")
+_LANDING_EVENTS = ("merged_seen", "land_pending", "landed", "declared", "mirror")  # events that are not part of the declaration itself
 
 
 @dataclass(frozen=True)
@@ -82,12 +82,13 @@ def load(ledger: Ledger, key: str) -> Declaration:
     return Declaration(roles, no_item)
 
 
-def _append(ledger: Ledger, key: str, kind: str, **data: str) -> None:
+def _append(ledger: Ledger, key: str, kind: str, **data: object) -> None:
     where = directory(ledger, key)
     existing = sorted(path.stem for path in where.glob("*.json")) if where.is_dir() else []
     identifier = event_id(existing[-1] if existing else "")
     body = {"type": kind, "at": now(), "by": actor(), **data}
     ledger_store.write_new(where / f"{identifier}.json", json.dumps(body, sort_keys=True, indent=2) + "\n")
+    ledger_store.MIRROR_EPOCH += 1  # an index of the recorded pull requests built before this is stale
 
 
 def link(ledger: Ledger, key: str, wanted: dict[str, Role]) -> list[str]:
@@ -154,3 +155,32 @@ def record_pending(ledger: Ledger, key: str, item_id: str, why: str) -> bool:
 def record_landed(ledger: Ledger, key: str, item_id: str, evidence: list[str]) -> None:
     """Record that a closes item is completed by this pull request (clears its pending flag)."""
     _append(ledger, key, "landed", item=item_id, evidence=" ".join(evidence))
+
+
+def declare_pr(ledger: Ledger, key: str, record: dict[str, object]) -> None:
+    """The identity of a pull request that has no host item (forge, number, head, opener, title): the first file of its directory."""
+    require_schema(ledger)
+    _append(ledger, key, "declared", record=record)
+
+
+def mirror_changes(ledger: Ledger, key: str, changes: dict[str, object]) -> None:
+    """A change to a hostless pull request's record (state, draft, title, blockers), as an event: the later event of a field wins."""
+    _append(ledger, key, "mirror", changes=changes)
+
+
+def hostless(ledger: Ledger) -> list[tuple[str, dict[str, object]]]:
+    """(key, mirror-like record) of every pull request recorded under `prs/` with its own identity, i.e. opened with no item."""
+    root = ledger.path / "prs"
+    found: list[tuple[str, dict[str, object]]] = []
+    if not root.is_dir():
+        return found
+    for shard in sorted(root.iterdir()):
+        for directory in sorted(shard.iterdir()) if shard.is_dir() else []:
+            record: dict[str, object] | None = None
+            for _, event in _events(ledger, directory.name):
+                body = event.get("record") if event["type"] == "declared" else event.get("changes") if event["type"] == "mirror" else None
+                if isinstance(body, dict):
+                    record = {**(record or {}), **body} if event["type"] == "mirror" or record is None else record
+            if record is not None:
+                found.append((directory.name, {"kind": "pr", **record, "_target": directory.name}))
+    return found

@@ -48,3 +48,15 @@ def build_body(
     if extra.strip():
         parts.append(extra.rstrip("\n"))
     return "\n\n".join(parts) + "\n"
+
+
+def build_no_item_body(reason: str, what: str | None, why: str | None, testing: str | None, extra: str, links: str) -> str:
+    """The body of a pull request that has no ledger item: the reason, then What / Why / Testing, the links block, and `extra`."""
+    parts = [f"No ledger item: {' '.join(reason.split())}."]
+    for heading, text in (("What", what), ("Why", why), ("Testing", testing)):
+        if text and text.strip():
+            parts.append(f"## {heading}\n\n{text.strip()}")
+    parts.append(links)
+    if extra.strip():
+        parts.append(extra.rstrip("\n"))
+    return "\n\n".join(parts) + "\n"
