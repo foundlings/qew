@@ -604,6 +604,12 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   item is refused before the forge is called. The covered items are then exactly what the pull request closes and leaves open (an epic's open
   descendants are NOT covered: `--closes EPIC` is refused at merge while a child is open, `--remains EPIC` is not gated). On schema 8 the flags
   are exit 2 and the open is unchanged (compat mode). `--no-item` opens a pull request that has no item (see `pr link`).
+  On schema 9 the description also carries the declared items in one machine-owned block after the Why and Testing sections:
+  `<!-- qew:links v1 -->`, a `### Ledger items` heading, one line per item `- closes|remains|related `ID`: title` (or `- no item: reason`), `<!-- /qew:links -->`.
+  Titles are one line, without comment markers, and a `#N` in one is written with a full-width sign so a forge cannot read a closing reference. The block is a projection: qew never reads it back as the declaration.
+  `pr link` and `pr unlink` rewrite only the block (every other byte of the body stays) after recording the events in a short write section, so no lock is held over the forge;
+  a forge failure there is a stderr note that the declaration is recorded and `qew pr sync N` writes the block, never an error. `qew pr sync N` (without `--items`) also rewrites the block and says on stderr when the one on the forge had drifted from the ledger.
+  A schema 8 body has no block.
   An open pull request already on the head whose body carries this item's marker (an orphan: the forge accepted the
   open and the ledger record was never written) is adopted instead of opened again: only the record is written and the
   result ends with `adopted`. Any other open pull request on the head (no marker, another item's, a different base,

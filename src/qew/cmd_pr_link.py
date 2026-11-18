@@ -5,9 +5,10 @@ The ledger is the source of truth, so these never call a forge: they work offlin
 
 import argparse
 import json
+import sys
 from collections.abc import Iterable
 
-from qew import pr_links, pr_record
+from qew import pr_links, pr_record, replication
 from qew.cmd_items import ledger_for
 from qew.errors import NotFound, QewError
 from qew.ledger_config import Config
@@ -75,6 +76,16 @@ def _wanted(ledger: Ledger, snapshot: Snapshot, arguments: argparse.Namespace) -
     return wanted
 
 
+def _project(config: Config, number: int, target: str | None) -> None:
+    """Write the declaration into the description on the forge. The ledger already has it, so a forge failure is a note, never an error."""
+    from qew import cmd_pr  # imports this module for the registration
+
+    try:
+        cmd_pr.project_links(config, number, target, owned=False)
+    except QewError as error:
+        print(f"qew: pr #{number}: the declaration is recorded, but its description block was not updated ({error}); `qew pr sync {number}` writes it", file=sys.stderr)
+
+
 def describe(declaration: pr_links.Declaration) -> str:
     if declaration.no_item is not None:
         return f"no item: {declaration.no_item}"
@@ -90,15 +101,18 @@ def link(config: Config, arguments: argparse.Namespace) -> str:
     if arguments.no_item is not None:
         if wanted:
             raise QewError("--no-item excludes --closes, --remains and --related: a pull request relates to no item or to some", 2)
-        changed = [] if not pr_links.declare_no_item(ledger, record.mirror_file, arguments.no_item) else ["no-item"]
+        with replication.section("pr-link"):
+            changed = ["no-item"] if pr_links.declare_no_item(ledger, record.mirror_file, arguments.no_item) else []
     else:
         if not wanted:
             raise QewError("name what the pull request does: --closes, --remains, --related or --no-item REASON", 2)
         finished = [i for i, role in wanted.items() if role == "closes" and snapshot.folds[i].state in pr_record.CLOSED_STATES]
         if finished:
             raise QewError(f"{' '.join(finished)} is already finished; a pull request cannot close it (use --related, or --remains to note the delivery)", 2)
-        changed = pr_links.link(ledger, record.mirror_file, wanted)
+        with replication.section("pr-link"):
+            changed = pr_links.link(ledger, record.mirror_file, wanted)
     declaration = pr_links.load(ledger, record.mirror_file)
+    _project(config, record.number, arguments.target)
     if arguments.json:
         return json.dumps({"number": record.number, "changed": changed, **_fields(declaration), "schema_version": SCHEMA_VERSION}, sort_keys=True)
     return f"pr #{record.number} links: {describe(declaration)}" + ("" if changed else " (unchanged)")
@@ -108,8 +122,10 @@ def unlink(config: Config, arguments: argparse.Namespace) -> str:
     ledger, snapshot, record = _record(config, arguments.number, arguments.target)
     pr_links.require_schema(ledger)
     _allowed(snapshot, record)
-    removed = pr_links.unlink(ledger, record.mirror_file, _items(ledger, snapshot, arguments.items))
+    with replication.section("pr-link"):
+        removed = pr_links.unlink(ledger, record.mirror_file, _items(ledger, snapshot, arguments.items))
     declaration = pr_links.load(ledger, record.mirror_file)
+    _project(config, record.number, arguments.target)
     if arguments.json:
         return json.dumps({"number": record.number, "removed": removed, **_fields(declaration), "schema_version": SCHEMA_VERSION}, sort_keys=True)
     return f"pr #{record.number} links: {describe(declaration)}" + ("" if removed else " (unchanged)")
