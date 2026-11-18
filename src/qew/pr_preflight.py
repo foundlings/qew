@@ -67,7 +67,9 @@ def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, Sta
     if not records:
         return
     first = records[0]
-    union = PrRecord(first.host, first.number, first.mirror_file, first.target, first.opener, tuple(dict.fromkeys(i for r in records for i in r.items)))
+    covered = tuple(dict.fromkeys(i for r in records for i in r.items))
+    closing = tuple(dict.fromkeys(i for r in records for i in (r.items if r.closing is None else r.closing)))
+    union = PrRecord(first.host, first.number, first.mirror_file, first.target, first.opener, covered, closing=closing)
     owner = {item_id: record.number for record in reversed(records) for item_id in record.items}
     for item_id, blocking in pr_gate.open_children(snapshot, union, {i: s for i, s in states.items() if i in union.items}).items():
         verdict.refusals.append(Finding(

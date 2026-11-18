@@ -8,6 +8,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import cast
 
+from qew import pr_links
 from qew.mirror_types import MirrorRecord
 from qew.errors import NotFound, QewError
 from qew.ledger_event import State
@@ -28,6 +29,7 @@ class PrRecord:
     items: tuple[str, ...]  # the covered items
     blockers: tuple[int, ...] = ()  # pull requests this one waits on
     title: str = ""  # the title set for this pull request alone (`qew pr title`); "": the item's title
+    closing: tuple[str, ...] | None = None  # the covered items this pull request completes; None: all of them (a record from before declarations)
 
 
 def positive_number(number: int) -> int:
@@ -44,7 +46,7 @@ def find(ledger: Ledger, number: int, target: str | None) -> PrRecord:
                 continue
             if target and target not in record["_target"]:
                 continue
-            found.append(_record(item_id, record))
+            found.append(_record(ledger, item_id, record))
     if not found:
         raise NotFound(f"pull request #{number} is not recorded in the ledger; open it with `qew pr open`, or adopt and close an unmerged legacy one with `qew pr close {number} --item ID --reason TEXT`")
     if len(found) > 1:
@@ -52,7 +54,21 @@ def find(ledger: Ledger, number: int, target: str | None) -> PrRecord:
     return found[0]
 
 
-def _record(host: str, mirror: MirrorRecord) -> PrRecord:
+def covered_items(ledger: Ledger, host: str, mirror: MirrorRecord) -> tuple[tuple[str, ...], tuple[str, ...] | None]:
+    """(covered, closing) of a recorded pull request: from its link declaration on a schema 9 ledger once it has one (covered is what
+    it closes and leaves open; closing is what it completes), else the items the record froze at open (all of them closing)."""
+    if ledger.schema >= pr_links.LINKS_SCHEMA:
+        declaration = pr_links.load(ledger, mirror["_target"])
+        if declaration.declared:
+            closing = tuple(declaration.items("closes"))
+            return (*closing, *declaration.items("remains")), closing
+    frozen: object = mirror.get("items", [host])
+    if isinstance(frozen, list) and all(isinstance(i, str) for i in frozen):
+        return tuple(frozen), None
+    return (), None
+
+
+def _record(ledger: Ledger, host: str, mirror: MirrorRecord) -> PrRecord:
     stem = mirror["_target"]
     items: object = mirror.get("items", [host])  # a record from before covered items were kept covers its host; read from disk
     opener: object = mirror.get("opener", "")
@@ -64,7 +80,8 @@ def _record(host: str, mirror: MirrorRecord) -> PrRecord:
     title: object = mirror.get("pr_title", "")
     if not isinstance(title, str):
         raise QewError(f"mirrors/{host}/{stem}.json: `pr_title` must be text", 1)
-    return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, tuple(items), tuple(blockers), title)
+    covered, closing = covered_items(ledger, host, mirror)
+    return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, covered, tuple(blockers), title, closing)
 
 
 def waiting_on(ledger: Ledger, number: int) -> list[PrRecord]:
@@ -72,8 +89,10 @@ def waiting_on(ledger: Ledger, number: int) -> list[PrRecord]:
     found: list[PrRecord] = []
     for item_id in ledger.item_ids():
         for record in ledger.load_mirrors(item_id):
-            if record.get("kind") == "pr" and number in _record(item_id, record).blockers:
-                found.append(_record(item_id, record))
+            if record.get("kind") == "pr":
+                built = _record(ledger, item_id, record)
+                if number in built.blockers:
+                    found.append(built)
     return found
 
 
@@ -155,6 +174,6 @@ def covering_open(ledger: Ledger, item_id: str) -> list[int]:
         for mirror in ledger.load_mirrors(host):
             if mirror.get("kind") != "pr" or mirror.get("state", "open") in ("merged", "closed") or mirror.get("draft") is True:
                 continue
-            if item_id in mirror.get("items", [host]) and isinstance(mirror.get("number"), int):
+            if item_id in covered_items(ledger, host, mirror)[0] and isinstance(mirror.get("number"), int):
                 found.append(mirror["number"])
     return sorted(found)

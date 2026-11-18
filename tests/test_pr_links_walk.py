@@ -21,7 +21,7 @@ class LinksWalk(unittest.TestCase):
         self.main = self.w.item("Main work")
         self.other = self.w.item("Other work", claim=False)
         self.third = self.w.item("Third work", claim=False)
-        self.assertEqual(self.w.open(self.main).code, 0)
+        self.assertEqual(self.w.open(self.main, "--related", self.main).code, 0)  # the declaration a schema 9 open requires
 
     def files(self) -> list[Path]:
         return sorted((self.w.world.ledger / "prs").rglob("*.json")) if (self.w.world.ledger / "prs").is_dir() else []
@@ -35,7 +35,7 @@ class LinksWalk(unittest.TestCase):
         """Prevents links held in a shared mutable file two clones would conflict on, or a role lost on the way back."""
         run = self.w.qew("pr", "link", "1", "--closes", self.main, "--remains", self.other, "--related", self.third)
         self.assertEqual(run.code, 0, run)
-        self.assertEqual(len(self.files()), 3)
+        self.assertEqual(len(self.files()), 4)  # the open's related link, then three links (main moves to closes)
         shown = self.links()
         self.assertEqual((shown["closes"], shown["remains"], shown["related"]), ([self.main], [self.other], [self.third]))
         self.assertTrue(shown["declared"])
@@ -87,10 +87,11 @@ class LinksWalk(unittest.TestCase):
     def test_an_unknown_or_finished_item_is_refused_for_closes(self) -> None:
         """Prevents a typo or an already completed item being declared as what the PR finishes."""
         self.assertEqual(self.w.qew("pr", "link", "1", "--closes", "NOPE99").code, 2)
-        self.assertEqual(self.files(), [])
+        self.assertEqual(len(self.files()), 1)
 
     def test_a_pull_request_with_no_declaration_reads_as_undeclared(self) -> None:
         """Prevents silence being read as a declaration."""
+        self.w.qew("pr", "unlink", "1", self.main)
         shown = self.links()
         self.assertFalse(shown["declared"])
         self.assertEqual((shown["closes"], shown["remains"], shown["related"]), ([], [], []))

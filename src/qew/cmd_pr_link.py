@@ -131,3 +131,28 @@ def show(config: Config, arguments: argparse.Namespace) -> str:
 def run(config: Config, arguments: argparse.Namespace) -> str | None:
     """The output of `pr link|unlink|links`, or None when the command is another one."""
     return {"link": link, "unlink": unlink, "links": show}[arguments.pr_command](config, arguments) if arguments.pr_command in ("link", "unlink", "links") else None
+
+
+def declaration(ledger: Ledger, snapshot: Snapshot, host: str, closes: Iterable[str], remains: Iterable[str], related: Iterable[str],
+                no_item: str | None) -> dict[str, Role]:
+    """The roles `pr open ITEM` was given, validated before anything reaches the forge; empty on a ledger that has no links yet.
+
+    On schema 9 a declaration is mandatory and the item opened for must be in it; on schema 8 the flags are refused."""
+    given = bool(list(closes) or list(remains) or list(related) or no_item is not None)
+    if ledger.schema < pr_links.LINKS_SCHEMA:
+        if given:
+            pr_links.require_schema(ledger)
+        return {}
+    if no_item is not None:
+        raise QewError("--no-item opens a pull request that has no item: leave ITEM out (or declare the item with --closes, --remains or --related)", 2)
+    if not given:
+        raise QewError(f"declare what this pull request does to ledger items: `qew pr open {host} --closes {host} ...` (completes it when it merges), "
+                       f"`--remains {host}` (partly delivered, stays open) or `--related {host}`; `--closes`, `--remains` and `--related` take several items", 2)
+    arguments = argparse.Namespace(closes=list(closes), remains=list(remains), related=list(related))
+    wanted = _wanted(ledger, snapshot, arguments)
+    if host not in wanted:
+        raise QewError(f"{host} is the item this pull request is opened for, so the declaration must name it: add `--closes {host}`, `--remains {host}` or `--related {host}`", 2)
+    finished = [i for i, role in wanted.items() if role == "closes" and snapshot.folds[i].state in pr_record.CLOSED_STATES]
+    if finished:
+        raise QewError(f"{' '.join(finished)} is already finished; a pull request cannot close it", 2)
+    return wanted
