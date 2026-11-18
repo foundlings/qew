@@ -6,7 +6,7 @@ import os
 import time
 import tomllib
 
-from qew import ledger_layout, attachments, comments, filelock, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
+from qew import pr_audit, pr_links, ledger_layout, attachments, comments, filelock, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
@@ -161,6 +161,10 @@ def _analyse_once(ledger: Ledger, deep: bool = True, resolve: Resolver | None = 
     imported, without_code, by_quote = _check_completed(snapshot, problems, ledger.evidence_strict)
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
+    pr_notes: list[str] = []
+    if ledger.schema >= pr_links.LINKS_SCHEMA:
+        found_prs, pr_notes = pr_audit.audit(snapshot)
+        problems.extend(found_prs)
     _check_claim_refs(snapshot, problems)
     problems.extend(board_config.problems(ledger))
     warnings: list[str] = []
@@ -169,7 +173,7 @@ def _analyse_once(ledger: Ledger, deep: bool = True, resolve: Resolver | None = 
                     for found in map(ledger_labels.problem, item.labels) if found)  # flagged by check; reads stay available
     found = contradictions(snapshot)
     findings = text_findings(snapshot)
-    notes = [*warnings]
+    notes = [*warnings, *pr_notes]
     if deep and ledger.cache_mismatches():
         notes.append(f"snapshot cache: {ledger.cache_mismatches()} entries differed from the files (repaired)")
     if imported:
