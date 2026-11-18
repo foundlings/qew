@@ -200,11 +200,11 @@ def update_mirror(ledger: Ledger, record: PrRecord, **changes: object) -> None:
     ledger.write_mirror(record.host, record.mirror_file, cast(MirrorRecord, {**{k: v for k, v in current.items() if k != "_target"}, **changes}))
 
 
-def covering_open(ledger: Ledger, item_id: str) -> list[int]:
-    """Numbers of the recorded pull requests that cover `item_id`, are not finished and are not drafts."""
+def covering_open(ledger: Ledger, item_id: str, drafts: bool = False) -> list[int]:
+    """Numbers of the recorded pull requests that cover `item_id` and are not finished; drafts only when `drafts`."""
     found: list[int] = []
     for host, mirror in entries(ledger):
-        if mirror.get("state", "open") in ("merged", "closed") or mirror.get("draft") is True:
+        if mirror.get("state", "open") in ("merged", "closed") or (mirror.get("draft") is True and not drafts):
             continue
         if item_id in covered_items(ledger, host, mirror)[0] and isinstance(mirror.get("number"), int):
             found.append(mirror["number"])
