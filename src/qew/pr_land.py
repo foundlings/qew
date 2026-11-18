@@ -85,6 +85,7 @@ def land(config: Config, members: list[Member], merge_sha: str, evidence_by_pr: 
     `evidence_by_pr` is each pull request's own provable changes when the caller computed them before taking the write lock; the
     default computes them here. `integrator` (a reason) lands items another actor claimed, on the take-over path."""
     report = Report()
+    merge_sha = merge_sha or members[0].head_sha  # a merge seen with no forge has no merge commit: the head stands for it
     ledger = ledger_for(config)
     own = evidence_by_pr if evidence_by_pr is not None else {m.record.number: _own(config, m, merge_sha) for m in members}
     first = ledger.snapshot()
