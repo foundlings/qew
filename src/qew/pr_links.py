@@ -18,7 +18,7 @@ from qew.ledger_store import Ledger, actor, now
 Role = Literal["closes", "remains", "related"]
 ROLES: tuple[Role, ...] = ("closes", "remains", "related")
 LINKS_SCHEMA = 9
-_LANDING_EVENTS = ("merged_seen", "land_pending", "landed", "declared", "mirror")  # events that are not part of the declaration itself
+_LANDING_EVENTS = ("merged_seen", "land_pending", "landed", "declared", "mirror", "report")  # events that are not part of the declaration itself
 
 
 @dataclass(frozen=True)
@@ -189,3 +189,18 @@ def hostless(ledger: Ledger) -> list[tuple[str, dict[str, object]]]:
 def event_types(ledger: Ledger, key: str) -> list[str]:
     """The types of the pull request's events, in id order."""
     return [str(event["type"]) for _, event in _events(ledger, key)]
+
+
+def record_report(ledger: Ledger, key: str, lines: list[str]) -> None:
+    """The landing report of a merge, kept so the description's block can show it and a later `pr sync` writes the same text."""
+    if lines and lines != last_report(ledger, key):
+        _append(ledger, key, "report", lines=lines)
+
+
+def last_report(ledger: Ledger, key: str) -> list[str]:
+    report: list[str] = []
+    for _, event in _events(ledger, key):
+        lines = event.get("lines")
+        if event["type"] == "report" and isinstance(lines, list):
+            report = [str(line) for line in lines]
+    return report

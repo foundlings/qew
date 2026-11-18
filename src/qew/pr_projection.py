@@ -21,8 +21,8 @@ def _plain(text: str) -> str:
     return re.sub(r"#(?=\d)", "＃", one)[:_TITLE_LIMIT]  # a full-width sign: visible, and no closing reference
 
 
-def render(snapshot: Snapshot, declaration: Declaration) -> str:
-    """The block for a declaration: one line per item with its role and title, or the no-item reason."""
+def render(snapshot: Snapshot, declaration: Declaration, landed: list[str] | None = None) -> str:
+    """The block for a declaration: one line per item with its role and title, or the no-item reason; after a merge, what was landed."""
     lines = [BEGIN, "### Ledger items", ""]
     if declaration.no_item is not None:
         lines.append(f"- no item: {_plain(declaration.no_item)}")
@@ -32,6 +32,8 @@ def render(snapshot: Snapshot, declaration: Declaration) -> str:
             lines.append(f"- {role} `{item_id}`" + (f": {_plain(item.title)}" if item is not None else ""))
     if len(lines) == 3:
         lines.append("- no declaration yet")
+    if landed:
+        lines += ["", "### Landed", ""] + [f"- {_plain(line)}" for line in landed]
     lines.append(END)
     return "\n".join(lines)
 

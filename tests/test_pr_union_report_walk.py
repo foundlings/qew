@@ -45,9 +45,9 @@ class UnionReportWalk(unittest.TestCase):
         self.assertEqual(merged.code, 0, merged)
         body = self.w.forge.pulls[two].body  # the lead is the member whose head holds the others
         self.assertIn("### Landed", body)
-        self.assertRegex(body, rf"pr #{one}: completed `{first}`")
-        self.assertRegex(body, rf"pr #{two}: completed `{second}`")
-        self.assertRegex(body, rf"pr #{two}: left open `{left}`")
+        self.assertRegex(body, rf"pr [#\uff03]{one}: completed `{first}`")
+        self.assertRegex(body, rf"pr [#\uff03]{two}: completed `{second}`")
+        self.assertRegex(body, rf"pr [#\uff03]{two}: left open `{left}`")
         self.assertIsNone(CLOSING.search(body), body)
 
     def test_a_forge_that_refuses_the_description_never_fails_the_landed_merge(self) -> None:
