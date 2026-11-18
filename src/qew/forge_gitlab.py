@@ -445,8 +445,16 @@ class GitLab(Forge):
         return names
 
     def _create_label(self, name: str, color: str = _LABEL_COLOR, description: str = LABEL_DESCRIPTION) -> int:
-        data, _ = self._call("POST", f"{self._project}/labels",
-                             payload={"name": name, "color": color, "description": description})
+        try:
+            data, _ = self._call("POST", f"{self._project}/labels",
+                                 payload={"name": name, "color": color, "description": description})
+        except ForgeRejected as error:
+            if error.status != 409:
+                raise
+            found = dict(self._label_ids()).get(name)  # another writer created it a moment earlier: that is the label we wanted
+            if found is None:
+                raise
+            return found
         return _field(_object(data, "label"), "id", int)
 
     @override

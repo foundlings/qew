@@ -262,7 +262,17 @@ class Forgejo(Forge):
         for name in dict.fromkeys(names):
             if name not in known:
                 style = label_style.style_of(name)
-                created, _ = self._call("POST", "/labels", {"name": name, "color": "#" + style.color, "description": style.description})
+                try:
+                    created, _ = self._call("POST", "/labels", {"name": name, "color": "#" + style.color, "description": style.description})
+                except ForgeRejected as error:
+                    if error.status != 409:
+                        raise
+                    # another writer created it between our listing and our create: that is the label we wanted
+                    known.update({_typed(_object(l, "label"), "name", str, "label"): _typed(_object(l, "label"), "id", int, "label") for l in self._list("/labels")})
+                    if name not in known:
+                        raise
+                    ids.append(known[name])
+                    continue
                 known[name] = _typed(_object(created, "label"), "id", int, "label")
                 made.append(name)
             ids.append(known[name])
