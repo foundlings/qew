@@ -28,8 +28,10 @@ DRAFT_MARKERS = ("draft", "qew:draft")
 
 
 def check(ledger: Ledger, deep: bool = True) -> list[str]:
-    """The problems found; `deep` also re-hashes every attachment (sync passes False: it only needs the structure)."""
-    return check_report(ledger, deep)[0]
+    """The structural problems found; `deep` also re-hashes every attachment (sync passes False: it only needs the structure).
+    The pull request audit is bookkeeping, not structure: it is `qew check`'s own report (`check_report`) and never stops a sync or a
+    layout migration, which a merged pull request nobody has landed yet must not do."""
+    return check_report(ledger, deep, audit=False)[0]
 
 
 def load(ledger: Ledger, verify: bool = False) -> tuple[Snapshot, list[str]]:
@@ -123,9 +125,9 @@ class Report:
         }
 
 
-def check_report(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> tuple[list[str], list[str]]:
+def check_report(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None, audit: bool = True) -> tuple[list[str], list[str]]:
     """(problems, notes): problems fail the check; notes (counts and advisories) are reported and never fatal."""
-    report = analyse(ledger, deep, resolve)
+    report = analyse(ledger, deep, resolve, audit)
     return report.problems, [*report.notes, *report.advisories]
 
 
@@ -144,13 +146,13 @@ def _only_in_flight(problems: list[str]) -> bool:
     return all(problem.endswith(ledger_invariants.ORPHAN) for problem in problems)
 
 
-def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> Report:
+def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None, audit: bool = True) -> Report:
     """The report. A check reads without the lock, so a write in flight can show as a problem (an event whose item is not
     there yet): while another process holds the write lock, a report with problems is taken again, for at most SETTLE_S."""
     deadline = time.monotonic() + SETTLE_S
     while True:
         busy = _foreign_writer(ledger)
-        report = _analyse_once(ledger, deep, resolve)
+        report = _analyse_once(ledger, deep, resolve, audit)
         if not report.problems or time.monotonic() >= deadline:
             return report
         if not (busy or _foreign_writer(ledger)) and not _only_in_flight(report.problems):
@@ -158,7 +160,7 @@ def analyse(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) 
         time.sleep(0.25)
 
 
-def _analyse_once(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None) -> Report:
+def _analyse_once(ledger: Ledger, deep: bool = True, resolve: Resolver | None = None, audit: bool = True) -> Report:
     snapshot, problems = load(ledger, verify=deep)  # a deep check reads every file itself and repairs the snapshot cache
     items = snapshot.items
     _check_attachments(snapshot, problems, deep)
@@ -170,7 +172,7 @@ def _analyse_once(ledger: Ledger, deep: bool = True, resolve: Resolver | None = 
     _check_mirrors(ledger, items, problems)
     _check_mirror_progress(snapshot, problems)
     pr_notes: list[str] = []
-    if ledger.schema >= pr_links.LINKS_SCHEMA:
+    if audit and ledger.schema >= pr_links.LINKS_SCHEMA:
         found_prs, pr_notes = pr_audit.audit(snapshot)
         problems.extend(found_prs)
     _check_claim_refs(snapshot, problems)

@@ -74,6 +74,16 @@ class AuditWalk(unittest.TestCase):
         self.assertNotEqual(run.code, 0, run)
         self.assertIn("pr migrate", run.out + run.err)
 
+    def test_the_audit_never_stops_a_sync(self) -> None:
+        """Prevents bookkeeping findings (a merged pull request nobody landed or declared) refusing every sync of the ledger."""
+        item = self.w.item("Work")
+        number = self.pr(item, "--closes", item)
+        self.w.qew("pr", "unlink", str(number), item)
+        self.mark_merged_in_the_record(number)
+        self.assertNotEqual(self.w.qew("check").code, 0)
+        run = self.w.qew("sync", "--dry-run")
+        self.assertNotIn("problem(s)", run.err, run)
+
     def test_repair_landings_lists_and_then_finishes_pending_items(self) -> None:
         """Prevents a pending item having no command that clears it for every pull request at once."""
         epic = self.w.item("Epic", kind="epic")

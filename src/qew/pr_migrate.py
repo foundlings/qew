@@ -51,7 +51,7 @@ def _row(snapshot: Snapshot, host: str, mirror: MirrorRecord, read: tuple[str, s
     number = int(mirror["number"])
     body = read[0] if read is not None else None
     state = read[1] if read is not None else str(mirror.get("state", "open"))
-    row = Row(number, "merged" if state == "merged" else "open", mirror["_target"])
+    row = Row(number, "merged" if "merged" in (state, mirror.get("state")) else "open", mirror["_target"])  # either source saying merged is enough
     items = [i for i in mirror.get("items", [host]) if i in snapshot.items]
     dropped = [str(d).split(":", 1)[0] for d in mirror.get("dropped", [])]
     boxes = {b.address: b for b in pr_checklist.boxes(body)} if body is not None else {}
