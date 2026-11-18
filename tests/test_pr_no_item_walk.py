@@ -39,6 +39,7 @@ class NoItemWalk(unittest.TestCase):
     def test_the_verbs_work_on_a_pull_request_with_no_item(self) -> None:
         """Prevents a hostless record failing every verb that assumed an item to read it from."""
         self.open()
+        self.w.forge.edit_pull(1, head_sha=self.w.commit("docs fix"))
         self.assertEqual(self.w.qew("pr", "title", "1", "Fix the docs typo").code, 0)
         self.assertEqual(self.w.forge.pulls[1].title, "Fix the docs typo")
         self.assertEqual(self.w.qew("pr", "ready", "1").code, 0)

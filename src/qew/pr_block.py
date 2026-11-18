@@ -12,7 +12,6 @@ from qew.cmd_pr import Build, forge_errors, load, refuse_finished
 from qew.errors import QewError
 from qew.forge import Forge
 from qew.ledger_config import Config
-from qew.ledger_store import actor
 from qew.pr_verify import Outcome, apply_and_verify
 
 LABEL = "blocked"
@@ -61,7 +60,7 @@ def _set(config: Config, number: int, change: Callable[[tuple[int, ...]], tuple[
             changed = _show(loaded.forge, number, blockers, sleep)
     if blockers != loaded.record.blockers:
         pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, blocked_by=list(blockers))
-        loaded.snapshot.ledger.append_event(loaded.record.host, "commented", text=f"pull request #{number} {note}", author=actor())
+        pr_record.note(loaded.snapshot.ledger, loaded.record, f"pull request #{number} {note}")
         changed = True
     state = f"blocked by {', '.join(f'#{n}' for n in blockers)}" if blockers else "not blocked"
     return f"pr #{number} {state}" + ("" if changed else " (unchanged)")

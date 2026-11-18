@@ -44,7 +44,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     pr = commands.add_parser("pr", help="pull requests for items")
     sub = pr.add_subparsers(dest="pr_command", required=True)
     opened = sub.add_parser("open", help="open a draft pull request for an item")
-    opened.add_argument("item", help="item id or alias")
+    opened.add_argument("item", nargs="?", help="item id or alias (left out with --no-item)")
+    opened.add_argument("--title", help="with --no-item: the pull request's title")
     opened.add_argument("--target", help=_TARGET_HELP)
     opened.add_argument("--head", help="pushed branch; default is the current branch")
     opened.add_argument("--base", help="base branch; default is the configured target branch")
@@ -158,9 +159,9 @@ def run(arguments: argparse.Namespace) -> bool:
         options = OpenOptions(
             arguments.target, arguments.head, arguments.base, arguments.ready,
             arguments.what, arguments.why, arguments.testing, arguments.body_file, arguments.adopt_legacy, arguments.reason,
-            tuple(arguments.closes), tuple(arguments.remains), tuple(arguments.related), arguments.no_item,
+            tuple(arguments.closes), tuple(arguments.remains), tuple(arguments.related), arguments.no_item, arguments.title,
         )
-        opened = open_pull_request(config, arguments.item, options)
+        opened = open_without_item(config, options) if arguments.item is None else open_pull_request(config, arguments.item, options)
         print(opened.render(arguments.json))
         if opened.unassigned:
             print(
@@ -350,6 +351,7 @@ class OpenOptions:
     remains: tuple[str, ...] = ()
     related: tuple[str, ...] = ()
     no_item: str | None = None
+    title: str | None = None
 
 
 @dataclass(frozen=True)
@@ -367,7 +369,7 @@ class Opened:
                 {"item": self.item, "number": self.number, "url": self.url, "draft": self.draft, "schema_version": SCHEMA_VERSION},
                 sort_keys=True,
             )
-        return f"{self.item} pr #{self.number} {self.url}{' (draft)' if self.draft else ''}{' adopted' if self.adopted else ''}"
+        return f"{self.item or 'no item'} pr #{self.number} {self.url}{' (draft)' if self.draft else ''}{' adopted' if self.adopted else ''}"
 
 
 def _body_file(path: str | None) -> str:
@@ -494,6 +496,46 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     return Opened(item_id, remote.number, remote.url, remote.draft, "" if remote.assignee == login else login, adopted)
 
 
+def open_without_item(config: Config, options: OpenOptions, build: Build | None = None) -> Opened:
+    """`pr open --no-item REASON --title TEXT`: a pull request that relates to no ledger item. Its record is events under `prs/`
+    (schema 9), so no item hosts it; the declaration says why it has none."""
+    reason = " ".join((options.no_item or "").split())
+    if not reason:
+        raise QewError("name the item to open the pull request for, or declare there is none with `--no-item REASON --title TEXT`", 2)
+    if options.closes or options.remains or options.related:
+        raise QewError("--no-item excludes --closes, --remains and --related", 2)
+    if not (options.title or "").strip():
+        raise QewError("a pull request with no item needs --title TEXT (there is no item to take it from)", 2)
+    ledger = ledger_for(config)
+    pr_links.require_schema(ledger)
+    pr_body.refuse_closing_references(reason, "the --no-item reason")
+    if "<!--" in reason or "-->" in reason:
+        raise QewError("the --no-item reason carries a comment marker", 2)
+    candidates = [m for m in mirrors_with_boards(ledger, config) if not options.target or options.target in ledger_config.mirror_slug(m)]
+    if len(candidates) != 1:
+        raise QewError(f"{len(candidates)} mirror targets match; pass --target to say which forge the pull request is opened on", 2)
+    mirror = candidates[0]
+    slug = ledger_config.mirror_slug(mirror)
+    head = vcs.synced_branch(options.head)
+    snapshot = ledger.snapshot()
+    links = pr_projection.render(snapshot, pr_links.Declaration(no_item=reason))
+    body = pr_body.build_no_item_body(reason, options.what, options.why, options.testing, _body_file(options.body_file), links)
+    pr_body.refuse_closing_references(body, "the pull request body")
+    login = os.environ.get(LOGIN_VARIABLE) or sync_plan.assignee_of(mirror.options.get("assignees"), actor()) or actor()
+    base = options.base or config.target
+    title = " ".join((options.title or "").split())
+    spec = PullRequestSpec(head, base, title, body, not options.ready, login)
+    forge = _build(build, mirror)
+    with forge_errors(slug):
+        remote = forge.open_pull_request(spec)
+    key = f"{slug}-pr-{remote.number}"
+    with replication.section("pr-open"):
+        pr_links.declare_pr(ledger, key, {"forge": mirror.forge, "url": mirror.repo, "number": remote.number, "pr_url": remote.url, "head": head,
+                                          "opener": actor(), "pr_title": title, "draft": remote.draft, "state": "open", "synced_at": now()})
+        pr_links.declare_no_item(ledger, key, reason)
+    return Opened("", remote.number, remote.url, remote.draft, "" if remote.assignee == login else login)
+
+
 # -- check -------------------------------------------------------------------------
 
 def _describe(box: pr_checklist.Box) -> str:
@@ -597,7 +639,7 @@ def _add_items(config: Config, number: int, references: list[str], target: str |
     refuse_finished(number, first, "have its checklist edited")
     edited = pr_checklist.add(first.body, entries)
     _write_body(loaded, number, first, edited)
-    for item_id in loaded.record.items or (loaded.record.host,):
+    for item_id in pr_record.comment_targets(loaded.record):
         ledger.append_event(item_id, "commented", text=f"added progress entries to pull request #{number}: {' '.join(ids)}", author=actor())
     _cover(ledger, loaded.record, ids)
     return f"pr #{number} added: {' '.join(ids)}"
@@ -638,7 +680,8 @@ def sync_items(config: Config, number: int, target: str | None, build: Build | N
     with forge_errors(loaded.record.target):
         body = loaded.forge.read_pull_request(number)
     refuse_finished(number, body, "have its covered items changed")
-    dropped = {str(d).split(":", 1)[0] for d in next(m for m in snapshot.ledger.load_mirrors(loaded.record.host) if m["_target"] == loaded.record.mirror_file).get("dropped", [])}
+    held = pr_record.mirror_of(snapshot.ledger, loaded.record)
+    dropped = {str(d).split(":", 1)[0] for d in (held.get("dropped", []) if held else [])}
     boxed = [b.address for b in pr_checklist.boxes(body.body) if b.address in snapshot.items]
     wanted = [i for i in [*pr_record.covered_by(snapshot, loaded.record.host), *boxed] if i not in dropped]
     added = _cover(snapshot.ledger, loaded.record, wanted)
@@ -664,11 +707,12 @@ def _drop_item(config: Config, number: int, name: str, reason: str, force: bool,
     _write_body(loaded, number, first, edited)
     ledger = loaded.snapshot.ledger
     text = reason.strip()
-    for item_id in loaded.record.items or (loaded.record.host,):
+    for item_id in pr_record.comment_targets(loaded.record):
         ledger.append_event(item_id, "commented", text=f"dropped checklist item {box.address} ({box.text}) from pull request #{number}: {text}", author=actor())
-    current = next(m for m in ledger.load_mirrors(loaded.record.host) if m["_target"] == loaded.record.mirror_file)
+    current = pr_record.mirror_of(ledger, loaded.record)
+    previously = list(current.get("dropped", [])) if current else []
     kept = [i for i in loaded.record.items if i != box.address]
-    pr_record.update_mirror(ledger, loaded.record, dropped=[*current.get("dropped", []), f"{box.address}: {text}"],
+    pr_record.update_mirror(ledger, loaded.record, dropped=[*previously, f"{box.address}: {text}"],
                             **({"items": kept} if covered else {}))
     return f"pr #{number} dropped: {box.address}"
 
@@ -925,7 +969,7 @@ def sync_title(
     loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     from qew import pr_block  # imports this module for the loading pieces
 
-    base = loaded.record.title or loaded.snapshot.items[(loaded.record.items or (loaded.record.host,))[0]].title
+    base = loaded.record.title or loaded.snapshot.items[pr_record.comment_targets(loaded.record)[0]].title
     wanted = base + pr_block.suffix(loaded.record.blockers)
     forge = loaded.forge
     with forge_errors(loaded.record.target):
@@ -942,8 +986,7 @@ def sync_title(
         )
     if outcome == Outcome.NOT_APPLIED:
         raise QewError(f"pr #{number} still has its old title after the forge accepted the change; nothing is known to have changed", 4)
-    loaded.snapshot.ledger.append_event(
-        loaded.record.host, "commented", text=f"pull request #{number} retitled: {before.title!r} -> {wanted!r}", author=actor())
+    pr_record.note(loaded.snapshot.ledger, loaded.record, f"pull request #{number} retitled: {before.title!r} -> {wanted!r}")
     return Retitled(number, True)
 
 
@@ -994,7 +1037,7 @@ def set_title(
     if loaded.record.title != title:
         with replication.section("pr-title"):
             pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, pr_title=title)
-            loaded.snapshot.ledger.append_event(loaded.record.host, "commented", text=f"pull request #{number} titled {title!r}", author=actor())
+            pr_record.note(loaded.snapshot.ledger, loaded.record, f"pull request #{number} titled {title!r}")
     return Titled(number, title, changed)
 
 
