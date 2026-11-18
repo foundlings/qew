@@ -31,7 +31,7 @@ class LayoutNoticeWalk(unittest.TestCase):
     def test_status_json_carries_the_layout_for_agents(self) -> None:
         """Prevents a machine reader missing it: layout.schema, layout.current and the notice text."""
         layout = json.loads(self.flat().run("status", "--json").stdout)["layout"]
-        self.assertEqual((layout["schema"], layout["current"]), (7, 8))
+        self.assertEqual((layout["schema"], layout["current"]), (7, 9))
         self.assertIn("migrate-layout", layout["notice"])
 
     def test_a_sharded_ledger_says_nothing(self) -> None:

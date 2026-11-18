@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
-from qew import cmd_claim, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
+from qew import cmd_claim, cmd_pr_link, pr_links, pr_projection, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -55,6 +55,10 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     opened.add_argument("--body-file", help="append this file to the body, e.g. a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines")
     opened.add_argument("--adopt-legacy", type=int, metavar="NUMBER", help="take over this unmarked pull request qew never recorded (from before qew) on --head: it keeps its number and head (needs --reason)")
     opened.add_argument("--reason", help="why: required with --adopt-legacy")
+    opened.add_argument("--closes", nargs="+", default=[], metavar="ITEM", help="schema 9: items this pull request completes when it merges (the item opened for must be named under some role)")
+    opened.add_argument("--remains", nargs="+", default=[], metavar="ITEM", help="schema 9: items it touches or partly delivers; they stay open")
+    opened.add_argument("--related", nargs="+", default=[], metavar="ITEM", help="schema 9: items for context only")
+    opened.add_argument("--no-item", metavar="REASON", help="schema 9: the pull request relates to no ledger item")
     opened.add_argument("--json", action="store_true", help="machine-readable output")
     check = sub.add_parser("check", help="tick progress checklist items in a pull request body")
     check.add_argument("number", type=int, help="pull request number")
@@ -128,6 +132,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     union.add_argument("--allow-unticked", action="store_true", help="join pull requests with unticked Progress boxes (needs --reason; recorded on the items)")
     union.add_argument("--reason", help=_REASON_HELP + "; with --allow-unticked, why the boxes stay unticked")
     union.add_argument("--dry-run", action="store_true", help="build the union and report conflicts, push nothing")
+    cmd_pr_link.register(sub, _TARGET_HELP)
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
     merge.add_argument("number", type=int, nargs="+", help="pull request number; several merge as one batch when one head contains all the others")
     merge.add_argument("--target", help=_TARGET_HELP)
@@ -145,10 +150,15 @@ def run(arguments: argparse.Namespace) -> bool:
         return False
     config = ledger_config.load()
     command = arguments.pr_command
+    linked = cmd_pr_link.run(config, arguments)
+    if linked is not None:
+        print(linked)
+        return True
     if command == "open":
         options = OpenOptions(
             arguments.target, arguments.head, arguments.base, arguments.ready,
             arguments.what, arguments.why, arguments.testing, arguments.body_file, arguments.adopt_legacy, arguments.reason,
+            tuple(arguments.closes), tuple(arguments.remains), tuple(arguments.related), arguments.no_item,
         )
         opened = open_pull_request(config, arguments.item, options)
         print(opened.render(arguments.json))
@@ -162,8 +172,13 @@ def run(arguments: argparse.Namespace) -> bool:
         print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target,
                                  drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add, on_behalf_of=arguments.on_behalf_of))
     elif command == "ready":
-        override = pr_unticked.reason_for(arguments.allow_unticked, arguments.reason)
-        print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of, override if arguments.allow_unticked else None)
+        if not pr_unticked.gates(ledger_for(config)):
+            if arguments.allow_unticked or arguments.reason:
+                print(pr_unticked.IGNORED_NOTE, file=sys.stderr)
+            print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of, None)
+        else:
+            override = pr_unticked.reason_for(arguments.allow_unticked, arguments.reason)
+            print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of, override if arguments.allow_unticked else None)
     elif command == "body":
         print(replace_body(config, arguments.number, arguments.body_file, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "draft":
@@ -184,6 +199,8 @@ def run(arguments: argparse.Namespace) -> bool:
             print(sync_items(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of))
         else:
             print(sync_title(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
+            if project_links(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).drifted:
+                print(f"qew: pr #{arguments.number}: the ledger items block on the forge had drifted from the ledger's declaration; rewrote it", file=sys.stderr)
     elif command == "union":
         from qew import pr_union  # imports this module for the loading pieces
 
@@ -205,7 +222,7 @@ def run(arguments: argparse.Namespace) -> bool:
 
 def _ledger_only(config: Config, arguments: argparse.Namespace, options: MergeOptions) -> bool:
     """`pr merge N [M ...] --check --ledger-only`: the bookkeeping refusals from the ledger alone; exit code of the first refusal."""
-    from qew import pr_preflight  # imports this module for the loading pieces
+    from qew import pr_preflight, pr_preflight_declared  # import this module for the loading pieces
 
     if not options.check:
         raise QewError("--ledger-only judges without merging: pass it with --check", 2)
@@ -214,6 +231,8 @@ def _ledger_only(config: Config, arguments: argparse.Namespace, options: MergeOp
     shown = ", ".join(f"#{n}" for n in numbers)
     if arguments.json:
         print(verdict.render_json())
+    elif len(numbers) > 1 and verdict.union is not None:
+        print("\n".join(pr_preflight_declared.summary(verdict, numbers)))
     elif not verdict.refusals:
         print(f"pr {shown}: qew merge preflight passed (ledger-only: no forge was read, so draft, conflicts and checks are not judged); nothing was merged")
     for warning in verdict.warnings:
@@ -327,6 +346,10 @@ class OpenOptions:
     body_file: str | None = None
     adopt_legacy: int | None = None
     reason: str | None = None
+    closes: tuple[str, ...] = ()
+    remains: tuple[str, ...] = ()
+    related: tuple[str, ...] = ()
+    no_item: str | None = None
 
 
 @dataclass(frozen=True)
@@ -400,7 +423,8 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     folded = snapshot.folds[item_id]
     if folded.state in (State.COMPLETED, State.CLOSED):
         raise QewError(f"{item_id} is {folded.state.value}; reopen it before opening a pull request", 2)
-    covered = pr_record.covered_by(snapshot, item_id)
+    wanted = cmd_pr_link.declaration(ledger, snapshot, item_id, options.closes, options.remains, options.related, options.no_item)
+    covered = [i for i, role in wanted.items() if role != "related"] if wanted else pr_record.covered_by(snapshot, item_id)
     held = [i for i in covered if snapshot.folds[i].state == State.DRAFT]
     if options.ready and held:
         raise QewError(
@@ -426,7 +450,8 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     head = vcs.synced_branch(options.head)
     _refuse_other_items_branch(snapshot, head, covered)
     what = options.what if options.what is not None else item.body
-    body = pr_body.build_body(item_id, issue["number"], what, options.why, options.testing, extra)
+    links = pr_projection.render(snapshot, pr_links.Declaration(wanted)) if wanted else ""
+    body = pr_body.build_body(item_id, issue["number"], what, options.why, options.testing, extra, links)
     pr_body.refuse_closing_references(body, "the pull request body")
     mirror = mirror_for(config, ledger, issue["_target"])
     login = os.environ.get(LOGIN_VARIABLE) or sync_plan.assignee_of(mirror.options.get("assignees"), actor()) or actor()
@@ -462,6 +487,8 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
                 "synced_at": now(),
             },
         )
+        if wanted:
+            pr_links.link(ledger, f"{issue['_target']}-pr-{remote.number}", wanted)
         if options.adopt_legacy is not None:
             ledger.append_event(item_id, "commented", text=f"adopted legacy pull request #{remote.number}: {(options.reason or '').strip()}", author=actor())
     return Opened(item_id, remote.number, remote.url, remote.draft, "" if remote.assignee == login else login, adopted)
@@ -520,6 +547,33 @@ def _write_body(loaded: Loaded, number: int, first: RemotePullRequest, edited: s
         raise QewError(f"pr #{number} body did not take the edit; the forge still shows the old checklist", 3)
 
 
+@dataclass(frozen=True)
+class Projected:
+    changed: bool
+    drifted: bool  # the block on the forge differed from the ledger's declaration (and was not simply missing)
+
+
+def project_links(config: Config, number: int, target: str | None, build: Build | None = None, on_behalf_of: str | None = None,
+                  owned: bool = True) -> Projected:
+    """Write the ledger's link declaration into the open pull request's description block; nothing else in the body changes.
+    A schema 8 ledger has no block, and a finished pull request keeps the one it was merged with."""
+    loaded = load(config, number, target, build, owned=owned, on_behalf_of=on_behalf_of)
+    ledger = loaded.snapshot.ledger
+    if ledger.schema < pr_links.LINKS_SCHEMA:
+        return Projected(False, False)
+    block = pr_projection.render(loaded.snapshot, pr_links.load(ledger, loaded.record.mirror_file))
+    with forge_errors(loaded.record.target):
+        first = loaded.forge.read_pull_request(number)
+    if first.state != "open":
+        return Projected(False, False)
+    shown = pr_projection.current(first.body)
+    edited = pr_projection.apply(first.body, block)
+    if edited == first.body:
+        return Projected(False, False)
+    _write_body(loaded, number, first, edited)
+    return Projected(True, shown is not None)
+
+
 def _entry_text(snapshot: Snapshot, item_id: str) -> str:
     title = " ".join(snapshot.items[item_id].title.split())
     if "<!--" in title or "-->" in title:
@@ -532,6 +586,8 @@ def _add_items(config: Config, number: int, references: list[str], target: str |
     """Add an unticked Progress entry for each item (named by its title), keep every other byte, and note it on the covered items."""
     loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     ledger = loaded.snapshot.ledger
+    if not pr_unticked.gates(ledger):
+        return _add_steps(loaded, number, references)
     ids = [ledger.resolve(reference, list(loaded.snapshot.items)) for reference in references]
     if len(set(ids)) != len(ids):
         raise QewError("an item is named twice", 2)
@@ -545,6 +601,22 @@ def _add_items(config: Config, number: int, references: list[str], target: str |
         ledger.append_event(item_id, "commented", text=f"added progress entries to pull request #{number}: {' '.join(ids)}", author=actor())
     _cover(ledger, loaded.record, ids)
     return f"pr #{number} added: {' '.join(ids)}"
+
+
+def _add_steps(loaded: Loaded, number: int, texts: list[str]) -> str:
+    """Schema 9: `--add` appends free-text work steps (no item, no marker, nothing covered) after the last box."""
+    steps = []
+    for text in texts:
+        one = " ".join(text.split())
+        if not one or "<!--" in one or "-->" in one:
+            raise QewError("a checklist step is one line of text without comment markers", 2)
+        pr_body.refuse_closing_references(one, "the checklist step")
+        steps.append(("", one))
+    with forge_errors(loaded.record.target):
+        first = loaded.forge.read_pull_request(number)
+    refuse_finished(number, first, "have its checklist edited")
+    _write_body(loaded, number, first, pr_checklist.add(first.body, steps))
+    return f"pr #{number} added {len(steps)} step(s)"
 
 
 def _cover(ledger: Ledger, record: pr_record.PrRecord, wanted: list[str]) -> list[str]:
@@ -561,6 +633,8 @@ def sync_items(config: Config, number: int, target: str | None, build: Build | N
     Only adds: a covered item never leaves the record here (that is `--drop`). Items whose box was dropped are not re-added."""
     loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     snapshot = loaded.snapshot
+    if not pr_unticked.gates(snapshot.ledger):
+        raise QewError(f"on this ledger a pull request covers what its link declaration says: change it with `qew pr link {number} --closes ITEM...` / `--remains` / `pr unlink`", 2)
     with forge_errors(loaded.record.target):
         body = loaded.forge.read_pull_request(number)
     refuse_finished(number, body, "have its covered items changed")
@@ -645,7 +719,7 @@ def ready_many(
         with forge_errors(member.record.target):
             before = forge.read_pull_request(number)
             refuse_finished(number, before, "be marked ready")
-            if before.draft and override is None:
+            if before.draft and override is None and pr_unticked.gates(member.snapshot.ledger):
                 pr_unticked.refuse(number, before.body, override=True)
             outcome = apply_and_verify(
                 before,
@@ -674,7 +748,7 @@ def ready_many(
                 continue
             with replication.section("pr-ready"):
                 pr_record.update_mirror(member.snapshot.ledger, member.record, draft=False)
-            boxes = pr_unticked.unticked(before.body) if before.draft else []
+            boxes = pr_unticked.unticked(before.body) if before.draft and pr_unticked.gates(member.snapshot.ledger) else []
             if override is not None and boxes:
                 try:
                     record_override(member, before, boxes, override)
@@ -1121,7 +1195,7 @@ def _merge_gates(
             raise QewError(f"pr #{number} has conflicts with {pull.base_branch}", 2)
 
     def boxes() -> None:
-        unticked = [b for b in pr_checklist.boxes(pull.body) if not b.ticked]
+        unticked = [b for b in pr_checklist.boxes(pull.body) if not b.ticked] if pr_unticked.gates(loaded.snapshot.ledger) else []
         if unticked:
             raise QewError(pr_unticked.explain(number, unticked), 2)
 

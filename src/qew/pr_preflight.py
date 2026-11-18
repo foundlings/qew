@@ -7,6 +7,7 @@ that fixes it.
 
 import json
 from dataclasses import asdict, dataclass, field
+from typing import TypedDict
 
 from qew import code_vcs, pr_gate, pr_record, remote_options
 from qew.cmd_items import ledger_for
@@ -16,9 +17,20 @@ from qew.ledger_event import State
 from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot, actor
 from qew.mirror_types import MirrorRecord
+from qew.pr_links import LINKS_SCHEMA
 from qew.pr_record import PrRecord
 
 SCHEMA_VERSION = 1
+
+
+class Unioned(TypedDict):
+    """What the pull requests being merged together close, leave open and relate to; rows are `{item, pr}` plus `why` or `reason`."""
+
+    closes: list[dict[str, object]]
+    remains: list[dict[str, object]]
+    related: list[dict[str, object]]
+    no_item: list[dict[str, object]]
+    undeclared: list[int]
 
 
 @dataclass(frozen=True)
@@ -37,10 +49,14 @@ class Finding:
 class Verdict:
     refusals: list[Finding] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    union: Unioned | None = None  # what the pull requests close, leave and relate to (schema 9 only)
 
     def render_json(self) -> str:
-        return json.dumps({"mergeable": not self.refusals, "refusals": [asdict(r) for r in self.refusals],
-                           "warnings": self.warnings, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+        body: dict[str, object] = {"mergeable": not self.refusals, "refusals": [asdict(r) for r in self.refusals],
+                                   "warnings": self.warnings, "schema_version": SCHEMA_VERSION}
+        if self.union is not None:
+            body["union"] = self.union
+        return json.dumps(body, sort_keys=True)
 
 
 def check(config: Config, numbers: list[int], target: str | None, reason: str = "") -> Verdict:
@@ -55,11 +71,24 @@ def check(config: Config, numbers: list[int], target: str | None, reason: str = 
             records.append(pr_record.find(ledger, number, target))
         except QewError as error:
             verdict.refusals.append(Finding(str(error), "", "", number, error.exit_code))
+    declared = ledger.schema >= LINKS_SCHEMA
     states: dict[str, State] = {}
     for record in records:
-        states |= _one(config, snapshot, record, set(numbers), reason, verdict)
-    _children(snapshot, records, states, verdict)
+        states |= _one(config, snapshot, record, set(numbers), reason, verdict, declared)
+    if declared:
+        from qew import pr_preflight_declared  # judges with this module's Verdict
+
+        pr_preflight_declared.judge(snapshot, records, verdict)
+    else:
+        _children(snapshot, records, states, verdict)
     return verdict
+
+
+def cover_command(snapshot: Snapshot, number: int, items: list[str]) -> str:
+    """The command that puts `items` under pull request `number`: a declaration on schema 9, a checklist entry before."""
+    if snapshot.ledger.schema >= LINKS_SCHEMA:
+        return f"qew pr link {number} --closes {' '.join(items)}"
+    return f"qew pr check {number} --add {' '.join(items)}"
 
 
 def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, State], verdict: Verdict) -> None:
@@ -67,15 +96,18 @@ def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, Sta
     if not records:
         return
     first = records[0]
-    union = PrRecord(first.host, first.number, first.mirror_file, first.target, first.opener, tuple(dict.fromkeys(i for r in records for i in r.items if i in states)))  # a member refused earlier has no states to judge
+    covered = tuple(dict.fromkeys(i for r in records for i in r.items if i in states))  # a member refused earlier has no states to judge
+    closing = tuple(dict.fromkeys(i for r in records for i in (r.items if r.closing is None else r.closing) if i in states))
+    union = PrRecord(first.host, first.number, first.mirror_file, first.target, first.opener, covered, closing=closing)
     owner = {item_id: record.number for record in reversed(records) for item_id in record.items}
     for item_id, blocking in pr_gate.open_children(snapshot, union, {i: s for i, s in states.items() if i in union.items}).items():
         verdict.refusals.append(Finding(
             f"cannot merge half-done work: {item_id} has open children {' '.join(blocking)}",
-            f"qew pr check {owner[item_id]} --add {' '.join(blocking)}  (cover them), or finish them first", item_id, owner[item_id], 2))
+            f"{cover_command(snapshot, owner[item_id], blocking)}  (cover them), or finish them first, or declare `qew pr link {owner[item_id]} --remains {item_id}` if this is a partial slice" if snapshot.ledger.schema >= LINKS_SCHEMA
+            else f"{cover_command(snapshot, owner[item_id], blocking)}  (cover them), or finish them first", item_id, owner[item_id], 2))
 
 
-def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], reason: str, verdict: Verdict) -> dict[str, State]:
+def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], reason: str, verdict: Verdict, declared: bool = False) -> dict[str, State]:
     number = record.number
     mirror: MirrorRecord | dict[str, object] = pr_record.mirror_of(snapshot.ledger, record) or {}
     if mirror.get("state", "open") in ("merged", "closed"):
@@ -90,7 +122,7 @@ def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], 
     held = pr_record.drafts(states)
     if held:
         verdict.refusals.append(Finding(f"is held: {' '.join(held)} is a draft, so it cannot merge until a human releases it", f"qew draft approve {' '.join(held)} --quote ...", held[0], number, 2))
-    for item_id in record.items:
+    for item_id in () if declared else record.items:
         others = [n for n in _covering(snapshot, item_id) if n not in union]
         if others and states[item_id] not in pr_record.CLOSED_STATES:
             verdict.refusals.append(Finding(
