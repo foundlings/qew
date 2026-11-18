@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
-from qew import cmd_claim, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
+from qew import cmd_claim, cmd_pr_link, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -128,6 +128,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     union.add_argument("--allow-unticked", action="store_true", help="join pull requests with unticked Progress boxes (needs --reason; recorded on the items)")
     union.add_argument("--reason", help=_REASON_HELP + "; with --allow-unticked, why the boxes stay unticked")
     union.add_argument("--dry-run", action="store_true", help="build the union and report conflicts, push nothing")
+    cmd_pr_link.register(sub, _TARGET_HELP)
     merge = sub.add_parser("merge", help="merge a ready, conflict-free, green pull request at its checked head")
     merge.add_argument("number", type=int, nargs="+", help="pull request number; several merge as one batch when one head contains all the others")
     merge.add_argument("--target", help=_TARGET_HELP)
@@ -145,6 +146,10 @@ def run(arguments: argparse.Namespace) -> bool:
         return False
     config = ledger_config.load()
     command = arguments.pr_command
+    linked = cmd_pr_link.run(config, arguments)
+    if linked is not None:
+        print(linked)
+        return True
     if command == "open":
         options = OpenOptions(
             arguments.target, arguments.head, arguments.base, arguments.ready,

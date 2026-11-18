@@ -31,12 +31,12 @@ class Run:
 class PrWorld:
     """`actor` acts through the in-memory forge; `as_actor` switches who is calling."""
 
-    def __init__(self, extra_config: str = "", actor: str = "tester", mirror_options: str = "") -> None:
+    def __init__(self, extra_config: str = "", actor: str = "tester", mirror_options: str = "", schema: str = "") -> None:
         mirrors = MIRRORS.replace('/o/r"\n', '/o/r"\n' + mirror_options, 1) if mirror_options else MIRRORS
-        self.world = World(mirrors + extra_config)
+        self.world = World(mirrors + extra_config, schema=schema)
         self.forge = MemoryForge("git.example")
         self.config = ledger_config.load(self.world.code)
-        self.ledger = Ledger(self.world.ledger, "TST")
+        self.ledger = Ledger(self.world.ledger, "TST", schema=int(schema or os.environ.get("QEW_TEST_SCHEMA", "7")))
         self.actor = actor
         self.head = "feature"
 

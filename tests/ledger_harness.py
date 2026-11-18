@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -184,7 +185,8 @@ class World:
 
     def sharded(self) -> bool:
         """Whether the ledger declares the sharded layout (schema 8): events/<last two characters of the id>/<id>/."""
-        return "schema_version = 8" in (self.ledger / "qew-ledger.toml").read_text(encoding="utf-8")
+        declared = re.search(r"^schema_version\s*=\s*(\d+)", (self.ledger / "qew-ledger.toml").read_text(encoding="utf-8"), re.M)
+        return declared is not None and int(declared.group(1)) >= 8
 
     def home(self, kind: str, item_id: str, ledger: Path | None = None) -> Path:
         """The directory of one item under `items`, `events`, `mirrors` or `baselines`, in whichever layout the ledger declares."""

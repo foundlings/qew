@@ -350,9 +350,9 @@ def _ledger_from_environment(start: Path | None) -> Path | None:
     return None
 
 
-SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)  # schema 4 to 8 work as declared; `qew migrate-layout` moves any older one (or a flat 4 to 7) to 8
+SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8, 9)  # schema 4 to 9 work as declared; `qew migrate-layout` moves any older one (or a flat 4 to 7) to 9; a schema 8 ledger runs in compat mode (no pull request links)
 WORKABLE_SCHEMA = 4  # a schema 4 ledger works unchanged: 5 only adds the optional `fields` header key, which waits for the migration
-CURRENT_SCHEMA = 8  # events, items, mirrors and baselines live under a shard of the item id (8); items live at items/<ID>/item.md (3), completed items carry their proof in the header (4), items carry named fields (5), a git ledger has core.untrackedCache set (6), the forge-synced baselines are committed under baselines/ (7); 1 and 2 kept items/<ID>.md
+CURRENT_SCHEMA = 9  # pull request link declarations are event files under prs/ (9); events, items, mirrors and baselines live under a shard of the item id (8); items live at items/<ID>/item.md (3), completed items carry their proof in the header (4), items carry named fields (5), a git ledger has core.untrackedCache set (6), the forge-synced baselines are committed under baselines/ (7); 1 and 2 kept items/<ID>.md
 _old_layout_allowed = False
 
 
