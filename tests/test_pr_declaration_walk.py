@@ -66,7 +66,7 @@ class DeclarationWalk(unittest.TestCase):
         self.assertEqual(second.code, 0, second)
         refused = self.w.qew("pr", "merge", "2", "--check", "--ledger-only")
         self.assertEqual(refused.code, 2, refused)
-        self.assertIn("open children", refused.err)
+        self.assertIn("unfinished descendants", refused.err)
 
     def test_schema_8_keeps_the_plain_open_and_refuses_declaration_flags(self) -> None:
         """Prevents the compat mode changing what a 6.x agent does, or silently ignoring flags it cannot record."""
