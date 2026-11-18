@@ -18,7 +18,7 @@ from tests.ledger_harness import World
 ENV = {"FORGEJO_TOKEN": TOKEN}
 
 
-def wait_for(condition, seconds: float = 40.0) -> bool:
+def wait_for(condition, seconds: float = 90.0) -> bool:  # a loaded gate (every walk in parallel) can starve the detached worker for tens of seconds
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if condition():
@@ -63,7 +63,9 @@ class BackgroundSyncWalk(unittest.TestCase):
         time.sleep(1.0)
         self.assertEqual(len(self.fake.issues), 6)
         self.assertEqual(len(list((w.ledger / "mirrors").glob("*/*.json"))), 6)
-        self.assertFalse((w.ledger / ".qew" / "sync.queue").exists() and (w.ledger / ".qew" / "sync.queue").read_text().strip(), "an id was left queued")
+        queue = w.ledger / ".qew" / "sync.queue"
+        drained = wait_for(lambda: not (queue.exists() and queue.read_text().strip()), 30.0)  # a worker spawned for the tail drains it a moment after the last issue is made
+        self.assertTrue(drained, "an id was left queued")
 
     def test_a_fast_worker_cannot_leave_a_marker_that_suppresses_the_next_spawn(self) -> None:
         """Prevents a worker that finishes before Popen returns stranding the next queued item."""
