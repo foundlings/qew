@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
-from qew import cmd_claim, cmd_pr_link, pr_links, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
+from qew import cmd_claim, cmd_pr_link, pr_links, pr_projection, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -194,6 +194,8 @@ def run(arguments: argparse.Namespace) -> bool:
             print(sync_items(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of))
         else:
             print(sync_title(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
+            if project_links(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of).drifted:
+                print(f"qew: pr #{arguments.number}: the ledger items block on the forge had drifted from the ledger's declaration; rewrote it", file=sys.stderr)
     elif command == "union":
         from qew import pr_union  # imports this module for the loading pieces
 
@@ -441,7 +443,8 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     head = vcs.synced_branch(options.head)
     _refuse_other_items_branch(snapshot, head, covered)
     what = options.what if options.what is not None else item.body
-    body = pr_body.build_body(item_id, issue["number"], what, options.why, options.testing, extra)
+    links = pr_projection.render(snapshot, pr_links.Declaration(wanted)) if wanted else ""
+    body = pr_body.build_body(item_id, issue["number"], what, options.why, options.testing, extra, links)
     pr_body.refuse_closing_references(body, "the pull request body")
     mirror = mirror_for(config, ledger, issue["_target"])
     login = os.environ.get(LOGIN_VARIABLE) or sync_plan.assignee_of(mirror.options.get("assignees"), actor()) or actor()
@@ -535,6 +538,33 @@ def _write_body(loaded: Loaded, number: int, first: RemotePullRequest, edited: s
         written = loaded.forge.update_pull_request_body(number, edited)
     if written.body != edited:
         raise QewError(f"pr #{number} body did not take the edit; the forge still shows the old checklist", 3)
+
+
+@dataclass(frozen=True)
+class Projected:
+    changed: bool
+    drifted: bool  # the block on the forge differed from the ledger's declaration (and was not simply missing)
+
+
+def project_links(config: Config, number: int, target: str | None, build: Build | None = None, on_behalf_of: str | None = None,
+                  owned: bool = True) -> Projected:
+    """Write the ledger's link declaration into the open pull request's description block; nothing else in the body changes.
+    A schema 8 ledger has no block, and a finished pull request keeps the one it was merged with."""
+    loaded = load(config, number, target, build, owned=owned, on_behalf_of=on_behalf_of)
+    ledger = loaded.snapshot.ledger
+    if ledger.schema < pr_links.LINKS_SCHEMA:
+        return Projected(False, False)
+    block = pr_projection.render(loaded.snapshot, pr_links.load(ledger, loaded.record.mirror_file))
+    with forge_errors(loaded.record.target):
+        first = loaded.forge.read_pull_request(number)
+    if first.state != "open":
+        return Projected(False, False)
+    shown = pr_projection.current(first.body)
+    edited = pr_projection.apply(first.body, block)
+    if edited == first.body:
+        return Projected(False, False)
+    _write_body(loaded, number, first, edited)
+    return Projected(True, shown is not None)
 
 
 def _entry_text(snapshot: Snapshot, item_id: str) -> str:

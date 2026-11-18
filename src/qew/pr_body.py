@@ -36,12 +36,15 @@ def build_body(
     why: str | None,
     testing: str | None,
     extra: str,
+    links: str = "",
 ) -> str:
-    """Marker, the `Delivers` line, then the What / Why / Testing sections that have text, then `extra`."""
+    """Marker, the `Delivers` line, then the What / Why / Testing sections that have text, then the `links` block, then `extra`."""
     parts = [marker_for(item_id), f"Delivers {item_id} (issue #{issue_number})."]
     for heading, text in (("What", what), ("Why", why), ("Testing", testing)):
         if text and text.strip():
             parts.append(f"## {heading}\n\n{text.strip()}")
+    if links:
+        parts.append(links)
     if extra.strip():
         parts.append(extra.rstrip("\n"))
     return "\n\n".join(parts) + "\n"

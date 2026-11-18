@@ -80,7 +80,7 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
     if command == "pr" and arguments.pr_command == "check" and (arguments.add or arguments.drop):
         return "pr-check"  # these record a comment on the covered items; ticking and listing write only the forge
     if command == "pr" and arguments.pr_command in ("link", "unlink"):
-        return "pr-link"  # ledger events only; the forge projection is written by `pr sync`
+        return None  # a short write `section` for the events, then the forge description: no lock over that
     if command == "land":
         return "land"
     if command == "batch":
