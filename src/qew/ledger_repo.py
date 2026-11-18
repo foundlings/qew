@@ -363,7 +363,9 @@ class LedgerRepo:
             self.run(["git", "add", "-A", *from_stdin], stdin=names)
             try:
                 self.run(["git", "commit", "-q", "-m", message, *from_stdin], stdin=names)
-            except QewError:
+            except QewError as error:
+                if "nothing to commit" in str(error):
+                    return  # a concurrent writer (the sync worker beside a foreground command) already committed exactly these paths
                 self.run(["git", "reset", "-q", *from_stdin], stdin=names, check=False)
                 raise
         elif self.vcs == "jj":
