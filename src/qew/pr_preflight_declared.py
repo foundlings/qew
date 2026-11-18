@@ -5,7 +5,7 @@ descendant finished or closed by the same union), no other open pull request may
 another's unfinished slice), and a member without a declaration blocks the union. `remains` and `related` are never gated.
 """
 
-from qew import ledger_graph, pr_links
+from qew import ledger_graph, pr_links, pr_record
 from qew.ledger_event import State
 from qew.ledger_store import Snapshot
 from qew.pr_links import Declaration
@@ -17,12 +17,11 @@ def _open_declarations(snapshot: Snapshot, skip: set[int]) -> dict[int, tuple[st
     """The declaration of every recorded pull request that is not finished and not one of `skip`, by number."""
     found: dict[int, tuple[str, Declaration]] = {}
     ledger = snapshot.ledger
-    for host in ledger.item_ids():
-        for mirror in ledger.load_mirrors(host):
-            number = mirror.get("number")
-            if mirror.get("kind") != "pr" or mirror.get("state", "open") in ("merged", "closed") or number in skip:
-                continue
-            found[number] = (host, pr_links.load(ledger, mirror["_target"]))
+    for host, mirror in pr_record.entries(ledger):
+        number = mirror.get("number")
+        if mirror.get("state", "open") in ("merged", "closed") or number in skip:
+            continue
+        found[number] = (host, pr_links.load(ledger, mirror["_target"]))
     return found
 
 

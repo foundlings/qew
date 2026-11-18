@@ -28,6 +28,9 @@ SNAPSHOT_READERS = 16  # threads reading item and event files at once
 SNAPSHOT_PARALLEL_FROM = 200  # fewer files than this are read in one thread
 
 
+MIRROR_EPOCH = 0  # grows with every mirror or baseline write of this process: an index built from the mirrors is only valid for one value
+
+
 def _parallel[T](read: Callable[[str], T], names: list[str]) -> list[T]:
     """`read` over the names, on several threads once there are many: the reads wait on the disk, not the interpreter."""
     if len(names) <= SNAPSHOT_PARALLEL_FROM:
@@ -289,6 +292,8 @@ class Ledger:
 
     def write_baseline(self, item_id: str, target: str, state: JsonObject) -> None:
         """Record the forge-synced state of one item. Nothing is written when only the sync time changed."""
+        global MIRROR_EPOCH
+        MIRROR_EPOCH += 1
         newest = self._newest_baseline(item_id, target)
         if newest is not None:
             current = self.read_state(item_id, target)
@@ -434,6 +439,8 @@ class Ledger:
 
     def write_mirror(self, item_id: str, target: str, value: MirrorRecord) -> None:
         """Identity keys go to the committed mirror file (written once); everything else is the item's committed baseline."""
+        global MIRROR_EPOCH
+        MIRROR_EPOCH += 1
         identity = {k: v for k, v in value.items() if k in MIRROR_IDENTITY}
         volatile = {k: v for k, v in value.items() if k not in MIRROR_IDENTITY and k != "_target"}
         directory = self.home(self.mirrors_dir, item_id)
@@ -547,6 +554,8 @@ class Ledger:
 
     def remove_mirror(self, item_id: str, target: str) -> None:
         """Forget one mirror file (journaled like every write, so the session commits the deletion)."""
+        global MIRROR_EPOCH
+        MIRROR_EPOCH += 1
         discard(self.home(self.mirrors_dir, item_id) / f"{target}.json")
         for older in self.baseline_files(item_id, target):
             discard(older)
