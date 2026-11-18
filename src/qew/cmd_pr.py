@@ -603,10 +603,11 @@ def project_links(config: Config, number: int, target: str | None, build: Build 
     ledger = loaded.snapshot.ledger
     if ledger.schema < pr_links.LINKS_SCHEMA:
         return Projected(False, False)
-    block = pr_projection.render(loaded.snapshot, pr_links.load(ledger, loaded.record.mirror_file))
+    landed = pr_links.last_report(ledger, loaded.record.mirror_file)
+    block = pr_projection.render(loaded.snapshot, pr_links.load(ledger, loaded.record.mirror_file), landed)
     with forge_errors(loaded.record.target):
         first = loaded.forge.read_pull_request(number)
-    if first.state != "open":
+    if first.state != "open" and not landed:  # a finished pull request keeps the block it was merged with, unless a landing report is to be added
         return Projected(False, False)
     shown = pr_projection.current(first.body)
     edited = pr_projection.apply(first.body, block)
@@ -1081,6 +1082,11 @@ def close_pull_request(
         raise QewError(f"pr #{number} is still open after the forge accepted the close; nothing is known to have changed", 4)
     with replication.section("pr-close"):
         pr_record.update_mirror(loaded.snapshot.ledger, loaded.record, state="closed")
+        ledger = loaded.snapshot.ledger
+        if ledger.schema >= pr_links.LINKS_SCHEMA:  # the declaration stays as history; the items it named are told it will not land
+            for item_id, role in pr_links.load(ledger, loaded.record.mirror_file).roles.items():
+                if item_id in loaded.snapshot.items:
+                    ledger.append_event(item_id, "commented", text=f"pull request #{number} was closed unmerged; its {role} link no longer applies", author=actor())
     return Closed(number, outcome == Outcome.VERIFIED)
 
 
@@ -1205,7 +1211,13 @@ def land_declared(config: Config, merged: list[tuple[Loaded, str]], merge_sha: s
     members = [pr_land.Member(loaded.record, head, pr_links.load(ledger, loaded.record.mirror_file)) for loaded, head in merged]
     own = {member.record.number: pr_land._own(config, member, merge_sha) for member in members}
     with replication.section("pr-land"):
-        return pr_land.land(config, members, merge_sha, own, integrator).lines
+        lines = pr_land.land(config, members, merge_sha, own, integrator).lines
+        pr_links.record_report(ledger, members[0].record.mirror_file, lines)
+    try:
+        project_links(config, members[0].record.number, None, owned=False)
+    except QewError as error:
+        print(f"qew: pr #{members[0].record.number}: landed, but its description was not updated with the report ({error})", file=sys.stderr)
+    return lines
 
 
 def hand_off(loaded: Loaded, number: int) -> list[str]:
