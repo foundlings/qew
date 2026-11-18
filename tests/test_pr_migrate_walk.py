@@ -99,6 +99,21 @@ class MigrateWalk(unittest.TestCase):
         pending = [json.loads(p.read_text()) for p in (self.w.world.ledger / "prs").rglob("*.json") if "land_pending" in p.read_text()]
         self.assertEqual([e["item"] for e in pending], [self.done])
 
+    def test_the_cutover_order_works_when_merged_pull_requests_exist(self) -> None:
+        """Prevents migrate-layout rolling itself back because its own check flags merged pull requests that `pr migrate`, which can only
+        run after it, has not declared yet (the runbook's order: migrate-layout, then pr migrate, then check)."""
+        from qew import pr_record
+
+        pr_record.update_mirror(self.w.ledger, pr_record.find(self.w.ledger, 1, None), state="merged")
+        moved = self.w.qew("migrate-layout")
+        self.assertEqual(moved.code, 0, moved)
+        self.w.ledger = Ledger(self.w.world.ledger, "TST", schema=9)
+        undeclared = self.w.qew("check")
+        self.assertNotEqual(undeclared.code, 0, undeclared)  # until `pr migrate` the check names the fix
+        self.assertIn("pr migrate", undeclared.out + undeclared.err)
+        self.assertEqual(self.w.qew("pr", "migrate").code, 0)
+        self.assertEqual(self.w.qew("check").code, 0)
+
     def test_a_dropped_item_becomes_related(self) -> None:
         """Prevents a deliberately dropped item vanishing from the declaration, or being migrated as work the pull request closes."""
         self.assertEqual(self.w.qew("pr", "check", "1", "--drop", self.todo, "--reason", "next pull request").code, 0)
