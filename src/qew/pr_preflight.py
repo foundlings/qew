@@ -16,6 +16,7 @@ from qew.ledger_event import State
 from qew.ledger_item import Kind
 from qew.ledger_store import Snapshot, actor
 from qew.mirror_types import MirrorRecord
+from qew.pr_links import LINKS_SCHEMA
 from qew.pr_record import PrRecord
 
 SCHEMA_VERSION = 1
@@ -62,6 +63,13 @@ def check(config: Config, numbers: list[int], target: str | None, reason: str = 
     return verdict
 
 
+def cover_command(snapshot: Snapshot, number: int, items: list[str]) -> str:
+    """The command that puts `items` under pull request `number`: a declaration on schema 9, a checklist entry before."""
+    if snapshot.ledger.schema >= LINKS_SCHEMA:
+        return f"qew pr link {number} --closes {' '.join(items)}"
+    return f"qew pr check {number} --add {' '.join(items)}"
+
+
 def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, State], verdict: Verdict) -> None:
     """Claimed covered items with open children no member covers: the union is judged as one pull request."""
     if not records:
@@ -74,7 +82,8 @@ def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, Sta
     for item_id, blocking in pr_gate.open_children(snapshot, union, {i: s for i, s in states.items() if i in union.items}).items():
         verdict.refusals.append(Finding(
             f"cannot merge half-done work: {item_id} has open children {' '.join(blocking)}",
-            f"qew pr check {owner[item_id]} --add {' '.join(blocking)}  (cover them), or finish them first", item_id, owner[item_id], 2))
+            f"{cover_command(snapshot, owner[item_id], blocking)}  (cover them), or finish them first, or declare `qew pr link {owner[item_id]} --remains {item_id}` if this is a partial slice" if snapshot.ledger.schema >= LINKS_SCHEMA
+            else f"{cover_command(snapshot, owner[item_id], blocking)}  (cover them), or finish them first", item_id, owner[item_id], 2))
 
 
 def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], reason: str, verdict: Verdict) -> dict[str, State]:
