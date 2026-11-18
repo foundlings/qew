@@ -211,3 +211,38 @@ def _landing_many_jj(root: Path, wanted: list[str], target: str) -> dict[str, tu
             hit = next((commit for change_id, commit in known if change_id.startswith(change) or commit.startswith(change)), None)
             found[change] = (Landing.NOT_ANCESTOR, hit) if hit is not None else (Landing.UNKNOWN, "")
     return found
+
+
+_LIMIT = 500  # a pull request's own changes beyond this are not listed one by one
+
+
+def own_changes(root: Path, vcs: str, merge_sha: str, head_sha: str) -> list[str]:
+    """The changes a merged pull request brought: those of its head that the first parent of its merge commit did not have, as change
+    ids (jj) or commit ids (git). Empty when the merge is not a two-parent merge of this head, or either commit is not in this checkout:
+    the caller then cites the head itself."""
+    if not (_HEX.fullmatch(merge_sha) and _HEX.fullmatch(head_sha)):
+        return []
+    if vcs == "git":
+        parents = _run(root, ["git", "rev-list", "--parents", "-n", "1", merge_sha])
+        fields = parents.stdout.split() if parents.returncode == 0 else []
+        if len(fields) != 3 or head_sha not in fields[1:]:
+            return []
+        base = fields[1] if fields[2] == head_sha else fields[2]
+        listed = _run(root, ["git", "rev-list", f"--max-count={_LIMIT}", f"{base}..{head_sha}"])
+        return listed.stdout.split() if listed.returncode == 0 else []
+    try:
+        found = _jj_log(root, f"parents({merge_sha})", 'commit_id ++ "\\n"').split()
+        if len(found) != 2 or head_sha not in found:
+            return []
+        base = found[0] if found[1] == head_sha else found[1]
+        return _jj_log(root, f"{base}..{head_sha}", 'change_id.short(12) ++ "\\n"').split()[:_LIMIT]
+    except QewError:
+        return []
+
+
+def refresh(root: Path) -> None:
+    """Fetch the selected remote so the target branch shows what just merged; a failure is silent (no remote, offline): evidence that
+    cannot be proven on the target is then flagged for `qew land`, never recorded."""
+    remote = remote_options.selected()
+    if _run(root, ["git", "remote", "get-url", remote]).returncode == 0:
+        _run(root, ["git", "fetch", "--quiet", remote])

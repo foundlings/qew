@@ -53,8 +53,8 @@ class LandDeclaredWalk(unittest.TestCase):
         self.assertIn(f"pr #{number}", merged.out)
         self.assertIn(done, merged.out)
         notes = [e["text"] for e in self.w.events(partial) if e["type"] == "commented"]
-        self.assertTrue(any(f"pr #{number}" in n and "partial" in n for n in notes), notes)
-        self.assertTrue(any(f"pr #{number}" in e["text"] for e in self.w.events(related) if e["type"] == "commented"))
+        self.assertTrue(any(f"pull request #{number}" in n and "partial" in n for n in notes), notes)
+        self.assertTrue(any(f"pull request #{number}" in e["text"] for e in self.w.events(related) if e["type"] == "commented"))
         self.assertEqual([e for e in self.pr_events() if e["type"] == "land_pending"], [])
 
     def test_an_undeclared_pull_request_is_refused_before_the_forge_merge(self) -> None:
@@ -95,6 +95,7 @@ class LandDeclaredWalk(unittest.TestCase):
         repaired = self.w.qew("land", str(number))
         self.assertEqual(repaired.code, 0, repaired)
         self.assertEqual(self.state(epic), "completed")
+        self.assertEqual([e["item"] for e in self.pr_events() if e["type"] == "landed"], [epic])
         again = self.w.qew("land", str(number))
         self.assertEqual(again.code, 0, again)
         self.assertEqual(len([e for e in self.w.events(epic) if e["type"] == "completed"]), 1)
@@ -114,7 +115,7 @@ class LandDeclaredWalk(unittest.TestCase):
         first, second = self.w.item("First"), self.w.item("Second")
         one, sha_one = self.pr(first, "--closes", first)
         two, sha_two = self.pr(second, "--closes", second)  # its commit sits on top of the first member's
-        self.w.forge.edit_pull(one, head_sha=sha_one)
+        self.w.forge.merges_with[two] = [one]  # the forge marks the member merged with the lead
         merged = self.w.qew("pr", "merge", str(one), str(two))
         self.assertEqual(merged.code, 0, merged)
         self.assertEqual(self.evidence(first), [sha_one])

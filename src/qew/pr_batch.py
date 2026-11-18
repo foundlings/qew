@@ -11,9 +11,9 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from qew import branch_cleanup, code_vcs, pr_block, pr_record, replication, untrusted_text, remote_options
+from qew import branch_cleanup, code_vcs, pr_block, pr_links, pr_record, replication, untrusted_text, remote_options
 from qew.cmd_pr import (
-    MERGE_RECHECK_SECONDS, READERS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, load,
+    MERGE_RECHECK_SECONDS, READERS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, land_declared, load,
     merge_pull_request, refusals_for, settle,
 )
 from qew.cmd_items import ledger_for
@@ -125,8 +125,9 @@ def merge_batch(config: Config, numbers: list[int], target: str | None, options:
     reason = _takeover(options)
     pulls = _heads(config, numbers, target, build, reason, sleep)
     lead = _lead(config, pulls)
-    merged = merge_pull_request(config, lead, target, options, build, sleep)
+    merged = merge_pull_request(config, lead, target, options, build, sleep, land=False)
     result = BatchMerged(lead, numbers, [*merged.lines])
+    landed: list[tuple[Loaded, str]] = [(load(config, lead, target, build, reason, merging=True), pulls[lead].head_sha)]
     for number in numbers:
         if number == lead:
             continue
@@ -147,5 +148,9 @@ def merge_batch(config: Config, numbers: list[int], target: str | None, options:
         branch = untrusted_text.show(cleanup.name).text
         with replication.section("pr-merge"):
             released = pr_block.release_dependents(config, number, build)
-        result.lines += [f"pr #{number} merged with #{lead} at {pull.head_sha[:12]}", *branch_line(cleanup, branch), *hand_off(loaded, number), *released]
+        landed.append((loaded, pull.head_sha))
+        result.lines += [f"pr #{number} merged with #{lead} at {pull.head_sha[:12]}", *branch_line(cleanup, branch),
+                         *([] if loaded.snapshot.ledger.schema >= pr_links.LINKS_SCHEMA else hand_off(loaded, number)), *released]
+    if landed[0][0].snapshot.ledger.schema >= pr_links.LINKS_SCHEMA:
+        result.lines += land_declared(config, landed, merged.merge_sha, reason or None)
     return result

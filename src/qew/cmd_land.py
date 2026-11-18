@@ -4,7 +4,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import Literal, TypedDict, cast
 
-from qew import cmd_claim, cmd_finish, pr_block, code_vcs, ledger_config, outcome, pr_checklist, pr_gate, pr_unticked
+from qew import cmd_claim, cmd_finish, pr_block, pr_land, pr_links, code_vcs, ledger_config, outcome, pr_checklist, pr_gate, pr_unticked
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -143,6 +143,8 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
     result = Landing()
     if not code_vcs.valid_change(code_vcs.detect(config.root), pull.head_sha):
         raise QewError(f"indeterminate: pr #{number} merged at `{pull.head_sha}`, which is not a commit id; nothing was written", 4)
+    if loaded.snapshot.ledger.schema >= pr_links.LINKS_SCHEMA:
+        return _land_declared(config, loaded, pull.head_sha, pull.merge_sha, number, build, integrator, reason, result)
     boxed = []
     states = dict(loaded.states)
     for item_id in _boxed(loaded, pull.body):
@@ -182,6 +184,33 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
     if not result.landed and not result.failures:
         everything_done = bool(result.clean) and len(result.clean) == len(completing) + len(boxed)
         result.lines.append("nothing to land: all covered items complete" if everything_done else "nothing to land")
+    return result
+
+
+def _land_declared(config: Config, loaded: Loaded, head_sha: str, merge_sha: str, number: int, build: Build | None, integrator: bool,
+                   reason: str | None, result: Landing) -> Landing:
+    """Schema 9: land what the pull request's declaration says (see `pr_land`); the repair for a merge that left items pending."""
+    ledger = loaded.snapshot.ledger
+    declaration = pr_links.load(ledger, loaded.record.mirror_file)
+    if not declaration.declared:
+        raise QewError(f"pr #{number} has no link declaration, so nothing says what its merge completes: declare it with "
+                       f"`qew pr link {number} --closes ITEM...` (or `--no-item REASON`), or migrate a pre-schema-9 record with `qew pr migrate {number}`", 2)
+    code_vcs.refresh(config.root)
+    member = pr_land.Member(loaded.record, head_sha, declaration)
+    own = {number: pr_land._own(config, member, merge_sha)}
+    report = pr_land.land(config, [member], merge_sha, own, reason if integrator else None)
+    result.lines += report.lines
+    result.landed += [item_id for _, item_id, _ in report.completed]
+    result.clean += report.clean
+    for held in report.pending:
+        if held.kind == "held":
+            result.held.append({"id": held.item, "holder": held.holder})
+        else:
+            result.open.append(held.item)
+        result.failures += held.kind == "failed"
+    result.lines += pr_block.release_dependents(config, number, build)
+    if not report.lines:
+        result.lines.append("nothing to land")
     return result
 
 
