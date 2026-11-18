@@ -56,7 +56,7 @@ class MigrateWalk(unittest.TestCase):
         (row,) = self.rows()
         self.assertEqual(self.roles(row)[self.done], "remains")
         flagged = next(i for i in row["items"] if i["item"] == self.done)
-        self.assertIn("open children", flagged["why"])
+        self.assertIn("parent-with-open-children", flagged["why"])
         self.assertIn(child, flagged["why"])
         text = self.w.qew("pr", "migrate", "--dry-run").out
         self.assertIn("parent-with-open-children", text.split("\n")[0] + text)  # flagged rows are listed

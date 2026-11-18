@@ -79,7 +79,7 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
         return str(arguments.item_command)
     if command == "pr" and arguments.pr_command == "check" and (arguments.add or arguments.drop):
         return "pr-check"  # these record a comment on the covered items; ticking and listing write only the forge
-    if command == "pr" and arguments.pr_command in ("link", "unlink"):
+    if command == "pr" and arguments.pr_command in ("link", "unlink", "migrate"):
         return None  # a short write `section` for the events, then the forge description: no lock over that
     if command == "land":
         return "land"
