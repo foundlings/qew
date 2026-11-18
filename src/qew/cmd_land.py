@@ -4,7 +4,7 @@ import argparse
 from dataclasses import dataclass, field
 from typing import Literal, TypedDict, cast
 
-from qew import cmd_claim, cmd_finish, pr_block, code_vcs, ledger_config, outcome, pr_checklist, pr_gate
+from qew import cmd_claim, cmd_finish, pr_block, code_vcs, ledger_config, outcome, pr_checklist, pr_gate, pr_unticked
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
@@ -121,6 +121,8 @@ def _order(loaded: Loaded, ids: list[str]) -> list[str]:
 def _boxed(loaded: Loaded, body: str) -> list[str]:
     """The items the merged body's Progress boxes name that the record does not cover: the record froze at open, and a merged
     pull request can no longer have its covered items synced."""
+    if not pr_unticked.gates(loaded.snapshot.ledger):
+        return []  # the declaration decides what a pull request completes; boxes are the agent's own steps
     named = [box.address for box in pr_checklist.boxes(body) if box.address in loaded.snapshot.items]
     return [item_id for item_id in dict.fromkeys(named) if item_id not in loaded.record.items]
 
@@ -151,7 +153,8 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
             continue
         states[item_id] = folded.state
         boxed.append(item_id)
-    for item_id in _order(loaded, [*loaded.record.items, *boxed]):
+    completing = loaded.record.items if loaded.record.closing is None else loaded.record.closing  # `remains` and `related` items are never completed here
+    for item_id in _order(loaded, [*completing, *boxed]):
         state = states[item_id]
         owner = loaded.snapshot.folds[item_id].owner
         mine = owner == actor() or cmd_claim.holds_ancestor(loaded.snapshot, item_id, actor())
@@ -177,7 +180,7 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
             result.failures += _land_one(config, loaded, item_id, pull.head_sha, result, takeover)
     result.lines += pr_block.release_dependents(config, number, build)  # a landing is also a merge seen late
     if not result.landed and not result.failures:
-        everything_done = bool(result.clean) and len(result.clean) == len(loaded.record.items) + len(boxed)
+        everything_done = bool(result.clean) and len(result.clean) == len(completing) + len(boxed)
         result.lines.append("nothing to land: all covered items complete" if everything_done else "nothing to land")
     return result
 

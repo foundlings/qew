@@ -5,6 +5,17 @@ The text names each box (id and title), why it matters, and the commands that fi
 
 from qew import pr_body, pr_checklist, untrusted_text
 from qew.errors import QewError
+from qew.ledger_store import Ledger
+
+DISPLAY_SCHEMA = 9  # from this schema the checklist is a display of an agent's own steps: it gates nothing and covers no item
+
+
+def gates(ledger: Ledger) -> bool:
+    """Whether unticked boxes still refuse a ready or a merge (a schema 8 ledger keeps the 6.x rules)."""
+    return ledger.schema < DISPLAY_SCHEMA
+
+
+IGNORED_NOTE = "qew: --allow-unticked is accepted and ignored: on this ledger unticked Progress boxes gate nothing (the link declaration decides); drop the flag"
 
 
 def unticked(body: str) -> list[pr_checklist.Box]:

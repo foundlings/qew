@@ -172,8 +172,13 @@ def run(arguments: argparse.Namespace) -> bool:
         print(check_pull_request(config, arguments.number, arguments.ids, arguments.all, arguments.list, arguments.target,
                                  drop=arguments.drop, reason=arguments.reason, force=arguments.force, add=arguments.add, on_behalf_of=arguments.on_behalf_of))
     elif command == "ready":
-        override = pr_unticked.reason_for(arguments.allow_unticked, arguments.reason)
-        print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of, override if arguments.allow_unticked else None)
+        if not pr_unticked.gates(ledger_for(config)):
+            if arguments.allow_unticked or arguments.reason:
+                print(pr_unticked.IGNORED_NOTE, file=sys.stderr)
+            print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of, None)
+        else:
+            override = pr_unticked.reason_for(arguments.allow_unticked, arguments.reason)
+            print_readied(config, arguments.number, arguments.target, arguments.json, arguments.on_behalf_of, override if arguments.allow_unticked else None)
     elif command == "body":
         print(replace_body(config, arguments.number, arguments.body_file, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "draft":
@@ -579,6 +584,8 @@ def _add_items(config: Config, number: int, references: list[str], target: str |
     """Add an unticked Progress entry for each item (named by its title), keep every other byte, and note it on the covered items."""
     loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     ledger = loaded.snapshot.ledger
+    if not pr_unticked.gates(ledger):
+        return _add_steps(loaded, number, references)
     ids = [ledger.resolve(reference, list(loaded.snapshot.items)) for reference in references]
     if len(set(ids)) != len(ids):
         raise QewError("an item is named twice", 2)
@@ -592,6 +599,22 @@ def _add_items(config: Config, number: int, references: list[str], target: str |
         ledger.append_event(item_id, "commented", text=f"added progress entries to pull request #{number}: {' '.join(ids)}", author=actor())
     _cover(ledger, loaded.record, ids)
     return f"pr #{number} added: {' '.join(ids)}"
+
+
+def _add_steps(loaded: Loaded, number: int, texts: list[str]) -> str:
+    """Schema 9: `--add` appends free-text work steps (no item, no marker, nothing covered) after the last box."""
+    steps = []
+    for text in texts:
+        one = " ".join(text.split())
+        if not one or "<!--" in one or "-->" in one:
+            raise QewError("a checklist step is one line of text without comment markers", 2)
+        pr_body.refuse_closing_references(one, "the checklist step")
+        steps.append(("", one))
+    with forge_errors(loaded.record.target):
+        first = loaded.forge.read_pull_request(number)
+    refuse_finished(number, first, "have its checklist edited")
+    _write_body(loaded, number, first, pr_checklist.add(first.body, steps))
+    return f"pr #{number} added {len(steps)} step(s)"
 
 
 def _cover(ledger: Ledger, record: pr_record.PrRecord, wanted: list[str]) -> list[str]:
@@ -608,6 +631,8 @@ def sync_items(config: Config, number: int, target: str | None, build: Build | N
     Only adds: a covered item never leaves the record here (that is `--drop`). Items whose box was dropped are not re-added."""
     loaded = load(config, number, target, build, on_behalf_of=on_behalf_of)
     snapshot = loaded.snapshot
+    if not pr_unticked.gates(snapshot.ledger):
+        raise QewError(f"on this ledger a pull request covers what its link declaration says: change it with `qew pr link {number} --closes ITEM...` / `--remains` / `pr unlink`", 2)
     with forge_errors(loaded.record.target):
         body = loaded.forge.read_pull_request(number)
     refuse_finished(number, body, "have its covered items changed")
@@ -692,7 +717,7 @@ def ready_many(
         with forge_errors(member.record.target):
             before = forge.read_pull_request(number)
             refuse_finished(number, before, "be marked ready")
-            if before.draft and override is None:
+            if before.draft and override is None and pr_unticked.gates(member.snapshot.ledger):
                 pr_unticked.refuse(number, before.body, override=True)
             outcome = apply_and_verify(
                 before,
@@ -721,7 +746,7 @@ def ready_many(
                 continue
             with replication.section("pr-ready"):
                 pr_record.update_mirror(member.snapshot.ledger, member.record, draft=False)
-            boxes = pr_unticked.unticked(before.body) if before.draft else []
+            boxes = pr_unticked.unticked(before.body) if before.draft and pr_unticked.gates(member.snapshot.ledger) else []
             if override is not None and boxes:
                 try:
                     record_override(member, before, boxes, override)
@@ -1168,7 +1193,7 @@ def _merge_gates(
             raise QewError(f"pr #{number} has conflicts with {pull.base_branch}", 2)
 
     def boxes() -> None:
-        unticked = [b for b in pr_checklist.boxes(pull.body) if not b.ticked]
+        unticked = [b for b in pr_checklist.boxes(pull.body) if not b.ticked] if pr_unticked.gates(loaded.snapshot.ledger) else []
         if unticked:
             raise QewError(pr_unticked.explain(number, unticked), 2)
 

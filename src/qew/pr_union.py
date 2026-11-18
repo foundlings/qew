@@ -5,6 +5,7 @@ copy: git plumbing makes the commit, and the push is forward-only.
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 from qew import code_vcs, pr_unticked, untrusted_text, remote_options
@@ -54,9 +55,12 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
         with forge_errors(member.record.target):
             pulls[number] = member.forge.read_pull_request(number)
         refuse_finished(number, pulls[number], "join a union")
-    open_boxes = {number: pr_unticked.unticked(pull.body) for number, pull in pulls.items()}
+    gating = pr_unticked.gates(loaded.snapshot.ledger)
+    if not gating and (arguments.allow_unticked or (arguments.reason and not options.other_author)):
+        print(pr_unticked.IGNORED_NOTE, file=sys.stderr)
+    open_boxes = {number: pr_unticked.unticked(pull.body) for number, pull in pulls.items()} if gating else {}
     open_boxes = {number: boxes for number, boxes in open_boxes.items() if boxes}
-    override = pr_unticked.reason_for(True, arguments.reason) if arguments.allow_unticked else None
+    override = pr_unticked.reason_for(True, arguments.reason) if arguments.allow_unticked and gating else None
     if open_boxes and override is None:  # the union lead inherits every source's boxes, so each source is named
         raise QewError("\n".join(pr_unticked.explain(number, boxes, override=True) for number, boxes in open_boxes.items()), 2)
     lead = pulls[numbers[0]]
