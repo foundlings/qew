@@ -35,6 +35,8 @@ def register(sub: argparse._SubParsersAction[argparse.ArgumentParser], target_he
     migrate = sub.add_parser("migrate", help="declare links for pull requests recorded before schema 9, from their checklist and recorded items (--dry-run first)")
     migrate.add_argument("number", type=int, nargs="*", help="pull request numbers (none: every open or merged one without a declaration)")
     migrate.add_argument("--dry-run", action="store_true", help="print each pull request's declaration and write nothing (works on a schema 8 ledger)")
+    migrate.add_argument("--offline", action="store_true", help="read nothing from the forge: open pull requests keep every recorded item as remains, flagged box state unknown")
+    migrate.add_argument("--max-forge-calls", type=int, default=300, metavar="N", help="forge reads allowed (only open pull requests are read; default 300); the rest are flagged")
     migrate.add_argument("--json", action="store_true", help="machine-readable output")
     links = sub.add_parser("links", help="show a pull request's link declaration")
     links.add_argument("number", type=int, help="pull request number")
@@ -151,7 +153,10 @@ def show(config: Config, arguments: argparse.Namespace) -> str:
 def migrate(config: Config, arguments: argparse.Namespace) -> str:
     from qew import pr_migrate  # imports this module for the registration
 
-    rows = pr_migrate.plan(config, list(dict.fromkeys(arguments.number)))
+    if arguments.max_forge_calls < 0:
+        raise QewError("--max-forge-calls cannot be negative", 2)
+    planned = pr_migrate.plan(config, list(dict.fromkeys(arguments.number)), offline=arguments.offline, budget=arguments.max_forge_calls)
+    rows = planned.rows
     if not arguments.dry_run:
         pr_links.require_schema(ledger_for(config))
         with replication.section("pr-migrate"):
@@ -159,8 +164,11 @@ def migrate(config: Config, arguments: argparse.Namespace) -> str:
     if arguments.json:
         payload = [{"number": r.number, "state": r.state, "flags": r.flags, "no_item": r.no_item,
                     "items": [{"item": i, "role": role, "why": why} for i, role, why in r.roles]} for r in rows]
-        return json.dumps({"pull_requests": payload, "dry_run": arguments.dry_run, "schema_version": SCHEMA_VERSION}, sort_keys=True)
-    lines = [f"{'would declare' if arguments.dry_run else 'declared'} {len(rows)} pull request(s)"]
+        return json.dumps({"pull_requests": payload, "dry_run": arguments.dry_run, "forge_reads": planned.reads, "stopped": planned.stopped,
+                           "schema_version": SCHEMA_VERSION}, sort_keys=True)
+    lines = [f"{'would declare' if arguments.dry_run else 'declared'} {len(rows)} pull request(s); forge reads: {planned.reads}"]
+    if planned.stopped:
+        lines.append(f"forge reads stopped: {planned.stopped}; the rest are declared remains and flagged")
     for row in rows:
         shown = f"no item: {row.no_item}" if row.no_item else "; ".join(f"{role} {i} ({why})" for i, role, why in row.roles)
         lines.append(f"pr #{row.number} ({row.state}): {shown}")

@@ -7,10 +7,9 @@ never completes anything; a merged pull request's unfinished closes items are fl
 """
 
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from qew import forge_registry, ledger_config, pr_checklist, pr_links, pr_record
+from qew import forge_http, forge_registry, ledger_config, pr_checklist, pr_links, pr_record
 from qew.cmd_items import ledger_for
 from qew.errors import QewError
 from qew.forge import Forge, ForgeError
@@ -22,7 +21,8 @@ from qew.pr_preflight_declared import _descendants
 from qew.pr_record import CLOSED_STATES
 
 Build = Callable[[ledger_config.Mirror], Forge]
-READERS = 8
+DEFAULT_BUDGET = 300  # forge reads a run may make (open pull requests only)
+RATE_FLOOR = 500  # the forge reports fewer calls left than this: stop, the merge gate needs them
 
 
 @dataclass
@@ -58,8 +58,13 @@ def _row(snapshot: Snapshot, host: str, mirror: MirrorRecord, read: tuple[str, s
     roles: dict[str, tuple[Role, str]] = {}
     for item_id in [*items, *(a for a in boxes if a in snapshot.items and a not in items and a not in dropped)]:
         box = boxes.get(item_id)
-        if body is None:
-            roles[item_id] = ("remains", "forge body unreadable: kept open")
+        if body is None and snapshot.folds[item_id].state in CLOSED_STATES:
+            roles[item_id] = ("closes", "already finished")
+        elif body is None:
+            roles[item_id] = ("remains", "box state unknown: kept open")
+            flag = f"{item_id}: box state unknown (no forge body); declared remains, review it"
+            if flag not in row.flags:
+                row.flags.append(flag)
         elif box is None:
             roles[item_id] = ("closes", "recorded item")
         else:
@@ -81,18 +86,38 @@ def _row(snapshot: Snapshot, host: str, mirror: MirrorRecord, read: tuple[str, s
     return row
 
 
-def plan(config: Config, numbers: list[int], build: Build | None = None) -> list[Row]:
-    """A row for every open or merged pull request without a declaration (all of them on a schema 8 ledger)."""
+@dataclass
+class Plan:
+    rows: list[Row]
+    reads: int = 0
+    stopped: str = ""  # why the forge reads ended early, "" when none did
+
+
+def plan(config: Config, numbers: list[int], build: Build | None = None, offline: bool = False, budget: int = DEFAULT_BUDGET) -> Plan:
+    """A row for every open or merged pull request without a declaration (all of them on a schema 8 ledger).
+
+    Only a pull request the ledger records as open has its body read, one at a time, within `budget` reads and while the forge reports at
+    least RATE_FLOOR calls left; a merged one never does (its items are landed, or pending, by ledger state), and `offline` reads none."""
     ledger = ledger_for(config)
     snapshot = ledger.snapshot()
     wanted = [(host, m) for host, m in pr_record.entries(ledger)
               if m.get("state", "open") != "closed" and (not numbers or m.get("number") in numbers)
               and not (ledger.schema >= pr_links.LINKS_SCHEMA and pr_links.load(ledger, m["_target"]).declared)]
     use = build or forge_registry.build
-    with ThreadPoolExecutor(max_workers=READERS) as pool:
-        bodies = list(pool.map(lambda pair: _body(config, ledger, pair[1], int(pair[1]["number"]), use), wanted))
-    rows = [_row(snapshot, host, m, body) for (host, m), body in zip(wanted, bodies, strict=True)]
-    return sorted(rows, key=lambda row: (not row.flags, row.number))
+    result = Plan([])
+    for host, mirror in wanted:
+        read: tuple[str, str] | None = None
+        if mirror.get("state", "open") == "open" and not offline and not result.stopped:
+            if result.reads >= budget:
+                result.stopped = f"forge read budget of {budget} reached"
+            elif forge_http.WATCH.remaining is not None and forge_http.WATCH.remaining < RATE_FLOOR:
+                result.stopped = f"rate limit: the forge reports {forge_http.WATCH.remaining} calls left (floor {RATE_FLOOR})"
+            else:
+                result.reads += 1
+                read = _body(config, ledger, mirror, int(mirror["number"]), use)
+        result.rows.append(_row(snapshot, host, mirror, read))
+    result.rows.sort(key=lambda row: (not row.flags, row.number))
+    return result
 
 
 def apply(config: Config, rows: list[Row]) -> int:

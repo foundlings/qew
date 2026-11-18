@@ -125,13 +125,32 @@ def header(headers: Mapping[str, str], name: str) -> str | None:
     return next((value for key, value in headers.items() if key.lower() == lowered), None)
 
 
+@dataclass
+class RateWatch:
+    """What this process has seen of the forge's quota: HTTP calls made, and the last `x-ratelimit-remaining` an answer carried."""
+
+    calls: int = 0
+    remaining: int | None = None
+
+
+WATCH = RateWatch()
+
+
+def _noted(response: HttpResponse) -> HttpResponse:
+    WATCH.calls += 1
+    left = header(response.headers, "x-ratelimit-remaining")
+    if left is not None and left.strip().isdigit():
+        WATCH.remaining = int(left)
+    return response
+
+
 def _timed(transport: Transport, request: HttpRequest) -> HttpResponse:
     if not trace.enabled():
-        return transport(request)
+        return _noted(transport(request))
     begun = time.perf_counter()
     status: object = "error"
     try:
-        response = transport(request)
+        response = _noted(transport(request))
         status = response.status
         return response
     finally:
