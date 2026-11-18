@@ -395,7 +395,7 @@ def _ledger_prefix(ledger: Path) -> str:
     version = data.get("schema_version", 1)
     if version not in SCHEMA_VERSIONS or isinstance(version, bool):
         raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version!r} is not supported by this qew "
-                       f"({', '.join(map(str, SCHEMA_VERSIONS))}); upgrade qew", 2)
+                       f"({', '.join(map(str, SCHEMA_VERSIONS))}); upgrade qew: in a qew checkout, `git pull` (or fetch the newest tag), then `sh scripts/install.sh`", 2)
     if version < WORKABLE_SCHEMA and not _old_layout_allowed:
         raise QewError(f"{ledger / LEDGER_FILE}: schema_version {version} is an older layout; run `qew migrate-layout` once to move "
                        f"it straight to schema_version {CURRENT_SCHEMA} (each item in items/ID/item.md, completed items with their evidence in the header)", 2)
