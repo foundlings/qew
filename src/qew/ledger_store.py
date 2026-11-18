@@ -22,6 +22,7 @@ from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, parse_event_trusted, valid_actor
 from qew.ledger_item import Item, clean_item_text, parse_item, raw_item_text, read_item_text, render_item
 from qew.jsontypes import JsonObject
+from qew.lazy_map import LazyMap
 from qew.ledger_ids import DEFAULT_MODES, event_id, next_id, parse_modes, sort_key
 
 SNAPSHOT_READERS = 16  # threads reading item and event files at once
@@ -352,7 +353,9 @@ class Ledger:
         if not ids:
             return earlier
         aliases = self.aliases()
-        items, folds, events = dict(earlier.items), dict(earlier.folds), dict(earlier.events)
+        items = dict(earlier.items)
+        new_events: dict[str, list[Event]] = {}
+        new_folds: dict[str, Folded] = {}
         for item_id in sorted(ids):
             if item_id not in items or item_id in aliases.superseded or aliases.of(item_id):
                 return None
@@ -363,9 +366,11 @@ class Ledger:
             raw = parse_item(clean_item_text(text, where), where)
             if raw.id != item_id:
                 return None
-            events[item_id] = self._events_of(item_id, [item_id], {item_id: self._event_rows(self.home(self.events_dir, item_id))})
-            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events[item_id])), aliases)
-            folds[item_id] = fold(events[item_id])
+            new_events[item_id] = self._events_of(item_id, [item_id], {item_id: self._event_rows(self.home(self.events_dir, item_id))})
+            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, new_events[item_id])), aliases)
+            new_folds[item_id] = fold(new_events[item_id])
+        events = earlier.events.updated(new_events) if isinstance(earlier.events, LazyMap) else {**earlier.events, **new_events}
+        folds = earlier.folds.updated(new_folds) if isinstance(earlier.folds, LazyMap) else {**earlier.folds, **new_folds}
         return Snapshot(self, items, folds, events)
 
     def _build(self, verify: bool) -> Snapshot:
@@ -377,6 +382,9 @@ class Ledger:
         items: dict[str, Item] = {}
         folds: dict[str, Folded] = {}
         events: dict[str, list[Event]] = {}
+        later_events: dict[str, Callable[[], list[Event]]] = {}
+        later_folds: dict[str, Callable[[], Folded]] = {}
+        event_map: LazyMap[list[Event]] | None = None
         for item_id in files.ids:
             where = str(self.item_path(item_id))
             if isinstance(files.texts[item_id], snapshot_cache.Unreadable):
@@ -384,10 +392,35 @@ class Ledger:
             raw = parse_item(clean_item_text(files.texts[item_id], where), where)
             if raw.id != item_id:
                 raise QewError(f"{where}: header id {raw.id} does not match the directory name", 1)
-            events[item_id] = self._events_of(item_id, files.homes[item_id], files.rows, files.trusted)
-            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events[item_id])), files.aliases)
-            folds[item_id] = fold(events[item_id])
-        return Snapshot(self, items, folds, events)
+            homes = files.homes[item_id]
+            if all(home in files.trusted for home in homes):
+                # the cache validated these events when they entered it: only the edge events make the needs, the rest waits for a reader
+                needs = needs_after(raw.needs, self._edge_events(homes, files.rows, files.trusted))
+                later_events[item_id] = lambda item_id=item_id, homes=homes: self._events_of(item_id, homes, files.rows, files.trusted)  # type: ignore[misc]  # bound per item
+                later_folds[item_id] = lambda item_id=item_id: fold(cast(LazyMap[list[Event]], event_map)[item_id])  # type: ignore[misc]  # bound per item
+            else:
+                events[item_id] = self._events_of(item_id, homes, files.rows, files.trusted)
+                needs = needs_after(raw.needs, events[item_id])
+                folds[item_id] = fold(events[item_id])
+            items[item_id] = ledger_aliases.canonical_item(replace(raw, needs=needs), files.aliases)
+        if not later_events:
+            return Snapshot(self, items, folds, events)
+        event_map = LazyMap(list(files.ids), events, later_events)
+        return Snapshot(self, items, LazyMap(list(files.ids), folds, later_folds), event_map)
+
+    def _edge_events(self, homes: list[str], rows: Mapping[str, snapshot_cache.Rows], trusted: frozenset[str]) -> list[Event]:
+        """The `edge` events of an item's directories, parsing only the files whose text can be one (the rest are not looked at)."""
+        found: list[Event] = []
+        seen: set[str] = set()
+        for home in homes:
+            for name, text in rows.get(home, []):
+                if name in seen or isinstance(text, snapshot_cache.Unreadable) or '"edge"' not in text:
+                    continue
+                seen.add(name)
+                event = parse_event_trusted(name, text)
+                if event.type == "edge":
+                    found.append(event)
+        return found
 
     def cache_mismatches(self) -> int:
         """How many entries the last verifying snapshot found different from the files."""
@@ -595,8 +628,8 @@ class Ledger:
 class Snapshot:
     ledger: Ledger
     items: dict[str, Item]
-    folds: dict[str, Folded]
-    events: dict[str, list[Event]]
+    folds: Mapping[str, Folded]  # a LazyMap on a cached ledger: an item is folded when first read
+    events: Mapping[str, list[Event]]
 
     def short(self, item_id: str) -> str:
         return item_id
