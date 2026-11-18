@@ -136,6 +136,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     merge.add_argument("--other-author", action="store_true", help="merge a pull request someone else opened (needs --reason)")
     merge.add_argument("--reason", help=_REASON_HELP)
     merge.add_argument("--check", action="store_true", help="run every refusal the merge would apply, then stop: merges and writes nothing, exits as the merge would")
+    merge.add_argument("--ledger-only", action="store_true", help="with --check: judge from the ledger and the local checkout alone, never the forge (works offline; several numbers are one union)")
     merge.add_argument("--json", action="store_true", help="machine-readable output")
 
 
@@ -189,6 +190,8 @@ def run(arguments: argparse.Namespace) -> bool:
         print(pr_union.union(config, arguments))
     else:
         merge_options = MergeOptions(arguments.auto, arguments.admin, arguments.other_author, arguments.reason, arguments.check)
+        if arguments.ledger_only:
+            return _ledger_only(config, arguments, merge_options)
         if len(arguments.number) > 1:
             from qew import pr_batch  # imports this module for the single-merge pieces
 
@@ -197,6 +200,31 @@ def run(arguments: argparse.Namespace) -> bool:
         if arguments.check:
             return _report_check(arguments, merge_check(config, arguments.number, arguments.target, merge_options))
         print(merge_pull_request(config, arguments.number, arguments.target, merge_options).render(arguments.json))
+    return True
+
+
+def _ledger_only(config: Config, arguments: argparse.Namespace, options: MergeOptions) -> bool:
+    """`pr merge N [M ...] --check --ledger-only`: the bookkeeping refusals from the ledger alone; exit code of the first refusal."""
+    from qew import pr_preflight  # imports this module for the loading pieces
+
+    if not options.check:
+        raise QewError("--ledger-only judges without merging: pass it with --check", 2)
+    numbers = list(dict.fromkeys(arguments.number))
+    verdict = pr_preflight.check(config, numbers, arguments.target, _merge_options(options) if options.other_author else "")
+    shown = ", ".join(f"#{n}" for n in numbers)
+    if arguments.json:
+        print(verdict.render_json())
+    elif not verdict.refusals:
+        print(f"pr {shown}: qew merge preflight passed (ledger-only: no forge was read, so draft, conflicts and checks are not judged); nothing was merged")
+    for warning in verdict.warnings:
+        print(f"qew: warning: {warning}", file=sys.stderr)
+    if verdict.refusals:
+        first = verdict.refusals[0]
+        if arguments.json:
+            raise SystemExit(first.exit_code)
+        for refusal in verdict.refusals[1:]:
+            print(f"qew: {refusal.line()}", file=sys.stderr)
+        raise QewError(first.line(), first.exit_code)
     return True
 
 

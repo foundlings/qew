@@ -1,0 +1,136 @@
+"""`qew pr merge N [M ...] --check --ledger-only`: every bookkeeping refusal a merge would raise, from the ledger alone.
+
+No forge is built or called, so it works offline and without a token; it writes nothing. A harness runs it before a long
+gate. The several numbers are one union: they never conflict with each other. Every refusal is collected with the command
+that fixes it.
+"""
+
+import json
+from dataclasses import asdict, dataclass, field
+
+from qew import code_vcs, pr_gate, pr_record, remote_options
+from qew.cmd_items import ledger_for
+from qew.errors import QewError
+from qew.ledger_config import Config
+from qew.ledger_event import State
+from qew.ledger_item import Kind
+from qew.ledger_store import Snapshot, actor
+from qew.mirror_types import MirrorRecord
+from qew.pr_record import PrRecord
+
+SCHEMA_VERSION = 1
+
+
+@dataclass(frozen=True)
+class Finding:
+    message: str
+    fix: str
+    item: str
+    pr: int
+    exit_code: int
+
+    def line(self) -> str:
+        return f"pr #{self.pr}: {self.message}" + (f" (fix: {self.fix})" if self.fix else "")
+
+
+@dataclass
+class Verdict:
+    refusals: list[Finding] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    def render_json(self) -> str:
+        return json.dumps({"mergeable": not self.refusals, "refusals": [asdict(r) for r in self.refusals],
+                           "warnings": self.warnings, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+
+
+def check(config: Config, numbers: list[int], target: str | None, reason: str = "") -> Verdict:
+    """The verdict for these pull requests merged together."""
+    ledger = ledger_for(config)
+    snapshot = ledger.snapshot()
+    verdict = Verdict()
+    records: list[PrRecord] = []
+    for number in numbers:
+        try:
+            pr_record.positive_number(number)
+            records.append(pr_record.find(ledger, number, target))
+        except QewError as error:
+            verdict.refusals.append(Finding(str(error), "", "", number, error.exit_code))
+    states: dict[str, State] = {}
+    for record in records:
+        states |= _one(config, snapshot, record, set(numbers), reason, verdict)
+    _children(snapshot, records, states, verdict)
+    return verdict
+
+
+def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, State], verdict: Verdict) -> None:
+    """Claimed covered items with open children no member covers: the union is judged as one pull request."""
+    if not records:
+        return
+    first = records[0]
+    union = PrRecord(first.host, first.number, first.mirror_file, first.target, first.opener, tuple(dict.fromkeys(i for r in records for i in r.items)))
+    owner = {item_id: record.number for record in reversed(records) for item_id in record.items}
+    for item_id, blocking in pr_gate.open_children(snapshot, union, {i: s for i, s in states.items() if i in union.items}).items():
+        verdict.refusals.append(Finding(
+            f"cannot merge half-done work: {item_id} has open children {' '.join(blocking)}",
+            f"qew pr check {owner[item_id]} --add {' '.join(blocking)}  (cover them), or finish them first", item_id, owner[item_id], 2))
+
+
+def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], reason: str, verdict: Verdict) -> dict[str, State]:
+    number = record.number
+    mirror: MirrorRecord | dict[str, object] = next((m for m in snapshot.ledger.load_mirrors(record.host) if m["_target"] == record.mirror_file), {})
+    if mirror.get("state", "open") in ("merged", "closed"):
+        verdict.refusals.append(Finding(f"is {mirror['state']}; it cannot merge", "", "", number, 2))
+        return {}
+    try:
+        states = pr_record.known_states(snapshot, record)
+        pr_record.require_owner(snapshot, record, states, actor(), reason, merging=True)
+    except QewError as error:
+        verdict.refusals.append(Finding(str(error), "", "", number, error.exit_code))
+        return {}
+    held = pr_record.drafts(states)
+    if held:
+        verdict.refusals.append(Finding(f"is held: {' '.join(held)} is a draft, so it cannot merge until a human releases it", f"qew draft approve {' '.join(held)} --quote ...", held[0], number, 2))
+    for item_id in record.items:
+        others = [n for n in _covering(snapshot, item_id) if n not in union]
+        if others and states[item_id] not in pr_record.CLOSED_STATES:
+            verdict.refusals.append(Finding(
+                f"{item_id} is also covered by open pull request {' '.join('#' + str(n) for n in others)}; two pull requests would both finish it",
+                f"qew pr check {number} --drop {item_id} --reason TEXT, or merge them together (`qew pr merge {number} {' '.join(map(str, others))}`)",
+                item_id, number, 2))
+    _evidence(config, snapshot, record, mirror.get("head"), states, verdict)
+    return states
+
+
+def _covering(snapshot: Snapshot, item_id: str) -> list[int]:
+    """Numbers of the recorded pull requests that are not finished (drafts included) and cover `item_id`."""
+    found: list[int] = []
+    for host in snapshot.ledger.item_ids():
+        for mirror in snapshot.ledger.load_mirrors(host):
+            if mirror.get("kind") != "pr" or mirror.get("state", "open") in ("merged", "closed"):
+                continue
+            number = mirror.get("number")
+            if item_id in mirror.get("items", [host]) and isinstance(number, int):
+                found.append(number)
+    return sorted(set(found))
+
+
+def _evidence(config: Config, snapshot: Snapshot, record: PrRecord, head: object, states: dict[str, State], verdict: Verdict) -> None:
+    """Delivered items need evidence covering the head; the head is read from the local checkout, never the forge."""
+    delivering = [i for i in pr_gate.delivering(states, record) if snapshot.items[i].kind != Kind.EPIC]
+    if not delivering:
+        return
+    remote = remote_options.selected()
+    resolved = code_vcs.run_git(config.root, "rev-parse", "--verify", "--quiet", f"refs/remotes/{remote}/{head}^{{commit}}") if isinstance(head, str) and head else None
+    sha = resolved.stdout.strip() if resolved is not None and resolved.returncode == 0 else ""
+    if not sha:
+        verdict.warnings.append(f"pr #{record.number}: head {head} is not fetched in this checkout; evidence on the head was not checked")
+        return
+    for item_id in delivering:
+        try:
+            covered = pr_gate.evidence_covers(config, snapshot.folds[item_id].evidence, sha)
+        except QewError as error:
+            verdict.refusals.append(Finding(str(error), "", item_id, record.number, error.exit_code))
+            continue
+        if not covered:
+            verdict.refusals.append(Finding(f"head {sha[:12]} is not covered by recorded evidence of {item_id}",
+                                            f"qew evidence {item_id} --change CHANGE", item_id, record.number, 2))

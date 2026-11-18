@@ -84,8 +84,8 @@ class PreflightWalk(unittest.TestCase):
         """Prevents the union's own members, each listing the shared item, refusing the union they form."""
         self.second_pull_covering(self.root)
         run = self.check("1", "2")
-        self.assertNotIn("covers", run.err.replace("covers only", ""), run)
-        self.assertNotIn("also covered", run.err, run)
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(self.check("1").code, 2)  # the same item judged without its union partner is a conflict
 
     def test_ledger_only_without_check_is_refused(self) -> None:
         """Prevents a merge being attempted by a flag that promises no forge use."""
