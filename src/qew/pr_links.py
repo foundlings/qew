@@ -184,3 +184,8 @@ def hostless(ledger: Ledger) -> list[tuple[str, dict[str, object]]]:
             if record is not None:
                 found.append((directory.name, {"kind": "pr", **record, "_target": directory.name}))
     return found
+
+
+def event_types(ledger: Ledger, key: str) -> list[str]:
+    """The types of the pull request's events, in id order."""
+    return [str(event["type"]) for _, event in _events(ledger, key)]
