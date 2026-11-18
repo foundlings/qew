@@ -8,6 +8,7 @@ shipped without a claim is closed with `close --delivered-by`, under the same la
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from qew import claim_reconcile, code_vcs, complete_batch, evidence_batch, evidence_resolve, ledger_graph, manifest_rows, outcome
@@ -18,7 +19,7 @@ from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import CLOSE_REASONS, State
-from qew.ledger_item import Kind, absence_problem
+from qew.ledger_item import MAX_EVIDENCE_IDS, Kind, absence_problem
 from qew.ledger_store import Ledger, Snapshot, actor
 from qew.requester import require_quote
 
@@ -33,6 +34,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     evidence.add_argument("--dry-run", action="store_true", help="with --manifest: say what would be recorded and write nothing")
     evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
     evidence.add_argument("--vcs", choices=["jj", "git"], help="override the detected VCS")
+    evidence.add_argument("--repair", action="store_true", help="on a COMPLETED item: replace the proof it shows with the named --change ids, which must be on the target branch")
     evidence.add_argument("--on-behalf-of", metavar="ACTOR", help="record the evidence for a claim ACTOR holds (the integrator citing an elf's change); both actors are recorded, the claim does not move")
     complete = commands.add_parser("complete", help="finish claimed work once the gate passes")
     complete.add_argument("item", nargs="?", help="item id or alias (not with --manifest)")
@@ -85,7 +87,7 @@ def run(arguments: argparse.Namespace) -> bool:
             raise QewError("give ITEM, or --manifest FILE", 2)
         if arguments.dry_run:
             raise QewError("--dry-run belongs to --manifest", 2)
-        print(evidence(config, arguments.item, arguments.change, arguments.vcs, arguments.on_behalf_of))
+        print(evidence(config, arguments.item, arguments.change, arguments.vcs, arguments.on_behalf_of, arguments.repair))
         return True
     if arguments.command == "complete" and arguments.manifest:
         if arguments.item or arguments.take_over or arguments.no_commit or arguments.reason or arguments.landed_on:
@@ -187,8 +189,35 @@ def evidence_manifest(config: Config, manifest: Path, dry_run: bool) -> str:
     return evidence_batch.summary(batch, "would record" if dry_run else "recorded")
 
 
-def evidence(config: Config, reference: str, changes: list[str], vcs: str | None, on_behalf_of: str | None = None) -> str:
+def _repair_evidence(config: Config, ledger: Ledger, snapshot: Snapshot, item_id: str, changes: list[str], vcs: str | None) -> str:
+    """`evidence --repair`: new proof for a completed item. Plain evidence is refused after completion, so proof that was wrong (a
+    rewritten git hash) could only be fixed by reopening; the named changes must be on the target branch, the old events stay as history,
+    and the header shows the new ids."""
+    if snapshot.folds[item_id].state != State.COMPLETED:
+        raise QewError(f"cannot repair the evidence of {item_id}: it is not completed (record plain evidence with `qew evidence {item_id} --change ID`)", 2)
+    if not changes:
+        raise QewError("--repair needs --change ID: it replaces the proof with the changes you name, never the current one", 2)
+    kind = vcs or code_vcs.detect(config.root)
+    landed: list[str] = []
+    for change in changes:
+        if not code_vcs.valid_change(kind, change):
+            raise QewError(f"`{change}` is not a {kind} change id", 2)
+        where, _ = code_vcs.landing(config.root, kind, change, config.target)
+        if where != Landing.LANDED:
+            raise QewError(f"`{change}` is {where.value} {config.target}; repaired evidence must be an ancestor of it", 2)
+        landed.append(change)
+    ledger.append_event(item_id, "evidence", vcs=kind, change_ids=landed, repo=code_vcs.repository_url(config.root), repair=True)
+    item = ledger.load_item(item_id)
+    ledger.write_item(replace(item, evidence=tuple(landed[:MAX_EVIDENCE_IDS]), evidence_absent=""), overwrite=True)
+    return f"{item_id} evidence repaired: {kind} {' '.join(landed)}"
+
+
+def evidence(config: Config, reference: str, changes: list[str], vcs: str | None, on_behalf_of: str | None = None, repair: bool = False) -> str:
     ledger, snapshot, item_id = _load(config, reference)
+    if repair:
+        return _repair_evidence(config, ledger, snapshot, item_id, changes, vcs)
+    if snapshot.folds[item_id].state == State.COMPLETED:
+        raise QewError(f"cannot record evidence for {item_id}: it is completed; to replace the proof it shows, `qew evidence {item_id} --change CHANGE --repair`", 2)
     if snapshot.folds[item_id].state not in (State.APPROVED, State.CLAIMED):
         raise _refuse(snapshot, item_id, "record evidence for", "an approved or claimed item")
     folded = snapshot.folds[item_id]

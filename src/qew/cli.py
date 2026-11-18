@@ -197,6 +197,8 @@ def _parser(modules: Sequence[str] = _MODULES) -> argparse.ArgumentParser:
 
     check = commands.add_parser("check", help="validate the ledger: schema, cycles, dangling needs, illegal state")
     check.add_argument("--json", action="store_true", help="machine-readable report: valid, cycles, contradictions, text_findings")
+    check.add_argument("--stale-claims", action="store_true", help="instead of the validation: list claimed items with no open pull request, no commit citing them and no ledger activity in --hours")
+    check.add_argument("--hours", type=float, default=24.0, help="with --stale-claims: the window of activity that keeps a claim off the list (default 24)")
 
     draft = commands.add_parser("draft", help="drafts and their release by a human")
     draft_commands = draft.add_subparsers(dest="draft_command", required=True)
@@ -329,6 +331,18 @@ def _run(arguments: argparse.Namespace) -> None:
                   or f"{' '.join(arguments.items)} unchanged")
     elif command == "check":
         ledger = cmd_items.ledger_for(config)
+        if arguments.stale_claims:
+            from qew import stale_claim_report
+
+            rows = stale_claim_report.stale(config, ledger.snapshot(), arguments.hours)
+            if arguments.json:
+                print(json.dumps({"stale_claims": [row.__dict__ for row in rows], "hours": arguments.hours, "schema_version": 1}))
+            else:
+                print("\n".join([f"{len(rows)} claimed item(s) with no open pull request, citing commit or ledger activity in {arguments.hours:g} h",
+                                  *(f"{row.item} {row.kind} {row.owner} idle {row.hours:g} h (last {row.last}): {row.title}" for row in rows)]))
+            return
+        if arguments.hours != 24.0:
+            raise QewError("--hours goes with --stale-claims", 2)
         if arguments.json:
             report = ledger_check.analyse(ledger, resolve=evidence_resolve.resolver(config))
             print(json.dumps(report.as_json()))

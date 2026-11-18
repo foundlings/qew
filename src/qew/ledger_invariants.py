@@ -8,7 +8,7 @@ from qew.ledger_store import Snapshot
 
 MAX_NEEDS_DEPTH = 30  # a longer chain is a warning: real corpora chain deeper
 AREA = "area:"
-_ORPHAN = "belongs to no item"
+ORPHAN = "belongs to no item"
 
 
 def _areas(labels: Iterable[str]) -> frozenset[str]:
@@ -72,7 +72,7 @@ def closed_needs(snapshot: Snapshot) -> list[str]:
 
 def report(snapshot: Snapshot, problems: list[str], notes: list[str]) -> None:
     """Add the invariant problems (and the counts line) to `problems`; a deep chain is only a warning in `notes`."""
-    orphans = sum(1 for problem in problems if problem.endswith(_ORPHAN))
+    orphans = sum(1 for problem in problems if problem.endswith(ORPHAN))
     cross_found, closed_found, deep_found = cross_parent(snapshot), closed_needs(snapshot), deep_needs(snapshot)
     problems.extend(cross_found)
     problems.extend(closed_found)

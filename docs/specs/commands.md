@@ -123,6 +123,7 @@ shape prime: additional_context context_bytes schema_version
   child completed or closed) with `complete_command` `qew complete ID`. A draft epic prints `(draft plan)`. Text
   is `ID state title` then `N/M closed` (`, K drafts` only when K > 0). A non-epic or unknown id is exit 2; a
   dangling need or illegal event order is exit 1 with no rollup. `--json` has `schema_version` 1.
+- `qew check --stale-claims [--hours N] [--json]`: instead of the validation, the claimed items no one is visibly working (the claim identity is shared, so `claimed` proves no worker): no open pull request (a draft counts) covers the item, no commit in the last N hours (default 24) cites it in a `Refs:` trailer (`git log --all`), and neither it nor any descendant has a ledger event in that window. One line per item, longest idle first (`ID kind owner idle H h (last TIME): title`), `--json`: `{stale_claims: [{item, kind, owner, title, last, hours}], hours, schema_version}`. Read-only: no forge. `--hours` without `--stale-claims` is exit 2.
 - `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors, reserved labels. Graph invariants, each named with its file and counted on a final
   `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history or mirrors
@@ -134,7 +135,7 @@ shape prime: additional_context context_bytes schema_version
   `text_findings` (hidden or confusable text in titles, bodies, labels and comments). `--json` prints
   `schema_version`, `valid`, `cycles` (each once, rotated to the smallest id, closed on it), `contradictions`,
   `text_findings`, `problems`.
-
+ An item or event directory that shows before its item file (a create, or a merge of another checkout's commits, halfway) is not reported at once: while every problem is of that kind the check reads again, for at most 10 s, and reports what is still there.
 - `qew inbox [--login L] [--since T] [--count] [--json]`: what waits on one person, from the ledger only.
   Text sections with counts: `replies (N) since T` (one line per reply: `ID @author time: excerpt`, first line
   only, control characters as spaces, at most 100 characters with an ellipsis), `waiting for a human (N)`
@@ -385,6 +386,7 @@ use `--depth 200` or less, or `qew graph ROOT --json` for the flat graph. Totals
   changes landed is `qew complete`'s check, as with the single form. A row may also name a completed item whose header says
   `evidence_absent: historical` (or that has ids): the evidence is recorded and the header gets the ids, replacing the historical
   absence (recovered proof); other stated absences are refused.
+- `qew evidence ITEM --change ID... --repair [--vcs jj|git]`: new proof for a COMPLETED item, which plain `qew evidence` refuses (exit 2, naming `--repair`). Needs `--change` (never the current change), each change must be on the target branch (else exit 2: repaired evidence must be an ancestor of it); a repair writes an `evidence` event marked `repair: true` (the old events stay as history) and the item's header then shows the new ids. A not-completed item is exit 2.
 - `qew evidence ITEM [--change ID]... [--vcs jj|git] [--on-behalf-of ACTOR]`: record the code changes; default is the current one. Evidence on a claimed item needs the claim (or its epic's). `--on-behalf-of ACTOR` lets another actor (the integrator) record it for a claim ACTOR really holds (the item or its epic; a claim nobody holds, another holder, or oneself is refused, exit 3 / 2): the event records the recording actor and `on_behalf_of`; the claim does not move and `complete` stays the holder's.
 - `qew complete --manifest FILE --quote "Name: 'their words'" [--dry-run]`: complete many approved items in one commit on a human's
   quote, without claims or evidence. FILE is JSON Lines of `{item, change_ids?, absent?, reason?}`: strict ledgers need `change_ids` (the work's changes) or `absent` (no-code, historical, children or superseded-by:ITEM, with a `reason`) on every row. Every row is checked before the first write and one
