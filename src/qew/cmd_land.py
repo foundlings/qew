@@ -4,14 +4,15 @@ import argparse
 from dataclasses import dataclass, field
 from typing import Literal, TypedDict, cast
 
-from qew import cmd_claim, cmd_finish, pr_block, pr_land, pr_links, code_vcs, ledger_config, outcome, pr_checklist, pr_gate, pr_unticked
+from qew import cmd_claim, pr_record, remote_options, cmd_finish, pr_block, pr_land, pr_links, code_vcs, ledger_config, outcome, pr_checklist, pr_gate, pr_unticked
 from qew.cmd_pr import Build, Loaded, forge_errors, load
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 from qew.ledger_config import Config
 from qew.ledger_event import State
 from qew.ledger_item import Kind
-from qew.ledger_store import actor
+from qew.cmd_items import ledger_for
+from qew.ledger_store import Ledger, actor
 from qew.pr_record import positive_number
 
 
@@ -21,6 +22,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     land.add_argument("--target", help="mirror target (slug or unique part)")
     land.add_argument("--integrator", action="store_true", help="land the items another actor claimed too, as the one who merged (needs --reason)")
     land.add_argument("--reason", help="with --integrator: why the merger lands them, recorded on each item")
+    land.add_argument("--offline", action="store_true", help="schema 9: land from the ledger and this checkout alone, no forge (merged = the head is an ancestor of the target)")
+    land.add_argument("--head", help="with --offline: the pull request's head commit (default: its recorded branch, looked up locally)")
     land.add_argument("--json", action="store_true", help="machine-readable output")
 
 
@@ -31,7 +34,12 @@ def run(arguments: argparse.Namespace) -> bool:
     if len(arguments.number) > 1:
         _batch(config, arguments)
         return True
-    result = land(config, arguments.number[0], arguments.target, integrator=arguments.integrator, reason=arguments.reason)
+    if arguments.head and not arguments.offline:
+        raise QewError("--head only goes with --offline", 2)
+    if arguments.offline:
+        result = _land_offline(config, arguments.number[0], arguments.target, arguments.integrator, arguments.reason, arguments.head)
+    else:
+        result = land(config, arguments.number[0], arguments.target, integrator=arguments.integrator, reason=arguments.reason)
     if arguments.json:
         print(outcome.render(arguments, "", state=result.state, landed=result.landed, held=result.held,
                              clean=result.clean, open=result.open))
@@ -185,6 +193,55 @@ def land(config: Config, number: int, target: str | None, build: Build | None = 
         everything_done = bool(result.clean) and len(result.clean) == len(completing) + len(boxed)
         result.lines.append("nothing to land: all covered items complete" if everything_done else "nothing to land")
     return result
+
+
+def _land_offline(config: Config, number: int, target: str | None, integrator: bool, reason: str | None, head: str | None) -> Landing:
+    """`qew land N --offline`: what a merge left to land, judged with no forge at all. The pull request counts as merged when its head is
+    an ancestor of the target branch in this checkout; the head is named, or read from the recorded branch."""
+    positive_number(number)
+    _options(integrator, reason)
+    ledger = ledger_for(config)
+    if ledger.schema < pr_links.LINKS_SCHEMA:
+        raise QewError("--offline needs a schema 9 ledger: before it, landing reads the pull request from its forge", 2)
+    record = pr_record.find(ledger, number, target)
+    declaration = pr_links.load(ledger, record.mirror_file)
+    if not declaration.declared:
+        raise QewError(f"pr #{number} has no link declaration, so nothing says what its merge completes: `qew pr link {number} --closes ITEM...` (or `--no-item REASON`), or `qew pr migrate {number}`", 2)
+    sha = head or _local_head(config, ledger, record)
+    vcs = code_vcs.detect(config.root)
+    if not code_vcs.valid_change(vcs, sha):
+        raise QewError(f"`{sha}` is not a {vcs} commit id", 2)
+    where, _ = code_vcs.landing(config.root, vcs, sha, config.target)
+    if where == code_vcs.Landing.UNKNOWN:
+        raise QewError(f"pr #{number}: head {sha[:12]} is unknown to this checkout (fetch it, or name the right commit with --head)", 4)
+    if where != code_vcs.Landing.LANDED:
+        raise QewError(f"pr #{number}: head {sha[:12]} is not an ancestor of {config.target} in this checkout, so it is not merged here (fetch, then run this again)", 2)
+    member = pr_land.Member(record, sha, declaration)
+    own = {number: pr_land._own(config, member, "")}
+    report = pr_land.land(config, [member], "", own, reason if integrator else None)
+    pr_record.update_mirror(ledger, record, state="merged")
+    result = Landing()
+    result.lines += report.lines or ["nothing to land"]
+    result.landed += [item_id for _, item_id, _ in report.completed]
+    result.clean += report.clean
+    for held in report.pending:
+        if held.kind == "held":
+            result.held.append({"id": held.item, "holder": held.holder})
+        else:
+            result.open.append(held.item)
+        result.failures += held.kind == "failed"
+    return result
+
+
+def _local_head(config: Config, ledger: Ledger, record: pr_record.PrRecord) -> str:
+    mirror = pr_record.mirror_of(ledger, record)
+    branch = str(mirror.get("head", "")) if mirror else ""
+    if branch and code_vcs.valid_branch(branch):
+        for ref in (f"refs/remotes/{remote_options.selected()}/{branch}", f"refs/heads/{branch}"):
+            found = code_vcs.run_git(config.root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+            if found.returncode == 0 and found.stdout.strip():
+                return found.stdout.strip()
+    raise QewError(f"pr #{record.number}: its head branch `{branch}` is not in this checkout; name the commit with --head SHA", 4)
 
 
 def _land_declared(config: Config, loaded: Loaded, head_sha: str, merge_sha: str, number: int, build: Build | None, integrator: bool,
