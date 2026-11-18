@@ -7,6 +7,7 @@ that fixes it.
 
 import json
 from dataclasses import asdict, dataclass, field
+from typing import TypedDict
 
 from qew import code_vcs, pr_gate, pr_record, remote_options
 from qew.cmd_items import ledger_for
@@ -20,6 +21,16 @@ from qew.pr_links import LINKS_SCHEMA
 from qew.pr_record import PrRecord
 
 SCHEMA_VERSION = 1
+
+
+class Unioned(TypedDict):
+    """What the pull requests being merged together close, leave open and relate to; rows are `{item, pr}` plus `why` or `reason`."""
+
+    closes: list[dict[str, object]]
+    remains: list[dict[str, object]]
+    related: list[dict[str, object]]
+    no_item: list[dict[str, object]]
+    undeclared: list[int]
 
 
 @dataclass(frozen=True)
@@ -38,10 +49,14 @@ class Finding:
 class Verdict:
     refusals: list[Finding] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    union: Unioned | None = None  # what the pull requests close, leave and relate to (schema 9 only)
 
     def render_json(self) -> str:
-        return json.dumps({"mergeable": not self.refusals, "refusals": [asdict(r) for r in self.refusals],
-                           "warnings": self.warnings, "schema_version": SCHEMA_VERSION}, sort_keys=True)
+        body: dict[str, object] = {"mergeable": not self.refusals, "refusals": [asdict(r) for r in self.refusals],
+                                   "warnings": self.warnings, "schema_version": SCHEMA_VERSION}
+        if self.union is not None:
+            body["union"] = self.union
+        return json.dumps(body, sort_keys=True)
 
 
 def check(config: Config, numbers: list[int], target: str | None, reason: str = "") -> Verdict:
@@ -56,10 +71,16 @@ def check(config: Config, numbers: list[int], target: str | None, reason: str = 
             records.append(pr_record.find(ledger, number, target))
         except QewError as error:
             verdict.refusals.append(Finding(str(error), "", "", number, error.exit_code))
+    declared = ledger.schema >= LINKS_SCHEMA
     states: dict[str, State] = {}
     for record in records:
-        states |= _one(config, snapshot, record, set(numbers), reason, verdict)
-    _children(snapshot, records, states, verdict)
+        states |= _one(config, snapshot, record, set(numbers), reason, verdict, declared)
+    if declared:
+        from qew import pr_preflight_declared  # judges with this module's Verdict
+
+        pr_preflight_declared.judge(snapshot, records, verdict)
+    else:
+        _children(snapshot, records, states, verdict)
     return verdict
 
 
@@ -86,7 +107,7 @@ def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, Sta
             else f"{cover_command(snapshot, owner[item_id], blocking)}  (cover them), or finish them first", item_id, owner[item_id], 2))
 
 
-def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], reason: str, verdict: Verdict) -> dict[str, State]:
+def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], reason: str, verdict: Verdict, declared: bool = False) -> dict[str, State]:
     number = record.number
     mirror: MirrorRecord | dict[str, object] = next((m for m in snapshot.ledger.load_mirrors(record.host) if m["_target"] == record.mirror_file), {})
     if mirror.get("state", "open") in ("merged", "closed"):
@@ -101,7 +122,7 @@ def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], 
     held = pr_record.drafts(states)
     if held:
         verdict.refusals.append(Finding(f"is held: {' '.join(held)} is a draft, so it cannot merge until a human releases it", f"qew draft approve {' '.join(held)} --quote ...", held[0], number, 2))
-    for item_id in record.items:
+    for item_id in () if declared else record.items:
         others = [n for n in _covering(snapshot, item_id) if n not in union]
         if others and states[item_id] not in pr_record.CLOSED_STATES:
             verdict.refusals.append(Finding(

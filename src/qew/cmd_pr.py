@@ -222,7 +222,7 @@ def run(arguments: argparse.Namespace) -> bool:
 
 def _ledger_only(config: Config, arguments: argparse.Namespace, options: MergeOptions) -> bool:
     """`pr merge N [M ...] --check --ledger-only`: the bookkeeping refusals from the ledger alone; exit code of the first refusal."""
-    from qew import pr_preflight  # imports this module for the loading pieces
+    from qew import pr_preflight, pr_preflight_declared  # import this module for the loading pieces
 
     if not options.check:
         raise QewError("--ledger-only judges without merging: pass it with --check", 2)
@@ -231,6 +231,8 @@ def _ledger_only(config: Config, arguments: argparse.Namespace, options: MergeOp
     shown = ", ".join(f"#{n}" for n in numbers)
     if arguments.json:
         print(verdict.render_json())
+    elif len(numbers) > 1 and verdict.union is not None:
+        print("\n".join(pr_preflight_declared.summary(verdict, numbers)))
     elif not verdict.refusals:
         print(f"pr {shown}: qew merge preflight passed (ledger-only: no forge was read, so draft, conflicts and checks are not judged); nothing was merged")
     for warning in verdict.warnings:
