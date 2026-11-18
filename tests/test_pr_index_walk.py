@@ -22,8 +22,7 @@ class IndexWalk(unittest.TestCase):
     def setUp(self) -> None:
         self.w = PrWorld()
         self.addCleanup(self.w.close)
-        for n in range(FILLER):
-            self.w.item(f"Filler {n}", claim=False)
+        self.fillers = {self.w.item(f"Filler {n}", claim=False) for n in range(FILLER)}
         self.numbers: list[int] = []
         for n in range(1, 7):
             item = self.w.item(f"Work {n}")
@@ -31,33 +30,34 @@ class IndexWalk(unittest.TestCase):
             self.assertEqual(self.w.open(item).code, 0)
             self.numbers.append(n)
 
-    def mirror_loads(self, *argv: str, forge: object = None) -> int:
-        calls = 0
+    def loads(self, *argv: str, forge: object = None) -> dict[str, int]:
+        """How many times each item's mirrors were loaded while `qew ARGV` ran."""
+        per_item: dict[str, int] = {}
         real = Ledger.load_mirrors
 
         def counted(ledger: Ledger, item_id: str):  # type: ignore[no-untyped-def]
-            nonlocal calls
-            calls += 1
+            per_item[item_id] = per_item.get(item_id, 0) + 1
             return real(ledger, item_id)
 
         with mock.patch.object(Ledger, "load_mirrors", counted):
             run = self.w.qew(*argv, forge=forge)  # type: ignore[arg-type]
         self.assertIn(run.code, (0, 2), run)  # a refusal is fine: the cost is what is measured
-        return calls
+        return per_item
 
-    def test_ledger_only_check_loads_mirrors_once_per_item_however_many_pull_requests(self) -> None:
-        """Prevents the per-pull-request rescan that made a 26-PR union take 373 s: six numbers must cost about what one does."""
-        one = self.mirror_loads("pr", "merge", "1", "--check", "--ledger-only", forge=NoForge())
-        six = self.mirror_loads("pr", "merge", *map(str, self.numbers), "--check", "--ledger-only", forge=NoForge())
-        self.assertLess(six, one * 2, f"one number loaded mirrors {one} times, six numbers {six}: the cost grows with the PR count")
+    def test_ledger_only_check_loads_each_pull_request_host_a_bounded_number_of_times(self) -> None:
+        """Prevents the per-pull-request rescan that made a 26-PR union take 373 s: no item's mirrors are loaded once per number,
+        and items that host no pull request are never loaded at all."""
+        six = self.loads("pr", "merge", *map(str, self.numbers), "--check", "--ledger-only", forge=NoForge())
+        self.assertLessEqual(max(six.values()), 3, six)
+        self.assertEqual([n for n in six if n in self.fillers], [], "an item that hosts no pull request had its mirrors loaded")
 
     def test_forge_check_shares_the_same_index(self) -> None:
         """Prevents the forge-reading --check rescanning the ledger per pull request (218 s for 26)."""
         for number in self.numbers:
             self.w.qew("pr", "ready", str(number))
-        one = self.mirror_loads("pr", "merge", "1", "--check")
-        six = self.mirror_loads("pr", "merge", *map(str, self.numbers), "--check")
-        self.assertLess(six, one * 2, f"one number loaded mirrors {one} times, six numbers {six}")
+        six = self.loads("pr", "merge", *map(str, self.numbers), "--check")
+        self.assertLessEqual(max(six.values()), 3, six)
+        self.assertEqual([n for n in six if n in self.fillers], [])
 
 
 if __name__ == "__main__":

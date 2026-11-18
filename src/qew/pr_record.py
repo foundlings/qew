@@ -4,6 +4,7 @@ The forge's text is never the source of either fact; both come from the `pr` mir
 wrote after the forge accepted the open.
 """
 
+import os
 from collections import deque
 from dataclasses import dataclass
 from typing import cast
@@ -13,6 +14,7 @@ from qew.errors import NotFound, QewError
 from qew.ledger_event import State
 from qew.ledger_graph import children
 from qew.ledger_item import Kind
+from qew import ledger_layout, ledger_store
 from qew.ledger_store import Ledger, Snapshot
 
 CLOSED_STATES = (State.COMPLETED, State.CLOSED)
@@ -36,15 +38,42 @@ def positive_number(number: int) -> int:
     return number
 
 
+_INDEX: tuple[tuple[str, int, int], list[tuple[str, MirrorRecord]]] | None = None
+
+
+def entries(ledger: Ledger) -> list[tuple[str, MirrorRecord]]:
+    """Every recorded pull request as (host item, mirror record), read in one pass and kept while nothing in this process writes a
+    mirror: only the item directories that hold a `-pr-` file are loaded, so judging many pull requests together costs one scan, not
+    one per pull request (a 26-PR union on 60,000 events took 373 s when each number rescanned every item)."""
+    global _INDEX
+    key = (str(ledger.path), ledger_store.MIRROR_EPOCH, ledger_layout.stamp(ledger.mirrors_dir, ledger.sharded) if ledger.mirrors_dir.is_dir() else 0)
+    if _INDEX is not None and _INDEX[0] == key:
+        return _INDEX[1]
+    found: list[tuple[str, MirrorRecord]] = []
+    hosts: set[str] = set()
+    for directory in ledger.homes_in(ledger.mirrors_dir):
+        with os.scandir(directory) as listing:
+            if any("-pr-" in entry.name and entry.name.endswith(".json") for entry in listing):
+                hosts.add(ledger.aliases().canonical(directory.name))
+    for host in sorted(hosts):
+        found.extend((host, record) for record in ledger.load_mirrors(host) if record.get("kind") == "pr")
+    _INDEX = (key, found)
+    return found
+
+
+def mirror_of(ledger: Ledger, record: PrRecord) -> MirrorRecord | None:
+    """The mirror record behind `record`, from the index."""
+    return next((m for host, m in entries(ledger) if host == record.host and m["_target"] == record.mirror_file), None)
+
+
 def find(ledger: Ledger, number: int, target: str | None) -> PrRecord:
     found: list[PrRecord] = []
-    for item_id in ledger.item_ids():
-        for record in ledger.load_mirrors(item_id):
-            if record.get("kind") != "pr" or record.get("number") != number:
-                continue
-            if target and target not in record["_target"]:
-                continue
-            found.append(_record(item_id, record))
+    for item_id, record in entries(ledger):
+        if record.get("number") != number:
+            continue
+        if target and target not in record["_target"]:
+            continue
+        found.append(_record(item_id, record))
     if not found:
         raise NotFound(f"pull request #{number} is not recorded in the ledger; open it with `qew pr open`, or adopt and close an unmerged legacy one with `qew pr close {number} --item ID --reason TEXT`")
     if len(found) > 1:
@@ -70,10 +99,10 @@ def _record(host: str, mirror: MirrorRecord) -> PrRecord:
 def waiting_on(ledger: Ledger, number: int) -> list[PrRecord]:
     """The recorded pull requests that list `number` among their blockers."""
     found: list[PrRecord] = []
-    for item_id in ledger.item_ids():
-        for record in ledger.load_mirrors(item_id):
-            if record.get("kind") == "pr" and number in _record(item_id, record).blockers:
-                found.append(_record(item_id, record))
+    for item_id, record in entries(ledger):
+        built = _record(item_id, record)
+        if number in built.blockers:
+            found.append(built)
     return found
 
 
@@ -151,10 +180,9 @@ def update_mirror(ledger: Ledger, record: PrRecord, **changes: object) -> None:
 def covering_open(ledger: Ledger, item_id: str) -> list[int]:
     """Numbers of the recorded pull requests that cover `item_id`, are not finished and are not drafts."""
     found: list[int] = []
-    for host in ledger.item_ids():
-        for mirror in ledger.load_mirrors(host):
-            if mirror.get("kind") != "pr" or mirror.get("state", "open") in ("merged", "closed") or mirror.get("draft") is True:
-                continue
-            if item_id in mirror.get("items", [host]) and isinstance(mirror.get("number"), int):
-                found.append(mirror["number"])
+    for host, mirror in entries(ledger):
+        if mirror.get("state", "open") in ("merged", "closed") or mirror.get("draft") is True:
+            continue
+        if item_id in mirror.get("items", [host]) and isinstance(mirror.get("number"), int):
+            found.append(mirror["number"])
     return sorted(found)

@@ -67,7 +67,7 @@ def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, Sta
     if not records:
         return
     first = records[0]
-    union = PrRecord(first.host, first.number, first.mirror_file, first.target, first.opener, tuple(dict.fromkeys(i for r in records for i in r.items)))
+    union = PrRecord(first.host, first.number, first.mirror_file, first.target, first.opener, tuple(dict.fromkeys(i for r in records for i in r.items if i in states)))  # a member refused earlier has no states to judge
     owner = {item_id: record.number for record in reversed(records) for item_id in record.items}
     for item_id, blocking in pr_gate.open_children(snapshot, union, {i: s for i, s in states.items() if i in union.items}).items():
         verdict.refusals.append(Finding(
@@ -77,7 +77,7 @@ def _children(snapshot: Snapshot, records: list[PrRecord], states: dict[str, Sta
 
 def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], reason: str, verdict: Verdict) -> dict[str, State]:
     number = record.number
-    mirror: MirrorRecord | dict[str, object] = next((m for m in snapshot.ledger.load_mirrors(record.host) if m["_target"] == record.mirror_file), {})
+    mirror: MirrorRecord | dict[str, object] = pr_record.mirror_of(snapshot.ledger, record) or {}
     if mirror.get("state", "open") in ("merged", "closed"):
         verdict.refusals.append(Finding(f"is {mirror['state']}; it cannot merge", "", "", number, 2))
         return {}
@@ -104,13 +104,12 @@ def _one(config: Config, snapshot: Snapshot, record: PrRecord, union: set[int], 
 def _covering(snapshot: Snapshot, item_id: str) -> list[int]:
     """Numbers of the recorded pull requests that are not finished (drafts included) and cover `item_id`."""
     found: list[int] = []
-    for host in snapshot.ledger.item_ids():
-        for mirror in snapshot.ledger.load_mirrors(host):
-            if mirror.get("kind") != "pr" or mirror.get("state", "open") in ("merged", "closed"):
-                continue
-            number = mirror.get("number")
-            if item_id in mirror.get("items", [host]) and isinstance(number, int):
-                found.append(number)
+    for host, mirror in pr_record.entries(snapshot.ledger):
+        if mirror.get("state", "open") in ("merged", "closed"):
+            continue
+        number = mirror.get("number")
+        if item_id in mirror.get("items", [host]) and isinstance(number, int):
+            found.append(number)
     return sorted(set(found))
 
 

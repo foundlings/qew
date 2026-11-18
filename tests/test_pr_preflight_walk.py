@@ -87,6 +87,17 @@ class PreflightWalk(unittest.TestCase):
         self.assertEqual(run.code, 0, run)
         self.assertEqual(self.check("1").code, 2)  # the same item judged without its union partner is a conflict
 
+    def test_a_union_with_a_refused_member_still_judges_the_others(self) -> None:
+        """Prevents a crash (KeyError) when one member of a union is refused before its items are known, hiding every other refusal."""
+        other = self.w.item("Other", by="alice")
+        self.w.head = "other"
+        self.assertEqual(self.w.open(other, actor="alice").code, 0)  # tester neither opened pr 2 nor holds its claim: refused before its items are known
+        self.w.item("Child", parent=self.root, claim=False)
+        run = self.check("1", "2")
+        self.assertIn(run.code, (2, 3), run)
+        self.assertNotIn("Traceback", run.err)
+        self.assertIn("open children", run.err)
+
     def test_ledger_only_without_check_is_refused(self) -> None:
         """Prevents a merge being attempted by a flag that promises no forge use."""
         run = self.w.qew("pr", "merge", "1", "--ledger-only", forge=NoForge())  # type: ignore[arg-type]
