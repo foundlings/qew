@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
-from qew import cmd_claim, cmd_pr_link, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
+from qew import cmd_claim, cmd_pr_link, pr_links, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -55,6 +55,10 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     opened.add_argument("--body-file", help="append this file to the body, e.g. a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines")
     opened.add_argument("--adopt-legacy", type=int, metavar="NUMBER", help="take over this unmarked pull request qew never recorded (from before qew) on --head: it keeps its number and head (needs --reason)")
     opened.add_argument("--reason", help="why: required with --adopt-legacy")
+    opened.add_argument("--closes", nargs="+", default=[], metavar="ITEM", help="schema 9: items this pull request completes when it merges (the item opened for must be named under some role)")
+    opened.add_argument("--remains", nargs="+", default=[], metavar="ITEM", help="schema 9: items it touches or partly delivers; they stay open")
+    opened.add_argument("--related", nargs="+", default=[], metavar="ITEM", help="schema 9: items for context only")
+    opened.add_argument("--no-item", metavar="REASON", help="schema 9: the pull request relates to no ledger item")
     opened.add_argument("--json", action="store_true", help="machine-readable output")
     check = sub.add_parser("check", help="tick progress checklist items in a pull request body")
     check.add_argument("number", type=int, help="pull request number")
@@ -154,6 +158,7 @@ def run(arguments: argparse.Namespace) -> bool:
         options = OpenOptions(
             arguments.target, arguments.head, arguments.base, arguments.ready,
             arguments.what, arguments.why, arguments.testing, arguments.body_file, arguments.adopt_legacy, arguments.reason,
+            tuple(arguments.closes), tuple(arguments.remains), tuple(arguments.related), arguments.no_item,
         )
         opened = open_pull_request(config, arguments.item, options)
         print(opened.render(arguments.json))
@@ -332,6 +337,10 @@ class OpenOptions:
     body_file: str | None = None
     adopt_legacy: int | None = None
     reason: str | None = None
+    closes: tuple[str, ...] = ()
+    remains: tuple[str, ...] = ()
+    related: tuple[str, ...] = ()
+    no_item: str | None = None
 
 
 @dataclass(frozen=True)
@@ -405,7 +414,8 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     folded = snapshot.folds[item_id]
     if folded.state in (State.COMPLETED, State.CLOSED):
         raise QewError(f"{item_id} is {folded.state.value}; reopen it before opening a pull request", 2)
-    covered = pr_record.covered_by(snapshot, item_id)
+    wanted = cmd_pr_link.declaration(ledger, snapshot, item_id, options.closes, options.remains, options.related, options.no_item)
+    covered = [i for i, role in wanted.items() if role != "related"] if wanted else pr_record.covered_by(snapshot, item_id)
     held = [i for i in covered if snapshot.folds[i].state == State.DRAFT]
     if options.ready and held:
         raise QewError(
@@ -467,6 +477,8 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
                 "synced_at": now(),
             },
         )
+        if wanted:
+            pr_links.link(ledger, f"{issue['_target']}-pr-{remote.number}", wanted)
         if options.adopt_legacy is not None:
             ledger.append_event(item_id, "commented", text=f"adopted legacy pull request #{remote.number}: {(options.reason or '').strip()}", author=actor())
     return Opened(item_id, remote.number, remote.url, remote.draft, "" if remote.assignee == login else login, adopted)

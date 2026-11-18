@@ -590,7 +590,7 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   item, and the issue it references and the target come from the nearest mirrored ancestor, as task claims do; ready, check and
   merge then work as for any other item. An item the mirror does select but has not synced still asks for `qew sync`.
 - `qew pr open ITEM [--target T] [--head BRANCH] [--base BRANCH] [--ready] [--what TEXT] [--why TEXT]
-  [--testing TEXT] [--body-file FILE] [--adopt-legacy NUMBER --reason TEXT] [--json]`: a draft assigned to its opener (the forge login: `QEW_FORGE_LOGIN`, else the mirror's `assignees` entry for the actor, `[forge.logins]`, `[forge] login`, else the actor itself; a login
+  [--testing TEXT] [--body-file FILE] [--adopt-legacy NUMBER --reason TEXT] [--closes ITEM...] [--remains ITEM...] [--related ITEM...] [--json]`: a draft assigned to its opener (the forge login: `QEW_FORGE_LOGIN`, else the mirror's `assignees` entry for the actor, `[forge.logins]`, `[forge] login`, else the actor itself; a login
   the forge refuses leaves it unassigned and prints a note on stderr); the mirror file is written only
   after the forge accepted the open. Approved work needs the caller's claim: another actor's claim refuses, and an unclaimed task (no unmet needs; an unclaimed epic still needs `qew start`) is claimed by the opener in the same short write section that records the pull request, after the forge call, so a draft exists as soon as a branch is pushed even when the ledger lock is slow; if the claim then fails the pull request stays open and a rerun adopts it. A draft item needs none, and `--ready`
   on drafts is refused (also when a covered item is a draft). An epic's pull request covers the epic and its open
@@ -598,6 +598,12 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   the `--body-file` (a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines). Without `--head` the
   pushed branch is derived (git: named, clean, equal to its upstream; jj: the one bookmark equal to the selected remote, default origin, git never run).
   A branch named for another item is refused. `--json`: `{item, number, url, draft, schema_version}`.
+  On a schema 9 ledger the open must declare what the pull request does to items (`--closes`, `--remains`, `--related`, several items each; commas or
+  spaces), recorded as link events (see `qew pr link`) in the same write section as the pull request record: without one it is exit 2 printing
+  the command to run (`qew pr open ITEM --closes ITEM ...`), the item opened for must be named under some role, and an unknown or finished `closes`
+  item is refused before the forge is called. The covered items are then exactly what the pull request closes and leaves open (an epic's open
+  descendants are NOT covered: `--closes EPIC` is refused at merge while a child is open, `--remains EPIC` is not gated). On schema 8 the flags
+  are exit 2 and the open is unchanged (compat mode). `--no-item` opens a pull request that has no item (see `pr link`).
   An open pull request already on the head whose body carries this item's marker (an orphan: the forge accepted the
   open and the ledger record was never written) is adopted instead of opened again: only the record is written and the
   result ends with `adopted`. Any other open pull request on the head (no marker, another item's, a different base,

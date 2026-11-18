@@ -16,12 +16,12 @@ from qew.pr_record import CLOSED_STATES, PrRecord
 
 def open_work(states: dict[str, State], record: PrRecord) -> list[str]:
     """The covered items that still have to be completed."""
-    return [item_id for item_id in record.items if states[item_id] not in CLOSED_STATES]
+    return [item_id for item_id in (record.items if record.closing is None else record.closing) if states[item_id] not in CLOSED_STATES]
 
 
 def delivering(states: dict[str, State], record: PrRecord) -> list[str]:
     """The covered items someone is working on: only these can have delivered anything through the head."""
-    return [item_id for item_id in record.items if states[item_id] == State.CLAIMED]
+    return [item_id for item_id in (record.items if record.closing is None else record.closing) if states[item_id] == State.CLAIMED]
 
 
 def open_children(snapshot: Snapshot, record: PrRecord, states: dict[str, State]) -> dict[str, list[str]]:
