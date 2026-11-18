@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
-from qew import cmd_claim, cmd_pr_link, pr_links, pr_projection, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
+from qew import code_vcs, cmd_claim, cmd_pr_link, pr_links, pr_projection, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -1152,6 +1152,19 @@ def _enable_auto(loaded: Loaded, pull: RemotePullRequest) -> RemotePullRequest:
     return after
 
 
+def land_declared(config: Config, merged: list[tuple[Loaded, str]], merge_sha: str, integrator: str | None = None) -> list[str]:
+    """Land the declarations of pull requests that just merged (schema 9): the slow part (fetching the target, listing each
+    pull request's own changes) runs first, the ledger writes in one short section, and nothing here refuses: the merge is done."""
+    from qew import pr_land  # imports this module for the loading pieces
+
+    ledger = merged[0][0].snapshot.ledger
+    code_vcs.refresh(config.root)
+    members = [pr_land.Member(loaded.record, head, pr_links.load(ledger, loaded.record.mirror_file)) for loaded, head in merged]
+    own = {member.record.number: pr_land._own(config, member, merge_sha) for member in members}
+    with replication.section("pr-land"):
+        return pr_land.land(config, members, merge_sha, own, integrator).lines
+
+
 def hand_off(loaded: Loaded, number: int) -> list[str]:
     """What is left per covered item once the merge landed; the gate already proved evidence and children."""
     lines = []
@@ -1207,6 +1220,17 @@ def _merge_gates(
         if pull.checks == "pending" and not options.admin and not options.auto:
             raise QewError(f"pr #{number} checks are pending (wait, or pass --auto where the base branch requires checks)", 3)
 
+    def declared() -> None:
+        if not pr_links.load(loaded.snapshot.ledger, loaded.record.mirror_file).declared:
+            raise QewError(f"pr #{number} has no link declaration: a pull request must say what it does to ledger items "
+                           f"(`qew pr link {number} --closes ITEM...`, `--remains`, `--related`, or `--no-item REASON`; a pre-schema-9 record: `qew pr migrate {number}`)", 2)
+
+    if loaded.snapshot.ledger.schema >= pr_links.LINKS_SCHEMA:  # the declaration decides; its bookkeeping is landed after the merge, never refused after it
+        return [
+            lambda: refuse_held(loaded, "merge"),
+            lambda: refuse_finished(number, pull, "merge"),
+            declared, draft, *([] if contained else [mergeable]), checks,
+        ]
     return [
         lambda: refuse_held(loaded, "merge"),
         lambda: refuse_finished(number, pull, "merge"),
@@ -1272,7 +1296,7 @@ def refusals_for(config: Config, loaded: Loaded, pull: RemotePullRequest, option
 
 def merge_pull_request(
     config: Config, number: int, target: str | None, options: MergeOptions = MergeOptions(),
-    build: Build | None = None, sleep: Callable[[float], None] | None = None,
+    build: Build | None = None, sleep: Callable[[float], None] | None = None, land: bool = True,
 ) -> Merged:
     pr_record.positive_number(number)
     reason = _merge_options(options)
@@ -1321,5 +1345,9 @@ def merge_pull_request(
 
     with replication.section("pr-merge"):
         released = pr_block.release_dependents(config, number, build)
+    if loaded.snapshot.ledger.schema >= pr_links.LINKS_SCHEMA:
+        landing = land_declared(config, [(loaded, pull.head_sha)], merged.merge_sha) if land else []
+        lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *branch_line(cleanup, branch), *landing, *released)
+        return Merged(number, pull.head_sha, merged.merge_sha, True, covered, lines)
     lines = (*lead, f"pr #{number} merged at {pull.head_sha[:12]}{where}", *branch_line(cleanup, branch), *hand_off(loaded, number), *released)
     return Merged(number, pull.head_sha, merged.merge_sha, True, covered, lines)

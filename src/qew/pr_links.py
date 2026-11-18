@@ -18,6 +18,7 @@ from qew.ledger_store import Ledger, actor, now
 Role = Literal["closes", "remains", "related"]
 ROLES: tuple[Role, ...] = ("closes", "remains", "related")
 LINKS_SCHEMA = 9
+_LANDING_EVENTS = ("merged_seen", "land_pending", "landed")
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,8 @@ def load(ledger: Ledger, key: str) -> Declaration:
         elif kind == "no_item" and isinstance(reason, str):
             no_item = reason
             roles.clear()
+        elif kind in _LANDING_EVENTS:
+            continue  # folded by `pending`, not part of the declaration
         else:
             raise QewError(f"{directory(ledger, key) / (name + '.json')}: unknown pull request event `{kind}` (written by a newer qew? upgrade it)", 1)
     return Declaration(roles, no_item)
@@ -118,3 +121,36 @@ def declare_no_item(ledger: Ledger, key: str, reason: str) -> bool:
         return False
     _append(ledger, key, "no_item", reason=text)
     return True
+
+
+def merged_seen(ledger: Ledger, key: str, merge_sha: str, head_sha: str, source: str) -> bool:
+    """Record once that the pull request is known to have merged; False when it already says so."""
+    if any(kind == "merged_seen" for kind in (event["type"] for _, event in _events(ledger, key))):
+        return False
+    _append(ledger, key, "merged_seen", merge_sha=merge_sha, head_sha=head_sha, source=source)
+    return True
+
+
+def pending(ledger: Ledger, key: str) -> dict[str, str]:
+    """The items a merged pull request declared as `closes` that are not completed yet, each with why (empty once everything landed)."""
+    held: dict[str, str] = {}
+    for _, event in _events(ledger, key):
+        item_id, why = event.get("item"), event.get("why")
+        if event["type"] == "land_pending" and isinstance(item_id, str) and isinstance(why, str):
+            held[item_id] = why
+        elif event["type"] == "landed" and isinstance(item_id, str):
+            held.pop(item_id, None)
+    return held
+
+
+def record_pending(ledger: Ledger, key: str, item_id: str, why: str) -> bool:
+    """Flag a closes item the merge could not complete; False when the same reason is already recorded."""
+    if pending(ledger, key).get(item_id) == why:
+        return False
+    _append(ledger, key, "land_pending", item=item_id, why=why)
+    return True
+
+
+def record_landed(ledger: Ledger, key: str, item_id: str, evidence: list[str]) -> None:
+    """Record that a closes item is completed by this pull request (clears its pending flag)."""
+    _append(ledger, key, "landed", item=item_id, evidence=" ".join(evidence))
