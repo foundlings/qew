@@ -52,13 +52,13 @@ class ItemFieldsWalk(unittest.TestCase):
 
     def test_list_and_search_find_items_by_field(self) -> None:
         """Prevents fields being invisible to reads: list filters by NAME=VALUE (and NAME alone), search matches values."""
-        one = self.world.create("--title", "One", "--field", "phase=12")
-        two = self.world.create("--title", "Two", "--field", "phase=13")
+        one = self.world.create("--title", "One", "--field", "phase=9912")
+        two = self.world.create("--title", "Two", "--field", "phase=9913")
         self.world.create("--title", "Three")
-        self.assertEqual(self.listed("--field", "phase=12"), [one])
+        self.assertEqual(self.listed("--field", "phase=9912"), [one])
         self.assertEqual(self.listed("--field", "phase"), sorted([one, two]))
-        self.assertEqual(self.listed("--field", "phase=12", "--field", "phase=13"), [])
-        found = self.world.run("search", "13")
+        self.assertEqual(self.listed("--field", "phase=9912", "--field", "phase=9913"), [])
+        found = self.world.run("search", "9913")
         self.assertIn(two, found.stdout)
         self.assertNotIn(one, found.stdout)
 

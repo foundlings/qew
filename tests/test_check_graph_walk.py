@@ -42,6 +42,7 @@ class CheckGraphWalk(unittest.TestCase):
         ghost.mkdir()
         (ghost / "X.json").write_text("{}")
         (self.world.home("mirrors", "OTHER")).mkdir(parents=True)
+        (self.world.home("mirrors", "OTHER") / "github-x.json").write_text("{}")  # an empty directory is a leftover, not an orphan
         self.failing("events/GHOST: belongs to no item", counts(o=2))
 
     def test_a_child_filed_under_another_areas_parent_is_a_cross_epic_parent(self) -> None:
