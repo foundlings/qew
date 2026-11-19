@@ -48,13 +48,17 @@ class LockTimeout(QewError):
                          "released automatically when that process ends)", 3)
 
 
+HOLDER_HINTS = {"gc": ", op-log collection: a bounded step, `qew gc` shows what it did"}  # what a holder's verb means for the waiter
+
+
 def _describe(holder: JsonObject | None) -> str:
     if not holder:
         return "another qew process"
     who = f"{holder['who']}'s " if holder.get("who") else ""
     verb = f"`{holder['verb']}` " if holder.get("verb") else "process "
     age = f", {max(0, time.time() - float(holder['since'])):.0f}s" if isinstance(holder.get("since"), (int, float)) else ""
-    return f"{who}{verb}(pid {holder.get('pid', '?')}{age})"
+    what = HOLDER_HINTS.get(str(holder.get("verb", "")), "")
+    return f"{who}{verb}(pid {holder.get('pid', '?')}{age}{what})"
 
 
 def _try_lock(fd: int) -> bool:

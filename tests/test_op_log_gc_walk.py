@@ -29,6 +29,14 @@ class OpLogGcWalk(unittest.TestCase):
     def a_day_passes(self) -> None:
         """The setup writes already ran the daily check once; forget it so the next write is the first of a new day."""
         (self.world.ledger / ".qew" / "last-gc").unlink(missing_ok=True)
+        (self.world.ledger / ".qew" / "gc-done").unlink(missing_ok=True)
+
+    def collected(self) -> None:
+        """The collector is detached from the write that started it: wait for it to finish."""
+        end = time.monotonic() + 30
+        while time.monotonic() < end and not (self.world.ledger / ".qew" / "gc-done").exists():
+            time.sleep(0.1)
+        self.assertTrue((self.world.ledger / ".qew" / "gc-done").exists(), "the collector never finished")
 
     def test_a_write_drops_operations_older_than_the_window_and_keeps_the_recent_ones(self) -> None:
         """Prevents an unbounded op log: after the window passes, one sync abandons the old operations, no manual step."""
@@ -36,6 +44,7 @@ class OpLogGcWalk(unittest.TestCase):
         time.sleep(2.2)
         self.a_day_passes()
         recent = self.world.create("--title", "fresh")  # a write: collecting is part of the ordinary command, no verb to remember
+        self.collected()
         after = operations(self.world)
         self.assertLess(len(after), len(before) + 6)
         self.assertFalse(set(before) & set(after), "operations older than the window survived")
@@ -47,9 +56,11 @@ class OpLogGcWalk(unittest.TestCase):
         time.sleep(2.2)
         self.a_day_passes()
         self.world.create("--title", "first")
+        self.collected()
         mid = operations(self.world)
         time.sleep(2.2)
         self.world.create("--title", "later")
+        time.sleep(1.5)
         self.assertTrue(set(mid) <= set(operations(self.world)), "a second write within a day collected again")
 
     def test_zero_turns_the_collection_off_and_a_git_ledger_is_left_alone(self) -> None:

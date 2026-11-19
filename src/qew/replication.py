@@ -8,7 +8,7 @@ forge already accepted.
 
 import argparse
 import contextlib
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 import os
 import sys
@@ -149,7 +149,7 @@ def _lock(config: Config, name: str = "lock", verb: str = "", wait_s: float | No
     ledger_path = config.ledger_path
     marker = ledger_path / ".qew" / WRITING
     with filelock.hold(ledger_path / ".qew" / name, verb=verb, who=_who(), wait_s=lock_wait(config) if wait_s is None else wait_s,
-                       what=f"the ledger {ledger_path}", polite=verb == "sync"):  # a sync lets waiting verbs go first
+                       what=f"the ledger {ledger_path}", polite=verb in ("sync", "gc")):  # a sync or the op-log collector lets waiting verbs go first
         writing = name == "lock" and verb != "read"
         if writing:
             marker.touch()
@@ -158,6 +158,11 @@ def _lock(config: Config, name: str = "lock", verb: str = "", wait_s: float | No
         finally:
             if writing:
                 marker.unlink(missing_ok=True)
+
+
+def exclusive(config: Config, verb: str, wait_s: float) -> AbstractContextManager[None]:
+    """The ledger write lock for a background job (the op-log collector): it yields to writers already waiting."""
+    return _lock(config, "lock", verb, wait_s=wait_s)
 
 
 _ACTIVE: tuple[Config, LedgerRepo, bool, bool] | None = None  # (config, repo, verb) of the running sync session, for checkpoints
@@ -268,7 +273,7 @@ def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iter
         for callback in confirmed:
             callback()
         push_after = replicating and not pending
-    op_gc.maybe_collect(config, repo, lambda: _lock(config, "lock", "gc", wait_s=0))
+    op_gc.start(config, repo)
     touched = _item_ids(_relative(config, entries), ledger_config.is_sharded(config.ledger_path)) if entries and verb != "board" else []
     if touched and push_after and _worker_starts(config):
         # The board work is what the owner waits for: start its worker first, then push. The worker's own ledger commit
@@ -359,7 +364,7 @@ def _sync_session(config: Config, repo: LedgerRepo, committing: bool, replicatin
             # every write was checkpointed (committed on the way, never pushed): nothing is left to commit, but commits are
             with _lock(config, "push.lock", "sync"):
                 repo.push(rep.timeout_s)
-        op_gc.maybe_collect(config, repo, lambda: _lock(config, "lock", "gc", wait_s=0))
+        op_gc.start(config, repo)
         if push_repos:
             from qew import repo_push
 
@@ -470,7 +475,7 @@ def _arm_miss_pull(arguments: argparse.Namespace, held: bool) -> None:
     global _MISS_TRIED
     _MISS_TRIED = False
     ledger_store.MISS_HOOK = None
-    if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull", "sync", "push") or os.environ.get("QEW_NO_FETCH"):
+    if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull", "sync", "push", "gc") or os.environ.get("QEW_NO_FETCH"):
         return
     try:
         config = ledger_config.load()
@@ -495,7 +500,7 @@ def _arm_miss_pull(arguments: argparse.Namespace, held: bool) -> None:
 
 def _pull_for_read(arguments: argparse.Namespace) -> None:
     """Reads see other agents' work: fetch and merge the ledger remote, at most every fetch_interval_s."""
-    if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull"):
+    if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull", "gc"):
         return
     try:
         config = ledger_config.load()

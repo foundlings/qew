@@ -72,6 +72,7 @@ Mirrors
   qew repair-evidence rebuild the missing evidence header of completed items from their events
   qew repair-landings list and land again merged pull requests whose closes items are still open
   qew unlock      remove a stale repository lock a crashed git left, with a human's quoted approval
+  qew gc          collect the ledger's jj operation log now, holding the write lock a bounded time
 Setup
   qew init        create the config and the ledger
   qew doctor      check the environment: watchman for a jj ledger (--fix enables it)
@@ -93,7 +94,7 @@ _MODULES += ("cmd_board",)
 _MODULES += ("cmd_transfer",)
 _MODULES += ("cmd_mirror", "cmd_ledger", "cmd_forge")
 _MODULES += ("cmd_block", "cmd_plan", "cmd_claim", "cmd_finish", "cmd_batch", "cmd_doctor")
-_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author", "cmd_pull", "cmd_push", "cmd_progress")
+_MODULES += ("cmd_branch", "cmd_migrate", "cmd_conflicts", "cmd_unlock", "cmd_gc", "cmd_repair", "cmd_item_verbs", "cmd_next_id", "cmd_author", "cmd_pull", "cmd_push", "cmd_progress")
 
 
 def top_level_commands() -> list[str]:

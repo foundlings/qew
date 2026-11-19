@@ -32,7 +32,7 @@ def real_jj() -> str:
 @unittest.skipUnless(jj_available(), "jj is not installed")
 class DetachedCollectionWalk(unittest.TestCase):
     def setUp(self) -> None:
-        self.world = World(ledger_vcs="jj", replication=KEEP + "op_log_batch = 2\n")
+        self.world = World(ledger_vcs="jj", replication=KEEP + "op_log_max_hold_s = 0.1\n")
         self.addCleanup(self.world.close)
         self.scratch = tempfile.TemporaryDirectory()
         self.addCleanup(self.scratch.cleanup)
@@ -80,14 +80,25 @@ class DetachedCollectionWalk(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertLess(time.monotonic() - started, 4.0, "a write queued behind the collection")
 
-    def test_old_operations_are_abandoned_in_bounded_batches(self) -> None:
-        """Prevents one unbounded `op abandon ..X` holding the write lock for a whole log: each step takes at most op_log_batch."""
-        self.ripe()
-        before = operations(self.world)
-        self.assertEqual(self.world.run("create", "--title", "trigger", env={**self.env, "SLOW_GC_S": "0"}).returncode, 0)
-        self.wait_for("util gc")
-        self.assertGreaterEqual(self.calls("op abandon"), 2, "everything was abandoned in one step")
-        self.assertFalse(set(before) & set(operations(self.world)), "operations older than the window survived")
+    def test_the_hold_budget_bounds_how_many_recent_operations_are_kept(self) -> None:
+        """Prevents one `op abandon` rewriting a whole 14 day log under the write lock (its time grows with the operations kept)."""
+        wide = World(ledger_vcs="jj", replication=KEEP.replace("0.00002", "14") + "op_log_max_hold_s = 0.1\n")
+        self.addCleanup(wide.close)
+        for number in range(20):
+            wide.create("--title", f"busy {number}")
+        before = operations(wide)
+        self.assertGreater(len(before), 40)
+        (wide.ledger / ".qew" / "last-gc").unlink(missing_ok=True)
+        (wide.ledger / ".qew" / "gc-done").unlink(missing_ok=True)  # the setup writes ran a collection that found nothing old
+        self.assertEqual(wide.run("create", "--title", "trigger", env={**self.env, "SLOW_GC_S": "0"}).returncode, 0)
+        end = time.monotonic() + 30
+        while time.monotonic() < end and not (wide.ledger / ".qew" / "gc-done").exists():
+            time.sleep(0.1)
+        after = operations(wide)
+        self.assertLess(len(after), 25, "the budget kept the whole window")
+        self.assertFalse(set(before[len(after):]) & set(after), "an old operation survived the cut")
+        self.assertTrue((wide.ledger / ".qew" / "gc-rate").is_file(), "the measured rate was not kept for the next budget")
+        self.assertEqual(wide.run("check").returncode, 0)
 
     def test_only_one_collector_runs_at_a_time(self) -> None:
         """Prevents a second writer starting a second collector while one is in `util gc`."""
@@ -120,6 +131,19 @@ class DetachedCollectionWalk(unittest.TestCase):
         self.assertIn("`gc`", run.stderr)
         self.assertIn("pid", run.stderr)
         self.assertIn("op-log collection", run.stderr)
+
+    def test_reads_do_not_wait_for_the_write_lock(self) -> None:
+        """Prevents `qew search`, `show` or `ready` queueing behind a long write: reads run on what is on disk."""
+        from qew import filelock
+
+        item = self.world.create("--title", "findable thing")
+        ledger_lock = self.world.ledger / ".qew" / "lock"
+        with filelock.hold(ledger_lock, verb="evidence", who="tester", wait_s=0, what="the ledger"):
+            started = time.monotonic()
+            for argv in (("search", "findable"), ("show", item), ("ready",), ("check",)):
+                run = self.world.run(*argv, env={"QEW_LOCK_WAIT_S": "0.3"})
+                self.assertEqual(run.returncode, 0, f"{argv}: {run.stderr}")
+            self.assertLess(time.monotonic() - started, 15.0)
 
 
 if __name__ == "__main__":

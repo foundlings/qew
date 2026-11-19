@@ -374,6 +374,9 @@ use `--depth 200` or less, or `qew graph ROOT --json` for the flat graph. Totals
   stdin); exactly one source, non-blank, at most 20000 bytes, a symlinked file refused, else exit 2 before any write.
   Comment text is data and never a state change; unmarked code-shaped text warns on stderr. `--key KEY` (one word) makes a
   retry safe: the same key with the same text posts nothing and prints `(unchanged)`, the same key with other text is exit 2.
+- `qew gc [--now]`: collect the jj operation log of the ledger in the foreground and print what was dropped and how long the write lock
+  was held (a write starts the same collection detached once a day). Bounded by `op_log_max_hold_s`; a second collector exits at once
+  (`a collection is already running`). A git ledger is refused (exit 2). A holder named `gc` in a "locked by" message is this step.
 - `qew unlock --stale --quote Q [--dry-run] [--json]`: remove the stale git locks (`*.lock` files anywhere inside the ledger's
   `.git`, such as `index.lock` and ref locks) a crashed git left behind, only on a human's quoted approval and only when every
   one is at least 60 s old and open in no process (`lsof`; without it, only when no git process runs). Refuses (exit 3, nothing
