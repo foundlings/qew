@@ -8,6 +8,7 @@ forge already accepted.
 
 import argparse
 import contextlib
+import io
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 import os
@@ -239,13 +240,17 @@ def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iter
             (config.ledger_path / ".qew" / ("last-fetch" if repo.remote == "origin" else f"last-fetch-{repo.remote}")).touch()
         ledger_store.journal_start()
         _HOLDING = True
+        shown = io.StringIO()  # what the command prints is held back until its write is committed: a rolled-back `create` must print no id
+        real_stdout, sys.stdout = sys.stdout, shown
         try:
             yield
         except BaseException:
+            sys.stdout = real_stdout
             _HOLDING = False
             claim_authority.take_pending()
             entries = ledger_store.journal_take()
             if verb in KEEP_PARTIAL:
+                real_stdout.write(shown.getvalue())
                 if committing and entries:
                     _commit(repo, config, verb, entries, rollback_on_failure=False)
                     if replicating:
@@ -254,11 +259,13 @@ def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iter
                 ledger_store.journal_rollback(entries)
                 _withdraw(config)
             raise
+        sys.stdout = real_stdout
         _HOLDING = False
         entries = ledger_store.journal_take()
         pending = claim_authority.take_pending()
         if _DISCARD:
             ledger_store.journal_rollback(entries)
+            real_stdout.write(shown.getvalue())
             return
         if committing and entries:
             try:
@@ -266,6 +273,8 @@ def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iter
             except QewError:
                 _withdraw(config)
                 raise
+        real_stdout.write(shown.getvalue())
+        real_stdout.flush()
         claim_authority.POSTED.clear()
         if replicating and pending:
             _settle_claim(config, repo, pending)

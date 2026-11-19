@@ -281,7 +281,7 @@ def _check_orphans(ledger: Ledger, items: dict[str, Item], aliases: ledger_alias
     for directory in (ledger.events_dir, ledger.mirrors_dir, ledger.items_dir):
         if directory.is_dir():
             for child in ledger.homes_in(directory):
-                if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items and (directory != ledger.items_dir or any(child.iterdir())):  # an empty item directory is a harmless leftover
+                if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items and any(child.iterdir()):  # an empty directory is a harmless leftover (git cannot carry it)
                     problems.append(f"{directory.name}/{child.name}: belongs to no item")
 
 

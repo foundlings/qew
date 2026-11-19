@@ -45,7 +45,7 @@ class SyncLockOrderWalk(unittest.TestCase):
     def test_the_finishing_step_takes_lock_before_push_lock_and_pushes_outside_the_write_lock(self) -> None:
         """Prevents the worker sitting on push.lock while it waits for lock, and a network push inside the write lock."""
         with self.patched(), mock.patch.object(replication.ledger_store, "journal_take", return_value=[("f", "events/x")]), \
-                mock.patch.object(replication.ledger_store, "journal_start"), mock.patch.object(replication.op_gc, "maybe_collect"):
+                mock.patch.object(replication.ledger_store, "journal_start"), mock.patch.object(replication.op_gc, "start"):
             session = replication._sync_session(self.config, self.repo, True, True, False)  # type: ignore[arg-type]
             next(session)
             with self.assertRaises(StopIteration):

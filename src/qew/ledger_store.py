@@ -691,6 +691,21 @@ def journal_take() -> Entries:
     return taken
 
 
+_TOP_DIRECTORIES = ("items", "events", "mirrors", "baselines", "prs")
+
+
+def _prune_empty(directory: Path) -> None:
+    """Remove `directory` and each emptied parent below the ledger's top-level directories: a rolled-back write must not leave an
+    empty `events/_xx/<id>` behind (git cannot carry it, and a read would take it for an orphan)."""
+    for parent in (directory, *directory.parents):
+        if parent.name in _TOP_DIRECTORIES:
+            return
+        try:
+            parent.rmdir()
+        except OSError:
+            return  # not empty: it holds other writes
+
+
 def journal_rollback(entries: Entries) -> None:
     """Undo recorded writes, newest first: restore previous text, move a moved file back, or delete a new file."""
     for path, previous in reversed(entries):
@@ -706,17 +721,7 @@ def journal_rollback(entries: Entries) -> None:
                     break
         elif previous is None:
             path.unlink(missing_ok=True)
-            if path.parent.parent.name in ("events", "mirrors", "items"):  # the per-item directory the write created
-                try:
-                    path.parent.rmdir()
-                except OSError:
-                    pass  # not empty: it holds other writes
-            elif path.parent.name == attachments.DIRECTORY:  # the attachments directory, then the item directory, if the write made them
-                for directory in (path.parent, path.parent.parent):
-                    try:
-                        directory.rmdir()
-                    except OSError:
-                        break
+            _prune_empty(path.parent)  # the per-item directory (and its shard) the write created, then the attachments directory's parents
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(previous, encoding="utf-8")
