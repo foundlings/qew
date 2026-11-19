@@ -58,7 +58,9 @@ def _expand_rename(text: str) -> list[str]:
 
 # git (and jj through its git backend) report a held repository lock this way; the lock is a sentinel file, not a
 # kernel lock, so a crashed git leaves it behind. qew waits for a live one, names a dead one, and never deletes it.
-LOCK_ERROR = re.compile(r"Unable to create '([^']*\.lock)'|Another git process seems to be running|cannot lock ref|unable to lock|could not lock|Failed to lock", re.IGNORECASE)
+LOCK_ERROR = re.compile(r"Unable to create '[^']*\.lock'|Another git process seems to be running|cannot lock ref|unable to lock|could not lock|Failed to lock"
+                        r"|The lockfile at '[^']*\.lock'", re.IGNORECASE)  # the last is jj's own (gix) wording for a held or dead ref lock
+LOCK_PATH = re.compile(r"(?:Unable to create|The lockfile at) '([^']*\.lock)'", re.IGNORECASE)
 STALE_AFTER_S = 60.0
 DEFAULT_REPO_LOCK_WAIT_S = 20.0
 
@@ -103,8 +105,8 @@ def lock_is_dead(path: str, age: float) -> bool:
 
 def lock_age(stderr: str) -> tuple[str, float] | None:
     """(path, seconds old) of the lock file a git error names, when it can be read."""
-    found = LOCK_ERROR.search(stderr)
-    if not found or not found.group(1):
+    found = LOCK_PATH.search(stderr)
+    if not found:
         return None
     try:
         return found.group(1), max(0.0, time.time() - os.stat(found.group(1)).st_mtime)

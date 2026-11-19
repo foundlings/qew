@@ -384,7 +384,9 @@ use `--depth 200` or less, or `qew graph ROOT --json` for the flat graph. Totals
   one is at least 60 s old and open in no process (`lsof`; without it, only when no git process runs). Refuses (exit 3, nothing
   removed) a younger or open lock, and while any qew process holds a ledger lock. Each removal is first appended to the
   ledger's local `.qew/unlock.log` (time, actor, the approving words, each path and age). Never run by qew itself.
-  `--stale` is required; no lock is `no stale lock found`, exit 0.
+  `--stale` is required; no lock is `no stale lock found`, exit 0. A write that meets such a lock fails at once (exit 3) naming the
+  file, its age and this command, whether git or jj (its `Could not lock packed refs ... The lockfile at '...'` wording) reported it; a lock
+  under 60 s old is waited for up to `QEW_REPO_LOCK_WAIT_S`, then named held. qew never removes a lock without the quote.
 - `qew evidence --manifest FILE [--dry-run]`: record delivery evidence for many items in one commit. FILE is JSON Lines of
   `{item, change_ids: [..]}`. Every row is checked first (exit 2: unknown or duplicate item, a malformed change id, an item that is
   not approved or claimed; exit 3: another login's claim) and a row whose changes are already recorded is `unchanged`. Whether the
