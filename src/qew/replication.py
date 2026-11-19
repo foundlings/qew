@@ -143,14 +143,14 @@ def lock_wait(config: Config) -> float:
 
 
 @contextmanager
-def _lock(config: Config, name: str = "lock", verb: str = "", wait_s: float | None = None) -> Iterator[None]:
+def _lock(config: Config, name: str = "lock", verb: str = "", wait_s: float | None = None, urgent: bool = False) -> Iterator[None]:
     """The write lock (`lock`), or the push lock (`push.lock`): held by a write while its worker starts and its push runs,
     so the worker commits its mirror files only after that push is done. A kernel lock (see filelock): a dead holder
     frees it, and the file left behind is inert."""
     ledger_path = config.ledger_path
     marker = ledger_path / ".qew" / WRITING
     with filelock.hold(ledger_path / ".qew" / name, verb=verb, who=_who(), wait_s=lock_wait(config) if wait_s is None else wait_s,
-                       what=f"the ledger {ledger_path}", polite=verb in ("sync", "gc")):  # a sync or the op-log collector lets waiting verbs go first
+                       what=f"the ledger {ledger_path}", polite=verb in ("sync", "gc") and not urgent, urgent=urgent):  # a sync or the op-log collector lets waiting verbs go first
         writing = name == "lock" and verb != "read"
         if writing:
             marker.touch()
@@ -161,9 +161,9 @@ def _lock(config: Config, name: str = "lock", verb: str = "", wait_s: float | No
                 marker.unlink(missing_ok=True)
 
 
-def exclusive(config: Config, verb: str, wait_s: float) -> AbstractContextManager[None]:
-    """The ledger write lock for a background job (the op-log collector): it yields to writers already waiting."""
-    return _lock(config, "lock", verb, wait_s=wait_s)
+def exclusive(config: Config, verb: str, wait_s: float, urgent: bool = False) -> AbstractContextManager[None]:
+    """The ledger write lock for the op-log collector: it yields to writers already waiting, unless a person asked for it now (`urgent`)."""
+    return _lock(config, "lock", verb, wait_s=wait_s, urgent=urgent)
 
 
 _ACTIVE: tuple[Config, LedgerRepo, bool, bool] | None = None  # (config, repo, verb) of the running sync session, for checkpoints

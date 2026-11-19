@@ -28,7 +28,7 @@ DAY_S = 86400.0
 GC_TIMEOUT_S = 900.0
 DEFAULT_RATE_S = 0.007  # seconds to rewrite one kept operation, until a collection has measured the real one
 MIN_KEEP_OPS = 10  # the newest operations always stay, whatever the budget
-LOCK_WAIT_S = 120.0  # how long the collector waits its turn for the write lock (it yields to waiting writers)
+LOCK_WAIT_S = 1800.0  # how long the collector waits its turn for the write lock (it yields to waiting writers; `qew gc --now` does not)
 
 
 def _cache(config: Config) -> Path:

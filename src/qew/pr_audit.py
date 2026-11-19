@@ -62,7 +62,9 @@ def audit(snapshot: Snapshot) -> tuple[list[str], list[str]]:
                 problems.append(f"prs/{key}: pr #{number} links {item_id}, which is not an item")
         if not merged and mirror.get("state", "open") != "closed":
             for item_id in declaration.items("closes"):
-                closing.setdefault(item_id, []).append(number)
+                folded = snapshot.folds.get(item_id)
+                if folded is None or folded.state not in CLOSED_STATES:  # a finished item has nothing left for two pull requests to both complete
+                    closing.setdefault(item_id, []).append(number)
     notes.extend(f"open pull requests {' '.join('#' + str(n) for n in sorted(numbers))} all close {item_id}: merge them together or re-declare all but one"
                  for item_id, numbers in sorted(closing.items()) if len(numbers) > 1)
     return problems, notes

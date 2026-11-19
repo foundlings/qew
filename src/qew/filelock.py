@@ -196,12 +196,13 @@ def ahead(path: Path, arrival_ns: int, mine: Path | None = None) -> int:
 
 @contextmanager
 def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT_S, what: str = "the ledger",
-         polite: bool = False) -> Iterator[None]:
+         polite: bool = False, urgent: bool = False) -> Iterator[None]:
     """Hold the lock at `path` for the block; wait up to `wait_s` seconds with backoff and jitter, then raise LockTimeout.
 
     A waiter leaves a marker beside the lock and goes after the waiters that arrived before it (at most DEFER_MAX_S; dead
     and stopped ones do not count). A `polite` taker (the background sync, which asks again and again) lets all waiters go
-    first, for at most POLITE_MAX_S, so a long sync never keeps an interactive verb out."""
+    first, for at most POLITE_MAX_S, so a long sync never keeps an interactive verb out. An `urgent` taker (a person running
+    `qew gc --now` behind a queue of long writes) is not deferred to earlier waiters and asks for the lock every few milliseconds."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_RDWR | os.O_CREAT | _BINARY, 0o600)
     started = time.monotonic()
@@ -215,7 +216,7 @@ def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT
                 time.sleep(0.05)
             started = time.monotonic()
         while True:
-            queue = 0 if polite else ahead(path, arrival, marker)
+            queue = 0 if polite or urgent else ahead(path, arrival, marker)
             if queue and deferring is None:
                 deferring = time.monotonic()
             # Earlier waiters go first, but only as a courtesy: past DEFER_MAX_S the kernel lock is tried regardless, so a
@@ -230,7 +231,7 @@ def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT
                     marker.touch()
                 except OSError:
                     pass
-            time.sleep(min(0.25, 0.01 * 2 ** min(attempt, 5)) + random.uniform(0, 0.02))
+            time.sleep(0.005 if urgent else min(0.25, 0.01 * 2 ** min(attempt, 5)) + random.uniform(0, 0.02))
             attempt += 1
         marker.unlink(missing_ok=True)
         try:
