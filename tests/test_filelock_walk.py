@@ -119,6 +119,31 @@ class FileLockWalk(unittest.TestCase):
                                 env={**os.environ, "PYTHONPATH": str(SRC.parent)})
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "ok"), result.stderr)
 
+    def test_an_urgent_taker_goes_before_waiters_that_arrived_earlier(self) -> None:
+        """Prevents `qew gc --now` queueing behind ten creates that each hold the lock minutes: an urgent taker is not deferred."""
+        from qew import filelock
+
+        order: list[str] = []
+
+        def take(name: str, **options: object) -> None:
+            with filelock.hold(self.path, verb=name, wait_s=20, **options):  # type: ignore[arg-type]
+                order.append(name)
+                time.sleep(0.3)
+
+        holder = start_holder(self.path)
+        threads = [threading.Thread(target=take, args=("early-1",)), threading.Thread(target=take, args=("early-2",))]
+        for thread in threads:
+            thread.start()
+            time.sleep(0.3)
+        urgent = threading.Thread(target=take, args=("urgent",), kwargs={"urgent": True})
+        urgent.start()
+        time.sleep(0.5)
+        holder.send_signal(signal.SIGKILL)
+        holder.wait()
+        for thread in (*threads, urgent):
+            thread.join()
+        self.assertEqual(order[0], "urgent", order)
+
 
 class RemoteRefsWalk(unittest.TestCase):
     def test_fetch_and_push_never_run_together_in_one_checkout(self) -> None:

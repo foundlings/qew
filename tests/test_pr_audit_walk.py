@@ -104,5 +104,18 @@ class AuditWalk(unittest.TestCase):
         self.assertIn("nothing", self.w.qew("repair-landings", "--dry-run").out)
 
 
+    def test_open_pull_requests_closing_one_item_are_not_noted_once_the_item_is_finished(self) -> None:
+        """Prevents `qew check` nagging to merge or re-declare pull requests that already merged outside qew, whose item is done."""
+        item = self.w.item("Shared work")
+        first = self.pr(item, "--closes", item)
+        second = self.pr(item, "--closes", item)
+        before = self.w.qew("check")
+        self.assertIn(f"#{first} #{second} all close {item}", before.out + before.err)
+        closed = self.w.qew("close", item, "--reason", "not_planned")
+        self.assertEqual(closed.code, 0, closed)
+        after = self.w.qew("check")
+        self.assertEqual(after.code, 0, after)
+        self.assertNotIn("all close", after.out + after.err)
+
 if __name__ == "__main__":
     unittest.main()
