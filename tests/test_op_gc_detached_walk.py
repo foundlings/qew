@@ -146,5 +146,18 @@ class DetachedCollectionWalk(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 15.0)
 
 
+    def test_a_loose_object_that_gc_pruned_under_a_writer_is_retried(self) -> None:
+        """Prevents a write rolled back by `jj util gc` pruning an object directory at the moment jj persists a new object."""
+        flag = Path(self.scratch.name) / "failed-once"
+        shim = Path(self.scratch.name) / "jj"
+        shim.write_text(SHIM.replace('exec "$REAL_JJ" "$@"', f'''case "$*" in
+  *commit*) if [ ! -e "{flag}" ]; then touch "{flag}"; printf 'Internal error: Failed to snapshot the working copy\\nCaused by:\\n1: Could not write object of type tree\\n2: Could not persist loose object, "path"="x"\\n' >&2; exit 255; fi ;;
+esac
+exec "$REAL_JJ" "$@"'''), encoding="utf-8")
+        run = self.world.run("create", "--title", "retried", env=self.env)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertTrue(flag.exists(), "the failure was never injected")
+        self.assertEqual(self.world.run("check").returncode, 0)
+
 if __name__ == "__main__":
     unittest.main()
