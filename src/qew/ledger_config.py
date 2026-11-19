@@ -49,6 +49,7 @@ class Replication:
     timeout_s: float = 30.0
     slow_commit_s: float = 20.0  # a ledger commit slower than this prints one hint a day pointing at `qew doctor` (watchman recrawling)
     op_log_keep_days: float = 14.0  # a jj ledger's operations older than this are collected by sync, once a day (0 keeps them all)
+    op_log_batch: int = 200  # operations abandoned per step of the collection: each step holds the write lock, so it stays short
     lock_wait_s: float = 60.0  # how long a command waits for the ledger lock (QEW_LOCK_WAIT_S overrides it for one command)
     fetch_interval_s: float = 10.0
     sync_retry_s: float = 10.0
@@ -66,7 +67,7 @@ class Replication:
 
 _REPLICATION_KEYS: dict[str, type | tuple[type, ...]] = {
     "auto_commit": bool, "auto_push": bool, "auto_forge_sync": bool, "background_sync": bool,
-    "timeout_s": (int, float), "lock_wait_s": (int, float), "op_log_keep_days": (int, float), "slow_commit_s": (int, float), "fetch_interval_s": (int, float), "sync_retry_s": (int, float), "sync_budget_s": (int, float), "forge_concurrency": int, "forge_failure_limit": int, "sync_limit": int, "divergences": str, "branch": str,
+    "timeout_s": (int, float), "lock_wait_s": (int, float), "op_log_keep_days": (int, float), "op_log_batch": int, "slow_commit_s": (int, float), "fetch_interval_s": (int, float), "sync_retry_s": (int, float), "sync_budget_s": (int, float), "forge_concurrency": int, "forge_failure_limit": int, "sync_limit": int, "divergences": str, "branch": str,
 }
 
 
