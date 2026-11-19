@@ -60,6 +60,8 @@ def _expand_rename(text: str) -> list[str]:
 # kernel lock, so a crashed git leaves it behind. qew waits for a live one, names a dead one, and never deletes it.
 LOCK_ERROR = re.compile(r"Unable to create '[^']*\.lock'|Another git process seems to be running|cannot lock ref|unable to lock|could not lock|Failed to lock"
                         r"|The lockfile at '[^']*\.lock'", re.IGNORECASE)  # the last is jj's own (gix) wording for a held or dead ref lock
+TRANSIENT_ERROR = re.compile(r"Could not persist loose object", re.IGNORECASE)  # `jj util gc` pruned an object directory as jj wrote into it: asking again works
+TRANSIENT_RETRY_S = 10.0
 LOCK_PATH = re.compile(r"(?:Unable to create|The lockfile at) '([^']*\.lock)'", re.IGNORECASE)
 STALE_AFTER_S = 60.0
 DEFAULT_REPO_LOCK_WAIT_S = 20.0
@@ -251,9 +253,17 @@ class LedgerRepo:
                 timeout = max(timeout, jj_timeout_floor())
         while True:
             result = self._run_once(argv, timeout, stdin)
-            if result.returncode == 0 or not LOCK_ERROR.search(result.stderr or ""):
+            if result.returncode == 0:
+                break
+            transient = bool(TRANSIENT_ERROR.search(result.stderr or ""))
+            if not transient and not LOCK_ERROR.search(result.stderr or ""):
                 break
             waited = time.monotonic() - started
+            if transient:
+                if waited >= TRANSIENT_RETRY_S:
+                    break
+                time.sleep(0.1 + random.uniform(0, 0.1))
+                continue
             stale = stale_lock_error(result.stderr, waited)
             if stale is not None:
                 raise stale
