@@ -141,5 +141,33 @@ class LandDeclaredWalk(unittest.TestCase):
         self.assertIn("main", pending[0]["why"])
 
 
+    BOGUS = "0123456789abcdef0123456789abcdef01234567"  # well formed, in no repository
+
+    def cite_with_a_bogus_id(self, item: str, sha: str) -> None:
+        run = self.w.qew("evidence", item, "--change", self.BOGUS, "--change", sha)
+        self.assertEqual(run.code, 0, run)
+
+    def test_recorded_evidence_naming_a_missing_change_does_not_leave_the_item_pending(self) -> None:
+        """Prevents the stuck item: evidence with one good id and one id in no repository made landing skip its own evidence and complete refuse."""
+        item = self.w.item("Work")
+        number, sha = self.pr(item, "--closes", item)
+        self.cite_with_a_bogus_id(item, sha)
+        merged = self.w.qew("pr", "merge", str(number))
+        self.assertEqual(merged.code, 0, merged)
+        self.assertEqual(self.state(item), "completed", merged.out)
+        self.assertEqual([e for e in self.pr_events() if e["type"] == "land_pending"], [])
+
+    def test_evidence_repair_replaces_the_proof_of_a_claimed_item_so_it_can_complete(self) -> None:
+        """Prevents bad evidence being unfixable until the item is completed, which the bad evidence itself prevents."""
+        item = self.w.item("Work")
+        sha = self.w.commit("work")
+        self.cite_with_a_bogus_id(item, sha)
+        self.assertNotEqual(self.w.qew("complete", item).code, 0)
+        repaired = self.w.qew("evidence", item, "--change", sha, "--repair")
+        self.assertEqual(repaired.code, 0, repaired)
+        done = self.w.qew("complete", item)
+        self.assertEqual(done.code, 0, done)
+        self.assertEqual(self.state(item), "completed")
+
 if __name__ == "__main__":
     unittest.main()
