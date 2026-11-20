@@ -314,6 +314,8 @@ def fold(events: list[Event]) -> Folded:
             continue
         if event.type == "claimed" and state == State.CLAIMED:
             continue  # the same actor claiming again is one claim
+        if event.type == "completed" and state == State.COMPLETED:
+            continue  # two clones completed it before either saw the other: the first completion stands, the second is a duplicate, not corruption
         if state not in sources:
             errors.append(f"{event.id}: `{event.type}` is illegal from state {state.value}")
             continue
