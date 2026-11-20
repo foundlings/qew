@@ -51,13 +51,13 @@ class RepairWalk(unittest.TestCase):
         self.assertEqual(run.code, 2, run)
         self.assertIn("not an ancestor", run.err)
 
-    def test_repair_needs_a_named_change_and_a_completed_item(self) -> None:
-        """Prevents --repair guessing the current change, or being used on work that is not finished."""
+    def test_repair_needs_a_named_change_and_work_that_is_claimed_approved_or_completed(self) -> None:
+        """Prevents --repair guessing the current change, or being used on a draft or closed item."""
         self.assertEqual(self.w.qew("evidence", self.item, "--repair").code, 2)
-        other = self.w.item("Open work")
-        run = self.w.qew("evidence", other, "--change", self.w.commit("x"), "--repair")
+        draft = self.w.item("Draft work", draft=True)
+        run = self.w.qew("evidence", draft, "--change", self.w.commit("x"), "--repair")
         self.assertEqual(run.code, 2, run)
-        self.assertIn("completed", run.err)
+        self.assertIn("cannot repair the evidence", run.err)
 
 
 if __name__ == "__main__":

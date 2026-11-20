@@ -34,7 +34,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     evidence.add_argument("--dry-run", action="store_true", help="with --manifest: say what would be recorded and write nothing")
     evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
     evidence.add_argument("--vcs", choices=["jj", "git"], help="override the detected VCS")
-    evidence.add_argument("--repair", action="store_true", help="on a COMPLETED item: replace the proof it shows with the named --change ids, which must be on the target branch")
+    evidence.add_argument("--repair", action="store_true", help="replace the proof of a claimed or completed item with the named --change ids, which must be on the target branch (a completed item shows them)")
     evidence.add_argument("--on-behalf-of", metavar="ACTOR", help="record the evidence for a claim ACTOR holds (the integrator citing an elf's change); both actors are recorded, the claim does not move")
     complete = commands.add_parser("complete", help="finish claimed work once the gate passes")
     complete.add_argument("item", nargs="?", help="item id or alias (not with --manifest)")
@@ -193,8 +193,13 @@ def _repair_evidence(config: Config, ledger: Ledger, snapshot: Snapshot, item_id
     """`evidence --repair`: new proof for a completed item. Plain evidence is refused after completion, so proof that was wrong (a
     rewritten git hash) could only be fixed by reopening; the named changes must be on the target branch, the old events stay as history,
     and the header shows the new ids."""
-    if snapshot.folds[item_id].state != State.COMPLETED:
-        raise QewError(f"cannot repair the evidence of {item_id}: it is not completed (record plain evidence with `qew evidence {item_id} --change ID`)", 2)
+    state = snapshot.folds[item_id].state
+    if state not in (State.COMPLETED, State.CLAIMED, State.APPROVED):
+        raise _refuse(snapshot, item_id, "repair the evidence of", "a claimed, approved or completed item")
+    if state != State.COMPLETED:
+        holder = snapshot.folds[item_id].owner
+        if state == State.CLAIMED and holder != actor() and not holds_ancestor(snapshot, item_id, actor()):
+            raise QewError(f"cannot repair the evidence of {item_id}: it is claimed by {holding(snapshot, item_id)}", 3)
     if not changes:
         raise QewError("--repair needs --change ID: it replaces the proof with the changes you name, never the current one", 2)
     kind = vcs or code_vcs.detect(config.root)
@@ -207,6 +212,8 @@ def _repair_evidence(config: Config, ledger: Ledger, snapshot: Snapshot, item_id
             raise QewError(f"`{change}` is {where.value} {config.target}; repaired evidence must be an ancestor of it", 2)
         landed.append(change)
     ledger.append_event(item_id, "evidence", vcs=kind, change_ids=landed, repo=code_vcs.repository_url(config.root), repair=True)
+    if state != State.COMPLETED:  # no header to rewrite yet: completing builds it from the first evidence event whose changes all landed
+        return f"{item_id} evidence repaired: {kind} {' '.join(landed)}"
     item = ledger.load_item(item_id)
     ledger.write_item(replace(item, evidence=tuple(landed[:MAX_EVIDENCE_IDS]), evidence_absent=""), overwrite=True)
     return f"{item_id} evidence repaired: {kind} {' '.join(landed)}"
@@ -231,9 +238,8 @@ def evidence(config: Config, reference: str, changes: list[str], vcs: str | None
     for change in cited:
         if not code_vcs.valid_change(kind, change):
             raise QewError(f"`{change}` is not a {kind} change id", 2)
-    recorded = {c for e in snapshot.events[item_id] if e.type == "evidence" and e.get("vcs") == kind
-                for c in e.get("change_ids", [])}
-    if set(cited) <= recorded:  # a retry of evidence that already landed
+    if any(e.type == "evidence" and e.get("vcs") == kind and set(e.get("change_ids", [])) == set(cited)
+           for e in snapshot.events[item_id]):  # a retry of evidence already recorded (cited beside another id it is a new event: only an event whose ids all landed completes)
         return f"{item_id} evidence {kind} {' '.join(cited)} (unchanged)"
     named = {} if on_behalf_of is None else {"on_behalf_of": on_behalf_of}
     ledger.append_event(
@@ -366,6 +372,15 @@ def complete(config: Config, reference: str, reason: str | None = None, take_ove
     result: dict[str, object] = {"line": line, "id": item_id, "state": "completed", "released": released}
     result.update(_finish_parent(ledger, item_id))
     return result
+
+
+def evidence_completes(config: Config, snapshot: Snapshot, item_id: str) -> bool:
+    """Whether `complete` would find an evidence event whose changes all landed on the target branch."""
+    try:
+        _landed_commits(config, snapshot, item_id, config.target)
+    except QewError:
+        return False
+    return True
 
 
 def _landed_commits(config: Config, snapshot: Snapshot, item_id: str, target: str) -> tuple[list[str], list[str]]:

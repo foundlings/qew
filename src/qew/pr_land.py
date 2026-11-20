@@ -132,7 +132,7 @@ def _land_one(config: Config, member: Member, item_id: str, changes: list[str], 
         report.pending.append(Pending(item_id, number, f"is claimed by {folded.owner}: `{fix} --integrator --reason TEXT` if you merged it, or `qew complete {item_id} --take-over --reason TEXT`", "held", folded.owner or ""))
         return
     takeover = f"integrator landed pr #{number} (held by {folded.owner}): {integrator}" if not mine and integrator is not None else None
-    if snapshot.items[item_id].kind != Kind.EPIC and not evidence_covers(config, folded.evidence, member.head_sha):
+    if snapshot.items[item_id].kind != Kind.EPIC and not (evidence_covers(config, folded.evidence, member.head_sha) and cmd_finish.evidence_completes(config, snapshot, item_id)):  # head cited in an event with an id in no repository covers it yet completes nothing
         if not changes:
             report.pending.append(Pending(item_id, number, f"has no evidence on {config.target}: none of this pull request's changes is an ancestor of it yet (fetch, then `{fix}`)", "open"))
             return
