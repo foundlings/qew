@@ -4,6 +4,7 @@ A completed item cannot take plain evidence, so wrong proof (a rewritten git has
 scenario; its docstring names the failure it prevents.
 """
 
+import json
 import os
 import sys
 import unittest
@@ -58,6 +59,51 @@ class RepairWalk(unittest.TestCase):
         run = self.w.qew("evidence", draft, "--change", self.w.commit("x"), "--repair")
         self.assertEqual(run.code, 2, run)
         self.assertIn("cannot repair the evidence", run.err)
+
+    def test_open_item_can_retract_a_cited_change_with_an_auditable_reason(self) -> None:
+        """Prevents an erroneous evidence id from becoming permanent while preserving its append-only history."""
+        w = self.w
+        item = w.item("Open work")
+        change = w.commit("wrong proof")
+        self.assertEqual(w.qew("evidence", item, "--change", change).code, 0)
+
+        retracted = w.qew("evidence", item, "--retract", change, "--reason", "cited the wrong change")
+        self.assertEqual(retracted.code, 0, retracted)
+        events = w.events(item)
+        self.assertTrue(any(event["type"] == "evidence" and change in event["change_ids"] for event in events))
+        self.assertTrue(any(event["type"] == "evidence_retracted" and event["change_id"] == change
+                            and event["reason"] == "cited the wrong change" for event in events))
+        shown = self.w.qew("show", item, "--json")
+        self.assertEqual(shown.code, 0, shown)
+        document = json.loads(shown.out)
+        self.assertEqual(document.get("evidence", []), [])
+        self.assertEqual(document["evidence_retractions"][0]["change_id"], change)
+        complete = w.qew("complete", item)
+        self.assertEqual(complete.code, 2, complete)
+        self.assertIn("no evidence recorded", complete.err)
+        self.assertEqual(w.qew("evidence", item, "--change", change).code, 0)
+        completed = w.qew("complete", item)
+        self.assertEqual(completed.code, 0, completed)
+        shown_again = json.loads(self.w.qew("show", item, "--json").out)
+        self.assertEqual(shown_again["evidence_ids"], [change])
+        self.assertEqual(shown_again["evidence_retractions"][0]["change_id"], change)
+
+    def test_retraction_refuses_uncited_ids_and_completed_items(self) -> None:
+        """Prevents retraction from erasing unrelated proof or rewriting the proof of completed work."""
+        w = self.w
+        item = w.item("Open work")
+        uncited = w.commit("uncited")
+        refused = w.qew("evidence", item, "--retract", uncited, "--reason", "not cited")
+        self.assertEqual(refused.code, 2, refused)
+        self.assertIn("not currently recorded", refused.err)
+        self.assertFalse(any(event["type"] == "evidence_retracted" for event in w.events(item)))
+
+        completed_change = w.commit("completed proof")
+        self.assertEqual(w.qew("evidence", item, "--change", completed_change).code, 0)
+        self.assertEqual(w.qew("complete", item).code, 0)
+        completed_refusal = w.qew("evidence", item, "--retract", completed_change, "--reason", "too late")
+        self.assertEqual(completed_refusal.code, 2, completed_refusal)
+        self.assertIn("completed", completed_refusal.err)
 
 
 if __name__ == "__main__":

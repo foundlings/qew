@@ -105,6 +105,33 @@ class StrictEvidenceWalk(unittest.TestCase):
         self.assertEqual(lost.returncode, 1, lost.stdout + lost.stderr)
         self.assertIn(f"evidence {sha}", lost.stdout)
 
+    def test_evidence_refuses_a_valid_shaped_change_missing_from_the_checkout(self) -> None:
+        """Prevents recording plausible but nonexistent proof that cannot later be checked or retracted by its real id."""
+        w = self.world
+        item = started(w)
+        unknown = "f" * 40
+        run = w.run("evidence", item, "--change", unknown)
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("does not resolve in this checkout", run.stderr)
+        self.assertFalse(any(event["type"] == "evidence" for event in w.events(item)))
+
+    def test_evidence_manifest_refuses_an_unknown_change_without_partial_rows(self) -> None:
+        """Prevents a manifest from recording unverifiable proof or writing earlier rows before a later bad id."""
+        w = self.world
+        first, second = started(w, title="First"), started(w, title="Second")
+        good = w.commit("known work")
+        manifest = w.base / "evidence.jsonl"
+        manifest.write_text(
+            json.dumps({"item": first, "change_ids": [good]}) + "\n"
+            + json.dumps({"item": second, "change_ids": ["e" * 40]}) + "\n",
+            encoding="utf-8",
+        )
+        run = w.run("evidence", "--manifest", str(manifest))
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("does not resolve in this checkout", run.stderr)
+        self.assertFalse(any(event["type"] == "evidence" for event in w.events(first)))
+        self.assertFalse(any(event["type"] == "evidence" for event in w.events(second)))
+
 
 if __name__ == "__main__":
     unittest.main()

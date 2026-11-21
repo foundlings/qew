@@ -293,6 +293,7 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
     blocks = ledger_graph.blocks(snapshot).get(item_id, [])
     mirrors = [{"target": m["_target"], "number": m.get("number"), "url": m.get("url")} for m in ledger.load_mirrors(item_id)]
     evidence = [event.data for event in folded.evidence]
+    evidence_retractions = [event.data for event in folded.evidence_retractions]
     comments = text_findings.comments_of(snapshot, item_id)
     findings = text_findings.item_findings(snapshot, item_id)
     epic = _epic_facts(snapshot, item_id, kids) if item.kind == Kind.EPIC else {}
@@ -315,7 +316,11 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
         ("blocked_by", [read_view.related(snapshot, n) for n in ledger_graph.blockers(snapshot, item_id)]),
         ("blocking", [read_view.related(snapshot, b) for b in blocks]),
         ("children", [read_view.related(snapshot, k) for k in kids]),
-        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence), ("mirrors", mirrors), ("comments", comments), ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]), ("assignees", list(extra_assignees)), ("reactions", reactions), ("references", cross), ("timeline", timeline), ("evidence_ids", list(item.evidence)), ("evidence_absent", _absence_view(item.evidence_absent)), ("body", item.body),
+        ("links", links), ("approvals", show_history.approvals(snapshot.events[item_id])), ("evidence", evidence),
+        ("evidence_retractions", evidence_retractions), ("mirrors", mirrors), ("comments", comments),
+        ("attachments", [{"path": a.path, "size": a.size, "hash": a.digest} for a in tree.values()]),
+        ("assignees", list(extra_assignees)), ("reactions", reactions), ("references", cross), ("timeline", timeline),
+        ("evidence_ids", list(item.evidence)), ("evidence_absent", _absence_view(item.evidence_absent)), ("body", item.body),
     )
     for key, value in related:
         if value:
@@ -357,6 +362,9 @@ def show(config: Config, snapshot: Snapshot, reference: str, as_json: bool) -> N
             print(f"complete: {epic['complete_command']}")
     for event in folded.evidence:
         print(f"evidence: {event.get('vcs')} {' '.join(event.get('change_ids'))}")
+    for event in folded.evidence_retractions:
+        reason = untrusted_text.show(str(event.get("reason"))).text
+        print(f"evidence retracted: {event.get('vcs')} {event.get('change_id')} ({reason})")
     for mirror in mirrors:
         print(f"mirror: {mirror['target']} #{mirror['number']}")
     for line in lines:
