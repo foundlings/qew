@@ -35,6 +35,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     evidence.add_argument("--change", action="append", default=[], help="change id (jj) or commit (git), repeatable; default is the current one")
     evidence.add_argument("--vcs", choices=["jj", "git"], help="override the detected VCS")
     evidence.add_argument("--repair", action="store_true", help="replace the proof of a claimed or completed item with the named --change ids, which must be on the target branch (a completed item shows them)")
+    evidence.add_argument("--retract", action="append", default=[], metavar="CHANGE", help="retract a cited change from an open item; pair with --reason")
+    evidence.add_argument("--reason", help="why the cited evidence is being retracted")
     evidence.add_argument("--on-behalf-of", metavar="ACTOR", help="record the evidence for a claim ACTOR holds (the integrator citing an elf's change); both actors are recorded, the claim does not move")
     complete = commands.add_parser("complete", help="finish claimed work once the gate passes")
     complete.add_argument("item", nargs="?", help="item id or alias (not with --manifest)")
@@ -78,7 +80,7 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command == "reopen" and (not arguments.item or arguments.dry_run):
         raise QewError("give ITEM, or --manifest FILE (--dry-run belongs to --manifest)", 2)
     if arguments.command == "evidence" and arguments.manifest:
-        if arguments.item or arguments.change or arguments.vcs or arguments.on_behalf_of:
+        if arguments.item or arguments.change or arguments.vcs or arguments.on_behalf_of or arguments.retract or arguments.reason or arguments.repair:
             raise QewError("--manifest replaces ITEM and the single-item options: give the manifest alone", 2)
         print(evidence_manifest(config, Path(arguments.manifest), arguments.dry_run))
         return True
@@ -87,7 +89,8 @@ def run(arguments: argparse.Namespace) -> bool:
             raise QewError("give ITEM, or --manifest FILE", 2)
         if arguments.dry_run:
             raise QewError("--dry-run belongs to --manifest", 2)
-        print(evidence(config, arguments.item, arguments.change, arguments.vcs, arguments.on_behalf_of, arguments.repair))
+        print(evidence(config, arguments.item, arguments.change, arguments.vcs, arguments.on_behalf_of, arguments.repair,
+                       arguments.retract, arguments.reason))
         return True
     if arguments.command == "complete" and arguments.manifest:
         if arguments.item or arguments.take_over or arguments.no_commit or arguments.reason or arguments.landed_on:
@@ -219,7 +222,17 @@ def _repair_evidence(config: Config, ledger: Ledger, snapshot: Snapshot, item_id
     return f"{item_id} evidence repaired: {kind} {' '.join(landed)}"
 
 
-def evidence(config: Config, reference: str, changes: list[str], vcs: str | None, on_behalf_of: str | None = None, repair: bool = False) -> str:
+def evidence(config: Config, reference: str, changes: list[str], vcs: str | None, on_behalf_of: str | None = None,
+             repair: bool = False, retract: list[str] | None = None, reason: str | None = None) -> str:
+    retracted = retract or []
+    if retracted:
+        if changes or repair:
+            raise QewError("--retract cannot be combined with --change or --repair", 2)
+        if not reason or not reason.strip() or "\n" in reason:
+            raise QewError("--retract needs a one-line --reason", 2)
+        return retract_evidence(config, reference, retracted, vcs, on_behalf_of, reason.strip())
+    if reason is not None:
+        raise QewError("--reason belongs to --retract", 2)
     ledger, snapshot, item_id = _load(config, reference)
     if repair:
         return _repair_evidence(config, ledger, snapshot, item_id, changes, vcs)
@@ -238,14 +251,57 @@ def evidence(config: Config, reference: str, changes: list[str], vcs: str | None
     for change in cited:
         if not code_vcs.valid_change(kind, change):
             raise QewError(f"`{change}` is not a {kind} change id", 2)
-    if any(e.type == "evidence" and e.get("vcs") == kind and set(e.get("change_ids", [])) == set(cited)
-           for e in snapshot.events[item_id]):  # a retry of evidence already recorded (cited beside another id it is a new event: only an event whose ids all landed completes)
+    resolve = evidence_resolve.Resolver(config, kind)
+    resolve.prepare((change, kind) for change in cited)
+    unknown = [change for change in cited if resolve(change, kind) is Landing.UNKNOWN]
+    if unknown:
+        raise QewError(f"evidence {' '.join(unknown)} does not resolve in this checkout (typo, or not fetched here yet)", 2)
+    if any(e.get("vcs") == kind and set(e.get("change_ids", [])) == set(cited)
+           for e in snapshot.folds[item_id].evidence):  # retracted proof may be cited again as a new active fact
         return f"{item_id} evidence {kind} {' '.join(cited)} (unchanged)"
     named = {} if on_behalf_of is None else {"on_behalf_of": on_behalf_of}
     ledger.append_event(
         item_id, "evidence", vcs=kind, change_ids=cited, repo=code_vcs.repository_url(config.root), **named
     )
     return f"{item_id} evidence {kind} {' '.join(cited)}" + ("" if on_behalf_of is None else f" (for {on_behalf_of})")
+
+
+def retract_evidence(config: Config, reference: str, changes: list[str], vcs: str | None,
+                     on_behalf_of: str | None, reason: str) -> str:
+    """Append an auditable retraction of cited evidence from open work; completed proof is replaced with `--repair`."""
+    ledger, snapshot, item_id = _load(config, reference)
+    folded = snapshot.folds[item_id]
+    if folded.state not in (State.APPROVED, State.CLAIMED):
+        raise QewError(f"cannot retract evidence for {item_id}: it is {folded.state.value if folded.state else 'unknown'}; "
+                       "completed evidence is replaced with `qew evidence ITEM --change CHANGE --repair`", 2)
+    if on_behalf_of is not None:
+        _require_holder(snapshot, item_id, on_behalf_of)
+    elif folded.state == State.CLAIMED and folded.owner != actor() and not holds_ancestor(snapshot, item_id, actor()):
+        raise QewError(f"cannot retract evidence for {item_id}: it is claimed by {holding(snapshot, item_id)}; "
+                       "evidence needs the claim or the claim of its epic (or --on-behalf-of the holder)", 3)
+    if not changes or len(set(changes)) != len(changes):
+        raise QewError("--retract needs one or more distinct change ids", 2)
+    active: dict[str, set[str]] = {}
+    for event in folded.evidence:
+        event_vcs = str(event.get("vcs"))
+        if vcs is None or vcs == event_vcs:
+            active.setdefault(event_vcs, set()).update(str(change) for change in event.get("change_ids", []))
+    for change in changes:
+        if not any(change in ids for ids in active.values()):
+            raise QewError(f"cannot retract evidence {change} for {item_id}: it is not currently recorded", 2)
+    matches = {kind for kind, ids in active.items() if any(change in ids for change in changes)}
+    if vcs is not None:
+        kind = vcs
+    elif len(matches) == 1:
+        kind = next(iter(matches))
+    else:
+        raise QewError("--retract needs --vcs when the change id appears under more than one VCS", 2)
+    if any(change not in active.get(kind, set()) for change in changes):
+        raise QewError(f"cannot retract evidence for {item_id}: each change must be recorded under {kind}", 2)
+    for change in changes:
+        ledger.append_event(item_id, "evidence_retracted", vcs=kind, repo=code_vcs.repository_url(config.root),
+                            change_id=change, reason=reason)
+    return f"{item_id} evidence retracted {kind} {' '.join(changes)}"
 
 
 def _require_holder(snapshot: Snapshot, item_id: str, holder: str) -> None:

@@ -4,6 +4,7 @@ A completed item cannot take plain evidence, so wrong proof (a rewritten git has
 scenario; its docstring names the failure it prevents.
 """
 
+import json
 import os
 import sys
 import unittest
@@ -72,9 +73,20 @@ class RepairWalk(unittest.TestCase):
         self.assertTrue(any(event["type"] == "evidence" and change in event["change_ids"] for event in events))
         self.assertTrue(any(event["type"] == "evidence_retracted" and event["change_id"] == change
                             and event["reason"] == "cited the wrong change" for event in events))
+        shown = self.w.qew("show", item, "--json")
+        self.assertEqual(shown.code, 0, shown)
+        document = json.loads(shown.out)
+        self.assertEqual(document.get("evidence", []), [])
+        self.assertEqual(document["evidence_retractions"][0]["change_id"], change)
         complete = w.qew("complete", item)
         self.assertEqual(complete.code, 2, complete)
         self.assertIn("no evidence recorded", complete.err)
+        self.assertEqual(w.qew("evidence", item, "--change", change).code, 0)
+        completed = w.qew("complete", item)
+        self.assertEqual(completed.code, 0, completed)
+        shown_again = json.loads(self.w.qew("show", item, "--json").out)
+        self.assertEqual(shown_again["evidence_ids"], [change])
+        self.assertEqual(shown_again["evidence_retractions"][0]["change_id"], change)
 
     def test_retraction_refuses_uncited_ids_and_completed_items(self) -> None:
         """Prevents retraction from erasing unrelated proof or rewriting the proof of completed work."""
