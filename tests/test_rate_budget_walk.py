@@ -59,10 +59,9 @@ class RateBudgetWalk(unittest.TestCase):
         world.create("--title", "Only", "--quote", QUOTE)
         fake.quota = {"x-ratelimit-remaining": "100", "x-ratelimit-reset": str(int(time.time()) + 3000)}
         before = len(fake.requests)
-        world.run("sync", env={**ENV, "QEW_BACKGROUND": "1"})
+        worker = world.run("sync", env={**ENV, "QEW_BACKGROUND": "1"})
         self.assertLessEqual(len(fake.requests) - before, 2, fake.requests[before:])
-        log = (world.ledger / ".qew" / "sync.log").read_text() if (world.ledger / ".qew" / "sync.log").exists() else ""
-        self.assertIn("reserve", log)
+        self.assertIn("rate reserve", worker.stdout + worker.stderr)
         interactive = len(fake.requests)
         self.assertEqual(world.run("sync", "--all", env=ENV).returncode, 0)  # a person's verb is never held back by the reserve
         self.assertGreater(len(fake.requests) - interactive, 2)

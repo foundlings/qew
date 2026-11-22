@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import os
 import subprocess
 import time
 import urllib.error
@@ -127,13 +128,36 @@ def header(headers: Mapping[str, str], name: str) -> str | None:
 
 @dataclass
 class RateWatch:
-    """What this process has seen of the forge's quota: HTTP calls made, and the last `x-ratelimit-remaining` an answer carried."""
+    """What this process has seen of the forge's quota: HTTP calls made, the last `x-ratelimit-remaining` an answer carried and
+    the `x-ratelimit-reset` (epoch seconds) it came with."""
 
     calls: int = 0
     remaining: int | None = None
+    reset: float | None = None
 
 
 WATCH = RateWatch()
+RESERVE = 500  # calls a background pass leaves for merges and the person at the keyboard (QEW_RATE_RESERVE overrides, 0 turns it off)
+
+
+class RateReserve(ForgeUnavailable):
+    """The background worker stands down: fewer calls are left than the reserve. Never retried; a later pass tries again."""
+
+
+def reset_in(headers: Mapping[str, str]) -> float | None:
+    """Seconds until the quota returns when the answer says none is left (`x-ratelimit-remaining: 0`), else None."""
+    left, reset = header(headers, "x-ratelimit-remaining"), header(headers, "x-ratelimit-reset")
+    if left is None or left.strip() != "0" or reset is None:
+        return None
+    try:
+        return max(float(reset) - time.time(), 1.0)
+    except ValueError:
+        return None
+
+
+def _reserve() -> int:
+    raw = os.environ.get("QEW_RATE_RESERVE", "")
+    return int(raw) if raw.strip().isdigit() else RESERVE
 
 
 def _noted(response: HttpResponse) -> HttpResponse:
@@ -141,10 +165,23 @@ def _noted(response: HttpResponse) -> HttpResponse:
     left = header(response.headers, "x-ratelimit-remaining")
     if left is not None and left.strip().isdigit():
         WATCH.remaining = int(left)
+        until = header(response.headers, "x-ratelimit-reset")
+        WATCH.reset = float(until) if until is not None and until.strip().replace(".", "", 1).isdigit() else None
     return response
 
 
+def _hold_reserve() -> None:
+    """In the background worker, refuse the next call while the last answer said fewer than the reserve remain and the quota has not reset."""
+    if not os.environ.get("QEW_BACKGROUND") or WATCH.remaining is None or WATCH.reset is None:
+        return
+    until = WATCH.reset - time.time()
+    if until > 0 and WATCH.remaining < _reserve():
+        raise RateReserve(f"rate reserve: {WATCH.remaining} forge calls left, below the {_reserve()} kept for merges; the quota resets in {until:.0f}s",
+                          until)
+
+
 def _timed(transport: Transport, request: HttpRequest) -> HttpResponse:
+    _hold_reserve()
     if not trace.enabled():
         return _noted(transport(request))
     begun = time.perf_counter()

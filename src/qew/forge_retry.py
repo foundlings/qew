@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 
 from qew.errors import QewError
 from qew.forge import ForgeUnavailable, HttpRequest, HttpResponse, Transport
+from qew.forge_http import RateReserve, reset_in
 
 DEFAULT_RETRIES = 4
 DEFAULT_MAX_WAIT = 60.0
@@ -157,14 +158,18 @@ def retrying(transport: Transport, retries: int, max_wait: float, base: float = 
             gate_wait(sleep)
             try:
                 response = transport(request)
-            except ForgeUnavailable:
-                if not safe or attempt >= retries:
+            except ForgeUnavailable as error:
+                if isinstance(error, RateReserve) or not safe or attempt >= retries:
                     raise
                 answer_wait = 0.0
             else:
+                lifts = reset_in(response.headers)
+                if lifts is not None and rate is not None and lifts > rate.max_wait and rate_limited(response):
+                    return response  # the quota returns after the longest wait: another request only meets the same wall, the caller reports the reset
                 if rate is not None and limited < rate.retries and rate_limited(response) and (safe or not secondary_limit(response)):
                     asked = response.headers.get("Retry-After") or response.headers.get("retry-after") or ""
-                    rate_backoff(limited, float(asked) if asked.replace(".", "", 1).isdigit() else 0.0, rate, sleep, jitter)
+                    named = float(asked) if asked.replace(".", "", 1).isdigit() else 0.0
+                    rate_backoff(limited, max(named, lifts or 0.0), rate, sleep, jitter)
                     limited += 1
                     continue
                 if response.status < 500 or not safe or attempt >= retries:
