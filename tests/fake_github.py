@@ -61,6 +61,7 @@ class FakeGitHub:
         self.inflight = 0  # requests being served now
         self.max_inflight = 0  # the most requests served at once
         self.lock = threading.RLock()  # serializes the fake's own state; the delay happens outside it
+        self.quota: dict[str, str] | None = None  # rate-limit headers sent with every answer (x-ratelimit-remaining, -reset)
         self.etags = True  # answer issue-list pages with an ETag and honor If-None-Match
         self.clock: Callable[[], datetime] = instants.now  # the forge's clock; walks move it to place edits in time
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
@@ -666,7 +667,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         if link:
             self.send_header("Link", link)
-        for name, value in (headers or {}).items():
+        for name, value in {**(self.server.fake.quota or {}), **(headers or {})}.items():  # type: ignore[attr-defined]
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
