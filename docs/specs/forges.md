@@ -193,6 +193,11 @@ repeatable call (never a create: the pacer learns the pace from that block) wait
 doubling per attempt with jitter, at most `forge_rate_retries` times (mirror option, default 6; env `QEW_RATE_RETRIES`), each wait capped by
 `forge_rate_max_wait` (300 s in the background worker, 60 s otherwise). One worker's wait closes a gate that pauses every worker of the process,
 and the sync summary says `rate limited N times; waited Ns`. A limit that outlasts the retries stops the target once with its retry time, as before.
+An answer that says no quota is left (`x-ratelimit-remaining: 0`) names its reset (`x-ratelimit-reset`): when the reset is within the cap the wait is
+until the reset, and when it is further away than the cap the call is not repeated (the pull or sync stops once and reports the retry time).
+The background worker also keeps a reserve: once an answer says fewer than 500 calls remain (`forge_http.RESERVE`, env `QEW_RATE_RESERVE`, 0 turns it
+off) and the quota has not reset, it makes no more calls (`rate reserve: N forge calls left ...`) and a later pass tries again, so merges and
+the person at the keyboard keep the budget; interactive verbs are never held back by it.
 A sync takes the ledger lock only to commit and yields to any verb waiting for it (a waiter leaves a marker beside the lock), so `qew pr ready`,
 `start` and `complete` are never queued behind a long background sync.
 
