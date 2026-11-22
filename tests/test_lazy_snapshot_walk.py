@@ -1,74 +1,65 @@
-"""A snapshot of a cached ledger parses an item's events only when something asks for them.
+"""Walks of the lazy snapshot a write verb takes: it reads the items it touches, not the whole ledger.
 
-Reading 27,450 items and 214,298 events took 9 s a command, most of it parsing and folding events no command looked at.
-Items stay eager (the whole graph needs their headers); each item's folded state and events are built on first access, from text the cache
-validated when it entered it. Each test is a scenario; its docstring names the failure it prevents.
+Adversary: evidence and start parsing all 28,000 items under the write lock (4 s idle, 20 s under load) to look at one item and
+its ancestors; and the cure being wrong: a verb that reads a stale or partial picture, hides damage from `qew check`, or cannot be
+switched back to the full snapshot.
 """
 
-import os
-import sys
 import unittest
-from unittest import mock
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-
-from qew import ledger_store
-from qew.ledger_store import Ledger
 from tests.ledger_harness import World
+
+TRACE = {"QEW_TRACE": "1"}
+
+
+def approved(world: World, title: str = "Work") -> str:
+    item = world.create("--kind", "issue", "--title", title, "--draft")
+    world.approve(item)
+    return item
 
 
 class LazySnapshotWalk(unittest.TestCase):
     def setUp(self) -> None:
-        self.w = World()
-        self.addCleanup(self.w.close)
-        self.ids = [self.w.create("--kind", "issue", "--title", f"Item {n}", "--draft") for n in range(12)]
-        self.w.approve(*self.ids)
-        self.w.run("start", self.ids[0])
-        self.w.run("block", self.ids[1], "--on", self.ids[2])
-        self.ledger = Ledger(self.w.ledger, "TST", schema=int(os.environ.get("QEW_TEST_SCHEMA", "7")))
-        self.ledger.snapshot()  # the first read fills the cache (and validates the events as they enter it)
+        self.world = World(schema="9")
+        self.addCleanup(self.world.close)
+        self.item = approved(self.world)
+        self.assertEqual(self.world.run("start", self.item).returncode, 0)
+        self.sha = self.world.commit("the work")
 
-    def parsed(self, action) -> int:  # type: ignore[no-untyped-def]
-        calls = 0
-        real = ledger_store.parse_event_trusted
+    def evidence(self, env: dict[str, str] | None = None):
+        return self.world.run("evidence", self.item, "--change", self.sha, env={**TRACE, **(env or {})})
 
-        def counted(name: str, text: str):  # type: ignore[no-untyped-def]
-            nonlocal calls
-            calls += 1
-            return real(name, text)
+    def test_evidence_takes_the_lazy_snapshot(self) -> None:
+        """Prevents evidence parsing the whole ledger to read one item: its trace names a lazy snapshot and no full one."""
+        run = self.evidence()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("ledger snapshot (lazy)", run.stderr)
+        self.assertNotIn("ledger snapshot (full)", run.stderr)
+        self.assertEqual([e["type"] for e in self.world.events(self.item)][-1], "evidence")
 
-        with mock.patch.object(ledger_store, "parse_event_trusted", counted):
-            action()
-        return calls
+    def test_no_lazy_restores_the_full_snapshot_with_the_same_result(self) -> None:
+        """Prevents the lazy snapshot having no way back: QEW_NO_LAZY=1 takes the full one and records the same event."""
+        run = self.evidence({"QEW_NO_LAZY": "1"})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("ledger snapshot (full)", run.stderr)
+        self.assertNotIn("ledger snapshot (lazy)", run.stderr)
+        self.assertEqual([e["type"] for e in self.world.events(self.item)][-1], "evidence")
 
-    def test_building_the_snapshot_parses_no_events_but_the_edges_that_make_the_needs(self) -> None:
-        """Prevents every command paying to parse and fold every event of a 27,000 item ledger, though most ask about a few items."""
-        holder: list = []
-        calls = self.parsed(lambda: holder.append(self.ledger.snapshot(verify=False)))
-        self.assertLessEqual(calls, 2, calls)  # the one edge event (and no more)
-        snapshot = holder[0]
-        self.assertEqual(snapshot.items[self.ids[1]].needs, (self.ids[2],))
+    def test_a_refusal_reads_the_same_under_the_lazy_snapshot(self) -> None:
+        """Prevents a lazy read changing a refusal: evidence on a draft is still exit 2 with the same words."""
+        draft = self.world.create("--kind", "issue", "--title", "Draft", "--draft")
+        lazy = self.world.run("evidence", draft, "--change", self.sha)
+        full = self.world.run("evidence", draft, "--change", self.sha, env={"QEW_NO_LAZY": "1"})
+        self.assertEqual((lazy.returncode, lazy.stderr), (full.returncode, full.stderr))
+        self.assertEqual(lazy.returncode, 2)
 
-    def test_an_item_is_folded_on_first_access_and_once(self) -> None:
-        """Prevents a lazy fold being redone on every read of the same item."""
-        snapshot = self.ledger.snapshot()
-        first = self.parsed(lambda: snapshot.folds[self.ids[0]])
-        again = self.parsed(lambda: snapshot.folds[self.ids[0]])
-        self.assertGreater(first, 0)
-        self.assertEqual(again, 0)
-
-    def test_a_lazy_snapshot_is_the_same_as_an_uncached_one(self) -> None:
-        """Prevents the lazy path changing what any command sees: every item, fold and event list equals the eager read."""
-        lazy = self.ledger.snapshot()
-        with mock.patch.dict(os.environ, {"QEW_NO_CACHE": "1"}):
-            eager = Ledger(self.w.ledger, "TST", schema=self.ledger.schema).snapshot()
-        self.assertEqual(list(lazy.items), list(eager.items))
-        self.assertEqual(list(lazy.folds), list(eager.folds))
-        for item_id in eager.items:
-            self.assertEqual(lazy.items[item_id], eager.items[item_id])
-            self.assertEqual(lazy.folds[item_id], eager.folds[item_id])
-            self.assertEqual([e.id for e in lazy.events[item_id]], [e.id for e in eager.events[item_id]])
-        self.assertEqual(len(lazy.folds), len(eager.folds))
+    def test_damage_elsewhere_stops_check_but_not_a_write_that_never_reads_it(self) -> None:
+        """Prevents one broken item stopping every agent's evidence, while `qew check` still names it."""
+        other = approved(self.world, "Other")
+        next((self.world.ledger / "items").rglob(f"{other}/item.md")).write_text("not an item file", encoding="utf-8")
+        run = self.evidence()
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertNotEqual(self.world.run("check").returncode, 0)
 
 
 if __name__ == "__main__":
