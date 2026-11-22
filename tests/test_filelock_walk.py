@@ -49,6 +49,22 @@ class FileLockWalk(unittest.TestCase):
             pass
         self.assertLess(time.monotonic() - started, 2.0)
 
+    def test_a_taker_reaps_the_waiter_markers_of_dead_or_stopped_processes(self) -> None:
+        """Prevents waiter markers piling up beside the lock for days: a dead process's and a long-silent one's go, a live waiter's stays."""
+        from qew import filelock
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait()
+        dead = self.path.with_name(f"lock.waiting.{gone.pid}.1.{time.time_ns()}")
+        silent = self.path.with_name(f"lock.waiting.{os.getpid()}.2.{time.time_ns()}")
+        live = self.path.with_name(f"lock.waiting.{os.getpid()}.3.{time.time_ns()}")
+        for marker in (dead, silent, live):
+            marker.touch()
+        long_ago = time.time() - filelock.WAITER_STALE_S - 60
+        os.utime(silent, (long_ago, long_ago))
+        with filelock.hold(self.path, verb="create", wait_s=5):
+            pass
+        self.assertEqual((dead.exists(), silent.exists(), live.exists()), (False, False, True))
+
     def test_a_live_holder_is_named_when_the_wait_runs_out(self) -> None:
         """Prevents an anonymous 'locked' error: the message names the holder's actor, verb, pid and age."""
         from qew import filelock
