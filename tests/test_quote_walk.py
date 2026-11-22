@@ -30,6 +30,11 @@ class QuoteWalk(unittest.TestCase):
         self.world = World()
         self.addCleanup(self.world.close)
 
+    def test_a_digits_only_name_is_a_valid_quote_name(self) -> None:
+        """Prevents refusing `887: '...'`: humans are named by login, and a number is a name."""
+        result = self.world.run("create", "--title", "Work", "--quote", "887: 'please track this work in the Qew ledger now'")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_create_quote_table_refuses_every_junk_form_and_writes_no_file(self) -> None:
         """Junk satisfying `create --quote` would mint approved work with no human behind it."""
         before = tree(self.world)
