@@ -8,7 +8,7 @@ HEADING = "## Requested by"
 FORM = "Name: 'their words'"
 MINIMUM_WORDS = 12
 _QUOTE = re.compile(
-    r"([^\W\d_][\w .'-]{0,40}?)\s*:\s*(['\"“‘])([^\r\n]+)(['\"”’])"
+    r"([^\W_][\w .'-]{0,40}?)\s*:\s*(['\"“‘])([^\r\n]+)(['\"”’])"
 )
 _PLACEHOLDER = re.compile(
     r"^[.…\s]*$|<[^>]*>|\b(todo|tbd|placeholder|his words|her words|their words)\b",
