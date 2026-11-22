@@ -18,6 +18,7 @@ from types import ModuleType
 from typing import Any
 from collections.abc import Iterator
 
+from qew import trace
 from qew.errors import QewError
 from qew.jsontypes import JsonObject
 
@@ -249,6 +250,10 @@ def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT
             time.sleep(0.005 if urgent else min(0.25, 0.01 * 2 ** min(attempt, 5)) + random.uniform(0, 0.02))
             attempt += 1
         marker.unlink(missing_ok=True)
+        waited = time.monotonic() - started
+        if waited >= 0.05 and trace.enabled():  # the seconds between two traced calls that were spent queueing, not working
+            behind = f"; deferred to earlier waiters {time.monotonic() - deferring:.1f}s" if deferring is not None else ""
+            trace.note(f"lock {path.name} wait (previous holder: {_describe(read_holder(path))}{behind})", waited)
         try:
             text = json.dumps({"pid": os.getpid(), "host": socket.gethostname(), "verb": verb, "who": who, "since": time.time()})
             os.ftruncate(fd, 0)
