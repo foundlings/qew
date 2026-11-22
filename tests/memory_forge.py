@@ -71,6 +71,7 @@ class MemoryForge(Forge):
         self.after_read: list[Callable[[MemoryForge], None]] = []  # run once after the next read, as a concurrent edit
         self.body_write_ignored = False
         self.label_write_ignored = False  # accept the label change yet apply none
+        self.base_write_ignored = False  # accept the base change yet apply none
         self.required_checks: dict[str, bool] = {}
         self.rules_error: ForgeError | None = None
         self.supports_rules = True
@@ -299,6 +300,12 @@ class MemoryForge(Forge):
         self._live("set_pr_labels")
         if not self.label_write_ignored:
             self.pulls[number] = self._with(number, labels=labels)
+        return self.pulls[number]
+
+    def update_pull_request_base(self, number: int, base: str) -> RemotePullRequest:
+        self._live("update_pr_base")
+        if not self.base_write_ignored:
+            self.pulls[number] = self._with(number, base_branch=base)
         return self.pulls[number]
 
     def update_pull_request_title(self, number: int, title: str) -> RemotePullRequest:
