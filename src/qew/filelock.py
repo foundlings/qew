@@ -164,6 +164,19 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def _reap(path: Path) -> None:
+    """Remove the waiter markers beside the lock that belong to a dead process or one silent for WAITER_STALE_S (a killed waiter
+    never unlinks its own); they never counted as waiting, they only piled up."""
+    for marker in path.parent.glob(f"{path.name}.waiting.*"):
+        parsed = _parse(marker)
+        try:
+            silent = time.time() - marker.stat().st_mtime >= WAITER_STALE_S
+            if parsed is None or silent or not _alive(parsed[0]):
+                marker.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
 def waiters(path: Path) -> int:
     """How many other live processes are waiting for the lock at `path` (they leave a marker beside it while they wait)."""
     found = 0
@@ -205,6 +218,7 @@ def hold(path: Path, verb: str = "", who: str = "", wait_s: float = DEFAULT_WAIT
     first, for at most POLITE_MAX_S, so a long sync never keeps an interactive verb out. An `urgent` taker (a person running
     `qew gc --now` behind a queue of long writes) is not deferred to earlier waiters and asks for the lock every few milliseconds."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    _reap(path)
     fd = os.open(path, os.O_RDWR | os.O_CREAT | _BINARY, 0o600)
     started = time.monotonic()
     attempt = 0

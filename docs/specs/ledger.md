@@ -309,12 +309,12 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
 - **The holder text is courtesy only.** The holder writes `{pid, host, verb, who, since}` into the file after it locks;
   a waiter reads it only to word the timeout (`the ledger X is locked by agent3's `complete` (pid 123, 12s)`, exit 3).
   It is never consulted to decide whether the lock is free.
-- **Forge calls take no lock.** `qew pr open`, `ready`, `close` and `merge` ask the forge first and take the write lock only for the short section that records the result (fetch, write, commit); a slow forge never holds other writers. If the section cannot get the lock in time, the forge change stands (a pull request opened or merged) and the command fails; `qew pr open` adopts the orphan on a rerun, and `qew sync` reads the merged state back.
+- **Forge calls take no lock, except opening.** `qew pr ready`, `close` and `merge` ask the forge first and take the write lock only for the short section that records the result (fetch, write, commit); a slow forge never holds other writers. If the section cannot get the lock in time, the forge change stands (a pull request merged) and the command fails; `qew sync` reads the merged state back. `qew pr open` takes the write lock first and makes the forge call inside it, because a pull request opened and never recorded cannot be readied or merged: a lock timeout creates nothing, and a rerun adopts a pull request that is already there.
 - **Waiting.** Bounded by `[replication] lock_wait_s` (60; `QEW_LOCK_WAIT_S` overrides it for one command) with
   exponential backoff (10 ms to 250 ms) plus jitter, so ten waiters do not stampede. Waiters are served in arrival order:
   one that finds the lock taken leaves `LOCK.waiting.PID.THREAD.ARRIVAL` beside it, touches it while it waits, and tries
   the lock only when no earlier waiter is live. The queue is a courtesy over the kernel lock, never a second lock: a marker
-  of a dead process or one untouched for 5 s is ignored, and a waiter yields to earlier ones for at most 20 s, then tries
+  of a dead process or one untouched for 5 s is ignored (a taker removes markers of dead processes and ones silent for 10 minutes), and a waiter yields to earlier ones for at most 20 s, then tries
   regardless, so no waiter can hold up another for good. The timeout names how many waited ahead. Locks are not re-entrant: a nested hold
   on one path times out loudly. Push runs outside the write lock; the worker's own commit waits on the push lock. The sync worker takes `lock` first and `push.lock` second, only around its commit, and pushes under `push.lock` alone, so it never holds `push.lock` while queued for `lock`.
 - **Idempotent verbs.** A repeated command after a crash, timeout or agent retry never duplicates:
