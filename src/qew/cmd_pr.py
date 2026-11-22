@@ -120,6 +120,12 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     titled.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
     titled.add_argument("--target", help=_TARGET_HELP)
     titled.add_argument("--json", action="store_true", help="machine-readable output")
+    retargeted = sub.add_parser("retarget", help="point an open pull request at another base branch (a stacked lane onto main), kept in the ledger; refuses a head that lacks the old and new base's merge base")
+    retargeted.add_argument("number", type=int, help="pull request number")
+    retargeted.add_argument("--base", required=True, help="the new base branch")
+    retargeted.add_argument("--on-behalf-of", metavar="ACTOR", help="act as this actor would: allowed only where ACTOR could (its opener, or the holder of its claims)")
+    retargeted.add_argument("--target", help=_TARGET_HELP)
+    retargeted.add_argument("--json", action="store_true", help="machine-readable output")
     synced = sub.add_parser("sync", help="set an open pull request's title from its item's current title, or with --items re-derive the items it covers")
     synced.add_argument("number", type=int, help="pull request number")
     synced.add_argument("--items", action="store_true", help="instead of the title, re-derive the covered items: recorded + the root's open descendants + items with a Progress box")
@@ -195,6 +201,10 @@ def run(arguments: argparse.Namespace) -> bool:
         print(act(config, arguments.number, arguments.by, arguments.target, on_behalf_of=arguments.on_behalf_of))
     elif command == "title":
         print(set_title(config, arguments.number, arguments.text, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
+    elif command == "retarget":
+        from qew import pr_retarget  # imports this module for the loading pieces
+
+        print(pr_retarget.retarget(config, arguments.number, arguments.base, arguments.target, on_behalf_of=arguments.on_behalf_of).render(arguments.json))
     elif command == "sync":
         if arguments.items:
             print(sync_items(config, arguments.number, arguments.target, on_behalf_of=arguments.on_behalf_of))

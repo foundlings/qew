@@ -529,6 +529,10 @@ class Forge(ABC):
         """Set an open pull request's title, then read it back."""
         raise Unsupported("update_pull_request_title")
 
+    def update_pull_request_base(self, number: int, base: str) -> RemotePullRequest:
+        """Point an open pull request at another base branch, then read it back."""
+        raise Unsupported("update_pull_request_base")
+
     def update_pull_request_body(self, number: int, body: str) -> RemotePullRequest:
         """Replace the description and return the re-read pull request (idempotent)."""
         raise Unsupported("update_pull_request_body")

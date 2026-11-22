@@ -1060,6 +1060,11 @@ class GitHub(Forge):
         return self.read_pull_request(number)
 
     @override
+    def update_pull_request_base(self, number: int, base: str) -> RemotePullRequest:
+        self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"base": base})
+        return self.read_pull_request(number)
+
+    @override
     def update_pull_request_title(self, number: int, title: str) -> RemotePullRequest:
         self._wire.rest("PATCH", f"{self._repo_path}/pulls/{number}", {"title": title})
         return self.read_pull_request(number)

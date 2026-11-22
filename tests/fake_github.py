@@ -940,6 +940,8 @@ class _Handler(BaseHTTPRequestHandler):
                 pull[key] = body[key]
                 self.fake.issues[pull["number"]][key] = body[key]
                 self.fake.touch(self.fake.issues[pull["number"]])
+        if "base" in body:
+            pull["base"] = body["base"]
         if body.get("state") in ("open", "closed") and not pull["merged"]:
             pull["state"] = body["state"]
             self.fake.issues[pull["number"]]["state"] = body["state"]

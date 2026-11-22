@@ -31,6 +31,7 @@ class PrRecord:
     blockers: tuple[int, ...] = ()  # pull requests this one waits on
     title: str = ""  # the title set for this pull request alone (`qew pr title`); "": the item's title
     closing: tuple[str, ...] | None = None  # the covered items this pull request completes; None: all of them (a record from before declarations)
+    base: str = ""  # the base branch set by `qew pr retarget`; "": as opened
 
 
 def positive_number(number: int) -> int:
@@ -112,8 +113,11 @@ def _record(ledger: Ledger, host: str, mirror: MirrorRecord) -> PrRecord:
     title: object = mirror.get("pr_title", "")
     if not isinstance(title, str):
         raise QewError(f"mirrors/{host}/{stem}.json: `pr_title` must be text", 1)
+    base: object = mirror.get("base", "")
+    if not isinstance(base, str):
+        raise QewError(f"mirrors/{host}/{stem}.json: `base` must be a branch name", 1)
     covered, closing = covered_items(ledger, host, mirror)
-    return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, covered, tuple(blockers), title, closing)
+    return PrRecord(host, mirror["number"], stem, stem.rsplit("-pr-", 1)[0], opener, covered, tuple(blockers), title, closing, base)
 
 
 def waiting_on(ledger: Ledger, number: int) -> list[PrRecord]:
