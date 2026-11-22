@@ -127,18 +127,19 @@ def _aliases_in(stem: str, text: str) -> tuple[str, ...] | None:
     return tuple(header.get("aliases", "").split()) if header.get("id") == stem else None
 
 
-def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, sharded: bool = False) -> Aliases:
+def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, sharded: bool = False, fresh: bool = False) -> Aliases:
     """The alias map. Headers are read once; later this process re-reads only the files it wrote, and a directory
     that changed behind its back (another process) is read again in full. `texts` gives every item file's text by
     directory name (the snapshot cache): the full build then reads no file.
 
     A sharded ledger keeps the map in `.qew/aliases.json` beside the modification time of every shard directory, so a later
-    process reads the file and re-reads only the shards that changed (a new item changes one shard) instead of every header."""
+    process reads the file and re-reads only the shards that changed (a new item changes one shard) instead of every header.
+    `fresh` looks at the shard stamps even within the second a lookup is trusted: a caller that lists the items needs every one."""
     key = str(items_dir)
     changed = _changed.pop(key, set())
     index = _indexes.get(key)
     now = time.monotonic()
-    if sharded and index is not None and not changed and now - _stamped.get(key, -RECHECK_S) < RECHECK_S:
+    if sharded and index is not None and not changed and not fresh and now - _stamped.get(key, -RECHECK_S) < RECHECK_S:
         return index.aliases  # a lookup per item must not list the shard tree each time
     try:
         stamps = _shard_stamps(items_dir) if sharded else {}
@@ -208,10 +209,21 @@ def _restore(items_dir: Path) -> _Index | None:
     return _Index(sum(stamps.values()), headers, stamps)
 
 
+RACY_NS = 2_000_000_000
+
+
+def _unsettled(stamps: dict[str, int]) -> dict[str, int]:
+    """The stamps with each directory changed in the last two seconds set to -1: a second change in the same timestamp tick would
+    leave its stamp as it was, so that shard is read again next time."""
+    horizon = time.time_ns() - RACY_NS
+    return {name: (-1 if value > horizon else value) for name, value in stamps.items()}
+
+
 def _persist(items_dir: Path, index: _Index) -> None:
     path = _stored_path(items_dir)
     if not path.parent.is_dir():
         return
+    index.stamps = _unsettled(index.stamps)
     document = {"format": STORED_FORMAT, "stamps": index.stamps, "headers": {stem: list(found) for stem, found in index.headers.items()}}
     temporary = path.with_name(f".{STORED}.{os.getpid()}.tmp")
     try:

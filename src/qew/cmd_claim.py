@@ -243,7 +243,7 @@ def release(config: Config, reference: str, reason: str, force: bool = False, la
     if lane is not None:
         claim_fields.lane(lane)
     ledger = ledger_for(config)
-    snapshot = ledger.snapshot()
+    snapshot = ledger.snapshot(lazy=False)  # releasing on top of an unreadable ledger is refused: the full snapshot names the damage
     item_id = ledger.resolve(reference, list(snapshot.items))
     folded = snapshot.folds[item_id]
     me = actor()

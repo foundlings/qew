@@ -384,7 +384,8 @@ class Ledger:
         with trace.phase("ledger snapshot (lazy)"):
             cache = snapshot_cache.for_ledger(self.path)
             aliases = ledger_aliases.scan(
-                self.items_dir, (lambda: cache.items(self.items_dir, self._raw_item, False, self.sharded)) if cache is not None else None, self.sharded)
+                self.items_dir, (lambda: cache.items(self.items_dir, self._raw_item, False, self.sharded)) if cache is not None else None, self.sharded,
+                fresh=True)
             ids = [name for name in ledger_aliases.known_stems(self.items_dir) if name not in aliases.superseded]
             loaded: dict[str, tuple[Item, list[Event], Folded]] = {}
 
