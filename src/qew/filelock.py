@@ -44,8 +44,9 @@ class LockTimeout(QewError):
     def __init__(self, path: Path, what: str, holder: JsonObject | None, waited: float, ahead: int = 0) -> None:
         by = _describe(holder)
         queue = f", {ahead} waiting ahead" if ahead else ""
+        raise_wait = "; QEW_LOCK_WAIT_S raises the wait" if path.name == "lock" else ""
         super().__init__(f"{what} is locked by {by}; waited {waited:.0f}s{queue} (lock file {path.name}, "
-                         "released automatically when that process ends)", 3)
+                         f"released automatically when that process ends{raise_wait})", 3)
 
 
 HOLDER_HINTS = {"gc": ", op-log collection: a bounded step, `qew gc` shows what it did"}  # what a holder's verb means for the waiter

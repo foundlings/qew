@@ -626,7 +626,9 @@ and which items it covers (`opener`, `items` in its `pr` mirror); a forge's own 
   result ends with `adopted`. Any other open pull request on the head (no marker, another item's, a different base,
   several) is refused with exit 2 naming it, never taken over. The owner's explicit exception is `--adopt-legacy NUMBER --reason TEXT`:
   the open, unrecorded, unmarked pull request NUMBER on the head (one from before qew) keeps its number and head, gets this item's
-  marker line, is recorded and the reason is kept as a comment on the item; a merged, closed, recorded or marked one is refused.
+  marker line, is recorded and the reason is kept as a comment on the item; a merged, closed, recorded or other-item-marked one is refused;
+  NUMBER may also be this item's own marked orphan (only its record is written).
+  The write lock is taken before the forge call, so a lock timeout (exit 3, `QEW_LOCK_WAIT_S` raises the wait) creates no pull request.
   A forge that cannot list by head opens as before.
 - `qew pr check NUMBER (ID... | --all | --list) [--on-behalf-of ACTOR] [--target T]`: tick checklist boxes (outside code fences) addressed by marker,
   position, or `@N`; unknown or repeated ids, merged or closed pull requests are exit 2 with no write; a body that

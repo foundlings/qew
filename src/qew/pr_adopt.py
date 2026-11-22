@@ -36,6 +36,7 @@ def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: s
             continue
         if marker_alone(pull.body, marker_for(item_id)):
             mine.append(pull)
+            taken = taken or pull.number == legacy  # the owner names a marked orphan of this item: the record is all that is missing
             continue
         owner = _MARKER.search(pull.body)
         if owner is None and pull.number == legacy:

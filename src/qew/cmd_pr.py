@@ -54,7 +54,7 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     opened.add_argument("--why", help="the Why section")
     opened.add_argument("--testing", help="the Testing section")
     opened.add_argument("--body-file", help="append this file to the body, e.g. a `## Progress` checklist of `- [ ] text <!-- pr-progress:ID -->` lines")
-    opened.add_argument("--adopt-legacy", type=int, metavar="NUMBER", help="take over this unmarked pull request qew never recorded (from before qew) on --head: it keeps its number and head (needs --reason)")
+    opened.add_argument("--adopt-legacy", type=int, metavar="NUMBER", help="take over this pull request qew never recorded on --head (unmarked, from before qew, or marked for this item): it keeps its number and head (needs --reason)")
     opened.add_argument("--reason", help="why: required with --adopt-legacy")
     opened.add_argument("--closes", nargs="+", default=[], metavar="ITEM", help="schema 9: items this pull request completes when it merges (the item opened for must be named under some role)")
     opened.add_argument("--remains", nargs="+", default=[], metavar="ITEM", help="schema 9: items it touches or partly delivers; they stay open")
@@ -460,12 +460,12 @@ def open_pull_request(config: Config, reference: str, options: OpenOptions = Ope
     spec = PullRequestSpec(head, options.base or config.target, item.title, body, not options.ready, login)
     forge = _build(build, mirror)
     base = options.base or config.target
-    with forge_errors(issue["_target"]):
-        remote = pr_adopt.find_adoptable(ledger, issue["_target"], forge, head, base, item_id, options.adopt_legacy)
-        adopted = remote is not None
-        if remote is None:
-            remote = forge.open_pull_request(spec)
-    with replication.section("pr-open"):
+    with replication.section("pr-open"):  # the lock first: a timeout here must not leave a forge pull request with no record
+        with forge_errors(issue["_target"]):
+            remote = pr_adopt.find_adoptable(ledger, issue["_target"], forge, head, base, item_id, options.adopt_legacy)
+            adopted = remote is not None
+            if remote is None:
+                remote = forge.open_pull_request(spec)
         if claiming:
             try:
                 cmd_claim.start(config, item_id)
@@ -526,10 +526,10 @@ def open_without_item(config: Config, options: OpenOptions, build: Build | None 
     title = " ".join((options.title or "").split())
     spec = PullRequestSpec(head, base, title, body, not options.ready, login)
     forge = _build(build, mirror)
-    with forge_errors(slug):
-        remote = forge.open_pull_request(spec)
-    key = f"{slug}-pr-{remote.number}"
-    with replication.section("pr-open"):
+    with replication.section("pr-open"):  # the lock first, as in `open_pull_request`
+        with forge_errors(slug):
+            remote = forge.open_pull_request(spec)
+        key = f"{slug}-pr-{remote.number}"
         pr_links.declare_pr(ledger, key, {"forge": mirror.forge, "url": mirror.repo, "number": remote.number, "pr_url": remote.url, "head": head,
                                           "opener": actor(), "pr_title": title, "draft": remote.draft, "state": "open", "synced_at": now()})
         pr_links.declare_no_item(ledger, key, reason)
