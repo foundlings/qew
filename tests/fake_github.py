@@ -37,6 +37,8 @@ class FakeGitHub:
         self.requests: list[tuple[str, str, Any]] = []
         self.request_times: list[float] = []  # time.time() of each request, parallel to `requests`
         self.endless_check_runs = False  # check-run pages never end
+        self.graphql_pulls_broken = False  # the pull request GraphQL reads answer with an error (REST must still serve)
+        self.contexts_overflow = False  # a pull request's check contexts say another page follows
         self.auto_merge_ignored = False  # accept the enable call yet change nothing
         self.rules: dict[str, list[dict[str, Any]]] = {}  # branch -> active ruleset rules
         self.protection: dict[str, dict[str, Any]] = {}  # branch -> classic protection record
@@ -299,6 +301,44 @@ class FakeGitHub:
             "fields": {"nodes": fields},
             "views": {"nodes": [dict(v) for v in project.get("views", [])]},
         }
+
+    def pull_node(self, pull: dict[str, Any]) -> dict[str, Any]:
+        """A pull request as GraphQL's PullFacts fragment shows it."""
+        issue = self.issues[pull["number"]]
+        sha = pull["head"]["sha"]
+        contexts: list[dict[str, Any]] = []
+        for run in self.check_runs.get(sha, []):
+            contexts.append({"__typename": "CheckRun", "status": run["status"].upper(),
+                             "conclusion": None if run["conclusion"] is None else run["conclusion"].upper()})
+        status = self.statuses.get(sha)
+        for _ in range(0 if status is None else status["total_count"]):
+            contexts.append({"__typename": "StatusContext", "state": status["state"].upper()})
+        state = "MERGED" if pull["merged"] else pull["state"].upper()
+        mergeable = {True: "MERGEABLE", False: "CONFLICTING", None: "UNKNOWN"}[pull["mergeable"]]
+        return {
+            "id": pull["node_id"], "number": pull["number"], "url": f"{self.base}/{OWNER}/{REPO}/pull/{pull['number']}",
+            "state": state, "merged": pull["merged"], "isDraft": pull["draft"], "mergeable": mergeable,
+            "body": pull["body"], "title": pull["title"], "headRefOid": sha, "headRefName": pull["head"]["ref"], "baseRefName": pull["base"],
+            "author": {"login": pull.get("author", "opener")},
+            "assignees": {"nodes": [] if not issue["assignee"] else [{"login": issue["assignee"]}]},
+            "labels": {"nodes": [{"name": name} for name in issue["labels"]]},
+            "autoMergeRequest": {"enabledAt": "2026-01-01T00:00:00Z"} if pull.get("auto_merge") else None,
+            "mergeCommit": {"oid": pull["merge_sha"]} if pull.get("merge_sha") else None,
+            "commits": {"nodes": [{"commit": {"statusCheckRollup": None if not contexts else {"contexts": {
+                "pageInfo": {"hasNextPage": self.contexts_overflow}, "nodes": contexts}}}}]},
+        }
+
+    def gql_ReadPull(self, variables: dict[str, Any]) -> dict[str, Any]:
+        if self.graphql_pulls_broken:
+            return {"errors": [{"type": "INTERNAL", "message": "pull request reads are down"}]}
+        pull = self.pulls.get(variables["number"])
+        return {"data": {"repository": {"pullRequest": None if pull is None else self.pull_node(pull)}}}
+
+    def gql_FindPulls(self, variables: dict[str, Any]) -> dict[str, Any]:
+        if self.graphql_pulls_broken:
+            return {"errors": [{"type": "INTERNAL", "message": "pull request reads are down"}]}
+        found = [self.pull_node(p) for _n, p in sorted(self.pulls.items()) if p["state"] == "open" and not p["merged"] and p["head"]["ref"] == variables["head"]]
+        return {"data": {"repository": {"pullRequests": {"nodes": found, "pageInfo": {"hasNextPage": False}}}}}
 
     def gql_IssueBodyHistory(self, variables: dict[str, Any]) -> dict[str, Any]:
         issue = next((i for i in self.issues.values() if i["node_id"] == variables["id"]), None)
