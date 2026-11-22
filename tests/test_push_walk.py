@@ -51,6 +51,16 @@ class PushWalk(unittest.TestCase):
         self.assertEqual(len(self.fake.requests), seen)
         self.assertEqual(len(self.fake.issues), 0)
 
+    def test_a_bare_sync_is_refused_before_it_waits_for_or_takes_any_lock(self) -> None:
+        """Prevents a refused `qew sync` first queueing for the ledger lock, fetching and pushing the ledger (seen live: 280 s of work,
+        then the refusal): the refusal needs no ledger access at all, so it answers at once while a writer holds the lock."""
+        from qew import filelock
+
+        with filelock.hold(self.world.ledger / ".qew" / "lock", verb="evidence", who="tester", wait_s=0, what="the ledger"):
+            result = self.world.run("sync", env={**ENV, "QEW_LOCK_WAIT_S": "0.3"})
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("needs a direction", result.stderr)
+
     def test_a_sync_with_an_option_and_the_background_worker_still_sync(self) -> None:
         """Prevents the refusal breaking its own users: `qew sync --full` and `--dry-run` work as before, and the detached worker,
         which runs a bare sync, is not refused."""
