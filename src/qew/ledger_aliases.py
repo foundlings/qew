@@ -66,7 +66,9 @@ def header_values_of(text: str) -> dict[str, str]:
 class _Index:
     """What the item headers of one ledger said: stem -> its aliases, and the map built from them."""
 
-    def __init__(self, stamp: int, headers: dict[str, tuple[str, ...]], stamps: dict[str, int] | None = None) -> None:
+    def __init__(self, stamp: int, headers: dict[str, tuple[str, ...]], stamps: dict[str, int] | None = None,
+                 broken: set[str] | None = None) -> None:
+        self.broken = broken if broken is not None else set()  # item directories whose item file exists but whose header does not name them
         self.stamp = stamp
         self.stamps = stamps or {}  # sharded: the modification time of the items directory and of each shard, as this index saw them
         self.headers = headers
@@ -75,11 +77,17 @@ class _Index:
 
     def refresh(self, stamp: int, changed: set[str], items_dir: Path, sharded: bool = False) -> None:
         for stem in changed:
-            found = _read(ledger_layout.home(items_dir, stem, sharded) / ITEM_FILE)
+            file = ledger_layout.home(items_dir, stem, sharded) / ITEM_FILE
+            found = _read(file)
             if found is None:
                 self.headers.pop(stem, None)
+                if file.is_file():
+                    self.broken.add(stem)
+                else:
+                    self.broken.discard(stem)
             else:
                 self.headers[stem] = found
+                self.broken.discard(stem)
             if found:
                 self.aliased[stem] = found
             else:
@@ -156,18 +164,23 @@ def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, 
             index = _indexes[key] = _renewed(items_dir, index, stamps, stamp)
         else:
             headers = {}
+            broken: set[str] = set()
             with trace.phase("scan item headers (full)"):
                 if texts is not None:
                     for stem, text in sorted(texts().items()):
                         found = _aliases_in(stem, text)
                         if found is not None:
                             headers[stem] = found
+                        else:
+                            broken.add(stem)
                 else:
                     for directory in ledger_layout.homes(items_dir, sharded):
                         found = _read(directory / ITEM_FILE)
                         if found is not None:
                             headers[directory.name] = found
-            index = _indexes[key] = _Index(stamp, headers, stamps)
+                        elif (directory / ITEM_FILE).is_file():
+                            broken.add(directory.name)
+            index = _indexes[key] = _Index(stamp, headers, stamps, broken)
         if sharded:
             _persist(items_dir, index)
     elif changed:
@@ -181,7 +194,7 @@ def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, 
 # -- the stored map
 
 STORED = "aliases.json"
-STORED_FORMAT = 1
+STORED_FORMAT = 2
 
 
 def _shard_stamps(items_dir: Path) -> dict[str, int]:
@@ -204,9 +217,10 @@ def _restore(items_dir: Path) -> _Index | None:
             return None
         stamps = {str(name): int(value) for name, value in document["stamps"].items()}
         headers = {str(stem): tuple(str(a) for a in found) for stem, found in document["headers"].items()}
+        broken = {str(stem) for stem in document["broken"]}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
-    return _Index(sum(stamps.values()), headers, stamps)
+    return _Index(sum(stamps.values()), headers, stamps, broken)
 
 
 RACY_NS = 2_000_000_000
@@ -224,7 +238,8 @@ def _persist(items_dir: Path, index: _Index) -> None:
     if not path.parent.is_dir():
         return
     index.stamps = _unsettled(index.stamps)
-    document = {"format": STORED_FORMAT, "stamps": index.stamps, "headers": {stem: list(found) for stem, found in index.headers.items()}}
+    document = {"format": STORED_FORMAT, "stamps": index.stamps, "headers": {stem: list(found) for stem, found in index.headers.items()},
+                "broken": sorted(index.broken)}
     temporary = path.with_name(f".{STORED}.{os.getpid()}.tmp")
     try:
         temporary.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
@@ -237,9 +252,11 @@ def _renewed(items_dir: Path, index: _Index, stamps: dict[str, int], stamp: int)
     """The index with only the shards that changed since it was built read again (a new item changes its shard)."""
     differing = {name for name in {*stamps, *index.stamps} if stamps.get(name) != index.stamps.get(name)}
     headers = dict(index.headers)
+    broken = set(index.broken)
     with trace.phase(f"scan item headers ({len(differing)} shards)"):
-        for stem in [stem for stem in headers if ledger_layout.shard(stem) in differing]:
-            del headers[stem]
+        for stem in [stem for stem in (*headers, *broken) if ledger_layout.shard(stem) in differing]:
+            headers.pop(stem, None)
+            broken.discard(stem)
         for name in sorted(differing - {"."}):
             group = items_dir / name
             if not group.is_dir():
@@ -249,13 +266,15 @@ def _renewed(items_dir: Path, index: _Index, stamps: dict[str, int], stamp: int)
                     found = _read(directory / ITEM_FILE)
                     if found is not None:
                         headers[directory.name] = found
-    return _Index(stamp, headers, stamps)
+                    elif (directory / ITEM_FILE).is_file():
+                        broken.add(directory.name)
+    return _Index(stamp, headers, stamps, broken)
 
 
 def known_stems(items_dir: Path) -> list[str]:
     """The item directories whose header named them, as this process's alias index last read them (call `scan` first)."""
     index = _indexes.get(str(items_dir))
-    return [] if index is None else sorted(index.headers)
+    return [] if index is None else sorted({*index.headers, *index.broken})
 
 
 def canonical_item(item: Item, aliases: Aliases) -> Item:
