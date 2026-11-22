@@ -22,7 +22,7 @@ from qew.ledger_config import LEDGER_FILE
 from qew.ledger_event import Event, Folded, State, fold, needs_after, parse_event, parse_event_trusted, valid_actor
 from qew.ledger_item import Item, clean_item_text, parse_item, raw_item_text, read_item_text, render_item
 from qew.jsontypes import JsonObject
-from qew.lazy_map import LazyMap
+from qew.lazy_map import AdaptiveMap, LazyMap
 from qew.ledger_ids import DEFAULT_MODES, event_id, next_id, parse_modes, sort_key
 
 SNAPSHOT_READERS = 16  # threads reading item and event files at once
@@ -38,6 +38,7 @@ def _parallel[T](read: Callable[[str], T], names: list[str]) -> list[T]:
         return [read(name) for name in names]
     with ThreadPoolExecutor(max_workers=SNAPSHOT_READERS) as pool:
         return list(pool.map(read, names))
+ADAPT_AFTER = 200  # single reads of a lazy snapshot before it builds everything at once
 _INTENTS = threading.Lock()  # sync workers add and clear creating intents in one shared file
 
 def now() -> str:
@@ -335,13 +336,13 @@ class Ledger:
             rows = dict(zip(listed, _parallel(lambda home: self._event_rows(self.home(self.events_dir, home)), listed), strict=True))
         return Files(ids, texts, aliases, homes, rows, trusted)
 
-    def snapshot(self, verify: bool = False, lazy: bool = False) -> Snapshot:
+    def snapshot(self, verify: bool = False, lazy: bool = True) -> Snapshot:
         """The ledger as of now. `lazy` is for a write verb that reads a few items by id: the item list comes from the alias map
         and each item, its events and its fold are read from its own files when first asked for, so the snapshot is as exact as
         the files and costs what the verb touches. `QEW_NO_LAZY=1` and `verify` take the full snapshot."""
-        if lazy and not verify and not os.environ.get("QEW_NO_LAZY"):
-            return self._lazy()
         held = snapshot_reuse.held()
+        if lazy and not verify and held is None and not os.environ.get("QEW_NO_LAZY"):
+            return self._lazy()
         if held is None or verify or JOURNAL is None:
             return self._build(verify)
         key = str(self.path)
@@ -392,13 +393,23 @@ class Ledger:
                     loaded[item_id] = self._read_item(item_id, aliases)
                 return loaded[item_id]
 
-            items = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[0]) for item_id in ids})  # type: ignore[misc]  # bound per item
-            events = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[1]) for item_id in ids})  # type: ignore[misc]  # bound per item
-            folds = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[2]) for item_id in ids})  # type: ignore[misc]  # bound per item
+            built: list[Snapshot] = []
+
+            def everything() -> Snapshot:
+                if not built:
+                    built.append(self._build(False))
+                return built[0]
+
+            items = AdaptiveMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[0]) for item_id in ids},  # type: ignore[misc]  # bound per item
+                                lambda: everything().items, ADAPT_AFTER)
+            events = AdaptiveMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[1]) for item_id in ids},  # type: ignore[misc]  # bound per item
+                                 lambda: everything().events, ADAPT_AFTER)
+            folds = AdaptiveMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[2]) for item_id in ids},  # type: ignore[misc]  # bound per item
+                                lambda: everything().folds, ADAPT_AFTER)
             store = self.path / ".qew" if (self.path / ".qew").is_dir() and snapshot_cache.enabled() else None
             index = ledger_index.Lazy(lambda: ledger_index.current(
                 store, ids, self.item_path, lambda item_id: [self.home(self.events_dir, name) for name in (item_id, *aliases.of(item_id))], one,
-                lambda: (lambda built: (built.items, built.folds))(self._build(False))))
+                lambda: (everything().items, everything().folds)))
             return Snapshot(self, cast(dict[str, Item], items), folds, events, index)
 
     def _read_item(self, item_id: str, aliases: ledger_aliases.Aliases) -> tuple[Item, list[Event], Folded]:

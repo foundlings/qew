@@ -4,7 +4,7 @@ A snapshot of a big ledger holds every item's events and folded state, and most 
 front, in the order given (iteration, `in`, `len` never build anything); a value is built by its function the first time it is read and kept.
 """
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, ItemsView, Iterator, Mapping, ValuesView
 from typing import override
 
 
@@ -49,3 +49,42 @@ class LazyMap[V](Mapping[str, V]):
     def built(self) -> int:
         """How many values have been built (for tests and traces)."""
         return len(self._built)
+
+
+class AdaptiveMap[V](LazyMap[V]):
+    """A lazy map that is never worse than the full build it stands in for.
+
+    One value at a time is cheap for a verb that reads a few items. A verb that reads them all (a graph walk, `dict(map)`, `.values()`)
+    would read each one separately, several times slower than building everything at once. After `after` single reads, or at the first
+    bulk iteration, `everything` (the full build, made once) answers instead, and every later read comes from it."""
+
+    def __init__(self, order: list[str], built: dict[str, V], pending: dict[str, Callable[[], V]],
+                 everything: Callable[[], Mapping[str, V]], after: int) -> None:
+        super().__init__(order, built, pending)
+        self._everything = everything
+        self._after = after
+        self._singles = 0
+        self._all: Mapping[str, V] | None = None
+
+    def _bulk(self) -> Mapping[str, V]:
+        if self._all is None:
+            self._all = self._everything()
+        return self._all
+
+    @override
+    def __getitem__(self, key: str) -> V:
+        if self._all is not None:
+            return self._all[key]
+        if key not in self._built and key in self._known:
+            self._singles += 1
+            if self._singles > self._after:
+                return self._bulk()[key]
+        return super().__getitem__(key)
+
+    @override
+    def values(self) -> ValuesView[V]:
+        return self._bulk().values()
+
+    @override
+    def items(self) -> ItemsView[str, V]:
+        return self._bulk().items()
