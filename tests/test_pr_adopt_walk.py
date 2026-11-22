@@ -73,6 +73,49 @@ class AdoptWalk(unittest.TestCase):
         self.assertNotIn("adopted", run.out)
 
 
+class LockedOpenWalk(unittest.TestCase):
+    def setUp(self) -> None:
+        self.w = PrWorld()
+        self.addCleanup(self.w.close)
+
+    def test_an_open_that_cannot_get_the_ledger_lock_creates_no_pull_request(self) -> None:
+        """Prevents an orphan: the forge pull request is created only once the write lock is held, so a lock timeout leaves nothing behind."""
+        from qew import filelock
+
+        item = self.w.item("Parse headers")
+        with filelock.hold(self.w.world.ledger / ".qew" / "lock", verb="evidence", who="tester", wait_s=0, what="the ledger"):
+            run = self.w.open(item, env={"QEW_LOCK_WAIT_S": "0.3"})
+        self.assertEqual(run.code, 3, run)
+        self.assertIn("QEW_LOCK_WAIT_S", run.err)
+        self.assertEqual((self.w.forge.count("open_pr"), len(self.w.forge.pulls), self.w.mirror_files(item)), (0, 0, []))
+        self.assertEqual(self.w.open(item).code, 0)
+
+    def test_no_item_open_that_cannot_get_the_lock_creates_no_pull_request(self) -> None:
+        """Prevents the same orphan for a pull request that relates to no item."""
+        from qew import filelock
+
+        self.w.close()
+        self.w = PrWorld(schema="9")
+        self.addCleanup(self.w.close)
+        with filelock.hold(self.w.world.ledger / ".qew" / "lock", verb="evidence", who="tester", wait_s=0, what="the ledger"):
+            run = self.w.qew("pr", "open", "--no-item", "tooling only", "--title", "Tool", "--head", self.w.head, "--base", "main",
+                             env={"QEW_LOCK_WAIT_S": "0.3"})
+        self.assertEqual(run.code, 3, run)
+        self.assertEqual(self.w.forge.count("open_pr"), 0)
+
+    def test_adopt_legacy_names_a_marked_unrecorded_pull_request_of_this_item(self) -> None:
+        """Prevents a pull request with this item's marker but no record being neither adoptable nor readyable."""
+        item = self.w.item("Parse headers")
+        issue = next(m for m in self.w.ledger.load_mirrors(item) if m["kind"] == "issue")
+        body = pr_body.build_body(item, issue["number"], "work", None, None, "")
+        number = self.w.forge.open_pull_request(PullRequestSpec("feature", "main", "Work", body, True, "tester")).number
+        run = self.w.open(item, "--adopt-legacy", str(number), "--reason", "marked but never recorded")
+        self.assertEqual(run.code, 0, run)
+        self.assertIn("adopted", run.out)
+        self.assertEqual((len(self.w.forge.pulls), self.w.forge.count("open_pr")), (1, 1))
+        self.assertEqual(self.w.qew("pr", "ready", str(number)).code, 0)
+
+
 class CloseWalk(unittest.TestCase):
     def record(self, item: str) -> dict:
         return next(m for m in self.w.ledger.load_mirrors(item) if m["kind"] == "pr")
