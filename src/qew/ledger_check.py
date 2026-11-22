@@ -6,7 +6,7 @@ import os
 import time
 import tomllib
 
-from qew import pr_audit, pr_links, ledger_layout, attachments, comments, filelock, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
+from qew import trace, pr_audit, pr_links, ledger_layout, attachments, comments, filelock, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
 from qew.graph_rules import PARENT_KINDS
 from qew.jsontypes import JsonObject
@@ -97,7 +97,9 @@ def read_snapshot(ledger: Ledger) -> Snapshot:
     A writer adds an item's files one after another and a read takes no lock, so a read can meet the ledger half way (an events
     directory before its item file). Before refusing, a read looks again after a short wait; a ledger that is still broken
     after the last look is refused, so real damage is reported."""
+    began = time.perf_counter()
     snapshot, problems = load(ledger)
+    trace.note(f"load ledger ({len(snapshot.items)} items)", time.perf_counter() - began)
     for pause in LOOK_AGAIN:
         if not problems:
             break

@@ -203,7 +203,8 @@ def _session(arguments: argparse.Namespace, verb: str | None, arm: bool) -> Iter
         _arm_miss_pull(arguments, held=verb is not None)
     if verb is None:
         if arm:
-            _pull_for_read(arguments)
+            with trace.phase("read-side pull"):  # a throttled fetch of the ledger remote; it never waits for a writer
+                _pull_for_read(arguments)
         yield
         return
     try:
