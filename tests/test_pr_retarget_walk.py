@@ -64,10 +64,20 @@ class RetargetWalk(unittest.TestCase):
         self.assertIn("main", run.out)
         self.assertEqual(self.w.forge.pulls[2].base_branch, "main")
         self.assertEqual(self.record(item).get("base"), "main")
+        self.assertEqual(self.w.qew("check").code, 0)
         writes = self.w.forge.count("update_pr_base")
         again = self.w.qew("pr", "retarget", "2", "--base", "main")
         self.assertEqual(again.code, 0, again)
         self.assertEqual(self.w.forge.count("update_pr_base"), writes)
+
+    def test_a_union_over_a_stacked_member_names_the_retarget_that_would_let_it_join(self) -> None:
+        """Prevents the dead-end refusal `do not share one base branch`: it names the member whose base is another member's branch and the command."""
+        self.pull_request(1, None)
+        self.pull_request(2, "branch-1", base="branch-1")
+        run = self.w.qew("pr", "union", "1", "2")
+        self.assertEqual(run.code, 2, run)
+        self.assertIn("share one base branch", run.err)
+        self.assertIn("qew pr retarget 2 --base main", run.err)
 
     def test_a_head_without_the_old_and_new_bases_common_ancestor_is_refused_and_nothing_changes(self) -> None:
         """Prevents retargeting a head that does not contain the merge base of old and new base: the pull request would no longer show
