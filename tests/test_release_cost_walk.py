@@ -45,9 +45,9 @@ class ReleaseCostWalk(unittest.TestCase):
         calls = [0]
         original = Ledger.snapshot
 
-        def counting(ledger: Ledger):
+        def counting(ledger: Ledger, *args: object, **kwargs: object):
             calls[0] += 1
-            return original(ledger)
+            return original(ledger, *args, **kwargs)
 
         previous = os.getcwd()
         os.chdir(self.world.code)
@@ -79,7 +79,7 @@ class DescendantsWalk(unittest.TestCase):
         items.update({f"C{n}": types.SimpleNamespace(id=f"C{n}", parent="ROOT") for n in range(count)})
         items.update({f"G{n}": types.SimpleNamespace(id=f"G{n}", parent=f"C{n}") for n in range(count)})
         begun = time.monotonic()
-        found = cmd_claim._descendants(types.SimpleNamespace(items=items), "ROOT")  # type: ignore[arg-type]
+        found = cmd_claim._descendants(types.SimpleNamespace(items=items, edges=lambda: None), "ROOT")  # type: ignore[arg-type]
         self.assertEqual(len(found), 2 * count)
         self.assertEqual(len(set(found)), 2 * count)
         self.assertEqual(found[:2], ["C0", "C1"])
