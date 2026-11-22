@@ -503,6 +503,11 @@ class Forge(ABC):
     def read_pull_request(self, number: int) -> RemotePullRequest:
         raise Unsupported("read_pull_request")
 
+    def read_pull_requests(self, numbers: Sequence[int]) -> dict[int, RemotePullRequest]:
+        """Several pull requests at once, by number. A backend that can ask for them together overrides this; the first one that
+        cannot be read raises, as when they are read one after another."""
+        return {number: self.read_pull_request(number) for number in dict.fromkeys(numbers)}
+
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
         raise Unsupported("mark_pull_request_ready")
 

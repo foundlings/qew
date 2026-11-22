@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from unittest import mock
 
-from qew.forge import PullRequestSpec
+from qew.forge import ForgeError, PullRequestSpec
 from qew.forge_github import GitHub
 from qew.forge_http import urllib_transport
 from qew.ledger_config import Mirror
@@ -109,6 +109,29 @@ class GraphqlPullWalk(unittest.TestCase):
         pull = self.github.mark_pull_request_ready(number)
         self.assertFalse(pull.draft)
         self.assertEqual(self.rest(before), [], self.rest(before))
+
+    def test_reading_many_pull_requests_is_one_query_per_twenty(self) -> None:
+        """Prevents 36 pull requests costing 108 REST calls: a union is read in a few GraphQL queries, and equals the one-by-one reads."""
+        numbers = [self.open(f"head-{n}") for n in range(45)]
+        self.fake.set_check_run(self.fake.pulls[numbers[3]]["head"]["sha"], "completed", "failure")
+        self.fake.pulls[numbers[7]]["mergeable"] = False
+        with mock.patch.dict(os.environ, {"QEW_NO_GRAPHQL": "1"}):
+            expected = {n: self.github.read_pull_request(n) for n in numbers}
+        before = len(self.fake.requests)
+        got = self.github.read_pull_requests(numbers)
+        self.assertEqual(got, expected)
+        self.assertEqual(self.rest(before), [], len(self.rest(before)))
+        self.assertEqual(self.fake.graphql_operations()[-3:], ["ReadPulls"] * 3)
+
+    def test_a_batch_read_falls_back_to_rest_and_a_missing_number_raises(self) -> None:
+        """Prevents an outage of the batched read stopping a union, and a number that is not there being skipped."""
+        numbers = [self.open(f"h{n}") for n in range(3)]
+        expected = {n: self.github.read_pull_request(n) for n in numbers}
+        self.fake.graphql_pulls_broken = True
+        self.assertEqual(self.github.read_pull_requests(numbers), expected)
+        self.fake.graphql_pulls_broken = False
+        with self.assertRaises(ForgeError):
+            self.github.read_pull_requests([*numbers, 999])
 
 
 if __name__ == "__main__":

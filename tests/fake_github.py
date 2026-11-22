@@ -276,6 +276,7 @@ class FakeGitHub:
     def graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         found = re.search(r"\b(?:query|mutation)\s+(\w+)", query)
         name = found.group(1) if found else ""
+        self.graphql_query = query
         handler = getattr(self, f"gql_{name}", None)
         if self.node_limit_page is not None and variables.get("page", 100) > self.node_limit_page:
             return {"errors": [{"type": "MAX_NODE_LIMIT_EXCEEDED", "message": f"This query could return up to {variables.get('page', 100) * 9000:,} nodes, exceeding the 500,000 node limit"}]}
@@ -333,6 +334,13 @@ class FakeGitHub:
             return {"errors": [{"type": "INTERNAL", "message": "pull request reads are down"}]}
         pull = self.pulls.get(variables["number"])
         return {"data": {"repository": {"pullRequest": None if pull is None else self.pull_node(pull)}}}
+
+    def gql_ReadPulls(self, variables: dict[str, Any]) -> dict[str, Any]:
+        """Several pull requests in one query: `p<N>: pullRequest(number: N)` aliases, answered under their aliases."""
+        if self.graphql_pulls_broken:
+            return {"errors": [{"type": "INTERNAL", "message": "pull request reads are down"}]}
+        wanted = re.findall(r"(\w+): pullRequest\(number: (\d+)\)", self.graphql_query)
+        return {"data": {"repository": {alias: (None if int(n) not in self.pulls else self.pull_node(self.pulls[int(n)])) for alias, n in wanted}}}
 
     def gql_FindPulls(self, variables: dict[str, Any]) -> dict[str, Any]:
         if self.graphql_pulls_broken:
