@@ -37,7 +37,7 @@ class BigListingWalk(Rig):
         self.build(page_size=2)
         for number in range(1, 6):
             self.add_item(f"Item {number}")  # numbers 1-5: three pages of two
-        with mock.patch.object(forge_pull, "CONDITIONAL_MAX_PAGES", 2):
+        with mock.patch.object(forge_pull, "CONDITIONAL_MAX_PAGES", 2, create=True):
             self.assertEqual(self.pull().mode, "conditional")  # no cursor yet: the complete set
             self.clock.advance(minutes=10)
             before = len(self.list_requests())
