@@ -40,8 +40,10 @@ alias map with the item directory's modification time per item.
    item does not stop it. Shipped in 7.2.6: a recording write 6.8 s to 2.7 s on the foundlings clone (snapshot 5.1 s to 0.15 s).
    `start` is not here: it enforces the claim cap over every item's fold and starts an epic through its descendants, which are
    graph-wide, so it moves to slice 2 with `complete`.
-2. A reverse-edge and claim map for `complete` and `start` (children, dependents, released items, claims per actor), validated
-   per item directory.
+2. An edge index for `complete` and `start` (children, dependents, released items, claims per actor), validated per item by the
+   signature of its item file and events directories (`.qew/index.json`). Shipped in 7.2.7, measured on the foundlings clone:
+   `complete` 13.95 s to 4.03 s (three full snapshots of 3.6 to 5.6 s became three lazy ones of 0.1 s plus the index's stats),
+   `start` 5.13 s to 2.22 s. What is left is the jj commit (about 1 s) and the index's two stats per item (about 0.5 s).
 3. `pr ready`, `pr open`, `pr merge`: read the items a pull request links, not the ledger.
 4. The remaining verbs, only where a trace shows the full snapshot is the slow step.
 
