@@ -38,6 +38,9 @@ def staged(snapshot: Snapshot, item_id: str) -> set[str]:
 
 
 def children(snapshot: Snapshot) -> dict[str, list[str]]:
+    edges = snapshot.edges()
+    if edges is not None:
+        return edges.children()
     result: dict[str, list[str]] = {}
     for item in snapshot.items.values():
         if item.parent:
@@ -46,6 +49,9 @@ def children(snapshot: Snapshot) -> dict[str, list[str]]:
 
 
 def blocks(snapshot: Snapshot) -> dict[str, list[str]]:
+    edges = snapshot.edges()
+    if edges is not None:
+        return edges.blocks()
     result: dict[str, list[str]] = {}
     for item in snapshot.items.values():
         for need in item.needs:

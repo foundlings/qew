@@ -109,7 +109,7 @@ def start(config: Config, reference: str, take_over: bool = False, reason: str |
     if reason is not None and not take_over:
         raise QewError("--reason is only for --take-over", 2)
     ledger = ledger_for(config)
-    snapshot = ledger.snapshot()
+    snapshot = ledger.snapshot(lazy=True)
     item_id = ledger.resolve(reference, list(snapshot.items))
     folded = snapshot.folds[item_id]
     me = actor()

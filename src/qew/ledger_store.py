@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, cast
 from collections.abc import Callable, Iterable, Mapping
 
-from qew import attachments, evidence_header, ledger_aliases, ledger_layout, snapshot_cache, snapshot_reuse, trace
+from qew import attachments, evidence_header, ledger_aliases, ledger_index, ledger_layout, snapshot_cache, snapshot_reuse, trace
 from qew.errors import NotFound, QewError
 from qew.mirror_types import MirrorRecord
 from qew.ledger_aliases import ITEM_FILE
@@ -395,7 +395,11 @@ class Ledger:
             items = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[0]) for item_id in ids})  # type: ignore[misc]  # bound per item
             events = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[1]) for item_id in ids})  # type: ignore[misc]  # bound per item
             folds = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[2]) for item_id in ids})  # type: ignore[misc]  # bound per item
-            return Snapshot(self, cast(dict[str, Item], items), folds, events)
+            store = self.path / ".qew" if (self.path / ".qew").is_dir() and snapshot_cache.enabled() else None
+            index = ledger_index.Lazy(lambda: ledger_index.current(
+                store, ids, self.item_path, lambda item_id: [self.home(self.events_dir, name) for name in (item_id, *aliases.of(item_id))], one,
+                lambda: (lambda built: (built.items, built.folds))(self._build(False))))
+            return Snapshot(self, cast(dict[str, Item], items), folds, events, index)
 
     def _read_item(self, item_id: str, aliases: ledger_aliases.Aliases) -> tuple[Item, list[Event], Folded]:
         """One item as the full snapshot builds it: its file, its events (and those under an old id), its needs after edge events, its fold."""
@@ -678,12 +682,20 @@ class Snapshot:
     items: dict[str, Item]
     folds: Mapping[str, Folded]  # a LazyMap on a cached ledger: an item is folded when first read
     events: Mapping[str, list[Event]]
+    index: ledger_index.Lazy | None = None  # a lazy snapshot's stored edges: children, blocks and claims without reading items
 
     def short(self, item_id: str) -> str:
         return item_id
 
+    def edges(self) -> ledger_index.LedgerIndex | None:
+        """The edge index of a lazy snapshot (built on first ask), or None for a full snapshot, which answers from its items."""
+        return None if self.index is None else self.index.get()
+
     def claims_of(self, who: str) -> int:
         """How many items `who` holds a claim on."""
+        edges = self.edges()
+        if edges is not None:
+            return edges.claims_of(who)
         return sum(1 for folded in self.folds.values() if folded.state == State.CLAIMED and folded.owner == who)
 
     @cached_property

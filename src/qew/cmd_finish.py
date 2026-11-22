@@ -377,7 +377,7 @@ def complete(config: Config, reference: str, reason: str | None = None, take_ove
     branch = _branch(landed_on if landed_on is not None else config.target)
     if take_over and reason is None:
         raise QewError("--take-over needs --reason TEXT: say why the claim is finished by you", 2)
-    ledger, snapshot, item_id = _load(config, reference)
+    ledger, snapshot, item_id = _load(config, reference, lazy=True)
     item = snapshot.items[item_id]
     if snapshot.folds[item_id].state == State.DRAFT and item.kind == Kind.EPIC:
         raise QewError(f"cannot complete {item_id}: it is a draft plan; release it with qew draft approve {item_id} --tree --quote Q first", 2)
@@ -423,7 +423,7 @@ def complete(config: Config, reference: str, reason: str | None = None, take_ove
     if provisional is not None:
         data["provisional_claim"] = provisional  # sync settles the claim; the completion stands whatever the arbiter says
     ledger.append_event(item_id, "completed", **data)
-    released = ledger_graph.released_by(snapshot, ledger.snapshot(), item_id)
+    released = ledger_graph.released_by(snapshot, ledger.snapshot(lazy=True), item_id)
     line = f"{item_id} completed" + (f"; ready: {' '.join(released[:RELEASED_SHOWN])}" if released else "")
     result: dict[str, object] = {"line": line, "id": item_id, "state": "completed", "released": released}
     result.update(_finish_parent(ledger, item_id))
@@ -506,7 +506,7 @@ def _finish_parent(ledger: Ledger, child_id: str) -> dict[str, object]:
     current = child_id
     try:
         while True:
-            snapshot = ledger.snapshot()
+            snapshot = ledger.snapshot(lazy=True)
             parent_id = snapshot.items[current].parent
             parent = snapshot.items.get(parent_id)
             if parent is None or parent.kind != Kind.EPIC or snapshot.folds[parent_id].state != State.APPROVED:  # an epic someone holds is finished by its holder
