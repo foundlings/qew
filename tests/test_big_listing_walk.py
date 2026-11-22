@@ -40,6 +40,8 @@ class BigListingWalk(Rig):
         with mock.patch.object(forge_pull, "CONDITIONAL_MAX_PAGES", 2, create=True):
             self.assertEqual(self.pull().mode, "conditional")  # no cursor yet: the complete set
             self.clock.advance(minutes=10)
+            for issue in self.github.issues.values():
+                issue["updated_at"] = "2000-01-01T00:00:00Z"  # nothing changed since the cursor
             before = len(self.list_requests())
             report = self.pull()
             self.assertEqual((report.mode, len(self.list_requests()) - before), ("incremental", 1))

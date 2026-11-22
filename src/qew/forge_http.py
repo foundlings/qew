@@ -23,7 +23,7 @@ from qew.ledger_config import Mirror
 
 TIMEOUT_SECONDS = 30
 TOKEN_HELPER_SECONDS = 10  # how long `gh auth token` may take before it counts as absent
-MAX_PAGES = 50
+MAX_PAGES = 500  # a runaway guard, not a size limit: 50,000 issues at 100 a page
 _TOKEN_VARIABLES = {
     "github": ("GITHUB_TOKEN", "GH_TOKEN"),
     "forgejo": ("FORGEJO_TOKEN", "GITEA_TOKEN"),

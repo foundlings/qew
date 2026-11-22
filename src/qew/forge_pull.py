@@ -42,6 +42,9 @@ class PullReport:
     pages_reused: int = 0  # conditional listing: pages answered 304
 
 
+CONDITIONAL_MAX_PAGES = 20  # a longer listing is pulled by `since` between the daily complete listings (`pull_cursor.FULL_EVERY`)
+
+
 def clean_labels(labels: Iterable[str]) -> list[str]:
     return sorted({l for l in labels if l and not any(c.isspace() or c == "," for c in l) and len(l) <= 60})
 
@@ -50,6 +53,10 @@ def _list(ledger: Ledger, target: Target, report: PullReport, cursor: pull_curso
           full: bool) -> tuple[list[RemoteIssue], bool]:
     """(issues, complete): the whole set through conditional pages when the forge sends ETags, else a `since` listing."""
     cached = {} if full else page_cache.load(ledger.read_page_files(target.slug))
+    since = pull_cursor.since_of(cursor, started, full)
+    if since and len(cached) > CONDITIONAL_MAX_PAGES:  # one request per page on every sync is minutes at thousands of issues
+        report.mode = "incremental"
+        return target.forge.list_issues(since), False
     try:
         listing = target.forge.list_issue_pages(cached)
     except Unsupported as error:
@@ -59,7 +66,6 @@ def _list(ledger: Ledger, target: Target, report: PullReport, cursor: pull_curso
         ledger.write_page_files(target.slug, page_cache.dump(listing.pages))
         report.mode, report.pages_fetched, report.pages_reused = "conditional", listing.fetched, listing.reused
         return listing.issues(), True
-    since = pull_cursor.since_of(cursor, started, full)
     report.mode = "incremental" if since else "full"
     return target.forge.list_issues(since), not since
 
