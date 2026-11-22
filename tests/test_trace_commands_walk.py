@@ -13,7 +13,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from qew import filelock
-from tests.ledger_harness import World
+from tests.ledger_harness import QUOTE, World
 
 
 class TraceCommandsWalk(unittest.TestCase):
@@ -49,6 +49,16 @@ class TraceCommandsWalk(unittest.TestCase):
         waited = re.search(r"\+\s*([\d.]+)s lock lock wait .*evidence", run.stderr)
         self.assertIsNotNone(waited, run.stderr)
         self.assertGreaterEqual(float(waited.group(1)), 0.5)
+
+    def test_a_traced_read_names_the_ledger_load_and_the_read_side_pull(self) -> None:
+        """Prevents a slow `qew show` being undiagnosable: the trace says how long the ledger load took and whether a pull ran."""
+        world = World("", ledger_vcs="jj")
+        self.addCleanup(world.close)
+        item = world.create("--title", "traced read", "--quote", QUOTE)
+        run = world.run("show", item, env={"QEW_TRACE": "1"})
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertRegex(run.stderr, re.compile(r"trace\s+[\d.]+s \+\s*[\d.]+s load ledger \(\d+ items\)"))
+        self.assertRegex(run.stderr, re.compile(r"trace\s+[\d.]+s \+\s*[\d.]+s read-side pull"))
 
 
 if __name__ == "__main__":
