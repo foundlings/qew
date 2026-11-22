@@ -240,6 +240,12 @@ def _renewed(items_dir: Path, index: _Index, stamps: dict[str, int], stamp: int)
     return _Index(stamp, headers, stamps)
 
 
+def known_stems(items_dir: Path) -> list[str]:
+    """The item directories whose header named them, as this process's alias index last read them (call `scan` first)."""
+    index = _indexes.get(str(items_dir))
+    return [] if index is None else sorted(index.headers)
+
+
 def canonical_item(item: Item, aliases: Aliases) -> Item:
     """The item with every link it holds named by its current id."""
     if not aliases.by_alias:

@@ -335,7 +335,12 @@ class Ledger:
             rows = dict(zip(listed, _parallel(lambda home: self._event_rows(self.home(self.events_dir, home)), listed), strict=True))
         return Files(ids, texts, aliases, homes, rows, trusted)
 
-    def snapshot(self, verify: bool = False) -> Snapshot:
+    def snapshot(self, verify: bool = False, lazy: bool = False) -> Snapshot:
+        """The ledger as of now. `lazy` is for a write verb that reads a few items by id: the item list comes from the alias map
+        and each item, its events and its fold are read from its own files when first asked for, so the snapshot is as exact as
+        the files and costs what the verb touches. `QEW_NO_LAZY=1` and `verify` take the full snapshot."""
+        if lazy and not verify and not os.environ.get("QEW_NO_LAZY"):
+            return self._lazy()
         held = snapshot_reuse.held()
         if held is None or verify or JOURNAL is None:
             return self._build(verify)
@@ -373,6 +378,39 @@ class Ledger:
         events = earlier.events.updated(new_events) if isinstance(earlier.events, LazyMap) else {**earlier.events, **new_events}
         folds = earlier.folds.updated(new_folds) if isinstance(earlier.folds, LazyMap) else {**earlier.folds, **new_folds}
         return Snapshot(self, items, folds, events)
+
+    def _lazy(self) -> Snapshot:
+        with trace.phase("ledger snapshot (lazy)"):
+            cache = snapshot_cache.for_ledger(self.path)
+            aliases = ledger_aliases.scan(
+                self.items_dir, (lambda: cache.items(self.items_dir, self._raw_item, False, self.sharded)) if cache is not None else None, self.sharded)
+            ids = [name for name in ledger_aliases.known_stems(self.items_dir) if name not in aliases.superseded]
+            loaded: dict[str, tuple[Item, list[Event], Folded]] = {}
+
+            def one(item_id: str) -> tuple[Item, list[Event], Folded]:
+                if item_id not in loaded:
+                    loaded[item_id] = self._read_item(item_id, aliases)
+                return loaded[item_id]
+
+            items = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[0]) for item_id in ids})  # type: ignore[misc]  # bound per item
+            events = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[1]) for item_id in ids})  # type: ignore[misc]  # bound per item
+            folds = LazyMap(ids, {}, {item_id: (lambda item_id=item_id: one(item_id)[2]) for item_id in ids})  # type: ignore[misc]  # bound per item
+            return Snapshot(self, cast(dict[str, Item], items), folds, events)
+
+    def _read_item(self, item_id: str, aliases: ledger_aliases.Aliases) -> tuple[Item, list[Event], Folded]:
+        """One item as the full snapshot builds it: its file, its events (and those under an old id), its needs after edge events, its fold."""
+        where = str(self.item_path(item_id))
+        text = self._raw_item(item_id)
+        if isinstance(text, snapshot_cache.Unreadable):
+            raise QewError(str(text), 1)
+        raw = parse_item(clean_item_text(text, where), where)
+        if raw.id != item_id:
+            raise QewError(f"{where}: header id {raw.id} does not match the directory name", 1)
+        homes = [item_id, *aliases.of(item_id)]
+        rows = {home: self._event_rows(self.home(self.events_dir, home)) for home in homes}
+        events = self._events_of(item_id, homes, rows)
+        item = ledger_aliases.canonical_item(replace(raw, needs=needs_after(raw.needs, events)), aliases)
+        return item, events, fold(events)
 
     def _build(self, verify: bool) -> Snapshot:
         with trace.phase("ledger snapshot (full)"):

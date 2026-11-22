@@ -123,9 +123,9 @@ _STATE_WHY: dict[State | None, str] = {
 }
 
 
-def _load(config: Config, reference: str) -> tuple[Ledger, Snapshot, str]:
+def _load(config: Config, reference: str, lazy: bool = False) -> tuple[Ledger, Snapshot, str]:
     ledger = ledger_for(config)
-    snapshot = ledger.snapshot()
+    snapshot = ledger.snapshot(lazy=lazy)
     return ledger, snapshot, ledger.resolve(reference, list(snapshot.items))
 
 
@@ -233,7 +233,7 @@ def evidence(config: Config, reference: str, changes: list[str], vcs: str | None
         return retract_evidence(config, reference, retracted, vcs, on_behalf_of, reason.strip())
     if reason is not None:
         raise QewError("--reason belongs to --retract", 2)
-    ledger, snapshot, item_id = _load(config, reference)
+    ledger, snapshot, item_id = _load(config, reference, lazy=True)
     if repair:
         return _repair_evidence(config, ledger, snapshot, item_id, changes, vcs)
     if snapshot.folds[item_id].state == State.COMPLETED:
@@ -269,7 +269,7 @@ def evidence(config: Config, reference: str, changes: list[str], vcs: str | None
 def retract_evidence(config: Config, reference: str, changes: list[str], vcs: str | None,
                      on_behalf_of: str | None, reason: str) -> str:
     """Append an auditable retraction of cited evidence from open work; completed proof is replaced with `--repair`."""
-    ledger, snapshot, item_id = _load(config, reference)
+    ledger, snapshot, item_id = _load(config, reference, lazy=True)
     folded = snapshot.folds[item_id]
     if folded.state not in (State.APPROVED, State.CLAIMED):
         raise QewError(f"cannot retract evidence for {item_id}: it is {folded.state.value if folded.state else 'unknown'}; "
