@@ -12,6 +12,7 @@ from collections.abc import Callable
 from qew import instants
 
 from qew.forge import (
+    Budget,
     Milestone,
     MilestoneSpec,
     Card,
@@ -42,6 +43,7 @@ class MemoryForge(Forge):
         self.columns: dict[int, str] = {}
         self.priorities: dict[int, str] = {}
         self.down = False
+        self.budget_left: tuple[int, float] | None = None  # (calls left, reset epoch) when a walk wants the forge to report a quota
         self.board_id = "B1"
         self.milestones: dict[int, Milestone] = {}
         self.milestone_of: dict[int, int] = {}  # issue number -> milestone number
@@ -301,6 +303,9 @@ class MemoryForge(Forge):
         if not self.label_write_ignored:
             self.pulls[number] = self._with(number, labels=labels)
         return self.pulls[number]
+
+    def budget(self) -> Budget | None:
+        return None if self.budget_left is None else Budget(*self.budget_left)
 
     def update_pull_request_base(self, number: int, base: str) -> RemotePullRequest:
         self._live("update_pr_base")

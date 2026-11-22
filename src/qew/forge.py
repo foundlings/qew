@@ -320,6 +320,15 @@ class Milestone:
     open: bool
 
 
+@dataclass(frozen=True)
+class Budget:
+    """What a forge says is left of the quota the token shares: calls remaining and when the hour resets (epoch seconds)."""
+
+    remaining: int
+    reset: float
+    resource: str = "core"
+
+
 class Forge(ABC):
     """Implement what the forge can do; leave the rest raising `Unsupported`.
 
@@ -502,6 +511,10 @@ class Forge(ABC):
 
     def read_pull_request(self, number: int) -> RemotePullRequest:
         raise Unsupported("read_pull_request")
+
+    def budget(self) -> Budget | None:
+        """The remaining quota, read without spending any; None when the forge has no such figure (a backend without a limit)."""
+        return None
 
     def read_pull_requests(self, numbers: Sequence[int]) -> dict[int, RemotePullRequest]:
         """Several pull requests at once, by number. A backend that can ask for them together overrides this; the first one that
