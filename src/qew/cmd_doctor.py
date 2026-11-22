@@ -2,7 +2,7 @@
 
 import argparse
 
-from qew import fsmonitor, ledger_config, ledger_layout
+from qew import forge_http, fsmonitor, ledger_config, ledger_layout
 from qew.errors import QewError
 
 
@@ -37,6 +37,12 @@ def run(arguments: argparse.Namespace) -> bool:
             if count:
                 print(f"warning: watchman has re-crawled this ledger's watch {count} times because the system dropped file events; "
                       "each crawl makes every jj snapshot wait, so a commit can take a minute. Run `qew doctor --fix`")
+    totals, by_verb = forge_http.calls_in_the_last_hour(config.ledger_path / ".qew")
+    if totals:
+        ranked = sorted(by_verb.items(), key=lambda row: -sum(row[1].values()))[:6]
+        print("forge calls by qew in the last hour: " + ", ".join(f"{resource} {count}" for resource, count in sorted(totals.items()))
+              + " (the token's budget is shared with everything else that uses it: other machines, agents' own gh calls)")
+        print("  by verb: " + ", ".join(f"{verb} {sum(counts.values())}" for verb, counts in ranked))
     layout = ledger_layout.notice(ledger_config.ledger_schema(config.ledger_path))
     if layout:
         print(f"layout: {layout}")

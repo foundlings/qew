@@ -368,7 +368,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser(_wanted_modules(argv)).parse_args(argv)
     arguments.json = outcome.wants_json(arguments)
     try:
-        from qew import remote_options
+        from qew import forge_http, remote_options
+
+        forge_http.account(" ".join(part for part in (arguments.command, next((v for k, v in vars(arguments).items() if k.endswith("_command") and isinstance(v, str)), "")) if part))
 
         with remote_options.session(arguments), ledger_config.old_layout_allowed(arguments.command == "migrate-layout"), replication.session(arguments):
             try:
