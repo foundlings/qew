@@ -682,6 +682,10 @@ class Snapshot:
     def short(self, item_id: str) -> str:
         return item_id
 
+    def claims_of(self, who: str) -> int:
+        """How many items `who` holds a claim on."""
+        return sum(1 for folded in self.folds.values() if folded.state == State.CLAIMED and folded.owner == who)
+
     @cached_property
     def derived(self) -> dict[str, tuple[State | None, tuple[str, ...]]]:
         """item id -> (effective state, holders); an epic is in progress while a direct child is claimed."""

@@ -196,7 +196,7 @@ def _start_epic(config: Config, ledger: Ledger, snapshot: Snapshot, epic_id: str
         raise QewError(f"cannot claim {epic_id}: {', '.join(foreign)}; nothing was claimed", 3)
     cap = config.max_active_claims
     if cap is not None:
-        mine = sum(1 for folded in snapshot.folds.values() if folded.state == State.CLAIMED and folded.owner == me)
+        mine = snapshot.claims_of(me)
         if mine + len(targets) > cap:
             raise QewError(f"claiming {len(targets)} items would give {me} more than max_active_claims = {cap}", 6)
     posted: list[str] = []
@@ -232,7 +232,7 @@ def _enforce_cap(config: Config, snapshot: Snapshot, me: str) -> None:
     cap = config.max_active_claims
     if cap is None:
         return
-    mine = sum(1 for folded in snapshot.folds.values() if folded.state == State.CLAIMED and folded.owner == me)
+    mine = snapshot.claims_of(me)
     if mine >= cap:
         raise QewError(f"{me} already holds {mine} active claims; max_active_claims is {cap}", 6)
 
