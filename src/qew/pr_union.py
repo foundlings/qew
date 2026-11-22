@@ -49,11 +49,16 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
     reason = _merge_options(options)
     root = config.root
     loaded = load(config, numbers[0], arguments.target, None, reason if options.other_author else "", merging=True)
+    joined = {number: loaded if number == numbers[0] else load(config, number, arguments.target, None, owned=False)  # only the lead's branch moves
+               for number in numbers}
     pulls: dict[int, RemotePullRequest] = {}
+    groups: dict[str, list[int]] = {}
+    for number, member in joined.items():
+        groups.setdefault(member.record.target, []).append(number)
+    for target, group in groups.items():
+        with forge_errors(target):
+            pulls.update(joined[group[0]].forge.read_pull_requests(group))  # one batched read per forge target
     for number in numbers:
-        member = loaded if number == numbers[0] else load(config, number, arguments.target, None, owned=False)  # only the lead's branch moves
-        with forge_errors(member.record.target):
-            pulls[number] = member.forge.read_pull_request(number)
         refuse_finished(number, pulls[number], "join a union")
     gating = pr_unticked.gates(loaded.snapshot.ledger)
     if not gating and (arguments.allow_unticked or (arguments.reason and not options.other_author)):

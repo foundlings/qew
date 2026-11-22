@@ -77,14 +77,33 @@ def _members(config: Config, numbers: list[int], target: str | None, build: Buil
         except QewError as error:
             loaded.append(error)
 
+    batched = _read_together([member for member in loaded if not isinstance(member, QewError)])
     with ThreadPoolExecutor(max_workers=READERS) as pool:
-        pending = [member if isinstance(member, QewError) else (member, pool.submit(_read, member)) for member in loaded]
+        pending = [member if isinstance(member, QewError) else (member, batched.get(member.record.number) or pool.submit(_read, member))
+                   for member in loaded]
         members: dict[int, tuple[Loaded, RemotePullRequest]] = {}
         for number, entry in zip(numbers, pending):
             if isinstance(entry, QewError):
                 raise entry
-            members[number] = (entry[0], entry[1].result())
+            member, read = entry
+            members[number] = (member, read if isinstance(read, RemotePullRequest) else read.result())
         return members
+
+
+def _read_together(members: list[Loaded]) -> dict[int, RemotePullRequest]:
+    """The forge's reading of every member, one batched read per forge target (a union of 36 is a few queries, not 108 calls). A forge
+    that cannot answer the batch leaves it to the one-by-one reads, which raise in the order of the numbers."""
+    groups: dict[str, list[Loaded]] = {}
+    for member in members:
+        groups.setdefault(member.record.target, []).append(member)
+    found: dict[int, RemotePullRequest] = {}
+    for target, group in groups.items():
+        try:
+            with forge_errors(target):
+                found.update(group[0].forge.read_pull_requests([member.record.number for member in group]))
+        except QewError:
+            continue
+    return found
 
 
 def _settled(members: dict[int, tuple[Loaded, RemotePullRequest]], lead: int,

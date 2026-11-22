@@ -98,6 +98,7 @@ _BODY_HISTORY = """
 query IssueBodyHistory($id: ID!) {
   node(id: $id) { ... on Issue { userContentEdits(first: 50) { nodes { editor { login } editedAt diff } } } }
 }"""
+BATCH_PULLS = 20  # pull requests per GraphQL read of a union
 _PULL_FACTS = """
 fragment PullFacts on PullRequest {
   id number url state merged isDraft mergeable body title headRefOid headRefName baseRefName
@@ -1196,6 +1197,28 @@ class GitHub(Forge):
     def read_pull_request(self, number: int) -> RemotePullRequest:
         facts, checks = self._pull(number)
         return self._remote(facts, checks)
+
+    @override
+    def read_pull_requests(self, numbers: Sequence[int]) -> dict[int, RemotePullRequest]:
+        wanted = list(dict.fromkeys(numbers))
+        found: dict[int, RemotePullRequest] = {}
+        if not self._env.get("QEW_NO_GRAPHQL"):
+            for start in range(0, len(wanted), BATCH_PULLS):
+                chunk = wanted[start:start + BATCH_PULLS]
+                aliases = " ".join(f"p{number}: pullRequest(number: {int(number)}) {{ ...PullFacts }}" for number in chunk)
+                query = ("query ReadPulls($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + aliases + " } }"
+                         + _PULL_FACTS)
+                try:
+                    repository = _obj(self._wire.graphql(query, {"owner": self._owner, "name": self._repo}).get("repository"), "repository")
+                    parsed = {number: parse_pull_node(repository[f"p{number}"]) for number in chunk if repository.get(f"p{number}") is not None}
+                except ForgeRejected:
+                    continue  # this chunk is read one by one below
+                for number, (facts, checks) in parsed.items():
+                    found[number] = self._remote(facts, self._checks(facts.head_sha) if checks is None else checks)
+        for number in wanted:
+            if number not in found:
+                found[number] = self.read_pull_request(number)  # the REST read, which raises as a lone read does
+        return {number: found[number] for number in numbers}
 
     @override
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
