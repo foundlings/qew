@@ -276,6 +276,11 @@ class LedgerRepo:
         return result
 
     def _run_once(self, argv: Sequence[str], timeout: float | None, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+        shown = [word for word in argv if not word.startswith("snapshot.max-new-file-size=") and word != "--config"]
+        with trace.phase(f"run {' '.join(shown)[:100]}"):  # QEW_TRACE=1 names the slow jj or git call
+            return self._spawn(argv, timeout, stdin)
+
+    def _spawn(self, argv: Sequence[str], timeout: float | None, stdin: str | None) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
                 list(argv), cwd=self.path, stdin=subprocess.DEVNULL if stdin is None else None, input=stdin, capture_output=True, text=True,
