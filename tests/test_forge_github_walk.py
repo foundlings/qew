@@ -22,6 +22,7 @@ from qew.forge import (
     IssueSpec,
     PullRequestSpec,
 )
+from qew.forge_http import MAX_PAGES
 from qew.forge_github import GitHub, api_roots
 from qew.forge_http import urllib_transport
 from qew.ledger_config import Mirror
@@ -448,7 +449,7 @@ class WireWalk(GitHubWalk):
         backend = GitHub(mirror_for(self.fake), transport, ENV)
         with self.assertRaises(ForgeRejected):
             backend.find_issue("x")
-        self.assertLessEqual(len(transport.sent), 60)
+        self.assertLessEqual(len(transport.sent), MAX_PAGES + 10)
 
 
 class ReadSideWalk(GitHubWalk):
