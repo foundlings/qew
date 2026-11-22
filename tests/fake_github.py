@@ -220,6 +220,7 @@ class FakeGitHub:
         pull = self.pulls[number]
         stamp = f"2026-02-01T00:{len(pull.setdefault('reviews', [])):02d}:00Z"
         pull["reviews"].append({"id": self.next_id, "user": {"login": login}, "state": state, "body": body, "submitted_at": stamp})
+        self.touch(self.issues[number])  # a review bumps the pull request's updated_at, which is how an incremental listing sees it
         for inline in comments or []:
             self.next_id += 1
             pull.setdefault("review_comments", []).append({"id": self.next_id, "user": {"login": login}, "body": inline["body"],
