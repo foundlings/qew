@@ -108,16 +108,20 @@ class BoundedReadWalk(unittest.TestCase):
     """The reads a merge decision rests on stop at MAX_PAGES with a typed error, never a truncated list."""
 
     def test_github_check_runs_that_never_end_are_refused_not_summarised(self) -> None:
-        fake = FakeGitHub().start()
-        self.addCleanup(fake.stop)
-        backend = GitHub(Mirror("github", fake.repo_url, None, "", {"api": fake.api}), forge_http.urllib_transport(timeout=5),
-                         {"GITHUB_TOKEN": GITHUB_TOKEN, "QEW_NO_GH_TOKEN": "1"})
-        pull = backend.open_pull_request(PullRequestSpec("topic", "main", "T", "b", False))
-        fake.endless_check_runs = True
-        before = len(fake.calls("GET", "/check-runs"))
-        with self.assertRaises(ForgeRejected):
-            backend.read_pull_request(pull.number)
-        self.assertLessEqual(len(fake.calls("GET", "/check-runs")) - before, forge_http.MAX_PAGES)
+        for graphql in (False, True):
+            with self.subTest(graphql=graphql):
+                fake = FakeGitHub().start()
+                self.addCleanup(fake.stop)
+                backend = GitHub(Mirror("github", fake.repo_url, None, "", {"api": fake.api}), forge_http.urllib_transport(timeout=5),
+                                 {"GITHUB_TOKEN": GITHUB_TOKEN, "QEW_NO_GH_TOKEN": "1", **({} if graphql else {"QEW_NO_GRAPHQL": "1"})})
+                pull = backend.open_pull_request(PullRequestSpec("topic", "main", "T", "b", False))
+                fake.set_check_run(pull.head_sha, "completed", "success")
+                fake.endless_check_runs = True
+                fake.contexts_overflow = graphql  # GraphQL says more contexts follow, so the REST read that pages them answers, and is bounded too
+                before = len(fake.calls("GET", "/check-runs"))
+                with self.assertRaises(ForgeRejected):
+                    backend.read_pull_request(pull.number)
+                self.assertLessEqual(len(fake.calls("GET", "/check-runs")) - before, forge_http.MAX_PAGES)
 
     def test_gitlab_lists_that_never_end_are_refused(self) -> None:
         fake = FakeGitLab().start()

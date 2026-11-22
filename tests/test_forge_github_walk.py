@@ -163,7 +163,7 @@ class PullRequestWalk(GitHubWalk):
         ready = self.backend.mark_pull_request_ready(opened.number)
         self.assertFalse(ready.draft)
         self.backend.mark_pull_request_ready(opened.number)
-        self.assertEqual(len(self.fake.calls("POST", "/api/graphql")), 1)
+        self.assertEqual(self.fake.graphql_operations().count("MarkReady"), 1)  # the reads are GraphQL too: only the mutation is counted
         self.assertTrue(self.backend.mark_pull_request_draft(opened.number).draft, "ready converts back to draft")
         self.assertTrue(self.backend.mark_pull_request_draft(opened.number).draft, "draft is idempotent")
         self.assertFalse(self.backend.mark_pull_request_ready(opened.number).draft)
@@ -250,19 +250,22 @@ class PullRequestEditWalk(GitHubWalk):
 
     def test_status_check_rules_come_from_rulesets_and_classic_protection_and_never_default_to_false(self) -> None:
         """An unreadable rule set must not be read as 'no checks required'."""
-        self.assertFalse(self.backend.requires_status_checks("main"))
+        def asked() -> GitHub:
+            return GitHub(mirror_for(self.fake), urllib_transport(), ENV)  # a new backend each time: the answer is read once per process
+
+        self.assertFalse(asked().requires_status_checks("main"))
         self.fake.rules["main"] = [{"type": "pull_request"}]
-        self.assertFalse(self.backend.requires_status_checks("main"))
+        self.assertFalse(asked().requires_status_checks("main"))
         self.fake.rules["main"] = [{"type": "required_status_checks"}]
-        self.assertTrue(self.backend.requires_status_checks("main"))
+        self.assertTrue(asked().requires_status_checks("main"))
         self.fake.rules.clear()
         self.fake.protection["main"] = {"required_status_checks": {"contexts": ["ci"]}}
-        self.assertTrue(self.backend.requires_status_checks("main"))
+        self.assertTrue(asked().requires_status_checks("main"))
         self.fake.protection["main"] = {"required_status_checks": None}
-        self.assertFalse(self.backend.requires_status_checks("main"))
+        self.assertFalse(asked().requires_status_checks("main"))
         self.fake.fail_next(403, "/rules/branches/")
         with self.assertRaises(ForgeAuth):
-            self.backend.requires_status_checks("main")
+            asked().requires_status_checks("main")
 
     def test_auto_merge_is_enabled_through_the_forge_and_read_back(self) -> None:
         """The caller must see whether the forge took the request, not assume it."""
@@ -283,7 +286,7 @@ class PullRequestEditWalk(GitHubWalk):
         """Merging a red PR because page one was green is the failure this prevents."""
         fake = FakeGitHub(page_size=2).start()
         self.addCleanup(fake.stop)
-        backend = GitHub(mirror_for(fake), urllib_transport(), ENV)
+        backend = GitHub(mirror_for(fake), urllib_transport(), {**ENV, "QEW_NO_GRAPHQL": "1"})  # the REST read pages the check runs; GraphQL's rollup has its own walk
         pull = backend.open_pull_request(PullRequestSpec("topic", "main", "T", "b", False))
         for conclusion in ("success", "success", "failure"):
             fake.set_check_run(pull.head_sha, "completed", conclusion)
