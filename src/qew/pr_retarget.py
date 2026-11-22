@@ -10,10 +10,10 @@ import json
 from collections.abc import Callable
 
 from qew import code_vcs, pr_record, remote_options, replication, untrusted_text
-from qew.cmd_pr import SCHEMA_VERSION, Build, apply_and_verify, forge_errors, load, refuse_finished
+from qew.cmd_pr import SCHEMA_VERSION, Build, forge_errors, load, refuse_finished
 from qew.errors import QewError
 from qew.ledger_config import Config
-from qew.pr_verify import Outcome
+from qew.pr_verify import Outcome, apply_and_verify
 
 
 @dataclass(frozen=True)
