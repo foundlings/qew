@@ -152,6 +152,9 @@ def jj_timeout_floor() -> float:
         return JJ_MIN_TIMEOUT
 
 
+TERMINATE_GRACE_S = 15.0  # how long a timed-out jj or git call may take to release its locks before it is killed
+
+
 class CommandTimeout(QewError):
     """A git or jj command ran out of time. Fetch and push treat it like an unreachable remote."""
 
@@ -282,14 +285,23 @@ class LedgerRepo:
 
     def _spawn(self, argv: Sequence[str], timeout: float | None, stdin: str | None) -> subprocess.CompletedProcess[str]:
         try:
-            return subprocess.run(
-                list(argv), cwd=self.path, stdin=subprocess.DEVNULL if stdin is None else None, input=stdin, capture_output=True, text=True,
-                timeout=timeout, check=False, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+            child = subprocess.Popen(
+                list(argv), cwd=self.path, stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
             )
-        except subprocess.TimeoutExpired:
-            raise CommandTimeout(argv, timeout) from None
         except OSError as error:
             raise QewError(f"cannot run `{argv[0]}`: {error}", 3) from None
+        try:
+            out, err = child.communicate(stdin, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            child.terminate()  # git and jj release the ref locks they hold when asked to stop; a SIGKILL leaves them for good
+            try:
+                child.communicate(timeout=TERMINATE_GRACE_S)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.communicate()
+            raise CommandTimeout(argv, timeout) from None
+        return subprocess.CompletedProcess(list(argv), child.returncode, out, err)
 
     def exclude_cache(self) -> None:
         """Keep `.qew/` (lock, log) out of the repository without committing anything."""
