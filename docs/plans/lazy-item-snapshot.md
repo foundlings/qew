@@ -44,7 +44,11 @@ alias map with the item directory's modification time per item.
    signature of its item file and events directories (`.qew/index.json`). Shipped in 7.2.7, measured on the foundlings clone:
    `complete` 13.95 s to 4.03 s (three full snapshots of 3.6 to 5.6 s became three lazy ones of 0.1 s plus the index's stats),
    `start` 5.13 s to 2.22 s. What is left is the jj commit (about 1 s) and the index's two stats per item (about 0.5 s).
-3. `pr ready`, `pr open`, `pr merge`: read the items a pull request links, not the ledger.
+3. Lazy by default, with a safety net (7.2.8): every snapshot a write verb takes is lazy, and a lazy snapshot is adaptive: after
+   200 single reads or the first bulk iteration it builds the full snapshot once, so a verb nobody converted is never worse than
+   before. Measured on the foundlings clone: `qew pr merge N --check --ledger-only` 8.07 s to 2.45 s with identical refusals.
+   `release` keeps the full snapshot (its walk pins that an unreadable ledger is refused). `qew set` and the graph-wide verbs
+   still build everything (about 1.7 s on top of the lazy open), which a later slice can cut.
 4. The remaining verbs, only where a trace shows the full snapshot is the slow step.
 
 ## Fallbacks and guards
