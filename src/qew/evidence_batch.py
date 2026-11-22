@@ -46,6 +46,10 @@ def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]], vcs: str, 
         for change in cited:
             if not code_vcs.valid_change(vcs, change):
                 raise QewError(f"{where}: `{change}` is not a {vcs} change id", 2)
+            if resolve is None:
+                raise QewError(f"{where}: cannot resolve evidence in this checkout; run from the configured code repository", 2)
+            if resolve(change, vcs) is Landing.UNKNOWN:
+                raise QewError(f"{where}: evidence {change} does not resolve in this checkout (typo, or not fetched here yet)", 2)
         folded = snapshot.folds[item_id]
         item = snapshot.items[item_id]
         if folded.state == State.COMPLETED:
@@ -56,7 +60,7 @@ def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]], vcs: str, 
                            "evidence needs an approved or claimed item", 2)
         if folded.state == State.CLAIMED and folded.owner != actor() and not holds_ancestor(snapshot, item_id, actor()):
             raise QewError(f"{where}: cannot record evidence for {item_id}: it is claimed by {holding(snapshot, item_id)}", 3)
-        recorded = {c for e in snapshot.events[item_id] if e.type == "evidence" and e.get("vcs") == vcs for c in e.get("change_ids", [])}
+        recorded = {c for e in snapshot.folds[item_id].evidence if e.get("vcs") == vcs for c in e.get("change_ids", [])}
         if folded.state == State.COMPLETED:
             recorded = set(item.evidence)  # what the header shows decides, not what the events cite
             if resolve is None:
@@ -72,13 +76,20 @@ def plan(snapshot: Snapshot, rows: list[tuple[str, JsonObject, str]], vcs: str, 
 
 
 def apply(ledger: Ledger, batch: Batch) -> None:
+    snapshot = ledger.snapshot()
+    recorded_by_item = {
+        each.item_id: {str(change) for event in snapshot.folds[each.item_id].evidence
+                       if event.get("vcs") == batch.vcs for change in event.get("change_ids", [])}
+        for each in batch.rows
+    }
     for each in batch.rows:
-        cited = {str(c) for e in ledger.load_events(each.item_id) if e.type == "evidence" for c in e.get("change_ids", [])}
+        cited = recorded_by_item[each.item_id]
         fresh = [c for c in each.changes if c not in cited]
         if fresh:  # ids an event already cites only reach the header
             ledger.append_event(each.item_id, "evidence", vcs=batch.vcs, change_ids=fresh, repo=batch.repo)
+            cited.update(fresh)
         item = ledger.load_item(each.item_id)
-        if ledger.snapshot().folds[each.item_id].state == State.COMPLETED:  # recovered proof: the header shows it, the historical absence goes
+        if snapshot.folds[each.item_id].state == State.COMPLETED:  # recovered proof: the header shows it, the historical absence goes
             ledger.write_item(replace(item, evidence=tuple(dict.fromkeys((*item.evidence, *each.changes))), evidence_absent=""), overwrite=True)
 
 

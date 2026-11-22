@@ -37,6 +37,7 @@ _RULES: dict[str, tuple[tuple[str, ...], tuple[State, ...] | None]] = {
     "claimed": (("owner",), (State.APPROVED,)),
     "released": ((), (State.CLAIMED,)),
     "evidence": (("vcs", "repo"), (State.APPROVED, State.CLAIMED, State.COMPLETED)),  # after completion: recovered proof for a historical completion
+    "evidence_retracted": (("vcs", "repo", "change_id", "reason"), (State.APPROVED, State.CLAIMED)),
     "completed": ((), (State.CLAIMED,)),  # also from approved when delivered elsewhere or by its children
     "reopened": ((), (State.COMPLETED, State.CLOSED)),
     "closed": (("reason",), (State.DRAFT, State.APPROVED, State.CLAIMED, State.COMPLETED)),
@@ -161,6 +162,13 @@ def parse_event(event_id: str, text: str, where: str = "event") -> Event:
             raise QewError(f"{where}: evidence needs a non-empty change_ids list", 1)
         if value["vcs"] not in ("jj", "git"):
             raise QewError(f"{where}: evidence vcs must be jj or git", 1)
+    if kind == "evidence_retracted":
+        if value["vcs"] not in ("jj", "git"):
+            raise QewError(f"{where}: evidence retraction vcs must be jj or git", 1)
+        if not isinstance(value["change_id"], str) or not CHANGE_ID.fullmatch(value["change_id"]):
+            raise QewError(f"{where}: evidence retraction needs one change id", 1)
+        if not isinstance(value["reason"], str) or not value["reason"].strip():
+            raise QewError(f"{where}: evidence retraction needs a non-empty reason", 1)
     if "via" in value and (not isinstance(value["via"], str) or not valid_actor(value["via"])):
         raise QewError(f"{where}: `via` (the tool that wrote the event) must be one word without spaces or commas", 1)
     _check_optional_fields(kind, value, where)
@@ -266,6 +274,7 @@ class Folded:
     lost_claims: tuple[tuple[str, str], ...] = ()  # (event id, actor) of claims that lost a merged race
     completion: Event | None = None  # the `completed` event that finished the item
     closure: Event | None = None  # the `closed` event while the item is closed
+    evidence_retractions: tuple[Event, ...] = ()
 
 
 def fold(events: list[Event]) -> Folded:
@@ -282,6 +291,7 @@ def fold(events: list[Event]) -> Folded:
     completion: Event | None = None
     closure: Event | None = None
     evidence: list[Event] = []
+    evidence_retractions: list[Event] = []
     errors: list[str] = []
     imported = False
     contested: list[Event] = []
@@ -336,6 +346,8 @@ def fold(events: list[Event]) -> Folded:
                 completion = None
         elif event.type == "evidence":
             evidence.append(event)
+        elif event.type == "evidence_retracted":
+            evidence_retractions.append(event)
         elif event.type == "completed":
             completion = event
         if event.type in _NEXT:
@@ -343,8 +355,25 @@ def fold(events: list[Event]) -> Folded:
     resolved = {e.get("ref") for e in events if e.type in ("divergence_accepted", "divergence_rejected")}
     open_divergences = tuple(e for e in sorted(events, key=lambda item: item.id)
                              if (e.type == "forge_divergence" and e.id not in resolved) or e in contested)
+    active_by_change: dict[tuple[str, str], Event] = {}
+    for event in sorted(events, key=lambda item: item.id):
+        if event.type == "evidence":
+            vcs = str(event.get("vcs"))
+            for change in event.get("change_ids", []):
+                active_by_change[(vcs, str(change))] = event
+        elif event.type == "evidence_retracted":
+            active_by_change.pop((str(event.get("vcs")), str(event.get("change_id"))), None)
+    active_evidence: list[Event] = []
+    for event in sorted(evidence, key=lambda item: item.id):
+        vcs = str(event.get("vcs"))
+        active_ids = [str(change) for change in event.get("change_ids", [])
+                      if active_by_change.get((vcs, str(change))) is event]
+        if active_ids:
+            active_evidence.append(Event(event.id, event.type, event.at, event.actor,
+                                         {**event.data, "change_ids": active_ids}))
+    evidence = active_evidence
     return Folded(state, owner, tuple(evidence), tuple(errors), imported, open_divergences, claim,
-                  tuple(lost_claims), completion, closure)
+                  tuple(lost_claims), completion, closure, tuple(evidence_retractions))
 
 
 def needs_after(base: tuple[str, ...], events: list[Event]) -> tuple[str, ...]:

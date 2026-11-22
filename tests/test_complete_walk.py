@@ -126,7 +126,11 @@ class UnresolvableProofWalk(unittest.TestCase):
         """Prevents misdiagnosing a missing fetch as unlanded work."""
         w = self.world
         item = started(w)
-        w.run("evidence", item, "--change", "deadbeefdeadbeef")
+        from qew.ledger_store import open_ledger
+
+        refused = w.run("evidence", item, "--change", "deadbeefdeadbeef")  # recording an unresolvable id is refused now
+        self.assertEqual(refused.returncode, 2, refused.stderr)
+        open_ledger(w.ledger, "TST").append_event(item, "evidence", vcs="git", change_ids=["deadbeefdeadbeef"], repo="x")  # what another clone or an older qew left
         before = tree(w)
         result = w.run("complete", item)
         self.assertEqual(result.returncode, 2, result.stderr)

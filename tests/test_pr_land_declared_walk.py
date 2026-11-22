@@ -144,8 +144,9 @@ class LandDeclaredWalk(unittest.TestCase):
     BOGUS = "0123456789abcdef0123456789abcdef01234567"  # well formed, in no repository
 
     def cite_with_a_bogus_id(self, item: str, sha: str) -> None:
-        run = self.w.qew("evidence", item, "--change", self.BOGUS, "--change", sha)
-        self.assertEqual(run.code, 0, run)
+        refused = self.w.qew("evidence", item, "--change", self.BOGUS, "--change", sha)  # the CLI refuses an unresolvable id now
+        self.assertEqual(refused.code, 2, refused)
+        self.w.ledger.append_event(item, "evidence", vcs="git", change_ids=[self.BOGUS, sha], repo="x")  # what an older qew or another clone left
 
     def test_recorded_evidence_naming_a_missing_change_does_not_leave_the_item_pending(self) -> None:
         """Prevents the stuck item: evidence with one good id and one id in no repository made landing skip its own evidence and complete refuse."""
