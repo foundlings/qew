@@ -10,8 +10,6 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from unittest import mock
-
 from qew.forge import ForgeError, PullRequestSpec
 from qew.forge_github import GitHub
 from qew.forge_http import urllib_transport
@@ -23,8 +21,10 @@ class GraphqlPullWalk(unittest.TestCase):
     def setUp(self) -> None:
         self.fake = FakeGitHub().start()
         self.addCleanup(self.fake.stop)
-        self.github = GitHub(Mirror("github", self.fake.repo_url, None, "", {"api": self.fake.api}), urllib_transport(),
-                             {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"})
+        env = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
+        mirror = Mirror("github", self.fake.repo_url, None, "", {"api": self.fake.api})
+        self.github = GitHub(mirror, urllib_transport(), env)
+        self.rest_github = GitHub(mirror, urllib_transport(), {**env, "QEW_NO_GRAPHQL": "1"})  # the same forge read the old way, for comparison
 
     def open(self, head: str = "feature", draft: bool = False) -> int:
         return self.github.open_pull_request(PullRequestSpec(head, "main", f"Work {head}", "body text", draft, "")).number
@@ -68,8 +68,7 @@ class GraphqlPullWalk(unittest.TestCase):
     def test_graphql_and_rest_say_the_same_about_every_shape_of_pull_request(self) -> None:
         """Prevents the cheaper read changing an answer: state, draft, mergeable, checks, labels, assignee, auto-merge, merge commit."""
         numbers = self.matrix()
-        with mock.patch.dict(os.environ, {"QEW_NO_GRAPHQL": "1"}):
-            expected = [self.github.read_pull_request(n) for n in numbers]
+        expected = [self.rest_github.read_pull_request(n) for n in numbers]
         got = [self.github.read_pull_request(n) for n in numbers]
         self.assertEqual(got, expected)
         self.assertEqual({p.checks for p in got}, {"passing", "failing", "pending", "none"})
@@ -115,8 +114,7 @@ class GraphqlPullWalk(unittest.TestCase):
         numbers = [self.open(f"head-{n}") for n in range(45)]
         self.fake.set_check_run(self.fake.pulls[numbers[3]]["head"]["sha"], "completed", "failure")
         self.fake.pulls[numbers[7]]["mergeable"] = False
-        with mock.patch.dict(os.environ, {"QEW_NO_GRAPHQL": "1"}):
-            expected = {n: self.github.read_pull_request(n) for n in numbers}
+        expected = {n: self.rest_github.read_pull_request(n) for n in numbers}
         before = len(self.fake.requests)
         got = self.github.read_pull_requests(numbers)
         self.assertEqual(got, expected)
@@ -160,8 +158,7 @@ class GraphqlPullWalk(unittest.TestCase):
         self.assertEqual(self.fake.graphql_operations()[-1:], ["PullStamps"])
         self.assertEqual({n: stamp.open for n, stamp in stamps.items()}, {a: True, b: False, c: False})  # 999 is not there
         self.assertTrue(all(stamp.updated for stamp in stamps.values()))
-        with mock.patch.dict(os.environ, {"QEW_NO_GRAPHQL": "1"}):
-            self.assertIsNone(self.github.pull_stamps([a]))  # REST-only: the caller reads each one
+        self.assertIsNone(self.rest_github.pull_stamps([a]))  # REST-only: the caller reads each one
 
 
 if __name__ == "__main__":
