@@ -52,6 +52,17 @@ class RateResourceWalk(unittest.TestCase):
             self.call(GRAPHQL, "graphql", 4955)
             self.assertEqual(forge_http.WATCH.remaining, 321)
 
+    def test_a_rate_limit_refusal_names_when_the_hour_resets(self) -> None:
+        """Prevents a bare `API rate limit exceeded` after a long gate: the message says which limit and the clock time it lifts."""
+        reset = int(time.time()) + 1500
+        refused = HttpResponse(403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset), "x-ratelimit-resource": "core"},
+                               b'{"message": "API rate limit exceeded for user ID 1."}')
+        with self.assertRaises(forge_http.ForgeUnavailable) as caught:
+            forge_http._interpret(refused, (200,))
+        text = str(caught.exception)
+        self.assertIn("core limit", text)
+        self.assertRegex(text, r"resets at \d\d:\d\dZ, in about \d+ min")
+
 
 if __name__ == "__main__":
     unittest.main()
