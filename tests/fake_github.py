@@ -345,6 +345,17 @@ class FakeGitHub:
         wanted = re.findall(r"(\w+): pullRequest\(number: (\d+)\)", self.graphql_query)
         return {"data": {"repository": {alias: (None if int(n) not in self.pulls else self.pull_node(self.pulls[int(n)])) for alias, n in wanted}}}
 
+    def gql_PullStamps(self, variables: dict[str, Any]) -> dict[str, Any]:
+        """The state and last change of several pull requests in one query, under their `p<N>` aliases."""
+        wanted = re.findall(r"(\w+): pullRequest\(number: (\d+)\)", self.graphql_query)
+        found: dict[str, Any] = {}
+        for alias, number in wanted:
+            pull = self.pulls.get(int(number))
+            issue = self.issues.get(int(number))
+            found[alias] = None if pull is None else {
+                "state": "MERGED" if pull["merged"] else pull["state"].upper(), "updatedAt": issue.get("updated_at", "2026-01-01T00:00:00Z")}
+        return {"data": {"repository": found}}
+
     def gql_FindPulls(self, variables: dict[str, Any]) -> dict[str, Any]:
         if self.graphql_pulls_broken:
             return {"errors": [{"type": "INTERNAL", "message": "pull request reads are down"}]}

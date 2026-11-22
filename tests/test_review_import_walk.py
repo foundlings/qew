@@ -79,7 +79,8 @@ class ReviewImportWalk(unittest.TestCase):
         self.assertNotIn("after the merge", self.world.run("show", self.item).stdout)
 
     def test_a_tracked_pull_request_the_forge_no_longer_has_is_skipped_and_not_asked_again(self) -> None:
-        """Prevents one vanished pull request failing every pull: a 404 on its reviews means it is gone, read once and left alone."""
+        """Prevents one vanished pull request failing every pull: the forge's cheap stamp says it is gone, so it is left alone without a
+        single reviews call (and, on a forge that cannot give stamps, the 404 of its first read ends the asking)."""
         ghost = self.world.home("mirrors", self.item) / f"{self.slug}-pr-999.json"
         ghost.write_text(json.dumps({"forge": "github", "url": self.fake.repo_url, "kind": "pr", "number": 999, "items": [self.item], "state": "open"}))
         first = self.world.run("sync", "--all", env=ENV)
@@ -88,7 +89,7 @@ class ReviewImportWalk(unittest.TestCase):
         calls = self.review_calls()
         self.assertEqual(self.world.run("sync", "--all", env=ENV).returncode, 0)
         asked_for_ghost = [path for _m, path, _b in self.fake.requests if "/pulls/999/" in path]
-        self.assertEqual(len(asked_for_ghost), 1, asked_for_ghost)  # the one reviews read that answered 404, never again
+        self.assertEqual(asked_for_ghost, [])  # the stamp query shows it gone: no reviews read at all
         self.assertGreaterEqual(self.review_calls(), calls)
 
 

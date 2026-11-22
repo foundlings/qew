@@ -149,6 +149,20 @@ class GraphqlPullWalk(unittest.TestCase):
         self.assertEqual(len(self.rest(before)), first, "the second ask spent calls")
         self.assertGreater(first, 0)
 
+    def test_the_state_and_last_change_of_many_pull_requests_come_in_one_graphql_query(self) -> None:
+        """Prevents the review sync asking each pull request one by one: open, merged, closed and missing numbers, a hundred to the query."""
+        a, b, c = self.open("a"), self.open("b"), self.open("c")
+        self.fake.pulls[b].update(state="closed", merged=True)
+        self.fake.pulls[c]["state"] = "closed"
+        before = len(self.fake.requests)
+        stamps = self.github.pull_stamps([a, b, c, 999])
+        self.assertEqual(self.rest(before), [], self.rest(before))
+        self.assertEqual(self.fake.graphql_operations()[-1:], ["PullStamps"])
+        self.assertEqual({n: stamp.open for n, stamp in stamps.items()}, {a: True, b: False, c: False})  # 999 is not there
+        self.assertTrue(all(stamp.updated for stamp in stamps.values()))
+        with mock.patch.dict(os.environ, {"QEW_NO_GRAPHQL": "1"}):
+            self.assertIsNone(self.github.pull_stamps([a]))  # REST-only: the caller reads each one
+
 
 if __name__ == "__main__":
     unittest.main()

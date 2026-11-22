@@ -8,6 +8,7 @@ quota reset burns the whole budget, is rate limited, and starts again at the nex
 import json
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
@@ -66,6 +67,7 @@ class ReviewBudgetWalk(unittest.TestCase):
         self.assertEqual(self.review_reads(number), 2)
         self.sync("--all")
         self.assertEqual(self.review_reads(number), 2, "an unchanged open pull request was read by an incremental pass")
+        time.sleep(1.1)  # the forge's timestamps have one-second resolution
         self.fake.add_review(number, "dana", "COMMENTED", "new thought")
         self.sync("--all")
         self.assertEqual(self.review_reads(number), 4)

@@ -16,6 +16,7 @@ from qew import forge_retry, instants, label_style, ledger_ids
 from qew.forge import (
     MARKER_PREFIX,
     Budget,
+    PullStamp,
     BodyRevision,
     RemoteReview,
     RemoteReviewComment,
@@ -99,6 +100,7 @@ _BODY_HISTORY = """
 query IssueBodyHistory($id: ID!) {
   node(id: $id) { ... on Issue { userContentEdits(first: 50) { nodes { editor { login } editedAt diff } } } }
 }"""
+STAMPS_PER_QUERY = 100  # pull requests whose state and last change one GraphQL query reads
 BATCH_PULLS = 20  # pull requests per GraphQL read of a union
 _PULL_FACTS = """
 fragment PullFacts on PullRequest {
@@ -1204,6 +1206,27 @@ class GitHub(Forge):
     def read_pull_request(self, number: int) -> RemotePullRequest:
         facts, checks = self._pull(number)
         return self._remote(facts, checks)
+
+    @override
+    def pull_stamps(self, numbers: Sequence[int]) -> dict[int, PullStamp] | None:
+        if self._env.get("QEW_NO_GRAPHQL"):
+            return None
+        wanted = list(dict.fromkeys(numbers))
+        found: dict[int, PullStamp] = {}
+        for start in range(0, len(wanted), STAMPS_PER_QUERY):
+            chunk = wanted[start:start + STAMPS_PER_QUERY]
+            aliases = " ".join(f"p{int(number)}: pullRequest(number: {int(number)}) {{ state updatedAt }}" for number in chunk)
+            query = "query PullStamps($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { " + aliases + " } }"
+            try:
+                repository = _obj(self._wire.graphql(query, {"owner": self._owner, "name": self._repo}).get("repository"), "repository")
+            except ForgeRejected:
+                return None  # a server without these reads: the caller reads each pull request
+            for number in chunk:
+                node = repository.get(f"p{number}")
+                if node is not None:
+                    data = _obj(node, "pull request stamp")
+                    found[number] = PullStamp(_str(data, "state", "pull request stamp") == "OPEN", _str(data, "updatedAt", "pull request stamp"))
+        return found
 
     @override
     def budget(self) -> Budget | None:

@@ -48,6 +48,7 @@ class MirrorState(TypedDict, total=False):
     blocked_by: list[int]  # pull request numbers a pull request waits on; shown as the `blocked` label and a title suffix
     dropped: list[str]  # checklist items dropped from a pull request, "ID: reason"; display only
     reviews_read: bool  # a finished pull request whose reviews were read to the end
+    reviews_seen: str  # the forge's `updated` of the pull request when its reviews were last read; an unchanged one is not read again
     parent_number: int  # the issue number last set as this issue's parent (0: none); absent: never set by this machine
     pr_title: str  # the title set for this pull request alone (`qew pr title`); absent: the item's title
     parent_capped: int  # the parent issue number GitHub refused as full (100 sub-issues): not retried until the ledger parent changes

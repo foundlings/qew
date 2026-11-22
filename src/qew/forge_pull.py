@@ -126,7 +126,7 @@ def pull_target(ledger: Ledger, target: Target, full: bool = False, clock: Calla
                 twins.setdefault(aliases.canonical(marker.group(1)), []).append((issue, marker.group(1)))
         for item_id, found in sorted(twins.items()):
             _settle_twins(ledger, target, report, item_id, found, mirrored, snapshot, started, complete)
-        report.comments += review_sync.pull(ledger, snapshot, target, prs)
+        report.comments += review_sync.pull(ledger, snapshot, target, sorted(prs, key=lambda pair: pair[1]["number"]))
     except Unsupported as error:
         report.skipped.append(error.capability)
     except ForgeError as error:

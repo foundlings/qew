@@ -321,6 +321,14 @@ class Milestone:
 
 
 @dataclass(frozen=True)
+class PullStamp:
+    """What a forge says of a pull request without reading it: whether it is open and when it last changed (any review bumps it)."""
+
+    open: bool
+    updated: str
+
+
+@dataclass(frozen=True)
 class Budget:
     """What a forge says is left of the quota the token shares: calls remaining and when the hour resets (epoch seconds)."""
 
@@ -511,6 +519,11 @@ class Forge(ABC):
 
     def read_pull_request(self, number: int) -> RemotePullRequest:
         raise Unsupported("read_pull_request")
+
+    def pull_stamps(self, numbers: Sequence[int]) -> dict[int, PullStamp] | None:
+        """The state and last change of many pull requests at once, cheaply; a number the forge does not have is missing from the answer.
+        None when the forge cannot say without reading each one."""
+        return None
 
     def budget(self) -> Budget | None:
         """The remaining quota, read without spending any; None when the forge has no such figure (a backend without a limit)."""
