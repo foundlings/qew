@@ -61,6 +61,11 @@ def verb_for(arguments: argparse.Namespace) -> str | None:
     command: str = arguments.command
     if command == "push":
         return "sync"  # the same session, lock and commit as a sync
+    if command == "sync":
+        from qew import cmd_sync
+
+        if cmd_sync.bare(arguments):
+            return None  # refused by the command itself: no lock, no fetch, no push first
     if command in ("create", "set", "start", "release", "evidence", "complete", "close", "reopen", "sync",
                    "import", "restore", "accept", "reject", "resolve", "comment", "block", "unblock"):
         return command
@@ -511,6 +516,11 @@ def _pull_for_read(arguments: argparse.Namespace) -> None:
     """Reads see other agents' work: fetch and merge the ledger remote, at most every fetch_interval_s."""
     if arguments.command in ("init", "hook", "status", "conflicts", "unlock", "pull", "gc"):
         return
+    if arguments.command == "sync":
+        from qew import cmd_sync
+
+        if cmd_sync.bare(arguments):
+            return  # about to be refused: fetch nothing first
     try:
         config = ledger_config.load()
     except QewError:

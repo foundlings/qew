@@ -38,7 +38,7 @@ def run(arguments: argparse.Namespace) -> bool:
     if arguments.command != "sync":
         return False
     config = ledger_config.load()
-    if _bare(arguments):
+    if bare(arguments):
         raise QewError("qew sync needs a direction: `qew push` sends pending ledger changes to the forge, `qew pull` fetches the ledger remote, "
                        "or pick an option: --full (read the whole forge), --item ID, --since DATE, --tree ITEM, --author NAME, --owner NAME, "
                        "--limit N, --all, --target T, --dry-run, --prune-labels", 2)
@@ -56,7 +56,7 @@ def run(arguments: argparse.Namespace) -> bool:
     return True
 
 
-def _bare(arguments: argparse.Namespace) -> bool:
+def bare(arguments: argparse.Namespace) -> bool:
     """A sync with no option at all, outside the background worker (which runs it bare on purpose)."""
     if os.environ.get("QEW_BACKGROUND"):
         return False
