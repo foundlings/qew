@@ -309,6 +309,17 @@ def get_conditional(
     return _interpret(response, (200,))
 
 
+def _resets(headers: Mapping[str, str]) -> str:
+    """` (core limit; resets at 21:46Z, in about 27 min)` when the answer carries the reset of the limit it hit, else nothing."""
+    reset = header(headers, "x-ratelimit-reset")
+    if reset is None or not reset.strip().isdigit():
+        return ""
+    named = header(headers, "x-ratelimit-resource")
+    at = time.strftime("%H:%MZ", time.gmtime(int(reset)))
+    minutes = max(int((int(reset) - time.time()) / 60) + 1, 1)
+    return f" ({named.strip().lower() if named else 'primary'} limit; resets at {at}, in about {minutes} min)"
+
+
 def _interpret(response: HttpResponse, ok: tuple[int, ...]) -> tuple[Any, Mapping[str, str]]:
     if response.status in ok:
         if not response.body:
@@ -323,7 +334,7 @@ def _interpret(response: HttpResponse, ok: tuple[int, ...]) -> tuple[Any, Mappin
     if limited:
         if "secondary rate limit" in detail.lower():
             raise ForgeSecondaryLimit(f"HTTP {response.status}: {detail}", wait if wait is not None else SECONDARY_WAIT)
-        raise ForgeUnavailable(f"HTTP {response.status}: {detail}", wait if wait is not None else DEFAULT_WAIT)
+        raise ForgeUnavailable(f"HTTP {response.status}: {detail}{_resets(response.headers)}", wait if wait is not None else DEFAULT_WAIT)
     if response.status in (401, 403):
         raise ForgeAuth(f"HTTP {response.status}: {detail}")
     if response.status >= 500:
