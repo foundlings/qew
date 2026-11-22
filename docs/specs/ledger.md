@@ -363,7 +363,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
   and loses its card) runs after the card is placed; Status and Priority are set in one GraphQL request; a card that
   was just created is not read before it is placed (the read-back stays); the project structure is cached per target
   in `.qew/state/TARGET/board-layout.json` (never committed) and re-read once when GitHub refuses a cached id.
-  `QEW_TRACE=1` prints every phase, every jj or git call of the ledger repository and every HTTP call with its wall time on stderr (a worker's stderr is `.qew/sync.log`).
+  `QEW_TRACE=1` prints every phase, every jj or git call of the ledger repository and every HTTP call with its wall time on stderr; a read names the read-side pull and the ledger load (`load ledger (N items)`) (a worker's stderr is `.qew/sync.log`).
   After a failed pass, or with an empty queue, the worker syncs the whole target (`qew sync`, `qew sync --full`);
   a human-filed issue is imported and gets its card (Draft: it is not approved) on that full pull.
   **Crash orphans.** Before it creates a forge issue the sync records the item in `.qew/state/TARGET/creating.json`
