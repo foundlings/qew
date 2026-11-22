@@ -136,7 +136,8 @@ class RateWatch:
     reset: float | None = None
 
 
-WATCH = RateWatch()
+WATCH = RateWatch()  # the core REST limit; GraphQL and the rest have their own (`watch_for`)
+_WATCHES: dict[str, RateWatch] = {"core": WATCH}
 RESERVE = 500  # calls a background pass leaves for merges and the person at the keyboard (QEW_RATE_RESERVE overrides, 0 turns it off)
 
 
@@ -160,34 +161,48 @@ def _reserve() -> int:
     return int(raw) if raw.strip().isdigit() else RESERVE
 
 
-def _noted(response: HttpResponse) -> HttpResponse:
+def watch_for(resource: str) -> RateWatch:
+    """The accounting of one rate-limit resource (`core`, `graphql`, `search`): GitHub keeps separate budgets, and an answer from one
+    must not overwrite what another said."""
+    return _WATCHES.setdefault(resource, RateWatch())
+
+
+def _resource_of(request: HttpRequest) -> str:
+    return "graphql" if request.url.split("?", 1)[0].rstrip("/").endswith("/graphql") else "core"
+
+
+def _noted(response: HttpResponse, resource: str = "core") -> HttpResponse:
     WATCH.calls += 1
+    named = header(response.headers, "x-ratelimit-resource")
+    watch = watch_for(named.strip().lower() if named else resource)
     left = header(response.headers, "x-ratelimit-remaining")
     if left is not None and left.strip().isdigit():
-        WATCH.remaining = int(left)
+        watch.remaining = int(left)
         until = header(response.headers, "x-ratelimit-reset")
-        WATCH.reset = float(until) if until is not None and until.strip().replace(".", "", 1).isdigit() else None
+        watch.reset = float(until) if until is not None and until.strip().replace(".", "", 1).isdigit() else None
     return response
 
 
-def _hold_reserve() -> None:
-    """In the background worker, refuse the next call while the last answer said fewer than the reserve remain and the quota has not reset."""
-    if not os.environ.get("QEW_BACKGROUND") or WATCH.remaining is None or WATCH.reset is None:
+def _hold_reserve(resource: str = "core") -> None:
+    """In the background worker, refuse the next call while the last answer for its resource said fewer than the reserve remain and the quota has not reset."""
+    watch = watch_for(resource)
+    if not os.environ.get("QEW_BACKGROUND") or watch.remaining is None or watch.reset is None:
         return
-    until = WATCH.reset - time.time()
-    if until > 0 and WATCH.remaining < _reserve():
-        raise RateReserve(f"rate reserve: {WATCH.remaining} forge calls left, below the {_reserve()} kept for merges; the quota resets in {until:.0f}s",
+    until = watch.reset - time.time()
+    if until > 0 and watch.remaining < _reserve():
+        raise RateReserve(f"rate reserve: {watch.remaining} {resource} calls left, below the {_reserve()} kept for merges; the quota resets in {until:.0f}s",
                           until)
 
 
 def _timed(transport: Transport, request: HttpRequest) -> HttpResponse:
-    _hold_reserve()
+    resource = _resource_of(request)
+    _hold_reserve(resource)
     if not trace.enabled():
-        return _noted(transport(request))
+        return _noted(transport(request), resource)
     begun = time.perf_counter()
     status: object = "error"
     try:
-        response = _noted(transport(request))
+        response = _noted(transport(request), resource)
         status = response.status
         return response
     finally:

@@ -98,6 +98,29 @@ _BODY_HISTORY = """
 query IssueBodyHistory($id: ID!) {
   node(id: $id) { ... on Issue { userContentEdits(first: 50) { nodes { editor { login } editedAt diff } } } }
 }"""
+_PULL_FACTS = """
+fragment PullFacts on PullRequest {
+  id number url state merged isDraft mergeable body title headRefOid headRefName baseRefName
+  author { login }
+  assignees(first: 1) { nodes { login } }
+  labels(first: 100) { nodes { name } }
+  autoMergeRequest { enabledAt }
+  mergeCommit { oid }
+  commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) {
+    pageInfo { hasNextPage }
+    nodes { __typename ... on CheckRun { status conclusion } ... on StatusContext { state } }
+  } } } } }
+}"""
+_READ_PULL = """
+query ReadPull($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) { ...PullFacts } }
+}""" + _PULL_FACTS
+_FIND_PULLS = """
+query FindPulls($owner: String!, $name: String!, $head: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(states: OPEN, headRefName: $head, first: 20) { nodes { ...PullFacts } pageInfo { hasNextPage } }
+  }
+}""" + _PULL_FACTS
 _ENABLE_AUTO_MERGE = """
 mutation EnableAutoMerge($id: ID!) {
   enablePullRequestAutoMerge(input: {pullRequestId: $id, mergeMethod: MERGE}) { pullRequest { id } }
@@ -432,6 +455,64 @@ def _auto_merge(pull: dict[str, Any]) -> bool:
     return pull["auto_merge"] is not None
 
 
+_STATE_OF = {"OPEN": "open", "CLOSED": "closed", "MERGED": "merged"}
+_MERGEABLE_OF: dict[str, bool | None] = {"MERGEABLE": True, "CONFLICTING": False, "UNKNOWN": None}
+_STATUS_OUTCOME = {"SUCCESS": "pass", "PENDING": "wait", "EXPECTED": "wait"}  # ERROR and FAILURE fail
+
+
+def _context_outcome(context: Any) -> str:
+    """One check context of GraphQL's rollup as the REST read counts it: a check run by its status and conclusion, a commit status by its state."""
+    data = _obj(context, "check context")
+    kind = _str(data, "__typename", "check context")
+    if kind == "CheckRun":
+        if _str(data, "status", "check run") != "COMPLETED":
+            return "wait"
+        return "pass" if _str(data, "conclusion", "check run") in ("SUCCESS", "NEUTRAL", "SKIPPED") else "fail"
+    if kind == "StatusContext":
+        return _STATUS_OUTCOME.get(_str(data, "state", "status context"), "fail")
+    raise _malformed(f"check context {kind}")
+
+
+def parse_pull_node(node: Any) -> tuple[_PullFacts, str | None]:
+    """A pull request and its checks verdict from one GraphQL node; the verdict is None when the rollup has more contexts than one page
+    (the caller then asks REST, which pages): a verdict from the first hundred would not be the REST verdict."""
+    pull = _obj(node, "pull request")
+    state = _STATE_OF.get(_str(pull, "state", "pull request"))
+    if state is None:
+        raise _malformed("pull request.state")
+    mergeable_name = _str(pull, "mergeable", "pull request")
+    if mergeable_name not in _MERGEABLE_OF:
+        raise _malformed("pull request.mergeable")
+    mergeable = _MERGEABLE_OF[mergeable_name]
+    author = pull.get("author")
+    assignees = _array(_obj(pull.get("assignees"), "pull request.assignees").get("nodes"), "assignees")
+    labels = _array(_obj(pull.get("labels"), "pull request.labels").get("nodes"), "labels")
+    merge_commit = pull.get("mergeCommit")
+    rollup: Any = None
+    for entry in _array(_obj(pull.get("commits"), "pull request.commits").get("nodes"), "commits"):
+        rollup = _obj(_obj(entry, "commit node").get("commit"), "commit").get("statusCheckRollup")
+    checks: str | None = "none"
+    if rollup is not None:
+        contexts = _obj(_obj(rollup, "rollup").get("contexts"), "rollup.contexts")
+        if _bool(_obj(contexts.get("pageInfo"), "contexts.pageInfo"), "hasNextPage", "contexts.pageInfo"):
+            checks = None
+        else:
+            checks = combine_checks(None, [_context_outcome(context) for context in _array(contexts.get("nodes"), "contexts")])
+    facts = _PullFacts(
+        number=_int(pull, "number", "pull request"), url=_str(pull, "url", "pull request"), node_id=_str(pull, "id", "pull request"),
+        state=state, draft=_bool(pull, "isDraft", "pull request"), head_sha=_str(pull, "headRefOid", "pull request"),
+        head_branch=_str(pull, "headRefName", "pull request"), base_branch=_str(pull, "baseRefName", "pull request"), mergeable=mergeable,
+        body=_nullable_str(pull, "body", "pull request"),
+        author="ghost" if author is None else _str(_obj(author, "pull request.author"), "login", "pull request.author"),
+        assignee=_str(_obj(assignees[0], "assignee"), "login", "assignee") if assignees else "",
+        auto_merge=pull.get("autoMergeRequest") is not None,
+        merge_sha=_str(_obj(merge_commit, "pull request.mergeCommit"), "oid", "mergeCommit") if state == "merged" and merge_commit is not None else "",
+        title=_nullable_str(pull, "title", "pull request"),
+        labels=tuple(_str(_obj(label, "label"), "name", "label") for label in labels),
+    )
+    return facts, checks
+
+
 def combine_checks(status_state: str | None, run_outcomes: list[str]) -> str:
     """Fold a commit status and check-run outcomes ("pass", "fail", "wait") into one verdict."""
     outcomes = list(run_outcomes)
@@ -652,6 +733,7 @@ class GitHub(Forge):
         self._repo = repo
         self._repo_path = f"/repos/{quote(namespace, safe='')}/{quote(repo, safe='')}"
         self._wire = _Wire(mirror, transport, env)
+        self._env = env
         self._ids: dict[int, int] = {}  # issue number -> numeric id (sub-issues are linked by it)
         self._nodes: dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
         self._projects: dict[int, _Project] = {}  # project number -> structure read this run
@@ -1041,10 +1123,19 @@ class GitHub(Forge):
             except ForgeRejected:
                 pass
             return self.read_pull_request(created.number)
-        return self._with_checks(created)
+        return self.read_pull_request(created.number)
 
     @override
     def find_open_pull_requests(self, head: str) -> list[RemotePullRequest]:
+        if not self._env.get("QEW_NO_GRAPHQL"):
+            try:
+                data = self._wire.graphql(_FIND_PULLS, {"owner": self._owner, "name": self._repo, "head": head})
+                listing = _obj(_obj(_obj(data.get("repository"), "repository").get("pullRequests"), "pull requests"), "pull requests")
+                if not _bool(_obj(listing.get("pageInfo"), "pull requests.pageInfo"), "hasNextPage", "pull requests.pageInfo"):
+                    found = [parse_pull_node(node) for node in _array(listing.get("nodes"), "pull requests")]
+                    return [self._remote(facts, self._checks(facts.head_sha) if checks is None else checks) for facts, checks in found]
+            except ForgeRejected:
+                pass  # a server without these reads, or an answer qew does not understand: the REST listing answers
         numbers: list[int] = []
         for page in self._wire.pages(f"{self._repo_path}/pulls?state=open&per_page=100"):
             for entry in _array(page, "pull request list"):
@@ -1103,23 +1194,24 @@ class GitHub(Forge):
 
     @override
     def read_pull_request(self, number: int) -> RemotePullRequest:
-        return self._with_checks(self._read_pull(number))
+        facts, checks = self._pull(number)
+        return self._remote(facts, checks)
 
     @override
     def mark_pull_request_ready(self, number: int) -> RemotePullRequest:
-        facts = self._read_pull(number)
-        if facts.draft:
-            self._wire.graphql(_MARK_READY, {"id": facts.node_id})
-            facts = self._read_pull(number)
-        return self._with_checks(facts)
+        facts, checks = self._pull(number)
+        if not facts.draft:
+            return self._remote(facts, checks)
+        self._wire.graphql(_MARK_READY, {"id": facts.node_id})
+        return self.read_pull_request(number)
 
     @override
     def mark_pull_request_draft(self, number: int) -> RemotePullRequest:
-        facts = self._read_pull(number)
-        if not facts.draft:
-            self._wire.graphql(_MARK_DRAFT, {"id": facts.node_id})
-            facts = self._read_pull(number)
-        return self._with_checks(facts)
+        facts, checks = self._pull(number)
+        if facts.draft:
+            return self._remote(facts, checks)
+        self._wire.graphql(_MARK_DRAFT, {"id": facts.node_id})
+        return self.read_pull_request(number)
 
     @override
     def merge_pull_request(self, number: int, expected_head_sha: str, bypass_checks: bool = False) -> RemotePullRequest:
@@ -1131,17 +1223,42 @@ class GitHub(Forge):
             self._wire.rest("PUT", f"{self._repo_path}/pulls/{number}/merge", {"merge_method": "merge", "sha": expected_head_sha})
         return self.read_pull_request(number)
 
-    def _read_pull(self, number: int) -> _PullFacts:
-        return parse_pull(self._wire.rest("GET", f"{self._repo_path}/pulls/{number}"))
+    def _read_node(self, number: int) -> tuple[_PullFacts, str | None] | None:
+        """The pull request and its checks verdict from one GraphQL query (a point of the GraphQL budget, not three calls of the core REST
+        one); None when this read is off (`QEW_NO_GRAPHQL=1`), the server refuses it or the pull request is not in the answer: REST answers."""
+        if self._env.get("QEW_NO_GRAPHQL"):
+            return None
+        try:
+            data = self._wire.graphql(_READ_PULL, {"owner": self._owner, "name": self._repo, "number": number})
+            node = _obj(data.get("repository"), "repository").get("pullRequest")
+            return None if node is None else parse_pull_node(node)
+        except ForgeRejected:
+            return None
 
-    def _with_checks(self, facts: _PullFacts) -> RemotePullRequest:
+    def _read_pull(self, number: int) -> _PullFacts:
+        found = self._read_node(number)
+        return found[0] if found is not None else parse_pull(self._wire.rest("GET", f"{self._repo_path}/pulls/{number}"))
+
+    def _pull(self, number: int) -> tuple[_PullFacts, str]:
+        """The facts and the checks verdict of one pull request."""
+        found = self._read_node(number)
+        if found is not None:
+            facts, checks = found
+            return facts, self._checks(facts.head_sha) if checks is None else checks
+        facts = parse_pull(self._wire.rest("GET", f"{self._repo_path}/pulls/{number}"))
+        return facts, self._checks(facts.head_sha)
+
+    def _remote(self, facts: _PullFacts, checks: str) -> RemotePullRequest:
         return RemotePullRequest(
             number=facts.number, url=facts.url, state=facts.state, draft=facts.draft,
             head_sha=facts.head_sha, head_branch=facts.head_branch, base_branch=facts.base_branch,
-            mergeable=facts.mergeable, checks=self._checks(facts.head_sha), body=facts.body,
+            mergeable=facts.mergeable, checks=checks, body=facts.body,
             author=facts.author, assignee=facts.assignee, auto_merge=facts.auto_merge, merge_sha=facts.merge_sha,
             title=facts.title, labels=facts.labels,
         )
+
+    def _with_checks(self, facts: _PullFacts) -> RemotePullRequest:
+        return self._remote(facts, self._checks(facts.head_sha))
 
     def _checks(self, sha: str) -> str:
         base = f"{self._repo_path}/commits/{quote(sha, safe='')}"
