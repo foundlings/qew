@@ -311,7 +311,7 @@ class PlanEpicMergeWalk(unittest.TestCase):
     def test_revert_of_a_covered_item_is_refused_once_the_pull_request_is_ready_and_allowed_while_it_is_a_draft(self) -> None:
         """Prevents a live pull request for work that went back to draft."""
         self.assertEqual(self.w.approve(self.epic, tree=True).code, 0)
-        quote = "Alexander: 'please track this work in the Qew ledger now'"
+        quote = "887: 'please track this work in the Qew ledger now'"
         allowed = self.w.qew("draft", "revert", self.two, "--reason", "rethink", "--quote", quote)
         self.assertEqual(allowed.code, 0, allowed)
         self.assertEqual(self.w.approve(self.two).code, 0)

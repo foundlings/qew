@@ -24,7 +24,7 @@ if os.environ.get("QEW_TEST_SCHEMA") == "8":  # run the walks on the sharded lay
     _defaults[_defaults.index(5)] = 8
     _ledger_store.Ledger.__init__.__defaults__ = tuple(_defaults)  # type: ignore[misc]
 os.environ.setdefault("QEW_UNDER_TEST", "1")  # qew then refuses any ledger outside the temp directory (see ledger_config)
-QUOTE = "Alexander: 'please track this work in the Qew ledger now'"
+QUOTE = "887: 'please track this work in the Qew ledger now'"
 
 _GIT_ENV = {
     "GIT_AUTHOR_NAME": "Test",

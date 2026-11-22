@@ -90,7 +90,7 @@ class ScaleWalk(unittest.TestCase):
             (self.world.home("items", f"{item_id}") / "item.md").write_text(header)
             events = self.world.home("events", item_id)
             events.mkdir(parents=True)
-            (events / "00000.json").write_text('{"type":"approved","at":"2026-01-01T00:00:00Z","actor":"x","quote":"Alexander: \'ok go\'"}')
+            (events / "00000.json").write_text('{"type":"approved","at":"2026-01-01T00:00:00Z","actor":"x","quote":"887: \'ok go\'"}')
         result, seconds = self.timed("ready", "--json")
         self.assertEqual(result.returncode, 0, result.stderr)
         body = json.loads(result.stdout)

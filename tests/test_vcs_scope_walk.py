@@ -34,7 +34,7 @@ class RefsTrailerParsingWalk(VcsHookCase):
 
     def test_a_list_of_ids_still_cites_every_id_and_a_typo_is_still_unknown(self) -> None:
         """Prevents the fix hiding real citations: comma and space separated ids, then a typo, are all still read."""
-        other = self.world.create("--title", "Other", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        other = self.world.create("--title", "Other", "--quote", "887: 'please track this work in the Qew ledger now'")
         result = self.message(f"work\n\nRefs: {self.item}, {other} TYPO99\n")
         self.assertEqual(result.stdout.splitlines(), [f"known {self.item}", f"known {other}", "unknown TYPO99"])
 

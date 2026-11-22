@@ -100,7 +100,7 @@ class SyncWalk(unittest.TestCase):
         self.assertTrue(self.a.issues[1].open)
         w.approve(item)
         w.run("start", item)
-        child = w.create("--kind", "issue", "--title", "C", "--parent", item, "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        child = w.create("--kind", "issue", "--title", "C", "--parent", item, "--quote", "887: 'please track this work in the Qew ledger now'")
         w.run("start", child)
         w.run("evidence", child, "--change", w.commit())
         w.run("complete", child)
@@ -141,7 +141,7 @@ class SyncWalk(unittest.TestCase):
         w = self.world
         path = w.code / ".qew" / "config.toml"
         path.write_text(path.read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nmode = "overlay"'))
-        item = w.create("--kind", "issue", "--title", "I", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        item = w.create("--kind", "issue", "--title", "I", "--quote", "887: 'please track this work in the Qew ledger now'")
         self.sync("forgejo-git.example-o-r")
         self.assertIn("status:Ready", self.a.issues[1].labels)
         w.run("start", item)
@@ -211,7 +211,7 @@ class SyncWalk(unittest.TestCase):
         (w.code / ".qew" / "config.toml").write_text(
             (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = 1')
         )
-        item = w.create("--kind", "issue", "--title", "E", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        item = w.create("--kind", "issue", "--title", "E", "--quote", "887: 'please track this work in the Qew ledger now'")
         self.sync("forgejo-git.example-o-r")
         self.assertEqual(self.a.columns[1], "Ready")
         self.assertEqual(COLUMNS[2], "Ready")
@@ -228,7 +228,7 @@ class SyncWalk(unittest.TestCase):
         (w.code / ".qew" / "config.toml").write_text(
             (w.code / ".qew" / "config.toml").read_text().replace('repo = "https://git.example/o/r"', 'repo = "https://git.example/o/r"\nproject = 1')
         )
-        item = w.create("--kind", "issue", "--title", "E", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        item = w.create("--kind", "issue", "--title", "E", "--quote", "887: 'please track this work in the Qew ledger now'")
         self.sync("forgejo-git.example-o-r")
         self.assertEqual(w.run("close", item, "--reason", "not_planned").returncode, 0)
         self.sync("forgejo-git.example-o-r")

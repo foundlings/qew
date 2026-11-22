@@ -110,7 +110,7 @@ class FlowWalk(unittest.TestCase):
         w = self.world
         item = w.create("--kind", "issue", "--title", "Maybe", "--draft")
         w.approve(item)
-        quote = "Alexander: 'hold this one back until we decide more'"
+        quote = "887: 'hold this one back until we decide more'"
         self.assertEqual(w.run("draft", "revert", item, "--reason", "undecided", "--quote", quote).returncode, 0)
         self.assertEqual(w.run("ready").stdout, "")
         w.approve(item)

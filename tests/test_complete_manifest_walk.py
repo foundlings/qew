@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from tests.fake_github import TOKEN, FakeGitHub
 from tests.ledger_harness import QUOTE, World
 
-WORDS = "Alexander: 'done per measure-board.py: phase not open on main (#570)'"
+WORDS = "887: 'done per measure-board.py: phase not open on main (#570)'"
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
 
 

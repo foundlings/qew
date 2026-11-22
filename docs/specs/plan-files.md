@@ -9,7 +9,7 @@ or entry (array).
 
 ```jsonl
 {"ref": "plan", "kind": "epic", "title": "Ship the importer", "priority": 1}
-{"ref": "parse", "kind": "issue", "title": "Parse the export", "parent": "@plan", "labels": ["area:import"], "quote": "Alexander: 'yes, build the importer first'"}
+{"ref": "parse", "kind": "issue", "title": "Parse the export", "parent": "@plan", "labels": ["area:import"], "quote": "887: 'yes, build the importer first'"}
 {"ref": "write", "kind": "issue", "title": "Write the items", "parent": "@plan", "needs": ["@parse"], "body": "Uses the parsed rows."}
 {"kind": "task", "title": "Document the format", "parent": "@write"}
 ```

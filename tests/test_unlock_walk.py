@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from tests.ledger_harness import QUOTE, World
 
-APPROVAL = "Alexander: 'yes, remove that dead lock, nothing is running'"
+APPROVAL = "887: 'yes, remove that dead lock, nothing is running'"
 
 
 def age(path: Path, seconds: int) -> None:

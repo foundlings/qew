@@ -13,11 +13,11 @@ BAD_QUOTES = {
     "empty": "",
     "too short": "A: 'ok'",
     "no name": "'please track this work in the Qew ledger now'",
-    "unquoted": "Alexander please track this work in the Qew ledger now",
-    "placeholder": "Alexander: '<their words go here, honestly>'",
-    "dots": "Alexander: '..................'",
-    "todo": "Alexander: 'TODO: ask the human what they want'",
-    "multi-line": "Alexander: 'please track this work\nin the Qew ledger now'",
+    "unquoted": "887 please track this work in the Qew ledger now",
+    "placeholder": "887: '<their words go here, honestly>'",
+    "dots": "887: '..................'",
+    "todo": "887: 'TODO: ask the human what they want'",
+    "multi-line": "887: 'please track this work\nin the Qew ledger now'",
 }
 
 
@@ -58,7 +58,7 @@ class QuoteWalk(unittest.TestCase):
         w = self.world
         specs = json.dumps([{"title": "One"}, {"title": "Two"}])
         before = tree(w)
-        refused = w.run("create", "--from-file", "-", "--quote", "Alexander: 'ok'", stdin=specs)
+        refused = w.run("create", "--from-file", "-", "--quote", "887: 'ok'", stdin=specs)
         self.assertEqual(refused.returncode, 2)
         self.assertEqual(tree(w), before)
         accepted = w.run("create", "--from-file", "-", "--quote", QUOTE, stdin=specs)
@@ -90,7 +90,7 @@ class QuoteWalk(unittest.TestCase):
         """Validation order: the quote problem comes first so no resolution side effect precedes it."""
         w = self.world
         for args in (("approve", "nothere"), ("revert", "nothere", "--reason", "why not")):
-            result = w.run("draft", *args, "--quote", "Alexander: 'ok'")
+            result = w.run("draft", *args, "--quote", "887: 'ok'")
             self.assertEqual(result.returncode, 2)
             self.assertIn("quote", result.stderr)
             self.assertNotIn("no item matches", result.stderr)

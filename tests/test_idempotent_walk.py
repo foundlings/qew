@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from tests.ledger_harness import QUOTE, World
 
-OTHER_QUOTE = "Alexander: 'a different release that is not a replay'"
+OTHER_QUOTE = "887: 'a different release that is not a replay'"
 
 
 def types(world: World, item: str) -> list:

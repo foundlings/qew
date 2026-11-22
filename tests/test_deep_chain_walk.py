@@ -22,7 +22,7 @@ class DeepChainWalk(unittest.TestCase):
         entries = [{"ref": "n0", "title": "Link 0"}]
         entries += [{"ref": f"n{i}", "title": f"Link {i}", "needs": [f"@n{i - 1}"]} for i in range(1, LENGTH)]
         started = time.monotonic()
-        result = cls.world.run("create", "--from-file", "-", "--quote", "Alexander: 'file the long chain for the walk'", stdin=jsonl(*entries))
+        result = cls.world.run("create", "--from-file", "-", "--quote", "887: 'file the long chain for the walk'", stdin=jsonl(*entries))
         assert result.returncode == 0, result.stderr[-300:]
         cls.elapsed = time.monotonic() - started
 

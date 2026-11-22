@@ -11,7 +11,7 @@ import unittest
 
 from tests.ledger_harness import QUOTE, World
 
-REVERT_QUOTE = "Alexander: 'hold this one back until we decide more'"
+REVERT_QUOTE = "887: 'hold this one back until we decide more'"
 
 
 def types(world: World, item: str) -> list:
@@ -85,7 +85,7 @@ class ApproveWalk(ReleaseBase):
         w = self.world
         item = self.draft("Work")
         w.approve(item)
-        result = w.run("draft", "approve", item, "--quote", "Alexander: 'a second, different release'")
+        result = w.run("draft", "approve", item, "--quote", "887: 'a second, different release'")
         self.assertEqual(result.returncode, 2)
         self.assertIn(f"nothing to approve: {item} is not a draft", result.stderr)
         self.assertEqual(types(w, item), ["drafted", "approved"])
@@ -110,7 +110,7 @@ class ApproveWalk(ReleaseBase):
         epic = self.draft("Plan", "epic")
         child = self.draft("Child", parent=epic)
         w.approve(epic, child)
-        result = w.run("draft", "approve", epic, "--tree", "--quote", "Alexander: 'a second, different release'")
+        result = w.run("draft", "approve", epic, "--tree", "--quote", "887: 'a second, different release'")
         self.assertEqual(result.returncode, 2)
         self.assertIn("nothing to approve", result.stderr)
         replay = w.run("draft", "approve", epic, "--tree", "--quote", QUOTE)

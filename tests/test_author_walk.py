@@ -18,7 +18,7 @@ from tests.ledger_harness import QUOTE, World
 NOW = "2024-05-01T10:00:00Z"
 OFF = "\n[replication]\nauto_forge_sync = false\nauto_push = false\nforge_concurrency = 1\ndivergences = \"report\"\n"
 ENV = {"GITHUB_TOKEN": TOKEN, "QEW_NO_GH_TOKEN": "1"}
-REVIEW = "Alexander: 'everything was authored by me, the importer was only the tool used'"
+REVIEW = "887: 'everything was authored by me, the importer was only the tool used'"
 
 
 def imported(item_id: str, actor: str = "qew-import") -> dict:

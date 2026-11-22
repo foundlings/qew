@@ -87,7 +87,7 @@ class DraftStateWalk(unittest.TestCase):
     def test_the_session_prime_offers_approved_ready_work_and_counts_drafts_without_listing_them(self) -> None:
         """Agent context must never present a draft as work to pick up."""
         w = self.world
-        live = w.create("--title", "Live work", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        live = w.create("--title", "Live work", "--quote", "887: 'please track this work in the Qew ledger now'")
         draft = w.create("--title", "Hidden draft", "--draft")
         result = w.run("hook", "session-start", "--agent", "claude", stdin="{}")
         self.assertEqual(result.returncode, 0, result.stderr)

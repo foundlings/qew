@@ -62,7 +62,7 @@ class CheckWalk(unittest.TestCase):
 
     def test_completed_work_without_evidence_fails(self) -> None:
         w = self.world
-        a = w.create("--kind", "issue", "--title", "A", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        a = w.create("--kind", "issue", "--title", "A", "--quote", "887: 'please track this work in the Qew ledger now'")
         for kind, extra in (("claimed", {"owner": "x"}), ("completed", {})):
             name = {"claimed": "Y", "completed": "Z"}[kind] * 26
             (w.home("events", a) / f"{name}.json").write_text(

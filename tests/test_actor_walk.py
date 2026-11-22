@@ -19,7 +19,7 @@ class ActorWalk(unittest.TestCase):
     def test_an_actor_with_a_space_or_comma_is_refused_before_anything_is_written(self) -> None:
         """A login that cannot be a label must not reach event files, where it would be mirrored to forges."""
         w = self.world
-        item = w.create("--title", "Work", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        item = w.create("--title", "Work", "--quote", "887: 'please track this work in the Qew ledger now'")
         before = snapshot(w)
         for bad in ("bad login,x", "two words", "a,b"):
             for command in (("create", "--title", "Other"), ("start", item)):
@@ -49,7 +49,7 @@ class ActorWalk(unittest.TestCase):
     def test_a_header_label_never_names_the_claimant(self) -> None:
         """Claiming is by event: a label that looks like an identity must change nothing."""
         w = self.world
-        item = w.create("--title", "Work", "--quote", "Alexander: 'please track this work in the Qew ledger now'")
+        item = w.create("--title", "Work", "--quote", "887: 'please track this work in the Qew ledger now'")
         path = w.home("items", f"{item}") / "item.md"
         path.write_text(path.read_text().replace("labels: \n", "labels: author:mallory\n", 1))
         self.assertEqual(w.run("start", item).returncode, 0)

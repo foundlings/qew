@@ -52,7 +52,7 @@ class GatedCompleteWalk(unittest.TestCase):
         before = self.commits()
         out = self.world.run("complete", "--manifest", self.manifest({"item": free, "absent": "historical", "reason": "old board"},
                                                                        {"item": stuck, "absent": "historical", "reason": "old board"}),
-                             "--quote", "Alexander: 'done per the old board'")
+                             "--quote", "887: 'done per the old board'")
         self.assertEqual(out.returncode, 2, out.stdout + out.stderr)
         self.assertIn(stuck[:8], out.stderr)
         self.assertIn("gated", out.stderr)

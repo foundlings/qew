@@ -127,7 +127,7 @@ class ManifestWalk(unittest.TestCase):
         """Prevents lost proof staying lost: a historical completion gets real ids in its header; stated absences are refused."""
         one, two, three = self.items
         for item, kind in ((one, "historical"), (two, "no-code")):
-            self.assertEqual(self.world.run("complete", "--manifest", self.write_complete(item, kind), "--quote", "Alexander: 'done per the old board'").returncode, 0)
+            self.assertEqual(self.world.run("complete", "--manifest", self.write_complete(item, kind), "--quote", "887: 'done per the old board'").returncode, 0)
         sha = self.world.commit("the real work")
         self.manifest({"item": one, "change_ids": [sha]})
         result = self.world.run("evidence", "--manifest", str(self.path))
@@ -136,7 +136,7 @@ class ManifestWalk(unittest.TestCase):
         self.assertIn(f"evidence: {sha}", text)
         self.assertNotIn("evidence_absent", text)
         self.assertIn("unchanged 1", self.world.run("evidence", "--manifest", str(self.path)).stdout)
-        three_done = self.world.run("complete", "--manifest", self.write_complete(three, "historical"), "--quote", "Alexander: 'done per the old board'")
+        three_done = self.world.run("complete", "--manifest", self.write_complete(three, "historical"), "--quote", "887: 'done per the old board'")
         self.assertEqual(three_done.returncode, 0, three_done.stdout + three_done.stderr)
         self.manifest({"item": three, "change_ids": ["0123456789abcdef0123456789abcdef01234567"]})
         unknown = self.world.run("evidence", "--manifest", str(self.path))

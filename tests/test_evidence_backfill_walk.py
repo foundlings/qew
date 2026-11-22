@@ -57,7 +57,7 @@ class EvidenceBackfillWalk(unittest.TestCase):
         nocode = started(w, title="No code")
         self.assertEqual(w.run("complete", nocode, "--no-commit", "a decision").returncode, 0)
         bulk = w.create("--kind", "task", "--title", "Bulk", "--quote", QUOTE)
-        inject(w, bulk, "completed", bulk_quote="Alexander: 'done per measure-board.py (#570)'", reason="done per measure-board.py (#570)")
+        inject(w, bulk, "completed", bulk_quote="887: 'done per measure-board.py (#570)'", reason="done per measure-board.py (#570)")
         epic = w.create("--kind", "epic", "--title", "Phase", "--quote", QUOTE)
         child = w.create("--kind", "task", "--title", "Part", "--parent", epic, "--quote", QUOTE)
         w.run("start", child)

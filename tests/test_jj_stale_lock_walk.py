@@ -11,7 +11,7 @@ from pathlib import Path
 
 from tests.ledger_harness import World, jj_available
 
-APPROVAL = "Alexander: 'yes, remove that dead lock, nothing is running'"
+APPROVAL = "887: 'yes, remove that dead lock, nothing is running'"
 
 
 @unittest.skipUnless(jj_available(), "jj is not installed")
