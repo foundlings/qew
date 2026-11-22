@@ -156,6 +156,9 @@ A pull never lists the whole forge when it can avoid it. The fakes bump `updated
   it is a deletion (an `exists` divergence) at the cost of the changed pages only; a page's ETag changes when any issue on it
   is created, edited, commented, deleted or shifts onto it. A last page as full as the others is followed by one more request.
   A 200 without an ETag makes the forge raise `Unsupported("conditional_listing")` and the pull falls back below.
+  One request per page on every pull is minutes at thousands of issues, so when the cached pages number more than
+  `forge_pull.CONDITIONAL_MAX_PAGES` (20) and the cursor is fresh, the pull uses the fallback below; the conditional pages
+  run again at the daily complete listing. A listing longer than `forge_http.MAX_PAGES` (500 pages, a runaway guard) is refused, never truncated.
 - **Fallback** (no ETags, GitLab, the in-memory forge): `list_issues(since)` with `since` = the last successful pull's start
   minus 120 seconds. Only a full listing (no cursor, `qew sync --full`, or the last complete set older than 24 hours) may conclude an
   issue was deleted; an incremental result merges with the mirrored set by number.
