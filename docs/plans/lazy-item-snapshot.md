@@ -35,10 +35,13 @@ alias map with the item directory's modification time per item.
 
 ## Slices (hottest verb first; each ships with a before and after trace on a clone of the foundlings ledger)
 
-1. Lazy snapshot, then `evidence` (and `retract`, `repair`), then `start`: no graph needed. Done when their trace shows
+1. Lazy snapshot and `evidence` (record, `--retract`, `--repair`): no graph needed. Done when the trace shows
    `ledger snapshot (lazy)` and no `ledger snapshot (full)`, outputs are identical to the full snapshot's, and an unrelated damaged
-   item does not stop them.
-2. A reverse-edge map for `complete` (children, dependents, released items), validated per item directory.
+   item does not stop it. Shipped in 7.2.6: a recording write 6.8 s to 2.7 s on the foundlings clone (snapshot 5.1 s to 0.15 s).
+   `start` is not here: it enforces the claim cap over every item's fold and starts an epic through its descendants, which are
+   graph-wide, so it moves to slice 2 with `complete`.
+2. A reverse-edge and claim map for `complete` and `start` (children, dependents, released items, claims per actor), validated
+   per item directory.
 3. `pr ready`, `pr open`, `pr merge`: read the items a pull request links, not the ledger.
 4. The remaining verbs, only where a trace shows the full snapshot is the slow step.
 
