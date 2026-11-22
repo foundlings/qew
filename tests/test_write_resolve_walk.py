@@ -31,6 +31,29 @@ class WriteResolveWalk(unittest.TestCase):
         self.assertRegex(err, LISTED)
         self.assertRegex(err, SCANNED)
 
+    def test_a_second_comment_on_an_exact_id_neither_lists_nor_scans(self) -> None:
+        """Prevents every write re-reading all item headers and listing all item directories to resolve an id that exists."""
+        self.comment(self.first)
+        err = self.comment(self.first)
+        self.assertNotRegex(err, LISTED)
+        self.assertNotRegex(err, SCANNED)
+
+    def test_an_item_created_after_the_index_was_stored_is_found(self) -> None:
+        """Prevents a stored alias index hiding an item another command created: the new directory is seen, by exact id and by prefix."""
+        self.comment(self.first)
+        second = self.world.create("--title", "second", "--quote", QUOTE)
+        self.comment(second)
+        run = self.world.run("comment", second[:-1], "--body", "by prefix")
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn(second, run.stdout)
+
+    def test_a_damaged_alias_file_is_ignored(self) -> None:
+        """Prevents a damaged local index failing a write: the headers are read again."""
+        self.comment(self.first)
+        (self.world.ledger / ".qew" / "aliases.json").write_text("{ not json", encoding="utf-8")
+        err = self.comment(self.first)
+        self.assertRegex(err, SCANNED)
+
 
 if __name__ == "__main__":
     unittest.main()
