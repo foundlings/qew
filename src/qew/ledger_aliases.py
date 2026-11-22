@@ -12,7 +12,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from qew import ledger_layout
+from qew import ledger_layout, trace
 from qew.ledger_item import MAX_HEADER_BYTES, RULE, Item
 
 
@@ -141,16 +141,17 @@ def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, 
     _stamped[key] = now
     if index is None or (not changed and index.stamp != stamp):
         headers = {}
-        if texts is not None:
-            for stem, text in sorted(texts().items()):
-                found = _aliases_in(stem, text)
-                if found is not None:
-                    headers[stem] = found
-        else:
-            for directory in ledger_layout.homes(items_dir, sharded):
-                found = _read(directory / ITEM_FILE)
-                if found is not None:
-                    headers[directory.name] = found
+        with trace.phase("scan item headers (full)"):
+            if texts is not None:
+                for stem, text in sorted(texts().items()):
+                    found = _aliases_in(stem, text)
+                    if found is not None:
+                        headers[stem] = found
+            else:
+                for directory in ledger_layout.homes(items_dir, sharded):
+                    found = _read(directory / ITEM_FILE)
+                    if found is not None:
+                        headers[directory.name] = found
         index = _indexes[key] = _Index(stamp, headers)
     elif changed:
         index.refresh(stamp, changed, items_dir, sharded)

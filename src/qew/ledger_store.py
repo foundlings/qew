@@ -125,7 +125,8 @@ class Ledger:
         if not self.items_dir.is_dir():
             return []
         stale = self.aliases().superseded
-        return sorted(path.name for path in self.homes_in(self.items_dir) if (path / ITEM_FILE).is_file() and path.name not in stale)
+        with trace.phase("list items"):
+            return sorted(path.name for path in self.homes_in(self.items_dir) if (path / ITEM_FILE).is_file() and path.name not in stale)
 
     def item_path(self, item_id: str) -> Path:
         """The item file: `items/<ID>/item.md`; the id is only in the directory name."""
