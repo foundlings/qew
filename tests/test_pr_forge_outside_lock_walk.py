@@ -1,8 +1,9 @@
-"""The pr verbs talk to the forge without holding the ledger write lock.
+"""`pr ready`, `pr close` and `pr merge` talk to the forge without holding the ledger write lock; `pr open` holds it.
 
-Adversary: `pr open`, `pr ready`, `pr close` and `pr merge` holding `.qew/lock` across every forge request, so one slow forge
-keeps every other writer waiting (seen live: a `pr-open` held the lock 136 s with eleven writers queued), and the opposite
-mistake, a forge result that never reaches the ledger because the short write section was skipped.
+Adversary: `pr ready`, `pr close` and `pr merge` holding `.qew/lock` across every forge request, so one slow forge keeps every
+other writer waiting (seen live: a `pr-open` held the lock 136 s with eleven writers queued); a forge result that never reaches the
+ledger because the short write section was skipped; and `pr open` creating the forge pull request before it owns the lock, so a
+lock timeout leaves an orphan no later verb accepts (it opens inside the lock: nothing is created without the record).
 """
 
 import json
@@ -37,7 +38,7 @@ class ForgeOutsideLockWalk(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_open_ready_and_close_call_the_forge_with_the_lock_free_and_still_record_the_result(self) -> None:
+    def test_ready_and_close_call_the_forge_with_the_lock_free_and_open_holds_it_and_all_record_the_result(self) -> None:
         """Prevents the lock spanning forge requests, and a recorded pull request the short write section never wrote."""
         self.watch("open_pull_request", "read_pull_request", "mark_pull_request_ready", "close_pull_request")
         item = self.w.item("Parse headers")
@@ -47,6 +48,7 @@ class ForgeOutsideLockWalk(unittest.TestCase):
         self.assertEqual(self.w.qew("pr", "close", "1").code, 0)
         self.assertEqual(self.w.forge.count("close_pr"), 1)
         self.assertTrue({"open_pull_request", "read_pull_request", "mark_pull_request_ready", "close_pull_request"} <= set(self.during))
+        self.assertTrue(all(self.during.pop("open_pull_request")), "pr open must own the lock before it creates the pull request")
         for name, held in self.during.items():
             self.assertTrue(held and not any(held), f"{name} ran while the ledger write lock was held: {held}")
 
