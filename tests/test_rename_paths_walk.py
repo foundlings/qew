@@ -38,6 +38,21 @@ class RenamePathsWalk(unittest.TestCase):
             repo.commit(dirty, "rename")
             self.assertEqual(git(path, "status", "--porcelain").strip(), "")
 
+    def test_a_file_renamed_in_the_worktree_without_staging_commits(self) -> None:
+        """Prevents the unstaged shape (a deleted path plus an untracked one) losing the delete half of the rename."""
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw)
+            git(path, "init", "-q", "-b", "main")
+            (path / "baselines").mkdir()
+            (path / "baselines" / "a.json").write_text("{}", encoding="utf-8")
+            os.environ["GIT_AUTHOR_NAME"] = os.environ["GIT_COMMITTER_NAME"] = "t"
+            os.environ["GIT_AUTHOR_EMAIL"] = os.environ["GIT_COMMITTER_EMAIL"] = "t@t"
+            repo = LedgerRepo(path)
+            repo.commit(["baselines/a.json"], "first")
+            (path / "baselines" / "a.json").rename(path / "baselines" / "b.json")
+            repo.commit(repo.dirty_owned(), "rename")
+            self.assertEqual(git(path, "status", "--porcelain").strip(), "")
+
 
 if __name__ == "__main__":
     unittest.main()

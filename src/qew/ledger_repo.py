@@ -232,6 +232,20 @@ def enable_untracked_cache(ledger: Path) -> bool:
         return False
 
 
+def _porcelain_paths(out: str) -> set[str]:
+    """The paths of `git status --porcelain -z`: a rename or copy entry is `XY new` followed by `old`, and both are changed paths."""
+    found: set[str] = set()
+    entries = iter(out.split("\0"))
+    for entry in entries:
+        if len(entry) < 4:
+            continue
+        found.add(entry[3:])
+        if entry[0] in "RC" or entry[1] in "RC":
+            found.add(next(entries, ""))
+    found.discard("")
+    return found
+
+
 class LedgerRepo:
     def __init__(self, path: Path, branch: str = "main") -> None:
         self.path = path
@@ -328,8 +342,8 @@ class LedgerRepo:
     def dirty_owned(self) -> list[str]:
         """Changed or untracked paths inside qew's own directories."""
         if self.vcs == "git":
-            out = self.run(["git", "status", "--porcelain", "--untracked-files=all", "--", *OWNED]).stdout
-            return sorted({line[3:].strip() for line in out.splitlines() if line[3:].strip()})
+            out = self.run(["git", "status", "--porcelain", "-z", "--untracked-files=all", "--", *OWNED]).stdout
+            return sorted(_porcelain_paths(out))
         if self.vcs == "jj":
             out = self.run(["jj", "--no-pager", "diff", "--summary"]).stdout
             return sorted({p for p in summary_paths(out) if p.split("/", 1)[0] in OWNED})
@@ -389,7 +403,9 @@ class LedgerRepo:
             # paths go to git on stdin: an import can touch more files than one command line can name
             names = "\0".join(paths) + "\0"
             from_stdin = ["--pathspec-from-file=-", "--pathspec-file-nul"]
-            self.run(["git", "add", "-A", *from_stdin], stdin=names)
+            present = [path for path in paths if (self.path / path).exists()]  # a deleted or renamed-away path is committed by the commit below
+            if present:
+                self.run(["git", "add", "-A", *from_stdin], stdin="\0".join(present) + "\0")
             try:
                 self.run(["git", "commit", "-q", "-m", message, *from_stdin], stdin=names)
             except QewError as error:
