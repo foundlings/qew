@@ -309,6 +309,7 @@ Decision: the primitive is a kernel advisory lock, nothing else, so nothing is e
 - **The holder text is courtesy only.** The holder writes `{pid, host, verb, who, since}` into the file after it locks;
   a waiter reads it only to word the timeout (`the ledger X is locked by agent3's `complete` (pid 123, 12s)`, exit 3).
   It is never consulted to decide whether the lock is free.
+- **A timed-out jj or git call is terminated, then killed.** qew sends SIGTERM and waits 15 s before SIGKILL, because a killed ref transaction leaves its `.lock` files (thousands of `refs/jj/keep/*.lock` after one killed gc) and the repository refuses writes until `qew unlock --stale` removes them.
 - **Forge calls take no lock, except opening.** `qew pr ready`, `close` and `merge` ask the forge first and take the write lock only for the short section that records the result (fetch, write, commit); a slow forge never holds other writers. If the section cannot get the lock in time, the forge change stands (a pull request merged) and the command fails; `qew sync` reads the merged state back. `qew pr open` takes the write lock first and makes the forge call inside it, because a pull request opened and never recorded cannot be readied or merged: a lock timeout creates nothing, and a rerun adopts a pull request that is already there.
 - **Waiting.** Bounded by `[replication] lock_wait_s` (60; `QEW_LOCK_WAIT_S` overrides it for one command) with
   exponential backoff (10 ms to 250 ms) plus jitter, so ten waiters do not stampede. Waiters are served in arrival order:
