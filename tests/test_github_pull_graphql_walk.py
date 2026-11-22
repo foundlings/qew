@@ -133,6 +133,22 @@ class GraphqlPullWalk(unittest.TestCase):
         with self.assertRaises(ForgeError):
             self.github.read_pull_requests([*numbers, 999])
 
+    def test_the_budget_is_read_from_the_rate_limit_endpoint(self) -> None:
+        """Prevents the quota check needing a counted call or guessing: GitHub's core figure and reset come from GET /rate_limit."""
+        self.fake.core_left, self.fake.core_reset = 77, 1_900_000_123
+        budget = self.github.budget()
+        self.assertEqual((budget.remaining, budget.reset, budget.resource), (77, 1_900_000_123.0, "core"))  # type: ignore[union-attr]
+
+    def test_the_branch_protection_lookup_is_made_once_per_branch(self) -> None:
+        """Prevents two REST calls (rules and protection) every time a verb asks whether a branch needs status checks."""
+        self.fake.rules["main"] = [{"type": "required_status_checks"}]
+        before = len(self.fake.requests)
+        self.assertTrue(self.github.requires_status_checks("main"))
+        first = len(self.rest(before))
+        self.assertTrue(self.github.requires_status_checks("main"))
+        self.assertEqual(len(self.rest(before)), first, "the second ask spent calls")
+        self.assertGreater(first, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

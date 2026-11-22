@@ -8,7 +8,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from qew import code_vcs, pr_unticked, untrusted_text, remote_options
+from qew import code_vcs, pr_budget, pr_unticked, untrusted_text, remote_options
 from qew.cmd_pr import MergeOptions, _merge_options, forge_errors, load, refuse_finished
 from qew.errors import QewError
 from qew.forge import RemotePullRequest
@@ -93,6 +93,8 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
     if arguments.dry_run:
         return f"union {built[:12]} of {members} builds without conflicts; dry run, nothing pushed"
     branch = lead.head_branch
+    with forge_errors(loaded.record.target):  # the checks run after this push may take a long time: say now if the merge that follows cannot be paid for
+        left = pr_budget.refuse_if_short(loaded.forge, pr_budget.needed_for_merge(len(numbers)), "the merge that follows this union", "nothing was pushed")
     _git(root, "push", remote_name, f"{built}:refs/heads/{branch}")
     remote = _git(root, "ls-remote", remote_name, f"refs/heads/{branch}").split()
     if not remote or remote[0] != built:
@@ -102,5 +104,7 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
             for box in boxes:
                 if box.address in loaded.snapshot.items:
                     loaded.snapshot.ledger.append_event(box.address, "commented", text=f"pull request #{number} was joined into union {members} with this box unticked: {override}", author=actor())
+    quota = (f" ({left} core calls are left this hour and the merge needs about {pr_budget.needed_for_merge(len(numbers))})"
+             if left is not None and left < 3 * pr_budget.needed_for_merge(len(numbers)) else "")
     return (f"union {built[:12]} of {members} pushed as {untrusted_text.show(branch).text} (the head of pr #{numbers[0]}); "
-            f"run the project checks on it, then `qew pr merge {' '.join(map(str, numbers))}`")
+            f"run the project checks on it, then `qew pr merge {' '.join(map(str, numbers))}`{quota}")

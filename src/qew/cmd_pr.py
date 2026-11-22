@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 
-from qew import code_vcs, cmd_claim, cmd_pr_link, pr_links, pr_projection, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
+from qew import code_vcs, pr_budget, cmd_claim, cmd_pr_link, pr_links, pr_projection, ledger_graph, sync_plan, branch_cleanup, pr_adopt, forge_registry, ledger_config, pr_body, pr_checklist, pr_gate, pr_record, pr_unticked, replication, untrusted_text, vcs
 from qew.cmd_items import ledger_for
 from qew.cmd_sync import mirrors_with_boards
 from qew.errors import QewError
@@ -1368,6 +1368,7 @@ def merge_pull_request(
     loaded = load(config, number, target, build, reason if options.other_author else "", merging=True)
     forge, slug = loaded.forge, loaded.record.target
     with forge_errors(slug):
+        pr_budget.refuse_if_short(forge, pr_budget.needed_for_merge(1), f"merging pr #{number}", "nothing was merged")
         pull = read_settled(forge, number, sleep)
     for gate in _merge_gates(config, loaded, pull, options):
         gate()

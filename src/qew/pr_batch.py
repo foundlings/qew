@@ -11,7 +11,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from qew import branch_cleanup, code_vcs, pr_block, pr_links, pr_record, replication, untrusted_text, remote_options
+from qew import branch_cleanup, code_vcs, pr_budget, pr_block, pr_links, pr_record, replication, untrusted_text, remote_options
 from qew.cmd_pr import (
     MERGE_RECHECK_SECONDS, READERS, SCHEMA_VERSION, Build, Loaded, MergeOptions, _merge_options, branch_line, forge_errors, hand_off, land_declared, load,
     merge_pull_request, refusals_for, settle,
@@ -142,7 +142,11 @@ def _lead(config: Config, pulls: dict[int, RemotePullRequest]) -> int:
 def merge_batch(config: Config, numbers: list[int], target: str | None, options: MergeOptions, build: Build | None = None,
                 sleep: Callable[[float], None] | None = None) -> BatchMerged:
     reason = _takeover(options)
-    pulls = _heads(config, numbers, target, build, reason, sleep)
+    members = _members(config, numbers, target, build, reason, sleep)
+    pulls = {number: pull for number, (_, pull) in members.items()}
+    with forge_errors(members[numbers[0]][0].record.target):
+        pr_budget.refuse_if_short(members[numbers[0]][0].forge, pr_budget.needed_for_merge(len(numbers)),
+                                  f"merging {len(numbers)} pull requests", "nothing was merged")
     lead = _lead(config, pulls)
     merged = merge_pull_request(config, lead, target, options, build, sleep, land=False)
     result = BatchMerged(lead, numbers, [*merged.lines])

@@ -15,6 +15,7 @@ from urllib.parse import quote
 from qew import forge_retry, instants, label_style, ledger_ids
 from qew.forge import (
     MARKER_PREFIX,
+    Budget,
     BodyRevision,
     RemoteReview,
     RemoteReviewComment,
@@ -735,6 +736,7 @@ class GitHub(Forge):
         self._repo_path = f"/repos/{quote(namespace, safe='')}/{quote(repo, safe='')}"
         self._wire = _Wire(mirror, transport, env)
         self._env = env
+        self._protected: dict[str, bool] = {}  # branch -> whether it requires status checks, read once per process
         self._ids: dict[int, int] = {}  # issue number -> numeric id (sub-issues are linked by it)
         self._nodes: dict[int, str] = {}  # issue number -> GraphQL node id (never changes)
         self._projects: dict[int, _Project] = {}  # project number -> structure read this run
@@ -1174,6 +1176,11 @@ class GitHub(Forge):
 
     @override
     def requires_status_checks(self, branch: str) -> bool:
+        if branch not in self._protected:  # two REST calls, and the answer does not change within one command
+            self._protected[branch] = self._read_requires_status_checks(branch)
+        return self._protected[branch]
+
+    def _read_requires_status_checks(self, branch: str) -> bool:
         name = quote(branch, safe="")
         rules = _array(self._wire.rest("GET", f"{self._repo_path}/rules/branches/{name}"), "branch rules")
         if any(_str(_obj(rule, "branch rule"), "type", "branch rule") == "required_status_checks" for rule in rules):
@@ -1197,6 +1204,15 @@ class GitHub(Forge):
     def read_pull_request(self, number: int) -> RemotePullRequest:
         facts, checks = self._pull(number)
         return self._remote(facts, checks)
+
+    @override
+    def budget(self) -> Budget | None:
+        try:
+            resources = _obj(_obj(self._wire.rest("GET", "/rate_limit"), "rate limit").get("resources"), "rate limit.resources")
+            core = _obj(resources.get("core"), "rate limit.core")
+            return Budget(_int(core, "remaining", "rate limit.core"), float(_int(core, "reset", "rate limit.core")), "core")
+        except ForgeRejected:
+            return None  # a server without a rate limit endpoint reports no figure
 
     @override
     def read_pull_requests(self, numbers: Sequence[int]) -> dict[int, RemotePullRequest]:

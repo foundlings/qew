@@ -37,6 +37,8 @@ class FakeGitHub:
         self.requests: list[tuple[str, str, Any]] = []
         self.request_times: list[float] = []  # time.time() of each request, parallel to `requests`
         self.endless_check_runs = False  # check-run pages never end
+        self.core_left = 4321  # what GET /rate_limit says is left of the core limit
+        self.core_reset = 1_900_000_000
         self.graphql_pulls_broken = False  # the pull request GraphQL reads answer with an error (REST must still serve)
         self.contexts_overflow = False  # a pull request's check contexts say another page follows
         self.auto_merge_ignored = False  # accept the enable call yet change nothing
@@ -679,6 +681,9 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send = real
             return self._send(injected["status"], injected["body"] or {"message": "injected"},
                               headers=injected.get("headers", {}))
+        if url.path == f"{API_PREFIX}/rate_limit" and method == "GET":
+            return self._send(200, {"resources": {"core": {"limit": 5000, "remaining": self.fake.core_left, "reset": self.fake.core_reset},
+                                                  "graphql": {"limit": 5000, "remaining": 4955, "reset": self.fake.core_reset}}})
         if url.path == GRAPHQL_PATH and method == "POST":
             return self._send(200, self.fake.graphql(body["query"], body.get("variables", {})))
         self._rest(method, url.path, parse_qs(url.query), body)
