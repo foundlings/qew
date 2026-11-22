@@ -65,7 +65,10 @@ def union(config: Config, arguments: argparse.Namespace) -> str:
         raise QewError("\n".join(pr_unticked.explain(number, boxes, override=True) for number, boxes in open_boxes.items()), 2)
     lead = pulls[numbers[0]]
     if len({p.base_branch for p in pulls.values()}) != 1:
-        raise QewError("these pull requests do not share one base branch", 2)
+        heads = {p.head_branch for p in pulls.values()}
+        stacked = [f"`qew pr retarget {n} --base {lead.base_branch}`" for n, p in pulls.items() if p.base_branch != lead.base_branch and p.base_branch in heads]
+        hint = f"; a member stacked on another member's branch can join after {', '.join(stacked)}" if stacked else ""
+        raise QewError(f"these pull requests do not share one base branch{hint}", 2)
     if not code_vcs.valid_branch(lead.head_branch):
         raise QewError(f"pr #{numbers[0]}: head branch `{untrusted_text.show(lead.head_branch).text}` is not a safe branch name", 2)
     _git(root, "fetch", remote_name)
