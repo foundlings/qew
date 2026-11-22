@@ -38,7 +38,7 @@ def run(arguments: argparse.Namespace) -> bool:
         return True
     if not arguments.item:
         raise QewError("give ITEM, or --manifest FILE", 2)
-    item_id = ledger.resolve(arguments.item, ledger.item_ids())
+    item_id = ledger.resolve(arguments.item)
     if arguments.edit and arguments.delete:
         raise QewError("--edit and --delete are separate commands", 2)
     if (arguments.edit or arguments.delete) and (arguments.reply_to or arguments.key):
@@ -101,7 +101,7 @@ def _manifest(ledger: Ledger, manifest: Path, dry_run: bool) -> str:
         if not isinstance(raw, dict) or not isinstance(raw.get("item"), str):
             raise QewError(f"{where}: a row is an object with an `item` (and key, text, author, at, reply_to)", 2)
         try:
-            item_id = ledger.resolve(raw["item"], ledger.item_ids())
+            item_id = ledger.resolve(raw["item"])
         except QewError as error:
             raise QewError(f"{where}: {error}", error.exit_code) from None
         rows.append(comment_batch.row({k: v for k, v in raw.items() if k != "item"}, item_id, where))

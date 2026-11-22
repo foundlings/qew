@@ -7,6 +7,8 @@ a leftover file under an old id is superseded by the renamed copy. The map is de
 headers; nothing else stores it.
 """
 
+import json
+import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
@@ -64,8 +66,9 @@ def header_values_of(text: str) -> dict[str, str]:
 class _Index:
     """What the item headers of one ledger said: stem -> its aliases, and the map built from them."""
 
-    def __init__(self, stamp: int, headers: dict[str, tuple[str, ...]]) -> None:
+    def __init__(self, stamp: int, headers: dict[str, tuple[str, ...]], stamps: dict[str, int] | None = None) -> None:
         self.stamp = stamp
+        self.stamps = stamps or {}  # sharded: the modification time of the items directory and of each shard, as this index saw them
         self.headers = headers
         self.aliased = {stem: found for stem, found in headers.items() if found}
         self.aliases = _build(self.aliased, headers)
@@ -127,7 +130,10 @@ def _aliases_in(stem: str, text: str) -> tuple[str, ...] | None:
 def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, sharded: bool = False) -> Aliases:
     """The alias map. Headers are read once; later this process re-reads only the files it wrote, and a directory
     that changed behind its back (another process) is read again in full. `texts` gives every item file's text by
-    directory name (the snapshot cache): the full build then reads no file."""
+    directory name (the snapshot cache): the full build then reads no file.
+
+    A sharded ledger keeps the map in `.qew/aliases.json` beside the modification time of every shard directory, so a later
+    process reads the file and re-reads only the shards that changed (a new item changes one shard) instead of every header."""
     key = str(items_dir)
     changed = _changed.pop(key, set())
     index = _indexes.get(key)
@@ -135,27 +141,103 @@ def scan(items_dir: Path, texts: Callable[[], Mapping[str, str]] | None = None, 
     if sharded and index is not None and not changed and now - _stamped.get(key, -RECHECK_S) < RECHECK_S:
         return index.aliases  # a lookup per item must not list the shard tree each time
     try:
-        stamp = ledger_layout.stamp(items_dir, sharded)
+        stamps = _shard_stamps(items_dir) if sharded else {}
+        stamp = sum(stamps.values()) if sharded else ledger_layout.stamp(items_dir, sharded)
     except OSError:
         return Aliases({}, frozenset())
     _stamped[key] = now
+    if index is None and sharded:
+        index = _restore(items_dir)
+        if index is not None:
+            _indexes[key] = index
     if index is None or (not changed and index.stamp != stamp):
-        headers = {}
-        with trace.phase("scan item headers (full)"):
-            if texts is not None:
-                for stem, text in sorted(texts().items()):
-                    found = _aliases_in(stem, text)
-                    if found is not None:
-                        headers[stem] = found
-            else:
-                for directory in ledger_layout.homes(items_dir, sharded):
+        if index is not None and index.stamps and sharded:
+            index = _indexes[key] = _renewed(items_dir, index, stamps, stamp)
+        else:
+            headers = {}
+            with trace.phase("scan item headers (full)"):
+                if texts is not None:
+                    for stem, text in sorted(texts().items()):
+                        found = _aliases_in(stem, text)
+                        if found is not None:
+                            headers[stem] = found
+                else:
+                    for directory in ledger_layout.homes(items_dir, sharded):
+                        found = _read(directory / ITEM_FILE)
+                        if found is not None:
+                            headers[directory.name] = found
+            index = _indexes[key] = _Index(stamp, headers, stamps)
+        if sharded:
+            _persist(items_dir, index)
+    elif changed:
+        index.refresh(stamp, changed, items_dir, sharded)
+        index.stamps = stamps
+        if sharded:
+            _persist(items_dir, index)
+    return index.aliases
+
+
+# -- the stored map
+
+STORED = "aliases.json"
+STORED_FORMAT = 1
+
+
+def _shard_stamps(items_dir: Path) -> dict[str, int]:
+    stamps = {".": items_dir.stat().st_mtime_ns}
+    for group in items_dir.iterdir():
+        if group.is_dir() and group.name.startswith(ledger_layout.PREFIX):
+            stamps[group.name] = group.stat().st_mtime_ns
+    return stamps
+
+
+def _stored_path(items_dir: Path) -> Path:
+    return items_dir.parent / ".qew" / STORED
+
+
+def _restore(items_dir: Path) -> _Index | None:
+    """The map an earlier process stored, or None when there is none or it is damaged: the caller reads the headers."""
+    try:
+        document = json.loads(_stored_path(items_dir).read_text(encoding="utf-8"))
+        if document["format"] != STORED_FORMAT:
+            return None
+        stamps = {str(name): int(value) for name, value in document["stamps"].items()}
+        headers = {str(stem): tuple(str(a) for a in found) for stem, found in document["headers"].items()}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return _Index(sum(stamps.values()), headers, stamps)
+
+
+def _persist(items_dir: Path, index: _Index) -> None:
+    path = _stored_path(items_dir)
+    if not path.parent.is_dir():
+        return
+    document = {"format": STORED_FORMAT, "stamps": index.stamps, "headers": {stem: list(found) for stem, found in index.headers.items()}}
+    temporary = path.with_name(f".{STORED}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)  # a read-only `.qew` has no stored map; every process reads the headers
+
+
+def _renewed(items_dir: Path, index: _Index, stamps: dict[str, int], stamp: int) -> _Index:
+    """The index with only the shards that changed since it was built read again (a new item changes its shard)."""
+    differing = {name for name in {*stamps, *index.stamps} if stamps.get(name) != index.stamps.get(name)}
+    headers = dict(index.headers)
+    with trace.phase(f"scan item headers ({len(differing)} shards)"):
+        for stem in [stem for stem in headers if ledger_layout.shard(stem) in differing]:
+            del headers[stem]
+        for name in sorted(differing - {"."}):
+            group = items_dir / name
+            if not group.is_dir():
+                continue
+            for directory in group.iterdir():
+                if directory.is_dir():
                     found = _read(directory / ITEM_FILE)
                     if found is not None:
                         headers[directory.name] = found
-        index = _indexes[key] = _Index(stamp, headers)
-    elif changed:
-        index.refresh(stamp, changed, items_dir, sharded)
-    return index.aliases
+    return _Index(stamp, headers, stamps)
 
 
 def canonical_item(item: Item, aliases: Aliases) -> Item:

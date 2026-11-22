@@ -16,7 +16,7 @@ SCANNED = re.compile(r"scan item headers \(full\)")
 
 class WriteResolveWalk(unittest.TestCase):
     def setUp(self) -> None:
-        self.world = World()
+        self.world = World(schema="9")  # sharded, as every ledger this matters for is
         self.addCleanup(self.world.close)
         self.first = self.world.create("--title", "first", "--quote", QUOTE)
 
@@ -26,10 +26,10 @@ class WriteResolveWalk(unittest.TestCase):
         return run.stderr
 
     def test_a_cold_comment_names_the_listing_and_the_header_scan_in_its_trace(self) -> None:
-        """Prevents the cost being invisible: the trace says when a write lists items or reads every header."""
-        err = self.comment(self.first)
+        """Prevents the cost being invisible: the trace says when a write reads every header or lists the items."""
+        self.assertRegex(self.comment(self.first), SCANNED)
+        err = self.comment(self.first[:-1])  # an abbreviation is the one reference that has to list the items
         self.assertRegex(err, LISTED)
-        self.assertRegex(err, SCANNED)
 
     def test_a_second_comment_on_an_exact_id_neither_lists_nor_scans(self) -> None:
         """Prevents every write re-reading all item headers and listing all item directories to resolve an id that exists."""
@@ -39,13 +39,12 @@ class WriteResolveWalk(unittest.TestCase):
         self.assertNotRegex(err, SCANNED)
 
     def test_an_item_created_after_the_index_was_stored_is_found(self) -> None:
-        """Prevents a stored alias index hiding an item another command created: the new directory is seen, by exact id and by prefix."""
+        """Prevents a stored alias index hiding an item another command created: only the changed shard is read again, and the item resolves."""
         self.comment(self.first)
         second = self.world.create("--title", "second", "--quote", QUOTE)
-        self.comment(second)
-        run = self.world.run("comment", second[:-1], "--body", "by prefix")
-        self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn(second, run.stdout)
+        err = self.comment(second)
+        self.assertRegex(err, re.compile(r"scan item headers \(\d+ shards\)"))
+        self.assertNotRegex(err, SCANNED)
 
     def test_a_damaged_alias_file_is_ignored(self) -> None:
         """Prevents a damaged local index failing a write: the headers are read again."""

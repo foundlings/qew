@@ -429,12 +429,21 @@ class Ledger:
         return cache.mismatches if cache is not None else 0
 
     # -- resolving
+    def _is_exact_item(self, text: str) -> bool:
+        """The id names an item file and is neither an old id of another item nor a leftover copy under one."""
+        if not self.item_path(text).is_file():
+            return False
+        aliases = self.aliases()
+        return text not in aliases.by_alias and text not in aliases.superseded
+
     def resolve(self, reference: str, ids: Iterable[str] | None = None) -> str:
         """Full ID from an exact ID, an exact ID ignoring case, or a unique prefix."""
-        known = list(ids if ids is not None else self.item_ids())
         text = reference.strip()
         if not text:
             raise QewError("an item id is required", 2)
+        if ids is None and self._is_exact_item(text):
+            return text  # a write names its item: no listing of every item directory under the lock
+        known = list(ids if ids is not None else self.item_ids())
         if text in known:
             return text
         renamed = self.aliases().by_alias.get(text)

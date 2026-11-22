@@ -51,7 +51,7 @@ def run(arguments: argparse.Namespace) -> bool:
         return True
     if arguments.item_command == "attach" and not (arguments.item and arguments.source):
         raise QewError("give ITEM and SOURCE, or --manifest FILE", 2)
-    item_id = ledger.resolve(arguments.item, ledger.item_ids())
+    item_id = ledger.resolve(arguments.item)
     if arguments.item_command == "attach":
         print(attach(ledger, item_id, Path(arguments.source), arguments.name, arguments.dry_run))
     elif arguments.item_command == "detach":
@@ -100,7 +100,7 @@ def attach_manifest(ledger: Ledger, manifest: Path, dry_run: bool) -> str:
         if name is not None and not isinstance(name, str):
             raise QewError(f"{where}: `name` must be text", 2)
         try:
-            item_id = ledger.resolve(row["item"], ledger.item_ids())
+            item_id = ledger.resolve(row["item"])
         except QewError as error:
             raise QewError(f"{where}: {error}", error.exit_code) from None
         source = Path(row["source"])
