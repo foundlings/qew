@@ -128,7 +128,8 @@ def _complete(config: Config, ledger: Ledger, item_id: str, fields: JsonObject) 
 
 def _close(config: Config, ledger: Ledger, item_id: str, fields: JsonObject) -> None:
     cmd_finish.close(config, item_id, _text(fields, "reason"), _text(fields, "of"), _text(fields, "by"), _text(fields, "note"),
-                     _text(fields, "delivered_by"), _text(fields, "landed_on"))
+                     _text(fields, "delivered_by"), _text(fields, "landed_on"),
+                     _flag(fields, "repoint"), _flag(fields, "leave_dependants"))
 
 
 def _reopen(config: Config, ledger: Ledger, item_id: str, fields: JsonObject) -> None:
@@ -153,7 +154,7 @@ OPS: dict[str, tuple[dict[str, Kind], Runner]] = {
     "start": ({"lane": TEXT, "workspace": TEXT, "kind": TEXT, "offline": FLAG, "needs_on": TEXT}, _start),
     "evidence": ({"change_ids": LIST, "on_behalf_of": TEXT}, _evidence),
     "complete": ({"reason": TEXT, "absent": TEXT, "no_commit": TEXT, "landed_on": TEXT, "take_over": FLAG}, _complete),
-    "close": ({"reason": TEXT, "of": TEXT, "by": TEXT, "note": TEXT, "delivered_by": TEXT, "landed_on": TEXT}, _close),
+    "close": ({"reason": TEXT, "of": TEXT, "by": TEXT, "note": TEXT, "delivered_by": TEXT, "landed_on": TEXT, "repoint": FLAG, "leave_dependants": FLAG}, _close),
     "reopen": ({"reason": TEXT}, _reopen),
     "comment": ({"text": TEXT, "key": TEXT}, _comment),
     "set": ({"title": TEXT, "parent": TEXT, "priority": WHOLE, "kind": TEXT, "add_label": LIST, "remove_label": LIST, "body": TEXT,

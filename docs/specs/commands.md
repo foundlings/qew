@@ -126,7 +126,7 @@ shape prime: additional_context context_bytes schema_version
 - `qew check --stale-claims [--hours N] [--json]`: instead of the validation, the claimed items no one is visibly working (the claim identity is shared, so `claimed` proves no worker): no open pull request (a draft counts) covers the item, no commit in the last N hours (default 24) cites it in a `Refs:` trailer (`git log --all`), and neither it nor any descendant has a ledger event in that window. One line per item, longest idle first (`ID kind owner idle H h (last TIME): title`), `--json`: `{stale_claims: [{item, kind, owner, title, last, hours}], hours, schema_version}`. Read-only: no forge. `--hours` without `--stale-claims` is exit 2.
 - `qew check [--json]`: schema, duplicate IDs, cycles, dangling needs, illegal transitions, completed without
   evidence, malformed mirrors, reserved labels. Graph invariants, each named with its file and counted on a final
-  `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history of no item (orphans; a mirror of no item is only a note: it never stops a read); a child whose `area:` labels share none with its parent's (cross_epic); open work that needs a closed item (closed_needs). A needs chain longer than 30 edges is only
+  `graph invariants: orphans=N cross_epic=N depth=N closed_needs=N` line when any is non-zero: history of no item (orphans; a mirror of no item is only a note: it never stops a read); a child whose `area:` labels share none with its parent's (cross_epic); open work that needs a closed item (closed_needs; only a note: it never fails the check or a push). A needs chain longer than 30 edges is only
   a warning, reported at its deepest item and counted as depth (exit stays 0). Writes nothing and takes no lock; while another process holds the write lock a report with problems is taken again for up to 10 seconds, so a write in flight is not reported;
   exit 1 on any problem. Advisory findings never fail it
   (text: `advisory: ...` lines): `contradictions` (a claimed epic, a completed item with open needs, an open child
@@ -420,9 +420,9 @@ use `--depth 200` or less, or `qew graph ROOT --json` for the flat graph. Totals
   An epic needs at least one child and no evidence. When a completion or a close finishes the last open child of
   an epic that has at least one completed child, the epic completes in the same command (`children_finished`) unless someone holds the epic, who completes it; a
   failure of that step is a warning naming `qew complete EPIC` and the command still exits 0.
-- `qew close ITEM --reason not_planned|duplicate|superseded [--of ITEM | --by ITEM] [--note TEXT] [--json]`:
+- `qew close ITEM --reason not_planned|duplicate|superseded [--of ITEM | --by ITEM] [--repoint | --leave-dependants] [--note TEXT] [--json]`:
   `duplicate` needs `--of` (the original), `superseded` needs `--by` (the replacement), `not_planned` takes neither;
-  the linked item must exist and differ from the closed one; `qew show` mentions the link at both ends.
+  the linked item must exist and differ from the closed one; `qew show` mentions the link at both ends. A close that open (draft, approved or claimed) items still need is refused (exit 2) naming them: `--repoint` (duplicate or superseded) moves their needs onto the linked item in the same step (a duplicate edge is dropped; a cycle refuses), `--leave-dependants` closes anyway and leaves them blocked. Finished dependants never stop a close.
   Finished work is not closed as abandoned: `qew close ITEM --delivered-by SHA --landed-on BRANCH [--json]` records
   work that shipped without a claim as completed under the same landing proof (an `evidence` and a `completed`
   event), so dependents unblock; one flag alone, an unlanded commit or another actor's claim is refused first.

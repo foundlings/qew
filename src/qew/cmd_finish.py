@@ -12,6 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from qew import claim_reconcile, code_vcs, complete_batch, evidence_batch, evidence_resolve, ledger_graph, manifest_rows, outcome
+from qew import cmd_items
 from qew.cmd_claim import holding, holds_ancestor
 from qew.cmd_items import ledger_for
 from qew.code_vcs import Landing
@@ -55,6 +56,8 @@ def register(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> N
     close.add_argument("--of", metavar="ITEM", help="with --reason duplicate: the original item")
     close.add_argument("--by", metavar="ITEM", help="with --reason superseded: the replacement item")
     close.add_argument("--note", help="free-text rationale, recorded on the closed event")
+    close.add_argument("--repoint", action="store_true", help="with --reason duplicate/superseded: open items that need this one are moved onto the original/replacement in the same step")
+    close.add_argument("--leave-dependants", action="store_true", help="close although open items need this one (they stay blocked; `qew check` notes them)")
     close.add_argument("--delivered-by", metavar="SHA", help="close work already delivered by a landed commit nobody claimed (needs --landed-on)")
     close.add_argument("--landed-on", metavar="BRANCH", help="with --delivered-by: the branch the commit landed on")
     close.add_argument("--json", action="store_true", help="machine-readable output")
@@ -105,7 +108,7 @@ def run(arguments: argparse.Namespace) -> bool:
         result = complete(config, arguments.item, arguments.reason, arguments.take_over, arguments.no_commit, arguments.landed_on, arguments.absent)
     elif arguments.command == "close":
         result = close(config, arguments.item, arguments.reason, arguments.of, arguments.by, arguments.note,
-                       arguments.delivered_by, arguments.landed_on)
+                       arguments.delivered_by, arguments.landed_on, arguments.repoint, arguments.leave_dependants)
     else:
         result = reopen(config, arguments.item, arguments.reason)
     warning = result.pop("warning", None)
@@ -526,7 +529,7 @@ def _finish_parent(ledger: Ledger, child_id: str) -> dict[str, object]:
 
 def close(config: Config, reference: str, reason: str | None = None, of: str | None = None,
           by: str | None = None, note: str | None = None, delivered_by: str | None = None,
-          landed_on: str | None = None) -> dict[str, object]:
+          landed_on: str | None = None, repoint: bool = False, leave_dependants: bool = False) -> dict[str, object]:
     note = _text("note", note)
     if delivered_by is not None or (landed_on is not None and reason is None):
         return _close_delivered(config, reference, reason, of, by, note, delivered_by, landed_on)
@@ -534,13 +537,21 @@ def close(config: Config, reference: str, reason: str | None = None, of: str | N
         raise QewError("--landed-on belongs to --delivered-by", 2)
     if reason not in CLOSE_REASONS:
         raise QewError(f"close needs --reason {'|'.join(CLOSE_REASONS)} ({_FINISHED_WORK})", 2)
+    if repoint and leave_dependants:
+        raise QewError("--repoint and --leave-dependants contradict each other", 2)
+    if repoint and reason == "not_planned":
+        raise QewError("--repoint needs --reason duplicate or superseded: there is no other item to move the needs onto", 2)
     ledger, snapshot, item_id = _load(config, reference)
     link = _disposition(ledger, snapshot, item_id, reason, of, by)
+    already_closed = snapshot.folds[item_id].state == State.CLOSED
+    moves = {} if already_closed else _dependants(snapshot, item_id, next(iter(link.values()), None), repoint, leave_dependants)
     if snapshot.folds[item_id].state == State.CLOSED:
         last = [e for e in snapshot.events[item_id] if e.type == "closed"][-1:]
         if last and last[0].get("reason") == reason and all(last[0].get(k) == v for k, v in link.items()):
             return {"line": f"{item_id} closed ({reason}) (unchanged)", "id": item_id, "state": "closed"}  # a retry
         raise QewError(f"{item_id} is already closed", 2)
+    for dependant, needs in moves.items():
+        cmd_items.write_edges(ledger, dependant, snapshot.items[dependant].needs, needs)
     data: JsonObject = {"reason": reason, **link}
     if note is not None:
         data["note"] = note
@@ -548,6 +559,39 @@ def close(config: Config, reference: str, reason: str | None = None, of: str | N
     result: dict[str, object] = {"line": f"{item_id} closed ({reason})", "id": item_id, "state": "closed"}
     result.update(_finish_parent(ledger, item_id))
     return result
+
+
+def _dependants(snapshot: Snapshot, item_id: str, target: str | None, repoint: bool, leave: bool) -> dict[str, list[str]]:
+    """Open items that still need `item_id`, refused by name unless they are moved (`repoint`: dependant -> its new needs) or left."""
+    open_states = (State.DRAFT, State.APPROVED, State.CLAIMED)
+    waiting = [d for d in ledger_graph.blocks(snapshot).get(item_id, []) if snapshot.folds[d].state in open_states]
+    if not waiting or leave:
+        return {}
+    if not repoint or target is None:
+        raise QewError(f"cannot close {item_id}: open items still need it: {' '.join(waiting)}; move them onto the other item with --repoint "
+                       f"(duplicate or superseded), drop the need with `qew set ITEM --needs ...`, or close anyway with --leave-dependants", 2)
+    moves: dict[str, list[str]] = {}
+    for dependant in waiting:
+        if _reaches(snapshot, target, dependant):
+            raise QewError(f"cannot repoint {dependant} onto {target}: {target} already needs {dependant} (that is a cycle)", 2)
+        needs = [target if need == item_id else need for need in snapshot.items[dependant].needs]
+        moves[dependant] = [need for position, need in enumerate(needs) if need != dependant and need not in needs[:position]]
+    return moves
+
+
+def _reaches(snapshot: Snapshot, start: str, goal: str) -> bool:
+    """Whether `goal` is `start` or something `start` needs, directly or through needs."""
+    seen: set[str] = set()
+    pending = [start]
+    while pending:
+        current = pending.pop()
+        if current == goal:
+            return True
+        if current in seen or current not in snapshot.items:
+            continue
+        seen.add(current)
+        pending.extend(snapshot.items[current].needs)
+    return False
 
 
 def _disposition(ledger: Ledger, snapshot: Snapshot, item_id: str, reason: str, of: str | None, by: str | None) -> dict[str, str]:

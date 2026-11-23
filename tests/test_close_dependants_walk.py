@@ -31,7 +31,7 @@ class CloseDependantsWalk(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         for name in ("P", "Q", "--repoint", "--leave-dependants"):
             self.assertIn(name, result.stderr)
-        self.assertIn('"state": "approved"', self.state("OLD"))
+        self.assertIn('"state":"approved"', self.state("OLD"))
 
     def test_repoint_moves_every_dependant_to_the_replacement_in_the_same_step(self) -> None:
         """Prevents the stranded need: P now needs NEW, Q (which already needed NEW) loses the duplicate edge, and check is clean."""
@@ -56,7 +56,7 @@ class CloseDependantsWalk(unittest.TestCase):
         result = self.world.run("close", "OLD", "--reason", "superseded", "--by", "NEW", "--repoint")
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("cycle", result.stderr)
-        self.assertIn('"state": "approved"', self.state("OLD"))
+        self.assertIn('"state":"approved"', self.state("OLD"))
 
     def test_leave_dependants_closes_and_check_only_notes_it(self) -> None:
         """Prevents a push blocker: the need on the closed item is named by check with exit 0, so every agent can still push."""

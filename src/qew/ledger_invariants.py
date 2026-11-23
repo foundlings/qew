@@ -75,9 +75,9 @@ def report(snapshot: Snapshot, problems: list[str], notes: list[str]) -> None:
     orphans = sum(1 for problem in problems if problem.endswith(ORPHAN))
     cross_found, closed_found, deep_found = cross_parent(snapshot), closed_needs(snapshot), deep_needs(snapshot)
     problems.extend(cross_found)
-    problems.extend(closed_found)
+    notes.extend(closed_found)  # blocked work is a note: a push of unrelated work must not wait on it
     notes.extend(deep_found)
     cross, closed, deep = len(cross_found), len(closed_found), len(deep_found)
     if orphans or cross or deep or closed:
         line = f"graph invariants: orphans={orphans} cross_epic={cross} depth={deep} closed_needs={closed}"
-        (problems if orphans or cross or closed else notes).append(line)
+        (problems if orphans or cross else notes).append(line)

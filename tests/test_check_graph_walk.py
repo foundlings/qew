@@ -72,9 +72,12 @@ class CheckGraphWalk(unittest.TestCase):
     def test_work_waiting_on_a_closed_item_is_reported_as_unreachable(self) -> None:
         """P can never become ready because X is closed; completed dependents of closed work are history."""
         load(self.world, spec("X"), spec("P", needs=["X"]), spec("Q", needs=["X"]))
-        self.assertEqual(self.world.run("close", "X", "--reason", "not_planned").returncode, 0)
+        self.assertEqual(self.world.run("close", "X", "--reason", "not_planned", "--leave-dependants").returncode, 0)
         self.assertEqual(self.world.run("close", "Q", "--reason", "not_planned").returncode, 0)
-        self.failing("items/P/item.md: needs closed item X", counts(n=1))
+        result = self.world.run("check")  # a note, not a failure: it must not stop every agent's push (test_close_dependants_walk)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("items/P/item.md: needs closed item X", result.stdout)
+        self.assertIn(counts(n=1), result.stdout)
 
 
 if __name__ == "__main__":

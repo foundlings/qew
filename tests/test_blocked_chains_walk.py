@@ -62,7 +62,7 @@ class BlockedChainsWalk(unittest.TestCase):
             item("M", ["A", "Q"]),
             item("P"),
         )
-        self.assertEqual(w.run("close", "X", "--reason", "not_planned").returncode, 0)
+        self.assertEqual(w.run("close", "X", "--reason", "not_planned", "--leave-dependants").returncode, 0)
         path = w.home("items", "P") / "item.md"
         path.write_text(re.sub(r"(?m)^needs:.*$", "needs: GONE", path.read_text()))
         result = w.run("blocked", "--chains")
