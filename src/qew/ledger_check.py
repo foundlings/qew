@@ -5,6 +5,7 @@ import json
 import os
 import time
 import tomllib
+from pathlib import Path
 
 from qew import trace, pr_audit, pr_links, ledger_layout, attachments, comments, filelock, board_config, ledger_aliases, ledger_graph, ledger_labels, ledger_invariants, stale_claims, text_findings as text_findings_module
 from qew.errors import QewError
@@ -185,7 +186,7 @@ def _analyse_once(ledger: Ledger, deep: bool = True, resolve: Resolver | None = 
                     for found in map(ledger_labels.problem, item.labels) if found)  # flagged by check; reads stay available
     found = contradictions(snapshot)
     findings = text_findings(snapshot)
-    notes = [*warnings, *pr_notes]
+    notes = [*warnings, *pr_notes, *_stray_mirror_notes(ledger, items)]
     if deep and ledger.cache_mismatches():
         notes.append(f"snapshot cache: {ledger.cache_mismatches()} entries differed from the files (repaired)")
     if imported:
@@ -280,11 +281,22 @@ def _check_layout(ledger: Ledger, problems: list[str]) -> None:
 
 def _check_orphans(ledger: Ledger, items: dict[str, Item], aliases: ledger_aliases.Aliases, problems: list[str]) -> None:
     _check_layout(ledger, problems)
-    for directory in (ledger.events_dir, ledger.mirrors_dir, ledger.items_dir):
-        if directory.is_dir():
-            for child in ledger.homes_in(directory):
-                if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items and any(child.iterdir()):  # an empty directory is a harmless leftover (git cannot carry it)
-                    problems.append(f"{directory.name}/{child.name}: belongs to no item")
+    for directory in (ledger.events_dir, ledger.items_dir):
+        problems.extend(f"{directory.name}/{name}: {ledger_invariants.ORPHAN}" for name in _strays(ledger, directory, items, aliases))
+
+
+def _strays(ledger: Ledger, directory: Path, items: dict[str, Item], aliases: ledger_aliases.Aliases) -> list[str]:
+    if not directory.is_dir():
+        return []
+    return [child.name for child in ledger.homes_in(directory)
+            if child.is_dir() and child.name not in items and aliases.canonical(child.name) not in items and any(child.iterdir())]  # an empty directory is a harmless leftover (git cannot carry it)
+
+
+def _stray_mirror_notes(ledger: Ledger, items: dict[str, Item]) -> list[str]:
+    """A mirror is a view of an item, so one whose item is missing is reported and nothing else stops (a sync that committed the
+    mirror while the item never reached the ledger once made every read refuse). Remove the mirror and baseline directories."""
+    return [f"{ledger.mirrors_dir.name}/{name}: {ledger_invariants.ORPHAN}; not a failure, remove its mirrors and baselines directories"
+            for name in _strays(ledger, ledger.mirrors_dir, items, ledger.aliases())]
 
 
 def _check_edges(snapshot: Snapshot, problems: list[str]) -> None:

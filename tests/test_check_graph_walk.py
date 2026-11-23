@@ -36,14 +36,14 @@ class CheckGraphWalk(unittest.TestCase):
         self.assertNotIn("graph invariants", result.stdout)
 
     def test_files_that_belong_to_no_item_are_counted_as_orphans(self) -> None:
-        """Events and mirrors left behind by a deleted item are named and counted."""
+        """Events left behind by a deleted item are named and counted; a mirror of no item is only a note (test_orphan_mirror_walk)."""
         load(self.world, spec("A"))
         ghost = self.world.home("events", "GHOST")
         ghost.mkdir()
         (ghost / "X.json").write_text("{}")
         (self.world.home("mirrors", "OTHER")).mkdir(parents=True)
         (self.world.home("mirrors", "OTHER") / "github-x.json").write_text("{}")  # an empty directory is a leftover, not an orphan
-        self.failing("events/GHOST: belongs to no item", counts(o=2))
+        self.failing("events/GHOST: belongs to no item", counts(o=1))
 
     def test_a_child_filed_under_another_areas_parent_is_a_cross_epic_parent(self) -> None:
         """C carries area:b but sits under an epic of area:a; its siblings do not trip the check."""
