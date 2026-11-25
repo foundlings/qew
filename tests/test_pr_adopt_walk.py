@@ -135,6 +135,66 @@ class LockedOpenWalk(unittest.TestCase):
         self.assertEqual((record["number"], record["head"], record["state"], record["draft"]), (legacy.number, "feature", "open", True))
         self.assertEqual(self.w.forge.read_pull_request(legacy.number).body, "legacy body")
 
+    def test_no_item_adoption_refuses_a_legacy_pull_request_on_another_head(self) -> None:
+        """Prevents an explicit legacy number from attaching the wrong branch to a no-item record."""
+        self.w.close()
+        self.w = PrWorld(schema="9")
+        self.addCleanup(self.w.close)
+        legacy = self.w.forge.open_pull_request(PullRequestSpec("other-feature", "main", "Legacy", "legacy body", True, "tester"))
+
+        run = self.w.qew("pr", "open", "--no-item", "tooling only", "--title", "Tooling", "--head", "feature", "--base", "main",
+                         "--adopt-legacy", str(legacy.number), "--reason", "the owner assigned this existing PR")
+
+        self.assertEqual(run.code, 2, run)
+        self.assertIn("head feature", run.err)
+        self.assertEqual((len(self.w.forge.pulls), self.w.forge.count("open_pr"), pr_links.hostless(self.w.ledger)), (1, 1, []))
+
+    def test_no_item_adoption_replaces_the_body_when_explicitly_supplied(self) -> None:
+        """Prevents a supplied no-item description from being ignored when adopting a legacy PR."""
+        self.w.close()
+        self.w = PrWorld(schema="9")
+        self.addCleanup(self.w.close)
+        legacy = self.w.forge.open_pull_request(PullRequestSpec("feature", "main", "Legacy", "legacy body", True, "tester"))
+
+        run = self.w.qew("pr", "open", "--no-item", "tooling only", "--title", "Tooling", "--head", "feature", "--base", "main",
+                         "--what", "Updated description", "--adopt-legacy", str(legacy.number), "--reason", "the owner assigned this existing PR")
+
+        self.assertEqual(run.code, 0, run)
+        self.assertIn(f"pr #{legacy.number}", run.out)
+        self.assertEqual(self.w.forge.count("open_pr"), 1)
+        self.assertIn("Updated description", self.w.forge.read_pull_request(legacy.number).body)
+
+    def test_no_item_adoption_refuses_a_closed_legacy_pull_request(self) -> None:
+        """Prevents a closed PR from receiving a new open ledger declaration."""
+        self.w.close()
+        self.w = PrWorld(schema="9")
+        self.addCleanup(self.w.close)
+        legacy = self.w.forge.open_pull_request(PullRequestSpec("feature", "main", "Legacy", "legacy body", True, "tester"))
+        self.w.forge.close_pull_request(legacy.number)
+
+        run = self.w.qew("pr", "open", "--no-item", "tooling only", "--title", "Tooling", "--head", "feature", "--base", "main",
+                         "--adopt-legacy", str(legacy.number), "--reason", "the owner assigned this existing PR")
+
+        self.assertEqual(run.code, 2, run)
+        self.assertIn("not an open", run.err)
+        self.assertEqual(pr_links.hostless(self.w.ledger), [])
+
+    def test_no_item_adoption_refuses_a_pull_request_already_recorded_in_the_ledger(self) -> None:
+        """Prevents a second no-item declaration for an already adopted PR."""
+        self.w.close()
+        self.w = PrWorld(schema="9")
+        self.addCleanup(self.w.close)
+        legacy = self.w.forge.open_pull_request(PullRequestSpec("feature", "main", "Legacy", "legacy body", True, "tester"))
+        args = ("pr", "open", "--no-item", "tooling only", "--title", "Tooling", "--head", "feature", "--base", "main",
+                "--adopt-legacy", str(legacy.number), "--reason", "the owner assigned this existing PR")
+
+        self.assertEqual(self.w.qew(*args).code, 0)
+        run = self.w.qew(*args)
+
+        self.assertEqual(run.code, 2, run)
+        self.assertIn("already recorded", run.err)
+        self.assertEqual((len(self.w.forge.pulls), len(pr_links.hostless(self.w.ledger))), (1, 1))
+
 
 class CloseWalk(unittest.TestCase):
     def record(self, item: str) -> dict:
