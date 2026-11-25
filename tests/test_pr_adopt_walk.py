@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from qew import pr_body
+from qew import pr_body, pr_links
 from qew.forge import PullRequestSpec
 from tests.pr_harness import PrWorld
 
@@ -114,6 +114,26 @@ class LockedOpenWalk(unittest.TestCase):
         self.assertIn("adopted", run.out)
         self.assertEqual((len(self.w.forge.pulls), self.w.forge.count("open_pr")), (1, 1))
         self.assertEqual(self.w.qew("pr", "ready", str(number)).code, 0)
+
+    def test_no_item_open_adopts_the_named_legacy_pull_request_without_reopening_it(self) -> None:
+        """Prevents a hostless legacy PR from being duplicated instead of getting a ledger declaration."""
+        self.w.close()
+        self.w = PrWorld(schema="9")
+        self.addCleanup(self.w.close)
+        legacy = self.w.forge.open_pull_request(PullRequestSpec("feature", "main", "Legacy", "legacy body", True, "tester"))
+
+        run = self.w.qew("pr", "open", "--no-item", "tooling only", "--title", "Tooling", "--head", "feature", "--base", "main",
+                         "--adopt-legacy", str(legacy.number), "--reason", "the owner assigned this existing PR")
+
+        self.assertEqual(run.code, 0, run)
+        self.assertIn(f"pr #{legacy.number}", run.out)
+        self.assertIn("adopted", run.out)
+        self.assertEqual((len(self.w.forge.pulls), self.w.forge.count("open_pr")), (1, 1))
+        records = pr_links.hostless(self.w.ledger)
+        self.assertEqual(len(records), 1)
+        _, record = records[0]
+        self.assertEqual((record["number"], record["head"], record["state"], record["draft"]), (legacy.number, "feature", "open", True))
+        self.assertEqual(self.w.forge.read_pull_request(legacy.number).body, "legacy body")
 
 
 class CloseWalk(unittest.TestCase):
