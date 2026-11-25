@@ -516,6 +516,12 @@ def open_without_item(config: Config, options: OpenOptions, build: Build | None 
         raise QewError("--no-item excludes --closes, --remains and --related", 2)
     if not (options.title or "").strip():
         raise QewError("a pull request with no item needs --title TEXT (there is no item to take it from)", 2)
+    if options.adopt_legacy is not None:
+        pr_record.positive_number(options.adopt_legacy)
+        if not (options.reason or "").strip():
+            raise QewError("--adopt-legacy needs --reason TEXT: say who assigned the pull request and why", 2)
+    elif options.reason:
+        raise QewError("--reason is only used with --adopt-legacy", 2)
     ledger = ledger_for(config)
     pr_links.require_schema(ledger)
     pr_body.refuse_closing_references(reason, "the --no-item reason")
@@ -538,12 +544,24 @@ def open_without_item(config: Config, options: OpenOptions, build: Build | None 
     forge = _build(build, mirror)
     with replication.section("pr-open"):  # the lock first, as in `open_pull_request`
         with forge_errors(slug):
-            remote = forge.open_pull_request(spec)
+            if options.adopt_legacy is None:
+                remote = forge.open_pull_request(spec)
+                adopted = False
+            else:
+                remote = pr_adopt.find_adoptable_no_item(ledger, slug, forge, head, base, options.adopt_legacy)
+                adopted = True
+                if options.body_file or options.what is not None or options.why is not None or options.testing is not None:
+                    if remote.body != body:
+                        remote = forge.update_pull_request_body(remote.number, body)
+                if remote.title and remote.title != title:
+                    remote = forge.update_pull_request_title(remote.number, title)
+                if options.ready and remote.draft:
+                    remote = forge.mark_pull_request_ready(remote.number)
         key = f"{slug}-pr-{remote.number}"
         pr_links.declare_pr(ledger, key, {"forge": mirror.forge, "url": mirror.repo, "number": remote.number, "pr_url": remote.url, "head": head,
                                           "opener": actor(), "pr_title": title, "draft": remote.draft, "state": "open", "synced_at": now()})
         pr_links.declare_no_item(ledger, key, reason)
-    return Opened("", remote.number, remote.url, remote.draft, "" if remote.assignee == login else login)
+    return Opened("", remote.number, remote.url, remote.draft, "" if remote.assignee == login else login, adopted)
 
 
 # -- check -------------------------------------------------------------------------

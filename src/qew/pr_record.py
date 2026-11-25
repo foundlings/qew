@@ -73,18 +73,36 @@ def mirror_of(ledger: Ledger, record: PrRecord) -> MirrorRecord | None:
 
 
 def find(ledger: Ledger, number: int, target: str | None) -> PrRecord:
-    found: list[PrRecord] = []
+    candidates: list[tuple[PrRecord, MirrorRecord]] = []
     for item_id, record in entries(ledger):
         if record.get("number") != number:
             continue
         if target and target not in record["_target"]:
             continue
-        found.append(_record(ledger, item_id, record))
-    if not found:
+        candidates.append((_record(ledger, item_id, record), record))
+    if not candidates:
         raise NotFound(f"pull request #{number} is not recorded in the ledger; open it with `qew pr open`, or adopt and close an unmerged legacy one with `qew pr close {number} --item ID --reason TEXT`")
-    if len(found) > 1:
+    by_target: dict[str, list[tuple[PrRecord, MirrorRecord]]] = {}
+    for candidate in candidates:
+        by_target.setdefault(candidate[0].target, []).append(candidate)
+    if len(by_target) > 1:
         raise QewError(f"pull request #{number} exists on several targets; pass --target", 2)
-    return found[0]
+    target_name, duplicates = next(iter(by_target.items()))
+    identity_fields = ("forge", "url", "number", "pr_url", "head", "opener")
+    for field in identity_fields:
+        values = {record.get(field) for _, record in duplicates if record.get(field) not in (None, "")}
+        if len(values) > 1:
+            raise QewError(f"pull request #{number} has conflicting records on target {target_name} ({field})", 2)
+    for field, default in (("state", "open"), ("draft", False)):
+        values = {record.get(field, default) for _, record in duplicates}
+        if len(values) > 1:
+            raise QewError(f"pull request #{number} has conflicting records on target {target_name} ({field})", 2)
+    linked = [(built, record) for built, record in duplicates if built.host]
+    if len(linked) > 1:
+        declarations = {(built.items, built.closing, built.blockers) for built, _ in linked}
+        if len(declarations) > 1:
+            raise QewError(f"pull request #{number} has conflicting item declarations on target {target_name}", 2)
+    return (linked or duplicates)[0][0]
 
 
 def covered_items(ledger: Ledger, host: str, mirror: MirrorRecord) -> tuple[tuple[str, ...], tuple[str, ...] | None]:
@@ -197,11 +215,23 @@ def require_owner(snapshot: Snapshot, record: PrRecord, states: dict[str, State]
 
 def update_mirror(ledger: Ledger, record: PrRecord, **changes: object) -> None:
     """Rewrite the pull request's mirror file with `changes`, keeping every other field."""
-    if not record.host:  # opened with no item: its record is events under prs/
-        pr_links.mirror_changes(ledger, record.mirror_file, changes)
-        return
-    current = next(m for m in ledger.load_mirrors(record.host) if m["_target"] == record.mirror_file)
-    ledger.write_mirror(record.host, record.mirror_file, cast(MirrorRecord, {**{k: v for k, v in current.items() if k != "_target"}, **changes}))
+    shared = {field: value for field, value in changes.items() if field in {"base", "blocked_by", "draft", "pr_title", "state"}}
+    duplicates = [
+        (host, mirror)
+        for host, mirror in entries(ledger)
+        if shared and mirror.get("number") == record.number and mirror.get("_target") == record.mirror_file and host != record.host
+    ]
+
+    def write(host: str, mirror_file: str, updates: dict[str, object]) -> None:
+        if not host:  # opened with no item: its record is events under prs/
+            pr_links.mirror_changes(ledger, mirror_file, updates)
+            return
+        current = next(m for m in ledger.load_mirrors(host) if m["_target"] == mirror_file)
+        ledger.write_mirror(host, mirror_file, cast(MirrorRecord, {**{k: v for k, v in current.items() if k != "_target"}, **updates}))
+
+    write(record.host, record.mirror_file, changes)
+    for host, mirror in duplicates:
+        write(host, record.mirror_file, shared)
 
 
 def covering_open(ledger: Ledger, item_id: str, drafts: bool = False) -> list[int]:
