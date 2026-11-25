@@ -69,6 +69,6 @@ def find_adoptable_no_item(ledger: Ledger, target: str, forge: Forge, head: str,
             "--adopt-legacy takes only that",
             2,
         )
-    if f"<!-- {MARKER_PREFIX}" in pull.body:
+    if _MARKER.search(pull.body):
         raise QewError(f"pull request #{legacy} carries a qew marker for another declaration; open it for that declaration", 2)
     return pull
