@@ -149,6 +149,20 @@ class LockedOpenWalk(unittest.TestCase):
         self.assertIn("head feature", run.err)
         self.assertEqual((len(self.w.forge.pulls), self.w.forge.count("open_pr"), pr_links.hostless(self.w.ledger)), (1, 1, []))
 
+    def test_no_item_adoption_accepts_the_qew_links_projection(self) -> None:
+        """Prevents the no-item links block from being mistaken for an item marker."""
+        self.w.close()
+        self.w = PrWorld(schema="9")
+        self.addCleanup(self.w.close)
+        body = "No ledger item: tooling only.\n\n<!-- qew:links v1 -->\n### Ledger items\n- no item: tooling only\n<!-- /qew:links -->\n"
+        legacy = self.w.forge.open_pull_request(PullRequestSpec("feature", "main", "Legacy", body, True, "tester"))
+
+        run = self.w.qew("pr", "open", "--no-item", "tooling only", "--title", "Tooling", "--head", "feature", "--base", "main",
+                         "--adopt-legacy", str(legacy.number), "--reason", "the owner assigned this existing PR")
+
+        self.assertEqual(run.code, 0, run)
+        self.assertEqual(len(self.w.forge.pulls), 1)
+
     def test_no_item_adoption_replaces_the_body_when_explicitly_supplied(self) -> None:
         """Prevents a supplied no-item description from being ignored when adopting a legacy PR."""
         self.w.close()
