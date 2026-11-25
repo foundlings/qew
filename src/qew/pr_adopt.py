@@ -10,6 +10,7 @@ on that head; it keeps its number and head, and gets this item's marker line so 
 
 import re
 
+from qew import pr_record
 from qew.errors import QewError
 from qew.forge import MARKER_PREFIX, Forge, RemotePullRequest, Unsupported, marker_alone, marker_for
 from qew.ledger_store import Ledger
@@ -53,3 +54,21 @@ def find_adoptable(ledger: Ledger, target: str, forge: Forge, head: str, base: s
     if mine and mine[0].base_branch != base:
         raise QewError(f"pull request #{mine[0].number} on head {head} targets {mine[0].base_branch}, not {base}; pass --base {mine[0].base_branch} to adopt it", 2)
     return mine[0] if mine else None
+
+
+def find_adoptable_no_item(ledger: Ledger, target: str, forge: Forge, head: str, base: str,
+                           legacy: int) -> RemotePullRequest:
+    """Read and validate the explicitly named, unrecorded legacy PR for a hostless declaration."""
+    key = f"{target}-pr-{legacy}"
+    if any(record.get("_target") == key for _, record in pr_record.entries(ledger)):
+        raise QewError(f"pull request #{legacy} is already recorded on target {target}; it cannot be adopted again", 2)
+    pull = forge.read_pull_request(legacy)
+    if pull.state != "open" or pull.head_branch != head or pull.base_branch != base:
+        raise QewError(
+            f"pull request #{legacy} is not an open, unrecorded pull request on head {head} targeting {base}; "
+            "--adopt-legacy takes only that",
+            2,
+        )
+    if f"<!-- {MARKER_PREFIX}" in pull.body:
+        raise QewError(f"pull request #{legacy} carries a qew marker for another declaration; open it for that declaration", 2)
+    return pull
